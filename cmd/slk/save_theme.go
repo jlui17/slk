@@ -23,32 +23,43 @@ import (
 // second slk instance; lockConfig adds that half.
 var configWriteMu sync.Mutex
 
+// configLockPath is the sidecar whose file lock guards configPath.
+func configLockPath(configPath string) string {
+	return configPath + ".lock"
+}
+
 // lockConfig takes both locks guarding a read-modify-write cycle on
 // configPath — configWriteMu for this process, an advisory file lock
-// for every other slk instance — and returns the release for both.
+// for every other slk instance — and returns the release for both plus
+// whether the file lock was actually taken.
 //
 // The whole cycle has to run under it, not just the write: each saver
 // rewrites the entire file from the copy it read, so two instances
 // interleaving read and write lose one another's update even though
 // writeConfigAtomic makes each write indivisible.
 //
+// A false held is the caller's decision to make. Overwriting one
+// setting is worth the risk of a lost update; appending a workspace
+// block is not, because two unlocked appends produce a config go-toml
+// refuses to parse at all.
+//
 // The lock lives on a sidecar file rather than on config.toml, because
 // writeConfigAtomic renames a fresh file over the config: a lock taken
 // on config.toml would be left holding an inode no later writer opens.
-func lockConfig(configPath string) (func(), error) {
+func lockConfig(configPath string) (unlock func(), held bool, err error) {
 	configWriteMu.Lock()
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		configWriteMu.Unlock()
-		return nil, err
+		return nil, false, err
 	}
-	lock := filelock.New(configPath + ".lock")
-	held := acquireConfigLock(lock)
+	lock := filelock.New(configLockPath(configPath))
+	held = acquireConfigLock(lock)
 	return func() {
 		if held {
 			lock.Unlock()
 		}
 		configWriteMu.Unlock()
-	}, nil
+	}, held, nil
 }
 
 // configLockWait bounds how long a saver waits for another instance to
@@ -197,7 +208,7 @@ func sanitizeComment(s string) string {
 // Existing comments and ordering are preserved (textual rewrite, not
 // TOML re-marshal).
 func saveGlobalTheme(configPath, themeName string) error {
-	unlock, err := lockConfig(configPath)
+	unlock, _, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -243,7 +254,7 @@ func saveGlobalTheme(configPath, themeName string) error {
 // "..." line (currently we only create legacy-keyed blocks here, but
 // slug callers update an existing block).
 func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string) error {
-	unlock, err := lockConfig(configPath)
+	unlock, _, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}

@@ -3,7 +3,10 @@
 package main
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +19,7 @@ import (
 func TestLockConfig_ExcludesASecondHolder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 
-	unlock, err := lockConfig(path)
+	unlock, _, err := lockConfig(path)
 	if err != nil {
 		t.Fatalf("lockConfig: %v", err)
 	}
@@ -78,5 +81,31 @@ func TestLockConfig_GivesUpOnAWedgedHolder(t *testing.T) {
 	}
 	if cfg.Appearance.Theme != "nord" {
 		t.Errorf("theme = %q; want nord: the save gave up on the lock but must still write", cfg.Appearance.Theme)
+	}
+}
+
+// Onboarding is the one config writer that must not fall back to an
+// unlocked write. Two unlocked appends pick the same slug and leave a
+// config go-toml refuses to parse, which stops slk from starting at
+// all — worse than asking the user to retry.
+func TestAppendWorkspaceConfigBlock_RefusesWhenAnotherInstanceHoldsTheLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+
+	holder := filelock.New(path + ".lock")
+	held, err := holder.TryLock()
+	if err != nil || !held {
+		t.Fatalf("setup: holder TryLock = (%v, %v)", held, err)
+	}
+	defer holder.Unlock()
+
+	err = appendWorkspaceConfigBlock(path, "acme", "T01ABCDEF", "ACME")
+	if err == nil {
+		t.Fatal("append wrote the block while another instance held the lock")
+	}
+	if !strings.Contains(err.Error(), path+".lock") {
+		t.Errorf("error %q does not name the lock file the user has to deal with", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("config.toml exists after the refusal (stat: %v); the append must write nothing", err)
 	}
 }

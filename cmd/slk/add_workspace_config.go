@@ -32,17 +32,23 @@ func uniqueSlug(base string, existing map[string]bool) string {
 // file. The file is created if it does not exist. Existing content is
 // preserved verbatim (textual append, not TOML re-marshal).
 //
-// Picking the slug is part of the locked read-modify-write, not the
-// caller's job: two --add-workspace runs that both read the file first
-// choose the same slug, and go-toml rejects the resulting duplicate
-// table outright ("table acme already exists"), so slk refuses to
-// start until the user edits config.toml by hand.
+// Picking the slug is part of the locked read-modify-write, and this is
+// the one config writer that refuses to run unlocked: two runs that
+// both choose from a stale view of the file pick the same slug, and
+// go-toml rejects the resulting duplicate table outright ("table acme
+// already exists"), so slk will not start until the user edits
+// config.toml by hand. The savers can afford to lose an update rather
+// than skip a write; producing an unparseable config is worse than
+// telling the user to try again.
 func appendWorkspaceConfigBlock(configPath, baseSlug, teamID, teamName string) error {
-	unlock, err := lockConfig(configPath)
+	unlock, held, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	if !held {
+		return fmt.Errorf("another slk instance is holding the config lock; close it, or delete %s if it is stale", configLockPath(configPath))
+	}
 
 	slug := uniqueSlug(baseSlug, existingSlugs(configPath))
 

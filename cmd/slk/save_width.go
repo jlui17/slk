@@ -11,7 +11,7 @@ import (
 // saveWorkspaceWidth rewrites or appends a sidebar_width entry in
 // [workspaces.<tomlKey>]. Mirrors saveWorkspaceTheme.
 func saveWorkspaceWidth(configPath, tomlKey, teamID, teamName string, width int) error {
-	unlock, err := lockConfig(configPath)
+	unlock, _, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}

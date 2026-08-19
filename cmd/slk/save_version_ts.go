@@ -45,7 +45,7 @@ func workspaceTOMLKey(cfg config.Config, teamID string) string {
 // a textual line rewrite rather than a TOML re-marshal, so user comments
 // and field ordering survive the write.
 func saveWorkspaceVersionTS(configPath, tomlKey, teamID, teamName, versionTS string) error {
-	unlock, err := lockConfig(configPath)
+	unlock, _, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}
