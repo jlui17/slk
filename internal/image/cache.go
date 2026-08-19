@@ -64,7 +64,11 @@ func (c *Cache) loadIndex() error {
 	}
 	var infos []entryInfo
 	for _, e := range entries {
-		if e.IsDir() {
+		// Cache keys are Slack file and user IDs, never dot-prefixed, so
+		// a dotfile here is a temp file writeCacheFile left behind when
+		// a crash beat its rename. Indexing it would charge the cache
+		// for bytes no key can reach.
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		st, err := e.Info()
@@ -125,7 +129,7 @@ func (c *Cache) Put(key, ext string, data []byte) (string, error) {
 		ext = "bin"
 	}
 	path := filepath.Join(c.dir, key+"."+ext)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := writeCacheFile(path, data); err != nil {
 		return "", err
 	}
 
@@ -150,6 +154,38 @@ func (c *Cache) Put(key, ext string, data []byte) (string, error) {
 	c.total += it.size
 
 	return path, nil
+}
+
+// writeCacheFile writes data to a temp file in path's directory and
+// renames it over path, so a reader gets either the whole old entry or
+// the whole new one.
+//
+// Entries are content-addressed but the directory is not private to one
+// process: two slk instances rendering the same message Put the same
+// key at the same moment, and with a plain os.WriteFile one truncates
+// the file while the other's decoder is reading it.
+//
+// No fsync, unlike the config saver: a torn file surviving a crash
+// fails to decode, and the fetcher already deletes an entry that fails
+// to decode and re-downloads it. That is cheaper than an fsync on every
+// image slk caches.
+func writeCacheFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp creates the file 0600, the mode entries already had.
+	return os.Rename(tmp, path)
 }
 
 // evictLocked removes oldest entries (LRU back) while total exceeds cap.

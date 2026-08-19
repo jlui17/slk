@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -173,5 +175,74 @@ func TestCache_EvictionToleratesAMissingFile(t *testing.T) {
 	}
 	if _, ok := c.Get("a"); ok {
 		t.Error("evicted entry is still a hit")
+	}
+}
+
+// A second slk instance rendering the same message Puts the same key,
+// so a reader can be opening a cached file exactly as it is rewritten.
+// A truncate-then-write hands the decoder a partial image; the rename
+// keeps every read whole.
+func TestCache_PutNeverExposesAPartialFile(t *testing.T) {
+	c, _ := NewCache(t.TempDir(), 10)
+	data := bytes.Repeat([]byte{'a'}, 256*1024)
+	if _, err := c.Put("k", "bin", data); err != nil {
+		t.Fatalf("seed Put: %v", err)
+	}
+
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	putErr := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for !stop.Load() {
+			if _, err := c.Put("k", "bin", data); err != nil {
+				putErr <- err
+				return
+			}
+		}
+	}()
+
+	fail := func(format string, args ...any) {
+		stop.Store(true)
+		wg.Wait()
+		t.Fatalf(format, args...)
+	}
+	for i := 0; i < 300; i++ {
+		path, ok := c.Get("k")
+		if !ok {
+			fail("read %d: cache miss while the entry was being rewritten", i)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			fail("read %d: %v", i, err)
+		}
+		if len(got) != len(data) {
+			fail("read %d saw %d bytes; want the whole %d", i, len(got), len(data))
+		}
+	}
+
+	stop.Store(true)
+	wg.Wait()
+	select {
+	case err := <-putErr:
+		t.Fatalf("Put: %v", err)
+	default:
+	}
+}
+
+// A temp file a crash stranded before its rename is not a cache entry:
+// indexing it would charge the cache for bytes no key can reach.
+func TestCache_LoadIndexSkipsStrandedTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".tmp-123456"), bytes.Repeat([]byte{'a'}, 4096), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewCache(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries, total := c.Stats(); entries != 0 || total != 0 {
+		t.Errorf("Stats = (%d entries, %d bytes); want (0, 0)", entries, total)
 	}
 }
