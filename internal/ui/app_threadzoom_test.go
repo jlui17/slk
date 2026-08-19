@@ -293,6 +293,44 @@ func TestZoomLiftsOnThreadsViewActivation(t *testing.T) {
 	}
 }
 
+func TestZoomInThreadsViewSuppressesTheList(t *testing.T) {
+	a := NewApp()
+	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
+	a.view = ViewThreads
+	a.threadVisible = true
+	a.threadFullscreen = true
+
+	frame := zoomFrame(a)
+	if got := a.renderWindowsRegion(frame, 0, false); got != "" {
+		t.Errorf("threads list must be suppressed while zoomed, got %d cols", lipgloss.Width(got))
+	}
+	if !frame.ThreadFullscreen {
+		t.Error("the zoom applies in ViewThreads exactly as in ViewChannels")
+	}
+}
+
+// Window splits keep their geometry across a zoom toggle: MsgWidth is
+// the messages pane's side-by-side width even while the pane is
+// covered, which is the whole reason the frame carries a would-be
+// width rather than zero.
+func TestZoomLeavesWindowBoundsUntouched(t *testing.T) {
+	a := newWideTestApp(t)
+	a.threadVisible = true
+	before := a.windowBounds()
+
+	a.threadFullscreen = true
+	zoomed := a.windowBounds()
+	a.threadFullscreen = false
+	after := a.windowBounds()
+
+	if zoomed != before {
+		t.Errorf("window bounds moved under the zoom: %+v, want %+v", zoomed, before)
+	}
+	if after != before {
+		t.Errorf("window bounds after unzoom = %+v, want %+v", after, before)
+	}
+}
+
 func TestZoomSuppressesMessagesRegionAndWidensThread(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
