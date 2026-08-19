@@ -183,6 +183,10 @@ Inline rendering uses cell-metrics-derived pixel target. The full-screen preview
 
 The `url_private` (original) is used by the preview only, and only when Slack reports `original_w`/`original_h` bigger than the largest thumb and that thumb doesn't cover the preview pane's pixel budget (`PickPreviewSource`). It needs Slack auth headers, which the fetcher already attaches for `files.slack.com`. Inline rendering stays on thumbnails so the bandwidth cost lands only on images the user opened.
 
+Two things also send the preview back to thumbnails. Originals past `maxOriginalPixels` (40MP) are refused, because decoding holds the whole image uncompressed before any of it is scaled down. Originals that no registered decoder understands — Slack thumbnails HEIC and TIFF to JPEG while serving the original untouched — are recorded per process so the next open doesn't download them again.
+
+Slack's reported dimensions only choose a source. They never size the result: `original_w`/`original_h` are post-orientation while Go's JPEG decoder ignores EXIF, so the preview scales from the decoded bounds via `FetchRequest.FitWithin`.
+
 ## Renderer
 
 ### HalfBlock (`halfblock.go`)
