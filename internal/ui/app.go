@@ -2200,7 +2200,7 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 		thumbs[i] = imgpkg.ThumbSpec{URL: t.URL, W: t.W, H: t.H}
 	}
 	budget := image.Pt(a.width*a.imageCtx.CellPixels.X, a.height*a.imageCtx.CellPixels.Y)
-	original := imgpkg.ThumbSpec{URL: att.OriginalURL, W: att.OriginalW, H: att.OriginalH}
+	original := imgpkg.ThumbSpec{URL: att.DownloadURL, W: att.OriginalW, H: att.OriginalH}
 	url, suffix := imgpkg.PickPreviewSource(thumbs, original, budget)
 	if url == "" {
 		return nil

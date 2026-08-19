@@ -69,7 +69,7 @@ func previewTestApp(t *testing.T, srv *previewServer, originalW, originalH int) 
 
 	channelID, ts, _, msg := imageBearingMessage(t)
 	msg.Attachments[0].Thumbs = []messages.ThumbSpec{{URL: srv.URL + "/thumb", W: 720, H: 720}}
-	msg.Attachments[0].OriginalURL = srv.URL + "/original"
+	msg.Attachments[0].DownloadURL = srv.URL + "/original"
 	msg.Attachments[0].OriginalW = originalW
 	msg.Attachments[0].OriginalH = originalH
 

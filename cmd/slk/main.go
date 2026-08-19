@@ -2680,7 +2680,6 @@ func extractAttachments(files []slack.File) []messages.Attachment {
 			att.FileID = f.ID
 			att.Mime = f.Mimetype
 			att.Thumbs = collectThumbs(f)
-			att.OriginalURL = f.URLPrivate
 			att.OriginalW, att.OriginalH = f.OriginalW, f.OriginalH
 		}
 		out = append(out, att)
