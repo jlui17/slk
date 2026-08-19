@@ -27,15 +27,24 @@ func uniqueSlug(base string, existing map[string]bool) string {
 }
 
 // appendWorkspaceConfigBlock appends a [workspaces.<slug>] block with
-// team_id set, prefixed by a "# <teamName>" comment line. The file
-// is created if it does not exist. Existing content is preserved
-// verbatim (textual append, not TOML re-marshal).
-func appendWorkspaceConfigBlock(configPath, slug, teamID, teamName string) error {
+// team_id set, prefixed by a "# <teamName>" comment line. The slug is
+// derived from baseSlug, uniquified against the blocks already in the
+// file. The file is created if it does not exist. Existing content is
+// preserved verbatim (textual append, not TOML re-marshal).
+//
+// Picking the slug is part of the locked read-modify-write, not the
+// caller's job: two --add-workspace runs that both read the file first
+// choose the same slug, and go-toml rejects the resulting duplicate
+// table outright ("table acme already exists"), so slk refuses to
+// start until the user edits config.toml by hand.
+func appendWorkspaceConfigBlock(configPath, baseSlug, teamID, teamName string) error {
 	unlock, err := lockConfig(configPath)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+
+	slug := uniqueSlug(baseSlug, existingSlugs(configPath))
 
 	var existing []byte
 	if data, err := os.ReadFile(configPath); err == nil {
