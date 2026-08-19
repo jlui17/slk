@@ -206,7 +206,7 @@ func TestCollectSixelPlacements_TwoWindowsFocusedAndUnfocused(t *testing.T) {
 	a.imgProtocol = imgpkg.ProtoSixel
 	setupTwoWindowSixelImages(t, a)
 
-	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible)
+	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	bounds := wintree.Rect{X: 0, Y: 0, W: frame.MsgWidth + frame.MsgBorder, H: frame.ContentHeight}
 	rects := a.wins.ComputeRects(bounds)
 

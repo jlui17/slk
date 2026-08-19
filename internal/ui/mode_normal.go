@@ -9,7 +9,8 @@
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
 //     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
 //     (nav back/forward through visited channels)
-//   - layout toggles: s (sidebar), t (thread)
+//   - layout toggles: s (sidebar), t (thread), z (zoom thread over
+//     the messages region)
 //   - message ops: y (copy permalink), E (edit), D (delete),
 //     M (mark unread), O (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
@@ -141,6 +142,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.ToggleThread):
 		a.ToggleThread()
+
+	case key.Matches(msg, a.keys.ZoomThread):
+		a.ToggleThreadFullscreen()
 
 	case key.Matches(msg, a.keys.NavBack):
 		if cmd := a.navigateBack(); cmd != nil {

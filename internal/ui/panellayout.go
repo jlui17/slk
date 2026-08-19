@@ -24,6 +24,12 @@
 // The CALLER is responsible for flipping threadVisible=false and
 // stealing focus from PanelThread — Compute can't do that without
 // reaching back into App.
+//
+// Zoom (threadFullscreen): the thread pane spans the whole messages
+// area and the messages pane isn't drawn. The messages band collapses
+// to zero so mouse hit-testing routes the whole region to the thread;
+// see the ThreadFullscreen field doc for what MsgWidth means while
+// zoomed.
 package ui
 
 // panelLayout owns the per-frame layout state.
@@ -64,6 +70,15 @@ type panelLayoutFrame struct {
 	// must flip its own threadVisible to false and steal focus from
 	// PanelThread if focused there.
 	ThreadAutoHidden bool
+
+	// ThreadFullscreen echoes the zoom input so renderers reached with
+	// only a frame can suppress the messages region. While set,
+	// ThreadWidth spans the whole messages area and MsgWidth is NOT
+	// part of that area: it carries the width the messages pane WOULD
+	// render at, keeping its off-screen side effects (compose width,
+	// window bounds) unchanged across a zoom toggle. Callers that size
+	// something to the region must use ThreadWidth alone, not the sum.
+	ThreadFullscreen bool
 }
 
 // Compute resolves the per-frame layout. Stores the resulting
@@ -77,10 +92,12 @@ type panelLayoutFrame struct {
 //     plus 2 cols of border; minimums are 40 cols messages + 30 cols
 //     thread or thread auto-hides.
 //   - messages consumes whatever's left, with a floor of 10.
+//   - a zoomed thread consumes the whole messages area instead, with
+//     the same floor of 10 and no auto-hide.
 //
 // Border bits are 2 cols on each non-rail pane (1 col left + 1 col
 // right rounded border).
-func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sidebarVisible, threadVisible bool) panelLayoutFrame {
+func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sidebarVisible, threadVisible, threadFullscreen bool) panelLayoutFrame {
 	const (
 		statusHeight = 1
 		paneBorder   = 2 // left + right border cols
@@ -103,12 +120,16 @@ func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sideba
 	threadWidth := 0
 	threadBorder := 0
 	autoHidden := false
+	zoomed := threadVisible && threadFullscreen
 
 	if threadVisible {
 		threadBorder = paneBorder
 		threadWidth = msgAreaWidth * 35 / 100
 		msgPaneWidth := msgAreaWidth - threadWidth - msgBorder - threadBorder
-		if msgPaneWidth < minMsgWidth || threadWidth < minThreadW {
+		// Auto-hide exists to keep the messages pane at its minimum. A
+		// zoomed thread has no messages pane to protect, so only its
+		// own floor (below) applies.
+		if !zoomed && (msgPaneWidth < minMsgWidth || threadWidth < minThreadW) {
 			autoHidden = true
 			threadWidth = 0
 			threadBorder = 0
@@ -120,6 +141,16 @@ func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sideba
 		msgWidth = floorMsgW
 	}
 
+	// Zoom widens the thread over the whole messages area. Applied
+	// AFTER msgWidth so the suppressed messages pane keeps its
+	// side-by-side width (see the ThreadFullscreen field doc).
+	if zoomed {
+		threadWidth = msgAreaWidth - threadBorder
+		if threadWidth < floorMsgW {
+			threadWidth = floorMsgW
+		}
+	}
+
 	// Store bands for PanelAt. When sidebar / thread are hidden their
 	// "end" coordinates collapse onto the prior band's end so PanelAt
 	// can branch on bands alone (visibility flags are still passed
@@ -127,7 +158,11 @@ func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sideba
 	// redundant).
 	l.railWidth = railWidth
 	l.sidebarEnd = railWidth + sbWidth + sbBorder
-	l.msgEnd = l.sidebarEnd + msgWidth + msgBorder
+	msgBand := msgWidth + msgBorder
+	if zoomed {
+		msgBand = 0 // the messages pane isn't drawn; its band collapses
+	}
+	l.msgEnd = l.sidebarEnd + msgBand
 	if threadVisible && !autoHidden && threadWidth > 0 {
 		l.threadEnd = l.msgEnd + threadWidth + threadBorder
 	} else {
@@ -144,6 +179,7 @@ func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sideba
 		ThreadBorder:     threadBorder,
 		ContentHeight:    contentHeight,
 		ThreadAutoHidden: autoHidden,
+		ThreadFullscreen: zoomed,
 	}
 }
 
