@@ -2592,7 +2592,10 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// in the workspace to read, then set the ones client.counts reports
 	// unread. This runs BEFORE the WebSocket goes live (ConnMgr.Run is
 	// started by the caller after connectWorkspace returns), so the
-	// reset cannot race an inbound *_marked event.
+	// reset cannot race an inbound *_marked event from this process.
+	// A second slk instance has its own live socket, so its marks can
+	// still interleave: the snapshot is authoritative and every boot
+	// takes a fresh one, so the later writer wins and converges.
 	//
 	// Guard on ucErr only (not len>0): a successful call returning zero
 	// unreads legitimately means "everything is read" and must clear
