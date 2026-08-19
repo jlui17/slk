@@ -15,6 +15,7 @@ import (
 type Notifier struct {
 	enabled bool
 	command string
+	leader  *Leader
 }
 
 // New creates a Notifier. If enabled is false, Notify is a no-op. When command
@@ -25,11 +26,22 @@ func New(enabled bool, command string) *Notifier {
 	return &Notifier{enabled: enabled, command: command}
 }
 
+// SetLeader makes Notify defer to l, so only one of several slk
+// instances notifies for a given message. Unset, every instance
+// notifies.
+func (n *Notifier) SetLeader(l *Leader) {
+	n.leader = l
+}
+
 // Notify delivers a notification with the given title and body. It returns nil
-// when notifications are disabled. If a notify_command is configured it runs in
-// place of the built-in OS notification; otherwise beeep shows the OS one.
+// when notifications are disabled, and when another slk instance leads (see
+// Leader). If a notify_command is configured it runs in place of the built-in
+// OS notification; otherwise beeep shows the OS one.
 func (n *Notifier) Notify(title, body string) error {
 	if !n.enabled {
+		return nil
+	}
+	if !n.leader.IsLeader() {
 		return nil
 	}
 	if n.command != "" {

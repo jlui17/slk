@@ -865,6 +865,12 @@ func run() error {
 	}
 	defer db.Close()
 
+	// Every instance running against this data dir sees the same
+	// messages, so they all notify unless one is elected to. First one
+	// to emit wins the lock and keeps it until it exits.
+	notifyLeader := notify.NewLeader(filepath.Join(dataDir, "notify.lock"))
+	notifier.SetLeader(notifyLeader)
+
 	// Ensure image cache dir exists
 	imgCacheDir := filepath.Join(cacheDir, "images")
 	os.MkdirAll(imgCacheDir, 0700)
@@ -915,6 +921,7 @@ func run() error {
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
 	app.SetClipboardAvailable(clipboardOK)
 	if sr := notify.NewStatusReporter(cfg.Notifications.StatusCommand); sr != nil {
+		sr.SetLeader(notifyLeader)
 		// Enqueue never blocks a render: it hands the state to the reporter's
 		// single worker, which serializes runs and coalesces bursts so the
 		// external surface can't end up pinned to a stale count by an

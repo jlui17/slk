@@ -33,6 +33,7 @@ type StatusReporter struct {
 	// latest is a capacity-1 mailbox: Enqueue evicts any pending state, and
 	// the worker always runs the newest.
 	latest chan statusState
+	leader *Leader
 }
 
 // NewStatusReporter returns a StatusReporter with its worker started, or nil
@@ -49,6 +50,12 @@ func NewStatusReporter(command string) *StatusReporter {
 	}
 	go r.run()
 	return r
+}
+
+// SetLeader makes Report defer to l, so several slk instances don't all
+// drive the same external surface. Unset, every instance reports.
+func (r *StatusReporter) SetLeader(l *Leader) {
+	r.leader = l
 }
 
 // Enqueue hands the worker a new unread state and returns immediately, so it
@@ -89,10 +96,14 @@ func (r *StatusReporter) run() {
 // exposed as $SLK_UNREAD, $SLK_OTHER_UNREAD, $SLK_WORKSPACE and $SLK_TITLE.
 // Values are passed through the environment rather than interpolated into the
 // command, so a workspace name or title can't inject shell syntax. Nil-safe
-// (no-op). Production callers should go through Enqueue, which adds the
-// serialization and coalescing described on StatusReporter.
+// (no-op), and a no-op while another slk instance leads (see Leader).
+// Production callers should go through Enqueue, which adds the serialization
+// and coalescing described on StatusReporter.
 func (r *StatusReporter) Report(unread, otherUnread int, workspace, title string) error {
 	if r == nil {
+		return nil
+	}
+	if !r.leader.IsLeader() {
 		return nil
 	}
 	cmd := exec.Command("sh", "-c", r.command)
