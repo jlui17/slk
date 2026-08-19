@@ -22,8 +22,18 @@ command -v docker >/dev/null || {
 repo_root=$(git rev-parse --show-toplevel)
 prefix=$(git rev-parse --show-prefix)
 
-# Tag tracks the go.mod `go` directive; bump them together.
-image="golang:1.26"
+# Derived from golang (tag tracks the go.mod `go` directive; bump them
+# together): golang.design/x/clipboard compiles C that needs X11 headers, so
+# cgo builds — including anything with -race — fail on the stock image.
+image="slk-go:1.26"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "Building $image (golang + libx11-dev for the clipboard cgo dep)" >&2
+  docker build -t "$image" - <<'EOF' >&2
+FROM golang:1.26
+RUN apt-get update && apt-get install -y --no-install-recommends libx11-dev \
+  && rm -rf /var/lib/apt/lists/*
+EOF
+fi
 
 docker_args=(
   --rm
