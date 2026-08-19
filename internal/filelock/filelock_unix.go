@@ -9,11 +9,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Lock blocks until this process holds the lock.
-func (l *Lock) Lock() error {
-	return l.acquire(unix.LOCK_EX)
-}
-
 // TryLock reports whether the lock was acquired without waiting. A
 // false result with a nil error means another process holds it.
 func (l *Lock) TryLock() (bool, error) {

@@ -7,8 +7,6 @@ package filelock
 // lock, which is the behavior every platform had before locking
 // existed.
 
-func (l *Lock) Lock() error { return nil }
-
 func (l *Lock) TryLock() (bool, error) { return true, nil }
 
 func (l *Lock) Unlock() error { return nil }

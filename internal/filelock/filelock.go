@@ -13,6 +13,12 @@ import "os"
 // save replaces its target by renaming a new file over it, so a lock
 // taken on the target would end up held on an inode no other process
 // opens.
+//
+// Not reentrant, and deliberately not process-aware: the lock belongs
+// to the open file, so a second TryLock for the same path — on this
+// Lock or another one — contends with the first even inside a single
+// process and reports the lock as taken. A caller that might ask twice
+// has to remember that it already holds it.
 type Lock struct {
 	path string
 	f    *os.File

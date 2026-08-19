@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/filelock"
@@ -50,21 +51,41 @@ func lockConfig(configPath string) (func(), error) {
 	}, nil
 }
 
-// acquireConfigLock takes lock, reporting whether it got it.
+// configLockWait bounds how long a saver waits for another instance to
+// finish. The locked section is a single small read, rewrite and
+// rename, so a wait this long already means the holder is wedged (a
+// stopped process, a hung filesystem) rather than busy. Waiting longer
+// would freeze the TUI, since the theme and width savers run on
+// bubbletea's Update goroutine. A locked section that ever grows beyond
+// one file rewrite makes this value wrong.
+const configLockWait = 250 * time.Millisecond
+
+// acquireConfigLock takes lock, reporting whether it got it. It gives
+// up after configLockWait, and on any error.
 //
-// A lock slk cannot take is not a reason to refuse the save. The
-// failures here are environmental — a filesystem with no flock, a
-// config directory that turned read-only — and none of them stop the
-// atomic write that follows. Refusing would mean the user's theme
-// silently stops persisting, which is worse than the lost update the
-// lock exists to prevent: that update is only lost if a second instance
-// happens to save at the same moment.
+// Neither outcome is a reason to refuse the save. The errors are
+// environmental — a filesystem with no flock, a config directory that
+// turned read-only — and none of them stop the atomic write that
+// follows. Saving unlocked risks a lost update only if a second
+// instance saves in the same instant; refusing means the user's theme
+// silently stops persisting, every time.
 func acquireConfigLock(lock *filelock.Lock) bool {
-	if err := lock.Lock(); err != nil {
-		debuglog.General("config lock unavailable, saving unlocked: %v", err)
-		return false
+	deadline := time.Now().Add(configLockWait)
+	for {
+		held, err := lock.TryLock()
+		if err != nil {
+			debuglog.General("config lock unavailable, saving unlocked: %v", err)
+			return false
+		}
+		if held {
+			return true
+		}
+		if time.Now().After(deadline) {
+			debuglog.General("config lock held by another instance for %s, saving unlocked", configLockWait)
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	return true
 }
 
 // defaultConfigPerm is the mode a config file is created with when it
