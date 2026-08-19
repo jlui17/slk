@@ -111,6 +111,10 @@ Contributions are welcome. A few ground rules:
 - Whether human- or AI-written, **you are responsible for your PR.**
   Understand the diff, make sure it builds and passes `go vet ./...` and
   `go test ./...`, and be ready to explain your choices in review.
+- On a machine managed by [Santa](https://santa.dev), locally built Go
+  binaries are killed on launch, so `go test` and the TUI itself must run
+  through the docker wrappers in `tools/` — see
+  [docs/developing-on-santa-hosts.md](docs/developing-on-santa-hosts.md).
 
 ## Disclaimer
 
