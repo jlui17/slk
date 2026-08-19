@@ -140,6 +140,10 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		_ = m
 		a.view = ViewThreads
 		a.sidebar.SetThreadsActive(true)
+		// Activation navigates TO the threads list, which renders in
+		// the region a zoomed thread covers. Lift the zoom so the
+		// destination is on screen.
+		a.threadFullscreen = false
 		a.focusedPanel = PanelMessages
 		var batch []tea.Cmd
 		if a.activeTeamID != "" {

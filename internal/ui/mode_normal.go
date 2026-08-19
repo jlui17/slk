@@ -57,11 +57,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keys.InsertMode):
 		a.SetMode(ModeInsert)
-		// In the Threads view there is no main compose box -- the
-		// only way to type is into the right-side thread panel's
-		// compose. Force focus there even when the threads list
-		// itself was the focused panel.
-		if a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) {
+		// In the Threads view, and under a zoomed thread, there is no
+		// main compose box on screen -- the only way to type is into
+		// the thread panel's compose. Force focus there even when the
+		// threads list or the sidebar was the focused panel. (The
+		// focus normalization in View can't cover this one: the
+		// textarea drops keys until something calls Focus.)
+		if a.focusedPanel == PanelThread || a.threadFullscreen || (a.view == ViewThreads && a.threadVisible) {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}

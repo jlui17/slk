@@ -198,6 +198,101 @@ func TestZoomFocusCycleSkipsMessages(t *testing.T) {
 	}
 }
 
+// zoomedFocusApp is a fully sized app with a zoomed thread and focus
+// parked on the sidebar, the state Tab reaches while zoomed. Sized
+// through WindowSizeMsg so App.View can run: View is where the zoom's
+// focus invariant is enforced.
+func zoomedFocusApp(t *testing.T) *App {
+	t.Helper()
+	a := NewApp()
+	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
+	a.sidebarVisible = true
+	a.threadVisible = true
+	a.threadFullscreen = true
+	a.focusedPanel = PanelThread
+	a.FocusNext()
+	if a.focusedPanel != PanelSidebar {
+		t.Fatalf("precondition: Tab while zoomed should land on the sidebar, got %v", a.focusedPanel)
+	}
+	return a
+}
+
+func TestZoomInsertTypesIntoTheThreadCompose(t *testing.T) {
+	a := zoomedFocusApp(t)
+
+	_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'i', Text: "i"})
+	for _, r := range "hello" {
+		_ = dispatchModeKey(a, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	if a.focusedPanel != PanelThread {
+		t.Errorf("focusedPanel = %v after i, want PanelThread: the channel compose is not on screen", a.focusedPanel)
+	}
+	if got := a.threadCompose.Value(); got != "hello" {
+		t.Errorf("threadCompose = %q, want %q", got, "hello")
+	}
+	if got := a.compose.Value(); got != "" {
+		t.Errorf("channel compose = %q, want empty: typing must not reach the covered pane", got)
+	}
+}
+
+func TestZoomEscapeLeavesFocusOnTheThread(t *testing.T) {
+	a := zoomedFocusApp(t)
+
+	_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'i', Text: "i"})
+	_ = dispatchModeKey(a, tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if a.mode != ModeNormal {
+		t.Fatalf("mode = %v after esc, want ModeNormal", a.mode)
+	}
+	if a.focusedPanel != PanelThread {
+		t.Errorf("focusedPanel = %v, want PanelThread: j/k must not drive a covered pane", a.focusedPanel)
+	}
+}
+
+// The remaining focus paths are normalized in View, so each case runs a
+// real render and then checks where focus landed.
+func TestZoomViewKeepsFocusOffTheCoveredPane(t *testing.T) {
+	cases := []struct {
+		name string
+		act  func(*App)
+	}{
+		{"hide the focused sidebar", func(a *App) { a.ToggleSidebar() }},
+		{"split a window", func(a *App) {
+			_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+			_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'v', Text: "v"})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := zoomedFocusApp(t)
+
+			tc.act(a)
+			_ = a.View()
+
+			if !a.threadFullscreen {
+				t.Fatal("precondition: the zoom should still be on")
+			}
+			if a.focusedPanel == PanelMessages {
+				t.Error("focus landed on the messages pane, which the zoomed thread covers")
+			}
+		})
+	}
+}
+
+func TestZoomLiftsOnThreadsViewActivation(t *testing.T) {
+	a := zoomedFocusApp(t)
+
+	_, _ = a.Update(ThreadsViewActivatedMsg{})
+
+	if a.threadFullscreen {
+		t.Error("activating the threads view must lift the zoom; its list renders in the covered region")
+	}
+	if a.view != ViewThreads {
+		t.Errorf("view = %v, want ViewThreads", a.view)
+	}
+}
+
 func TestZoomSuppressesMessagesRegionAndWidensThread(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

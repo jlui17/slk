@@ -118,8 +118,10 @@ type App struct {
 	sidebarVisible bool
 	threadVisible  bool
 	// threadFullscreen zooms the thread over the whole messages
-	// region (the `z` toggle). Only meaningful while threadVisible;
-	// CloseThread resets it so a reopened thread starts unzoomed.
+	// region (the `z` toggle). Only meaningful while threadVisible.
+	// CloseThread resets it so a reopened thread starts unzoomed, and
+	// threads-view activation lifts it (the list it navigates to
+	// renders in the covered region).
 	threadFullscreen bool
 	view             View
 	width            int
@@ -2735,6 +2737,14 @@ func (a *App) View() tea.View {
 		if a.focusedPanel == PanelThread {
 			a.focusedPanel = PanelMessages
 		}
+	}
+	// Same steal in the other direction: a zoomed thread covers the
+	// messages pane, and plenty of handlers park focus there without
+	// knowing about the zoom (window split, hiding a focused sidebar).
+	// Normalizing here rather than at each of those keeps the invariant
+	// in one place: focus is never on a pane this frame won't draw.
+	if frame.ThreadFullscreen && a.focusedPanel == PanelMessages {
+		a.focusedPanel = PanelThread
 	}
 	themeVer := styles.Version()
 
