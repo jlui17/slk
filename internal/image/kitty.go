@@ -104,7 +104,8 @@ type KittyRenderer struct {
 	// per session, ~12KB per typical 60x20 cached image.
 	placeholders map[placeholderKey][]string
 
-	// payloads memoizes the base64-encoded PNG payload per (id, target).
+	// payloads memoizes the base64-encoded PNG payload per
+	// (id, target, cell pixel size).
 	//
 	// Why this exists: Registry.Lookup keeps returning fresh=true for
 	// any image whose OnFlush has never fired -- and OnFlush only fires
@@ -117,30 +118,37 @@ type KittyRenderer struct {
 	// typical Slack thumbnail sizes) is the dominant remaining channel-
 	// switch latency observed in slk-debug.log perf traces.
 	//
-	// The cache is keyed by (id, target). The source image bound to
-	// `key` via SetSource is content-addressable upstream (BK-<sha1>
-	// from URL, or F-<fileID>) so the same key always binds the same
-	// pixel data -- the cached payload is safe to reuse across
-	// arbitrarily many RenderKey calls within a session. Registry IDs
-	// are monotonic and never reused, so (id, target) → payload is
-	// stable for the session.
+	// The source image bound to `key` via SetSource is
+	// content-addressable upstream (BK-<sha1> from URL, or F-<fileID>)
+	// so the same key always binds the same pixel data -- the cached
+	// payload is safe to reuse across arbitrarily many RenderKey calls
+	// within a session. Registry IDs are monotonic and never reused.
 	//
-	// Memory cost: a 480x256 RGBA → PNG → base64 typically encodes to
-	// ~10-30KB. For ~1000 distinct images per long session, ~20MB.
-	// Acceptable; if it ever becomes a concern, an LRU eviction can
-	// be added without changing the contract.
-	payloads map[placeholderKey]string
+	// Memory cost scales with the cell metrics: a 60x16 image is
+	// 480x256 px at the 8x16 fallback (~10-30KB encoded, ~20MB for
+	// ~1000 distinct images per long session) and about four times
+	// that on a Retina cell of ~17x37. Acceptable; if it ever becomes
+	// a concern, an LRU eviction can be added without changing the
+	// contract.
+	payloads map[payloadKey]string
 }
 
 // placeholderKey scopes the buildPlaceholderLines memo by the inputs
 // the function actually consumes: the kitty image id (encoded into
-// every cell's SGR foreground) and the cell dimensions. Reused as
-// the key for the payload memo -- both caches scope by the same
-// (id, target) tuple.
+// every cell's SGR foreground) and the cell dimensions.
 type placeholderKey struct {
 	id     uint32
 	cellsX int
 	cellsY int
+}
+
+// payloadKey scopes the payload memo. The raster is resampled to
+// cells × cell-pixel-size, so the same (id, target) encodes a
+// different PNG once the terminal reports a different cell size.
+type payloadKey struct {
+	placeholderKey
+	cellPxW int
+	cellPxH int
 }
 
 // NewKittyRenderer constructs a kitty renderer backed by the given registry.
@@ -149,7 +157,7 @@ func NewKittyRenderer(reg *Registry) *KittyRenderer {
 		registry:     reg,
 		sources:      map[string]image.Image{},
 		placeholders: map[placeholderKey][]string{},
-		payloads:     map[placeholderKey]string{},
+		payloads:     map[payloadKey]string{},
 	}
 }
 
@@ -221,20 +229,24 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// OnFlush so the terminal eventually receives them (idempotent
 		// from kitty's perspective: re-transmitting the same image id
 		// just re-asserts the binding).
-		payloadKey := phKey
+		cw, ch := cellPixels()
+		pKey := payloadKey{placeholderKey: phKey, cellPxW: cw, cellPxH: ch}
 		k.mu.Lock()
-		payload, payloadHit := k.payloads[payloadKey]
+		payload, payloadHit := k.payloads[pKey]
 		k.mu.Unlock()
 		if !payloadHit {
-			pxW := target.X * 8
-			pxH := target.Y * 16
+			// The terminal stretches the transmitted raster across the
+			// c=<cols>,r=<rows> box, so a raster smaller than that box's
+			// device-pixel size loses detail the terminal cannot restore.
+			pxW := target.X * cw
+			pxH := target.Y * ch
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
 			draw.BiLinear.Scale(resized, resized.Bounds(), src, src.Bounds(), draw.Over, nil)
 			var pngBuf bytes.Buffer
 			if err := imgpng.Encode(&pngBuf, resized); err == nil {
 				payload = base64.StdEncoding.EncodeToString(pngBuf.Bytes())
 				k.mu.Lock()
-				k.payloads[payloadKey] = payload
+				k.payloads[pKey] = payload
 				k.mu.Unlock()
 			} else {
 				// Encode failed; without a payload we can't build an
@@ -261,8 +273,8 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			if !fired.CompareAndSwap(false, true) {
 				return nil
 			}
-			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) payload_len=%d payload_cache=%v",
-				imgID, cellsCols, cellsRows, len(payload), payloadHit)
+			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",
+				imgID, cellsCols, cellsRows, cw, ch, len(payload), payloadHit)
 			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows); err != nil {
 				return err
 			}

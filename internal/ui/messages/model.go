@@ -58,7 +58,9 @@ type Attachment struct {
 	URL  string // permalink (preferred) or url_private
 
 	// DownloadURL is the auth-gated url_private, used by the `d`
-	// download keybinding. Size is the file size in bytes (0 when
+	// download keybinding and, for images, by the full-screen preview
+	// as the unresized source — so it has to stay a URL that answers
+	// with the raw file bytes. Size is the file size in bytes (0 when
 	// Slack didn't provide one); shown in the file picker.
 	DownloadURL string
 	Size        int64
@@ -67,6 +69,12 @@ type Attachment struct {
 	FileID string      // Slack file ID for cache key
 	Mime   string      // e.g. "image/png"
 	Thumbs []ThumbSpec // sorted ascending; empty for non-image
+
+	// OriginalW/H are Slack's original_w/original_h for the unresized
+	// upload behind DownloadURL, which the full-screen preview fetches
+	// when the thumbnails are too small for the pane. Zero means Slack
+	// didn't report them, which keeps the preview on thumbnails.
+	OriginalW, OriginalH int
 }
 
 // ThumbSpec is one Slack thumbnail variant.

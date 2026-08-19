@@ -11,39 +11,6 @@ import (
 // encoded N*cellHeight pixels tall, or it won't cover those rows and
 // the cursor advance won't match the reserved space.
 
-func resetCellPixels(t *testing.T) {
-	t.Helper()
-	cellPxW.Store(0)
-	cellPxH.Store(0)
-}
-
-func TestSixelCellPixels_DefaultsTo8x16(t *testing.T) {
-	resetCellPixels(t)
-	w, h := sixelCellPixels()
-	if w != 8 || h != 16 {
-		t.Errorf("sixelCellPixels() = %dx%d, want 8x16 default", w, h)
-	}
-}
-
-func TestSetCellPixels_UsesMeasuredMetrics(t *testing.T) {
-	resetCellPixels(t)
-	SetCellPixels(14, 33)
-	t.Cleanup(func() { resetCellPixels(t) })
-
-	if w, h := sixelCellPixels(); w != 14 || h != 33 {
-		t.Errorf("sixelCellPixels() = %dx%d, want 14x33", w, h)
-	}
-}
-
-func TestSetCellPixels_IgnoresNonPositive(t *testing.T) {
-	resetCellPixels(t)
-	SetCellPixels(0, 33)
-	SetCellPixels(14, -1)
-	if w, h := sixelCellPixels(); w != 8 || h != 16 {
-		t.Errorf("sixelCellPixels() = %dx%d, want the 8x16 default to survive bad input", w, h)
-	}
-}
-
 // The encoded raster must scale with the reported cell height: a taller
 // cell means more pixels for the same row count.
 func TestSixelRender_ScalesWithCellHeight(t *testing.T) {

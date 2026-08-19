@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -2232,16 +2233,23 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 		return nil
 	}
 
-	// Pick the largest available thumb for preview quality.
-	var largest messages.ThumbSpec
-	for _, t := range att.Thumbs {
-		if max(t.W, t.H) > max(largest.W, largest.H) {
-			largest = t
-		}
+	// The overlay stretches its source over the whole pane, so pick
+	// against the pane's pixel budget rather than against the thumbs.
+	// The terminal bounds the pane, so its size is a safe over-estimate.
+	thumbs := make([]imgpkg.ThumbSpec, len(att.Thumbs))
+	for i, t := range att.Thumbs {
+		thumbs[i] = imgpkg.ThumbSpec{URL: t.URL, W: t.W, H: t.H}
 	}
-	if largest.URL == "" {
+	budget := image.Pt(a.width*a.imageCtx.CellPixels.X, a.height*a.imageCtx.CellPixels.Y)
+	original := imgpkg.ThumbSpec{URL: att.DownloadURL, W: att.OriginalW, H: att.OriginalH}
+	url, suffix := imgpkg.PickPreviewSource(thumbs, original, budget)
+	if url == "" {
 		return nil
 	}
+	// Slack serves thumbnails for formats Go can't decode (HEIC, TIFF),
+	// so an original that fails to fetch or decode falls back to what
+	// the same call picks with no original in play.
+	fbURL, fbSuffix := imgpkg.PickPreviewSource(thumbs, imgpkg.ThumbSpec{}, budget)
 
 	// Compute sibling-count / sibling-index over IMAGE attachments only,
 	// so the (i/N) caption ignores non-image siblings (e.g. PDFs).
@@ -2258,14 +2266,24 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 	fetcher := a.imageFetcher
 	name := att.Name
 	fileID := att.FileID
-	url := largest.URL
-	target := image.Pt(largest.W, largest.H)
 	return func() tea.Msg {
 		res, err := fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
-			Key:    fileID + "-preview",
-			URL:    url,
-			Target: target,
+			Key:       fileID + "-preview-" + suffix,
+			URL:       url,
+			FitWithin: budget,
 		})
+		if err != nil {
+			if url == original.URL && errors.Is(err, imgpkg.ErrUndecodable) {
+				imgpkg.MarkOriginalUndecodable(url)
+			}
+			if fbURL != "" && fbURL != url {
+				res, err = fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
+					Key:       fileID + "-preview-" + fbSuffix,
+					URL:       fbURL,
+					FitWithin: budget,
+				})
+			}
+		}
 		if err != nil {
 			return previewErrorMsg{Err: err}
 		}

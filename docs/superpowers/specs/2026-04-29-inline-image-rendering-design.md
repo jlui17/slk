@@ -42,7 +42,7 @@ These are out of scope for v1; each could be its own spec later:
 | Preview region | Covers messages + thread panes; sidebar + status bar visible |
 | Capability detection | Env-var heuristics + `[appearance] image_protocol` config override |
 | tmux behavior | Force half-block when `TMUX` is set |
-| Thumb selection | Smallest Slack `Thumb*` ≥ target render box; `Thumb1024` for preview |
+| Thumb selection | Smallest Slack `Thumb*` ≥ target render box; the largest thumb for preview, or `url_private` when no thumb covers the preview pane |
 | Cache eviction | LRU by total size, default 200 MB cap |
 | Animated GIFs | First-frame static for v1 |
 | Avatars | Always half-block, regardless of detected protocol |
@@ -179,9 +179,13 @@ func PickThumb(file slack.File, target image.Point) (url string, suffix string)
 
 Source data: `slack.File.Thumb360`/`Thumb720`/`Thumb1024` plus `*W`/`*H` companions. Inputs come from `slack-go` (`go/pkg/mod/github.com/slack-go/slack@v0.23.0/files.go:26-101`).
 
-Inline rendering uses cell-metrics-derived pixel target. The full-screen preview always asks for `Thumb1024`.
+Inline rendering uses cell-metrics-derived pixel target. The full-screen preview takes the largest thumb.
 
-The `url_private` (original) is **not** used — it requires Slack auth headers and is out of scope for v1.
+The `url_private` (original) is used by the preview only, and only when Slack reports `original_w`/`original_h` bigger than the largest thumb and that thumb doesn't cover the preview pane's pixel budget (`PickPreviewSource`). It needs Slack auth headers, which the fetcher already attaches for `files.slack.com`. Inline rendering stays on thumbnails so the bandwidth cost lands only on images the user opened.
+
+Two things also send the preview back to thumbnails. Originals past `maxOriginalPixels` (40MP) are refused, because decoding holds the whole image uncompressed before any of it is scaled down. Originals that no registered decoder understands — Slack thumbnails HEIC and TIFF to JPEG while serving the original untouched — are recorded per process so the next open doesn't download them again.
+
+Slack's reported dimensions only choose a source. They never size the result: `original_w`/`original_h` are post-orientation while Go's JPEG decoder ignores EXIF, so the preview scales from the decoded bounds via `FetchRequest.FitWithin`.
 
 ## Renderer
 
@@ -418,7 +422,7 @@ Added to the README keybindings table when this ships.
 - **iTerm2 limitation.** Kitty graphics in iTerm2 ≥ 3.5 do not support unicode placeholders. iTerm2 falls back to half-block via the startup probe. Document and revisit if iTerm2 adds upstream support.
 - **Sixel partial-visibility flicker.** Images flip between sixel and half-block as they scroll past the viewport edge. Acknowledged tradeoff; accepted to keep scroll perf intact.
 - **Kitty version probe** can hang on terminals that claim kitty but ignore queries. 200 ms timeout mitigates; on timeout, downgrade to half-block.
-- **Cell-metrics fallback `(8, 16)`** may produce slightly off-target downscales on hi-dpi terminals. Mitigated because we always pick a Slack thumb ≥ target — worst case is some over-resolution that the renderer downscales correctly.
+- **Cell-metrics fallback `(8, 16)`** may produce slightly off-target downscales on hi-dpi terminals that answer neither `$COLORTERM_CELL_*` nor `TIOCGWINSZ`. Terminals that do answer are measured, and both pixel-addressed renderers (sixel and kitty) encode against the measured size, so the thumb we pick is resampled to the cell box's real device pixels rather than an assumed 8×16.
 - **Lazy-load races.** A user scrolling rapidly could fire many `Fetcher.Fetch` calls. `singleflight` dedupes per key; bounded-overscroll (± 2 screens) bounds the working set. Cancellation: requests use a context tied to channel-switch / quit, not to viewport position — once kicked off, a request runs to completion or cache.
 - **Migration failure.** If avatar-cache migration fails partway, both old and new files may exist. The migration is idempotent (skip if target exists) and a partial run is recoverable on next startup.
 - **`mattn/go-sixel` dependency.** Adds one third-party dep. Pure Go, MIT, ~600 LOC, well-maintained. Vendoring is an option if maintenance becomes a concern.
