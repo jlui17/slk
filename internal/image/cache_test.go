@@ -115,3 +115,63 @@ func TestCache_LoadIndexAtStartup(t *testing.T) {
 		t.Error("expected pre-existing entry to be indexed at startup")
 	}
 }
+
+// A second slk instance shares the cache directory and evicts from its
+// own index, so it can delete a file this instance still has indexed.
+// Get must report that as a miss and forget the entry, not hand back a
+// path the caller cannot open.
+func TestCache_GetMissesWhenAnotherProcessDeletedTheFile(t *testing.T) {
+	dir := t.TempDir()
+	c, _ := NewCache(dir, 10)
+	if _, err := c.Put("k", "bin", []byte("some-bytes")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(filepath.Join(dir, "k.bin")); err != nil {
+		t.Fatalf("remove behind the index: %v", err)
+	}
+
+	if _, ok := c.Get("k"); ok {
+		t.Fatal("Get returned a hit for a file that is gone")
+	}
+	entries, total := c.Stats()
+	if entries != 0 || total != 0 {
+		t.Errorf("Stats = (%d entries, %d bytes) after the miss; want (0, 0)", entries, total)
+	}
+	// The stale entry is gone, so the next Put re-fills the key.
+	if _, err := c.Put("k", "bin", []byte("fresh")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Get("k"); !ok {
+		t.Error("expected a hit after re-Put")
+	}
+}
+
+// Eviction of an entry another process already deleted still frees its
+// bytes from the accounting; otherwise the cache would keep shrinking
+// its usable capacity.
+func TestCache_EvictionToleratesAMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	// 1 MB cap, entries ~600KB: the third Put's pre-sweep evicts "a".
+	c, _ := NewCache(dir, 1)
+	big := bytes.Repeat([]byte{'a'}, 600*1024)
+	for _, key := range []string{"a", "b"} {
+		if _, err := c.Put(key, "bin", big); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Join(dir, "a.bin")); err != nil {
+		t.Fatalf("remove behind the index: %v", err)
+	}
+
+	if _, err := c.Put("c", "bin", big); err != nil {
+		t.Fatal(err)
+	}
+	entries, total := c.Stats()
+	if entries != 2 || total != int64(2*len(big)) {
+		t.Errorf("Stats = (%d entries, %d bytes); want (2, %d)", entries, total, 2*len(big))
+	}
+	if _, ok := c.Get("a"); ok {
+		t.Error("evicted entry is still a hit")
+	}
+}

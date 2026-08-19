@@ -2,6 +2,7 @@ package image
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,6 +91,11 @@ func (c *Cache) loadIndex() error {
 }
 
 // Get returns the path to a cached entry and refreshes its LRU position.
+//
+// The index is built once at startup, so a second slk instance sharing
+// the cache directory can evict a file this one still has indexed. A
+// vanished file is reported as a miss and dropped from the index rather
+// than handed back as a path the caller will fail to open.
 func (c *Cache) Get(key string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -98,7 +104,10 @@ func (c *Cache) Get(key string) (string, bool) {
 		return "", false
 	}
 	now := time.Now()
-	_ = os.Chtimes(it.path, now, now)
+	if err := os.Chtimes(it.path, now, now); errors.Is(err, os.ErrNotExist) {
+		c.dropLocked(it)
+		return "", false
+	}
 	it.atime = now
 	c.lru.MoveToFront(it.elem)
 	return it.path, true
@@ -151,12 +160,19 @@ func (c *Cache) evictLocked() {
 		if back == nil {
 			return
 		}
-		it := back.Value.(*item)
-		c.lru.Remove(back)
-		delete(c.items, it.key)
-		c.total -= it.size
-		_ = os.Remove(it.path)
+		c.dropLocked(back.Value.(*item))
 	}
+}
+
+// dropLocked removes it from the index, the LRU list and disk, keeping
+// the byte total in step. A file another process already deleted is not
+// an error: the accounting has to come off either way, or this cache
+// hoards capacity for bytes that are gone. Caller must hold c.mu.
+func (c *Cache) dropLocked(it *item) {
+	c.lru.Remove(it.elem)
+	delete(c.items, it.key)
+	c.total -= it.size
+	_ = os.Remove(it.path)
 }
 
 // Delete removes the entry for key from the cache (in-memory index, LRU
@@ -173,10 +189,7 @@ func (c *Cache) Delete(key string) bool {
 	if !ok {
 		return false
 	}
-	c.lru.Remove(it.elem)
-	delete(c.items, key)
-	c.total -= it.size
-	_ = os.Remove(it.path)
+	c.dropLocked(it)
 	return true
 }
 
