@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -285,7 +286,7 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 		f.cache.Delete(req.Key)
 		debuglog.ImgFetch("decode-err: key=%s req_id=%d path=%s err=%v (cache evicted)",
 			req.Key, req.ReqID, path, err)
-		return FetchResult{}, fmt.Errorf("decode %s: %w (cache evicted)", path, err)
+		return FetchResult{}, fmt.Errorf("decode %s: %w: %w (cache evicted)", path, ErrUndecodable, err)
 	}
 	bounds := img.Bounds()
 	debuglog.ImgFetch("decode: key=%s req_id=%d dur_ms=%d dims=(%d,%d)",
@@ -585,6 +586,31 @@ func decodedMemoKey(key string, target image.Point) string {
 	return fmt.Sprintf("%s|%dx%d", key, target.X, target.Y)
 }
 
+// ErrUndecodable marks a fetch whose bytes arrived intact but defeated
+// every registered decoder. Slack thumbnails HEIC and TIFF uploads to
+// JPEG while serving the original untouched, so this describes the file
+// rather than a bad moment: a caller can act on it as permanent.
+var ErrUndecodable = errors.New("no decoder for image bytes")
+
+// undecodableOriginals remembers which original URLs came back
+// undecodable. The disk cache cannot carry that knowledge, because a
+// decode failure evicts the entry it would be recorded against, so
+// without this every preview open re-downloads the same original in
+// full. Process lifetime only: a re-encode on Slack's side, or a decoder
+// added in a later build, gets a fresh chance next run.
+var undecodableOriginals sync.Map // string(url) -> struct{}
+
+// MarkOriginalUndecodable records that url's bytes defeated every
+// registered decoder, so later previews of that file go straight to a
+// thumbnail.
+func MarkOriginalUndecodable(url string) {
+	if url == "" {
+		return
+	}
+	undecodableOriginals.Store(url, struct{}{})
+	debuglog.ImgFetch("MarkOriginalUndecodable: url=%s", url)
+}
+
 // maxOriginalPixels caps the original the preview is willing to fetch.
 // Decoding holds the whole image uncompressed at 4 bytes per pixel, so
 // this ceiling is ~160MB of RGBA plus the compressed bytes alongside it,
@@ -663,6 +689,11 @@ func PickThumb(thumbs []ThumbSpec, target image.Point) (url, suffix string) {
 // any auto-oriented camera upload. The fetcher scales from the decoded
 // bounds instead (FetchRequest.FitWithin).
 func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Point) (url, suffix string) {
+	if _, bad := undecodableOriginals.Load(original.URL); bad {
+		debuglog.ImgRender("PickPreviewSource: original=%s known undecodable; thumbs only", original.URL)
+		original = ThumbSpec{}
+	}
+
 	var largest ThumbSpec
 	for _, t := range thumbs {
 		if t.URL != "" && max(t.W, t.H) > max(largest.W, largest.H) {

@@ -130,3 +130,24 @@ func TestPickPreviewSource_AcceptsOriginalAtCeiling(t *testing.T) {
 		t.Errorf("url got %q, want u-orig — 40MP is the ceiling, not past it", url)
 	}
 }
+
+// A decode failure evicts the cache entry, so nothing on disk remembers
+// that a HEIC or TIFF original is unreadable. Without the in-process
+// note, every preview open would re-download it in full.
+func TestPickPreviewSource_SkipsOriginalKnownUndecodable(t *testing.T) {
+	undecodableOriginals.Clear()
+	t.Cleanup(func() { undecodableOriginals.Clear() })
+
+	thumbs := []ThumbSpec{{URL: "u-1024", W: 1024, H: 1024}}
+	original := ThumbSpec{URL: "u-orig", W: 3200, H: 3200}
+
+	if url, _ := PickPreviewSource(thumbs, original, image.Pt(2400, 1800)); url != "u-orig" {
+		t.Fatalf("precondition: url got %q, want u-orig before the failure is recorded", url)
+	}
+
+	MarkOriginalUndecodable("u-orig")
+
+	if url, _ := PickPreviewSource(thumbs, original, image.Pt(2400, 1800)); url != "u-1024" {
+		t.Errorf("url got %q, want u-1024 — a recorded decode failure must not be retried", url)
+	}
+}

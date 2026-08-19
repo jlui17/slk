@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"image"
 	imgcolor "image/color"
 	imgpng "image/png"
@@ -503,5 +504,26 @@ func TestFetcher_FitWithinLeavesSmallImagesAlone(t *testing.T) {
 	}
 	if got := res.Img.Bounds(); got.Dx() != 40 || got.Dy() != 30 {
 		t.Errorf("got %v, want the untouched 40x30 — an image inside the box must not be upscaled", got)
+	}
+}
+
+// Callers need to tell "these bytes will never decode" apart from "the
+// network had a bad moment", so the decode failure carries a sentinel.
+func TestFetcher_UndecodableBytesCarrySentinel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/heic")
+		w.Write([]byte("ftypheic not a format Go can read"))
+	}))
+	defer srv.Close()
+
+	cache, _ := NewCache(t.TempDir(), 10)
+	f := NewFetcher(cache, http.DefaultClient)
+
+	_, err := f.Fetch(context.Background(), FetchRequest{Key: "heic", URL: srv.URL})
+	if err == nil {
+		t.Fatal("expected a decode error for undecodable bytes")
+	}
+	if !errors.Is(err, ErrUndecodable) {
+		t.Errorf("err = %v, want it to wrap ErrUndecodable", err)
 	}
 }

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -2230,12 +2231,17 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 			URL:       url,
 			FitWithin: budget,
 		})
-		if err != nil && fbURL != "" && fbURL != url {
-			res, err = fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
-				Key:       fileID + "-preview-" + fbSuffix,
-				URL:       fbURL,
-				FitWithin: budget,
-			})
+		if err != nil {
+			if url == original.URL && errors.Is(err, imgpkg.ErrUndecodable) {
+				imgpkg.MarkOriginalUndecodable(url)
+			}
+			if fbURL != "" && fbURL != url {
+				res, err = fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
+					Key:       fileID + "-preview-" + fbSuffix,
+					URL:       fbURL,
+					FitWithin: budget,
+				})
+			}
 		}
 		if err != nil {
 			return previewErrorMsg{Err: err}
