@@ -188,3 +188,28 @@ func TestWriteConfigAtomic_LeavesNoTempFiles(t *testing.T) {
 		t.Errorf("directory contains %v; want only config.toml", names)
 	}
 }
+
+// A lock slk cannot take must not cancel the save. The write is atomic
+// either way, and a user whose filesystem refuses flock would otherwise
+// watch their theme silently stop persisting — while the update the
+// lock protects is only lost if a second instance saves at that exact
+// moment.
+func TestConfigSavers_SaveWhenTheLockCannotBeTaken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	// A directory where the sidecar goes: opening it fails, the same
+	// shape as a filesystem that refuses the lock.
+	if err := os.Mkdir(path+".lock", 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := saveGlobalTheme(path, "nord"); err != nil {
+		t.Fatalf("saveGlobalTheme: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if cfg.Appearance.Theme != "nord" {
+		t.Errorf("theme = %q; want nord", cfg.Appearance.Theme)
+	}
+}

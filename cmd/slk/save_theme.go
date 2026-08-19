@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/filelock"
 )
 
@@ -40,14 +41,30 @@ func lockConfig(configPath string) (func(), error) {
 		return nil, err
 	}
 	lock := filelock.New(configPath + ".lock")
-	if err := lock.Lock(); err != nil {
-		configWriteMu.Unlock()
-		return nil, err
-	}
+	held := acquireConfigLock(lock)
 	return func() {
-		lock.Unlock()
+		if held {
+			lock.Unlock()
+		}
 		configWriteMu.Unlock()
 	}, nil
+}
+
+// acquireConfigLock takes lock, reporting whether it got it.
+//
+// A lock slk cannot take is not a reason to refuse the save. The
+// failures here are environmental — a filesystem with no flock, a
+// config directory that turned read-only — and none of them stop the
+// atomic write that follows. Refusing would mean the user's theme
+// silently stops persisting, which is worse than the lost update the
+// lock exists to prevent: that update is only lost if a second instance
+// happens to save at the same moment.
+func acquireConfigLock(lock *filelock.Lock) bool {
+	if err := lock.Lock(); err != nil {
+		debuglog.General("config lock unavailable, saving unlocked: %v", err)
+		return false
+	}
+	return true
 }
 
 // defaultConfigPerm is the mode a config file is created with when it
