@@ -27,7 +27,10 @@ import (
 // App.View. Preview mode and the single-window tree delegate to the
 // existing path unchanged.
 func (a *App) renderWindowsRegion(frame panelLayoutFrame, themeVer int64, previewActive bool) string {
-	if previewActive || a.wins.Len() == 1 {
+	// A zoomed thread suppresses the whole region, splits included:
+	// renderMessagesRegion returns "" after running its side effects
+	// on the focused window's model, so the tree survives the zoom.
+	if previewActive || frame.ThreadFullscreen || a.wins.Len() == 1 {
 		return a.renderMessagesRegion(frame, themeVer, previewActive)
 	}
 	bounds := wintree.Rect{X: 0, Y: 0, W: frame.MsgWidth + frame.MsgBorder, H: frame.ContentHeight}

@@ -48,7 +48,7 @@ func (a *App) handleWindowChord(msg tea.KeyMsg) tea.Cmd {
 // subdivides. Recomputing the layout frame here is safe: Compute is
 // deterministic for unchanged inputs and View re-runs it each frame.
 func (a *App) windowBounds() wintree.Rect {
-	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible)
+	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	return wintree.Rect{X: 0, Y: 0, W: frame.MsgWidth + frame.MsgBorder, H: frame.ContentHeight}
 }
 

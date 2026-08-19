@@ -30,8 +30,8 @@
 // The split fixes that: only the small typing+compose bottom
 // region gets re-rendered per keystroke.
 //
-// Side effects (run unconditionally, even when previewActive
-// suppresses the visible render):
+// Side effects (run unconditionally, even when previewActive or a
+// zoomed thread suppresses the visible render):
 //
 //   - a.messagepane.SetFocused(msgFocused) -- must run BEFORE
 //     the cache hit-check (SetFocused bumps Version on a flip
@@ -41,8 +41,9 @@
 //     now (preview overlay can close at any time).
 //
 // renderMessagesRegion returns "" when preview is active (the
-// caller substitutes the preview overlay panel instead). The
-// caller must guard against the empty-string return to avoid
+// caller substitutes the preview overlay panel instead) or when
+// the thread is zoomed (the thread region widens over this one).
+// The caller must guard against the empty-string return to avoid
 // pushing a zero-width sentinel into the JoinHorizontal panels
 // list.
 package ui
@@ -56,8 +57,9 @@ import (
 
 // renderMessagesRegion returns the composed messages-region
 // panel string. Runs setup side effects unconditionally; returns
-// "" when previewActive so the caller can substitute the preview
-// overlay in its place.
+// "" when previewActive or frame.ThreadFullscreen so the caller
+// can substitute the preview overlay / widened thread in its
+// place.
 func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previewActive bool) string {
 	contentHeight := frame.ContentHeight
 	msgWidth := frame.MsgWidth
@@ -90,9 +92,9 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 		boolToInt(msgFocused)<<1
 	a.compose.SetWidth(msgWidth - 2)
 
-	if previewActive {
-		// Preview owns the messages+thread region. Side effects
-		// above still ran; visible render is suppressed.
+	if previewActive || frame.ThreadFullscreen {
+		// Preview or a zoomed thread owns the messages region. Side
+		// effects above still ran; visible render is suppressed.
 		return ""
 	}
 	if a.view == ViewThreads {

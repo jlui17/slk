@@ -117,10 +117,16 @@ type App struct {
 	focusedPanel   Panel
 	sidebarVisible bool
 	threadVisible  bool
-	view           View
-	width          int
-	height         int
-	keys           KeyMap
+	// threadFullscreen zooms the thread over the whole messages
+	// region (the `z` toggle). Only meaningful while threadVisible.
+	// CloseThread resets it so a reopened thread starts unzoomed, and
+	// threads-view activation lifts it (the list it navigates to
+	// renders in the covered region).
+	threadFullscreen bool
+	view             View
+	width            int
+	height           int
+	keys             KeyMap
 
 	// cmdline accumulates the text typed at the vi-style ':' prompt
 	// while in ModeCommand. Owned by mode_command.go; always "" in
@@ -1658,9 +1664,24 @@ func (a *App) clearSelections() {
 	a.threadPanel.ClearSelection()
 }
 
+// focusPeerWhileZoomed is the whole focus cycle while the thread is
+// zoomed: the messages pane isn't drawn, so it's Sidebar <-> Thread,
+// or Thread alone when the sidebar is hidden too. A two-stop cycle is
+// symmetric, so FocusNext and FocusPrev share it.
+func (a *App) focusPeerWhileZoomed() Panel {
+	if a.sidebarVisible && a.focusedPanel == PanelThread {
+		return PanelSidebar
+	}
+	return PanelThread
+}
+
 func (a *App) FocusNext() {
 	a.cancelEdit()
 	a.clearSelections()
+	if a.threadFullscreen {
+		a.focusedPanel = a.focusPeerWhileZoomed()
+		return
+	}
 	if !a.sidebarVisible {
 		if a.threadVisible {
 			if a.focusedPanel == PanelMessages {
@@ -1688,6 +1709,10 @@ func (a *App) FocusNext() {
 func (a *App) FocusPrev() {
 	a.cancelEdit()
 	a.clearSelections()
+	if a.threadFullscreen {
+		a.focusedPanel = a.focusPeerWhileZoomed()
+		return
+	}
 	if !a.sidebarVisible {
 		if a.threadVisible {
 			if a.focusedPanel == PanelThread {
@@ -1728,9 +1753,25 @@ func (a *App) ToggleThread() {
 	// Don't open on toggle if no thread is loaded -- use Enter for that
 }
 
+// ToggleThreadFullscreen zooms the open thread over the whole messages
+// region, or restores the side-by-side layout. No-op with no thread
+// open. Zooming pulls focus off the messages pane, which stops being
+// drawn.
+func (a *App) ToggleThreadFullscreen() {
+	if !a.threadVisible {
+		return
+	}
+	a.clearSelections()
+	a.threadFullscreen = !a.threadFullscreen
+	if a.threadFullscreen && a.focusedPanel == PanelMessages {
+		a.focusedPanel = PanelThread
+	}
+}
+
 func (a *App) CloseThread() {
 	a.clearSelections()
 	a.threadVisible = false
+	a.threadFullscreen = false
 	a.statusbar.SetInThread(false)
 	a.threadPanel.Clear()
 	a.threadCompose.Blur()
@@ -2690,12 +2731,20 @@ func (a *App) View() tea.View {
 	// for subsequent mouse hit-testing (panelAt) and surfaces a
 	// ThreadAutoHidden flag when the available width can't fit the
 	// thread pane at its minimum.
-	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible)
+	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	if frame.ThreadAutoHidden {
 		a.threadVisible = false
 		if a.focusedPanel == PanelThread {
 			a.focusedPanel = PanelMessages
 		}
+	}
+	// Same steal in the other direction: a zoomed thread covers the
+	// messages pane, and plenty of handlers park focus there without
+	// knowing about the zoom (window split, hiding a focused sidebar).
+	// Normalizing here rather than at each of those keeps the invariant
+	// in one place: focus is never on a pane this frame won't draw.
+	if frame.ThreadFullscreen && a.focusedPanel == PanelMessages {
+		a.focusedPanel = PanelThread
 	}
 	themeVer := styles.Version()
 
@@ -2784,7 +2833,8 @@ func (a *App) View() tea.View {
 // visible window leaf contributes its own placements, mapped through
 // its own rectangle (split windows sit at their own origins, not the
 // unsplit messages-pane origin). The thread pane still renders
-// halfblock.
+// halfblock, so a zoomed thread wants no placements at all: otherwise
+// the hidden windows' sixels stay painted over it.
 func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlacement {
 	if a.preview.Active() {
 		want := make([]imgpkg.SixelPlacement, 0, 1)
@@ -2797,7 +2847,7 @@ func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlace
 		}
 		return want
 	}
-	if a.view != ViewChannels {
+	if a.view != ViewChannels || frame.ThreadFullscreen {
 		return nil
 	}
 	// The same bounds renderWindowsRegion uses, so leaf rectangles
