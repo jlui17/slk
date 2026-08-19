@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // zoomTestApp builds an App with a thread open, wide enough that the
@@ -293,19 +294,37 @@ func TestZoomLiftsOnThreadsViewActivation(t *testing.T) {
 	}
 }
 
-func TestZoomInThreadsViewSuppressesTheList(t *testing.T) {
+// In ViewThreads the region the zoom covers holds the threads LIST,
+// not a channel pane. Pinning that needs both halves in one test: what
+// occupies the region unzoomed, and that the zoomed thread then takes
+// exactly that space. Asserting only the suppression would pass under
+// ViewChannels too, since renderWindowsRegion short-circuits on the
+// zoom before it ever reads a.view.
+func TestZoomInThreadsViewCoversTheThreadsList(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	a.view = ViewThreads
 	a.threadVisible = true
-	a.threadFullscreen = true
 
-	frame := zoomFrame(a)
-	if got := a.renderWindowsRegion(frame, 0, false); got != "" {
-		t.Errorf("threads list must be suppressed while zoomed, got %d cols", lipgloss.Width(got))
+	side := zoomFrame(a)
+	msgArea := side.MsgWidth + side.MsgBorder + side.ThreadWidth + side.ThreadBorder
+	list := ansi.Strip(a.renderWindowsRegion(side, 0, false))
+	if !strings.Contains(list, "no threads") {
+		t.Fatalf("precondition: the threads list should own the region unzoomed:\n%s", list)
 	}
-	if !frame.ThreadFullscreen {
-		t.Error("the zoom applies in ViewThreads exactly as in ViewChannels")
+	if strings.Contains(list, "(no channel)") {
+		t.Fatal("precondition: that is the channel pane, not the threads list")
+	}
+
+	a.threadFullscreen = true
+	frame := zoomFrame(a)
+
+	if got := a.renderWindowsRegion(frame, 0, false); got != "" {
+		t.Errorf("the threads list must be covered while zoomed, got %d cols", lipgloss.Width(got))
+	}
+	row, _, _ := strings.Cut(a.renderThreadRegion(frame, 0), "\n")
+	if got := lipgloss.Width(row); got != msgArea {
+		t.Errorf("zoomed thread width = %d, want the region the list had, %d", got, msgArea)
 	}
 }
 
