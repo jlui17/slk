@@ -455,3 +455,53 @@ func TestFetcher_HTTPErrorPropagates(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// Slack reports original_w/original_h after applying EXIF orientation
+// while Go's JPEG decoder ignores it, so a caller sizing the fetch from
+// Slack's metadata would ask for a rectangle turned 90° from the bytes.
+// FitWithin takes its scale from the decoded bounds so that disagreement
+// can only pick a source, never squash the picture.
+func TestFetcher_FitWithinPreservesDecodedAspect(t *testing.T) {
+	pngBytes := tinyPNG(t, 40, 30, imgcolor.RGBA{10, 20, 30, 255})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	cache, _ := NewCache(t.TempDir(), 10)
+	f := NewFetcher(cache, http.DefaultClient)
+
+	// A square box: a naive resize-to-target would return 20x20.
+	res, err := f.Fetch(context.Background(), FetchRequest{
+		Key: "landscape", URL: srv.URL, FitWithin: image.Pt(20, 20),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Img.Bounds(); got.Dx() != 20 || got.Dy() != 15 {
+		t.Errorf("got %v, want 20x15 — the decoded 4:3 aspect must survive the fit", got)
+	}
+}
+
+func TestFetcher_FitWithinLeavesSmallImagesAlone(t *testing.T) {
+	pngBytes := tinyPNG(t, 40, 30, imgcolor.RGBA{10, 20, 30, 255})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	cache, _ := NewCache(t.TempDir(), 10)
+	f := NewFetcher(cache, http.DefaultClient)
+
+	res, err := f.Fetch(context.Background(), FetchRequest{
+		Key: "small", URL: srv.URL, FitWithin: image.Pt(500, 500),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Img.Bounds(); got.Dx() != 40 || got.Dy() != 30 {
+		t.Errorf("got %v, want the untouched 40x30 — an image inside the box must not be upscaled", got)
+	}
+}

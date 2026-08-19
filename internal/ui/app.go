@@ -2200,14 +2200,14 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 	}
 	budget := image.Pt(a.width*a.imageCtx.CellPixels.X, a.height*a.imageCtx.CellPixels.Y)
 	original := imgpkg.ThumbSpec{URL: att.OriginalURL, W: att.OriginalW, H: att.OriginalH}
-	url, suffix, target := imgpkg.PickPreviewSource(thumbs, original, budget)
+	url, suffix := imgpkg.PickPreviewSource(thumbs, original, budget)
 	if url == "" {
 		return nil
 	}
 	// Slack serves thumbnails for formats Go can't decode (HEIC, TIFF),
 	// so an original that fails to fetch or decode falls back to what
 	// the same call picks with no original in play.
-	fbURL, fbSuffix, fbTarget := imgpkg.PickPreviewSource(thumbs, imgpkg.ThumbSpec{}, budget)
+	fbURL, fbSuffix := imgpkg.PickPreviewSource(thumbs, imgpkg.ThumbSpec{}, budget)
 
 	// Compute sibling-count / sibling-index over IMAGE attachments only,
 	// so the (i/N) caption ignores non-image siblings (e.g. PDFs).
@@ -2226,15 +2226,15 @@ func (a *App) previewFetchCmd(channel, ts string, attIdx int, cycle bool) tea.Cm
 	fileID := att.FileID
 	return func() tea.Msg {
 		res, err := fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
-			Key:    fileID + "-preview-" + suffix,
-			URL:    url,
-			Target: target,
+			Key:       fileID + "-preview-" + suffix,
+			URL:       url,
+			FitWithin: budget,
 		})
 		if err != nil && fbURL != "" && fbURL != url {
 			res, err = fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
-				Key:    fileID + "-preview-" + fbSuffix,
-				URL:    fbURL,
-				Target: fbTarget,
+				Key:       fileID + "-preview-" + fbSuffix,
+				URL:       fbURL,
+				FitWithin: budget,
 			})
 		}
 		if err != nil {

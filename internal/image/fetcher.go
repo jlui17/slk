@@ -31,9 +31,17 @@ import (
 
 // FetchRequest describes one image fetch.
 type FetchRequest struct {
-	Key        string      // cache key (e.g. "F0123ABCD-720" or "avatar-U123")
-	URL        string      // remote URL
-	Target     image.Point // target downscale size in pixels (0 = no downscale)
+	Key    string      // cache key (e.g. "F0123ABCD-720" or "avatar-U123")
+	URL    string      // remote URL
+	Target image.Point // target downscale size in pixels (0 = no downscale)
+	// FitWithin shrinks the decoded image until it fits inside this
+	// box, preserving the aspect ratio of the decoded bounds and
+	// leaving smaller images untouched. Unlike Target, which resizes
+	// to exactly the rectangle asked for, the scale here comes from
+	// the bytes rather than the caller — so a caller whose size hint
+	// came from image metadata cannot distort the result. Ignored
+	// when Target is set.
+	FitWithin  image.Point
 	CellTarget image.Point // optional target in terminal cells; when nonzero,
 	// the fetcher will pre-render the image into the
 	// active prerender protocol for this cell footprint.
@@ -286,6 +294,8 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 
 	if req.Target.X > 0 && req.Target.Y > 0 {
 		img = downscale(img, req.Target)
+	} else if req.FitWithin.X > 0 && req.FitWithin.Y > 0 {
+		img = fitWithin(img, req.FitWithin)
 	}
 
 	// Populate the render-time memo so the UI thread's Cached() call
@@ -476,6 +486,19 @@ func downscale(img image.Image, target image.Point) image.Image {
 	return dst
 }
 
+// fitWithin scales img down until it fits inside box, taking the aspect
+// ratio from the decoded bounds. Images already inside box are returned
+// as they are.
+func fitWithin(img image.Image, box image.Point) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= box.X && h <= box.Y {
+		return img
+	}
+	scale := min(float64(box.X)/float64(w), float64(box.Y)/float64(h))
+	return downscale(img, image.Pt(max(1, int(float64(w)*scale)), max(1, int(float64(h)*scale))))
+}
+
 func extFromMime(contentType, url string) string {
 	ct := strings.ToLower(contentType)
 	switch {
@@ -607,8 +630,7 @@ func PickThumb(thumbs []ThumbSpec, target image.Point) (url, suffix string) {
 	return last.URL, fmt.Sprintf("%d", max(last.W, last.H))
 }
 
-// PickPreviewSource chooses what the full-screen preview should fetch,
-// and the pixel size to retain it at.
+// PickPreviewSource chooses what the full-screen preview should fetch.
 //
 // The overlay scales its source up to fill the pane, so a thumbnail
 // smaller than budget (the pane's size in pixels) renders soft. original
@@ -621,11 +643,12 @@ func PickThumb(thumbs []ThumbSpec, target image.Point) (url, suffix string) {
 // bytes per key, so original bytes must not come back from a thumb-keyed
 // entry once the window grows.
 //
-// target shrinks the original to fit budget with aspect preserved, so a
-// 24-megapixel upload isn't kept at full size in the decode memo. It is
-// the zero point whenever no resize applies, which FetchRequest reads as
-// "leave the decoded image alone".
-func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Point) (url, suffix string, target image.Point) {
+// These dimensions only choose a source; they never size the result.
+// Slack reports original_w/original_h post-orientation while Go's JPEG
+// decoder ignores EXIF orientation, so the two disagree by a 90° turn on
+// any auto-oriented camera upload. The fetcher scales from the decoded
+// bounds instead (FetchRequest.FitWithin).
+func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Point) (url, suffix string) {
 	var largest ThumbSpec
 	for _, t := range thumbs {
 		if t.URL != "" && max(t.W, t.H) > max(largest.W, largest.H) {
@@ -638,25 +661,14 @@ func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Poin
 		(budget.X > largest.W || budget.Y > largest.H) {
 		debuglog.ImgRender("PickPreviewSource: chose original=(%d,%d) budget=(%d,%d) largest_thumb=(%d,%d)",
 			original.W, original.H, budget.X, budget.Y, largest.W, largest.H)
-		return original.URL, "orig", fitPixels(original.W, original.H, budget)
+		return original.URL, "orig"
 	}
 
 	if largest.URL == "" {
 		debuglog.ImgRender("PickPreviewSource: no source available budget=(%d,%d)", budget.X, budget.Y)
-		return "", "", image.Point{}
+		return "", ""
 	}
 	debuglog.ImgRender("PickPreviewSource: chose thumb=(%d,%d) budget=(%d,%d) original=(%d,%d)",
 		largest.W, largest.H, budget.X, budget.Y, original.W, original.H)
-	return largest.URL, fmt.Sprintf("%d", max(largest.W, largest.H)), image.Point{}
-}
-
-// fitPixels returns the size to retain (w, h) at so it fits inside
-// budget with the aspect ratio preserved. The zero point means no
-// resize is needed.
-func fitPixels(w, h int, budget image.Point) image.Point {
-	if w <= 0 || h <= 0 || budget.X <= 0 || budget.Y <= 0 || (w <= budget.X && h <= budget.Y) {
-		return image.Point{}
-	}
-	scale := min(float64(budget.X)/float64(w), float64(budget.Y)/float64(h))
-	return image.Pt(max(1, int(float64(w)*scale)), max(1, int(float64(h)*scale)))
+	return largest.URL, fmt.Sprintf("%d", max(largest.W, largest.H))
 }
