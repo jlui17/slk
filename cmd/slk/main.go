@@ -865,6 +865,12 @@ func run() error {
 	}
 	defer db.Close()
 
+	// Every instance running against this data dir sees the same
+	// messages, so they all notify unless one is elected to. First one
+	// to emit wins the lock and keeps it until it exits.
+	notifyLeader := notify.NewLeader(filepath.Join(dataDir, "notify.lock"))
+	notifier.SetLeader(notifyLeader)
+
 	// Ensure image cache dir exists
 	imgCacheDir := filepath.Join(cacheDir, "images")
 	os.MkdirAll(imgCacheDir, 0700)
@@ -915,6 +921,7 @@ func run() error {
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
 	app.SetClipboardAvailable(clipboardOK)
 	if sr := notify.NewStatusReporter(cfg.Notifications.StatusCommand); sr != nil {
+		sr.SetLeader(notifyLeader)
 		// Enqueue never blocks a render: it hands the state to the reporter's
 		// single worker, which serializes runs and coalesces bursts so the
 		// external surface can't end up pinned to a stale count by an
@@ -2585,7 +2592,10 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// in the workspace to read, then set the ones client.counts reports
 	// unread. This runs BEFORE the WebSocket goes live (ConnMgr.Run is
 	// started by the caller after connectWorkspace returns), so the
-	// reset cannot race an inbound *_marked event.
+	// reset cannot race an inbound *_marked event from this process.
+	// A second slk instance has its own live socket, so its marks can
+	// still interleave: the snapshot is authoritative and every boot
+	// takes a fresh one, so the later writer wins and converges.
 	//
 	// Guard on ucErr only (not len>0): a successful call returning zero
 	// unreads legitimately means "everything is read" and must clear

@@ -30,14 +30,16 @@ on_keyword = ["deploy", "incident"]
 quiet_hours = "22:00-08:00"   # planned
 
 # notify_command (optional): run INSTEAD of the built-in OS notification for any
-# message that would notify (DM / mention / keyword). Executed via `sh -c` with
-# $SLK_TITLE and $SLK_BODY set, so you can route notifications through your own
-# tooling (terminal-notifier, a multiplexer's notifier, mako, ...). Values are
+# message that would notify (DM / mention / keyword). One slk runs it even when
+# several are open (see below). Executed via `sh -c` with $SLK_TITLE and
+# $SLK_BODY set, so you can route notifications through your own tooling
+# (terminal-notifier, a multiplexer's notifier, mako, ...). Values are
 # passed via the environment, so message text can't inject shell syntax.
 # notify_command = 'terminal-notifier -title "$SLK_TITLE" -message "$SLK_BODY"'
 
 # status_command (optional): run on every unread-state change (a message arrives
 # or a channel is read) so an external surface can mirror slk's unread state.
+# Only one slk runs it when several are open (see below).
 # Because it fires on reads too, it can clear a status as well as set one.
 # Runs are serialized and coalesced: states never run concurrently or out of
 # order, and under a burst intermediate states may be skipped — the newest
@@ -48,6 +50,14 @@ quiet_hours = "22:00-08:00"   # planned
 #   $SLK_WORKSPACE     active workspace name
 #   $SLK_TITLE         the window-title string, e.g. "slk SW (3) +1"
 # status_command = 'my-statusbar --slack-unread "$SLK_UNREAD"'
+
+# With more than one slk running, only one of them runs these hooks. The first
+# instance with something to report takes a lock on ~/.local/share/slk/notify.lock
+# and holds it until it quits; another instance then takes over. Without it every
+# notification would fire once per running slk, and each would drive the same
+# status surface. Where the lock cannot be taken at all — a filesystem with no
+# locking — every instance runs them again, on the grounds that duplicate
+# notifications beat silence.
 
 # Both hooks require a POSIX `sh` on $PATH and are unavailable on Windows
 # (the built-in OS notification still works there). Hook failures are silent
@@ -236,3 +246,11 @@ Switch themes live with `Ctrl+y`.
 | `~/.config/slk/` | Configuration, custom themes |
 | `~/.local/share/slk/` | SQLite cache, tokens |
 | `~/.cache/slk/` | Avatars, image cache |
+
+Two lock files sit alongside those, both empty. `~/.config/slk/config.toml.lock`
+serializes edits to `config.toml` between instances: a save that cannot take it
+within a moment writes anyway, so a stuck instance costs at most one overwritten
+setting — except `slk --add-workspace`, which stops with an error rather than
+risk a config that will not parse. `~/.local/share/slk/notify.lock` picks the
+instance that runs the notification hooks. Deleting either while slk is closed
+is harmless; they come back on their own.

@@ -2,6 +2,7 @@ package image
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,14 @@ type Cache struct {
 	lru   *list.List // front = most recently used
 	total int64
 }
+
+// staleTempAge is how old a leftover temp file must be before a
+// starting cache deletes it. A Put writes its bytes and renames in
+// milliseconds, so a temp file this old was stranded by a crash rather
+// than being written right now by another instance. Lower it far enough
+// and a boot deletes a live Put's file out from under it; raising it
+// only delays reclaiming the space.
+const staleTempAge = 10 * time.Minute
 
 type item struct {
 	key   string
@@ -70,6 +79,18 @@ func (c *Cache) loadIndex() error {
 		if err != nil {
 			continue
 		}
+		// Cache keys are Slack file and user IDs, never dot-prefixed, so
+		// a dotfile here is a writeCacheFile temp file. Indexing it would
+		// charge the cache for bytes no key can reach, and leaving it
+		// alone leaks the space for good: the deferred cleanup cannot run
+		// in a process that died, and eviction only removes paths the
+		// index knows about.
+		if strings.HasPrefix(e.Name(), ".") {
+			if time.Since(st.ModTime()) > staleTempAge {
+				os.Remove(filepath.Join(c.dir, e.Name()))
+			}
+			continue
+		}
 		infos = append(infos, entryInfo{e.Name(), st.Size(), st.ModTime()})
 	}
 	// Sort oldest first so PushFront yields a list with newest at front.
@@ -90,6 +111,11 @@ func (c *Cache) loadIndex() error {
 }
 
 // Get returns the path to a cached entry and refreshes its LRU position.
+//
+// The index is built once at startup, so a second slk instance sharing
+// the cache directory can evict a file this one still has indexed. A
+// vanished file is reported as a miss and dropped from the index rather
+// than handed back as a path the caller will fail to open.
 func (c *Cache) Get(key string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -98,7 +124,10 @@ func (c *Cache) Get(key string) (string, bool) {
 		return "", false
 	}
 	now := time.Now()
-	_ = os.Chtimes(it.path, now, now)
+	if err := os.Chtimes(it.path, now, now); errors.Is(err, os.ErrNotExist) {
+		c.dropLocked(it)
+		return "", false
+	}
 	it.atime = now
 	c.lru.MoveToFront(it.elem)
 	return it.path, true
@@ -116,7 +145,7 @@ func (c *Cache) Put(key, ext string, data []byte) (string, error) {
 		ext = "bin"
 	}
 	path := filepath.Join(c.dir, key+"."+ext)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := writeCacheFile(path, data); err != nil {
 		return "", err
 	}
 
@@ -143,6 +172,38 @@ func (c *Cache) Put(key, ext string, data []byte) (string, error) {
 	return path, nil
 }
 
+// writeCacheFile writes data to a temp file in path's directory and
+// renames it over path, so a reader gets either the whole old entry or
+// the whole new one.
+//
+// Entries are content-addressed but the directory is not private to one
+// process: two slk instances rendering the same message Put the same
+// key at the same moment, and with a plain os.WriteFile one truncates
+// the file while the other's decoder is reading it.
+//
+// No fsync, unlike the config saver: a torn file surviving a crash
+// fails to decode, and the fetcher already deletes an entry that fails
+// to decode and re-downloads it. That is cheaper than an fsync on every
+// image slk caches.
+func writeCacheFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp creates the file 0600, the mode entries already had.
+	return os.Rename(tmp, path)
+}
+
 // evictLocked removes oldest entries (LRU back) while total exceeds cap.
 // Caller must hold c.mu.
 func (c *Cache) evictLocked() {
@@ -151,12 +212,19 @@ func (c *Cache) evictLocked() {
 		if back == nil {
 			return
 		}
-		it := back.Value.(*item)
-		c.lru.Remove(back)
-		delete(c.items, it.key)
-		c.total -= it.size
-		_ = os.Remove(it.path)
+		c.dropLocked(back.Value.(*item))
 	}
+}
+
+// dropLocked removes it from the index, the LRU list and disk, keeping
+// the byte total in step. A file another process already deleted is not
+// an error: the accounting has to come off either way, or this cache
+// hoards capacity for bytes that are gone. Caller must hold c.mu.
+func (c *Cache) dropLocked(it *item) {
+	c.lru.Remove(it.elem)
+	delete(c.items, it.key)
+	c.total -= it.size
+	_ = os.Remove(it.path)
 }
 
 // Delete removes the entry for key from the cache (in-memory index, LRU
@@ -173,10 +241,7 @@ func (c *Cache) Delete(key string) bool {
 	if !ok {
 		return false
 	}
-	c.lru.Remove(it.elem)
-	delete(c.items, key)
-	c.total -= it.size
-	_ = os.Remove(it.path)
+	c.dropLocked(it)
 	return true
 }
 

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gammons/slk/internal/config"
@@ -28,10 +27,31 @@ func uniqueSlug(base string, existing map[string]bool) string {
 }
 
 // appendWorkspaceConfigBlock appends a [workspaces.<slug>] block with
-// team_id set, prefixed by a "# <teamName>" comment line. The file
-// is created if it does not exist. Existing content is preserved
-// verbatim (textual append, not TOML re-marshal).
-func appendWorkspaceConfigBlock(configPath, slug, teamID, teamName string) error {
+// team_id set, prefixed by a "# <teamName>" comment line. The slug is
+// derived from baseSlug, uniquified against the blocks already in the
+// file. The file is created if it does not exist. Existing content is
+// preserved verbatim (textual append, not TOML re-marshal).
+//
+// Picking the slug is part of the locked read-modify-write, and this is
+// the one config writer that refuses to run unlocked: two runs that
+// both choose from a stale view of the file pick the same slug, and
+// go-toml rejects the resulting duplicate table outright ("table acme
+// already exists"), so slk will not start until the user edits
+// config.toml by hand. The savers can afford to lose an update rather
+// than skip a write; producing an unparseable config is worse than
+// telling the user to try again.
+func appendWorkspaceConfigBlock(configPath, baseSlug, teamID, teamName string) error {
+	unlock, held, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if !held {
+		return fmt.Errorf("another slk instance is holding the config lock; close it, or delete %s if it is stale", configLockPath(configPath))
+	}
+
+	slug := uniqueSlug(baseSlug, existingSlugs(configPath))
+
 	var existing []byte
 	if data, err := os.ReadFile(configPath); err == nil {
 		existing = data
@@ -55,10 +75,7 @@ func appendWorkspaceConfigBlock(configPath, slug, teamID, teamName string) error
 	fmt.Fprintf(&b, "[workspaces.%s]\n", slug)
 	fmt.Fprintf(&b, "team_id = %s\n", tomlString(teamID))
 
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(configPath, []byte(b.String()), 0644)
+	return writeConfigAtomic(configPath, []byte(b.String()))
 }
 
 // existingSlugs reads configPath (if present) and returns the set of

@@ -105,8 +105,7 @@ func addWorkspace() error {
 
 		// Append a [workspaces.<slug>] config block (best-effort).
 		configPath := filepath.Join(xdgConfig(), "config.toml")
-		slug := uniqueSlug(config.Slugify(tok.TeamName), existingSlugs(configPath))
-		if err := appendWorkspaceConfigBlock(configPath, slug, tok.TeamID, tok.TeamName); err != nil {
+		if err := appendWorkspaceConfigBlock(configPath, config.Slugify(tok.TeamName), tok.TeamID, tok.TeamName); err != nil {
 			fmt.Println(dimStyle.Render("  Note: could not write config.toml: " + err.Error()))
 		}
 		fmt.Println(successStyle.Render("  Added ") + dimStyle.Render(tok.TeamName))

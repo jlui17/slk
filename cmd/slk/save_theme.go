@@ -7,15 +7,103 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/gammons/slk/internal/debuglog"
+	"github.com/gammons/slk/internal/filelock"
 )
 
 // configWriteMu serializes the read-modify-write cycles the save*
-// helpers below perform on config.toml. The theme and width savers run
-// on the UI goroutine, but the version_ts refresh fires from one
-// background goroutine per workspace, all racing on the same file:
-// without this lock two concurrent saves lose one another's update, and
-// a reader can observe a half-written file and persist the truncation.
+// helpers below perform on config.toml against the other goroutines in
+// this process. The theme and width savers run on the UI goroutine, but
+// the version_ts refresh fires from one background goroutine per
+// workspace, all racing on the same file: without this lock two
+// concurrent saves lose one another's update, and a reader can observe
+// a half-written file and persist the truncation. Nothing here covers a
+// second slk instance; lockConfig adds that half.
 var configWriteMu sync.Mutex
+
+// configLockPath is the sidecar whose file lock guards configPath.
+func configLockPath(configPath string) string {
+	return configPath + ".lock"
+}
+
+// lockConfig takes both locks guarding a read-modify-write cycle on
+// configPath — configWriteMu for this process, an advisory file lock
+// for every other slk instance — and returns the release for both plus
+// whether the file lock was actually taken.
+//
+// The whole cycle has to run under it, not just the write: each saver
+// rewrites the entire file from the copy it read, so two instances
+// interleaving read and write lose one another's update even though
+// writeConfigAtomic makes each write indivisible.
+//
+// A false held is the caller's decision to make. Overwriting one
+// setting is worth the risk of a lost update; appending a workspace
+// block is not, because two unlocked appends produce a config go-toml
+// refuses to parse at all.
+//
+// The lock lives on a sidecar file rather than on config.toml, because
+// writeConfigAtomic renames a fresh file over the config: a lock taken
+// on config.toml would be left holding an inode no later writer opens.
+func lockConfig(configPath string) (unlock func(), held bool, err error) {
+	configWriteMu.Lock()
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		configWriteMu.Unlock()
+		return nil, false, err
+	}
+	lock := filelock.New(configLockPath(configPath))
+	held = acquireConfigLock(lock)
+	return func() {
+		if held {
+			lock.Unlock()
+		}
+		configWriteMu.Unlock()
+	}, held, nil
+}
+
+// configLockWait bounds how long a saver waits for another instance to
+// finish. The locked section is a single small read, rewrite and
+// rename, so a wait this long already means the holder is wedged (a
+// stopped process, a hung filesystem) rather than busy. Waiting longer
+// would freeze the TUI, since the theme and width savers run on
+// bubbletea's Update goroutine. A locked section that ever grows beyond
+// one file rewrite makes this value wrong.
+//
+// It bounds one acquisition, not a saver's total wait: configWriteMu
+// queues this process's savers behind each other, so a theme save
+// landing while W workspaces boot behind a wedged holder waits for
+// their version_ts refreshes to time out first, roughly (W+1) times
+// this value.
+const configLockWait = 250 * time.Millisecond
+
+// acquireConfigLock takes lock, reporting whether it got it. It gives
+// up after configLockWait, and on any error.
+//
+// Neither outcome is a reason to refuse the save. The errors are
+// environmental — a filesystem with no flock, a config directory that
+// turned read-only — and none of them stop the atomic write that
+// follows. Saving unlocked risks a lost update only if a second
+// instance saves in the same instant; refusing means the user's theme
+// silently stops persisting, every time.
+func acquireConfigLock(lock *filelock.Lock) bool {
+	deadline := time.Now().Add(configLockWait)
+	for {
+		held, err := lock.TryLock()
+		if err != nil {
+			debuglog.General("config lock unavailable, saving unlocked: %v", err)
+			return false
+		}
+		if held {
+			return true
+		}
+		if time.Now().After(deadline) {
+			debuglog.General("config lock held by another instance for %s, saving unlocked", configLockWait)
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
 // defaultConfigPerm is the mode a config file is created with when it
 // does not exist yet. An existing file keeps its own mode.
@@ -24,24 +112,20 @@ const defaultConfigPerm os.FileMode = 0644
 // writeConfigAtomic replaces configPath's contents with data by writing
 // a temp file in the same directory and renaming it over the target.
 //
-// configWriteMu serialises writers inside one process, but nothing
-// stops two slk instances sharing one config.toml. With a plain
-// os.WriteFile — truncate, then write — the other process can read the
-// file in its truncated state, and every saver here is a
-// read-modify-write, so it then writes that truncation back: the
-// user's themes, sections and workspace entries are gone. The risk
-// profile changed when version_ts started saving automatically on
-// every boot, once per workspace, rather than only on rare user
-// actions.
+// With a plain os.WriteFile — truncate, then write — a reader can catch
+// the file in its truncated state, and every saver here is a
+// read-modify-write, so it then writes that truncation back: the user's
+// themes, sections and workspace entries are gone. The risk profile
+// changed when version_ts started saving automatically on every boot,
+// once per workspace, rather than only on rare user actions.
 //
 // Rename is atomic within a filesystem, so a reader sees either the
 // whole old file or the whole new one. That is why the temp file must
 // be created in the target's own directory rather than os.TempDir().
 //
-// This does not make the read-modify-write cycle itself atomic across
-// processes — two instances can still lose one another's *update*.
-// Preventing that needs file locking; this fixes the destructive half,
-// where a partial read is persisted as the whole file.
+// This makes one write indivisible, nothing more. Serializing the
+// surrounding read-modify-write is lockConfig's job, and every caller
+// here holds it.
 func writeConfigAtomic(configPath string, data []byte) error {
 	perm := defaultConfigPerm
 	if fi, err := os.Stat(configPath); err == nil {
@@ -130,14 +214,14 @@ func sanitizeComment(s string) string {
 // Existing comments and ordering are preserved (textual rewrite, not
 // TOML re-marshal).
 func saveGlobalTheme(configPath, themeName string) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	unlock, _, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
 		data = nil
 	} else if err != nil {
 		return err
@@ -176,14 +260,14 @@ func saveGlobalTheme(configPath, themeName string) error {
 // "..." line (currently we only create legacy-keyed blocks here, but
 // slug callers update an existing block).
 func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	unlock, _, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
 		data = nil
 	} else if err != nil {
 		return err

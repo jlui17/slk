@@ -33,6 +33,11 @@ func NewTokenStore(dir string) *TokenStore {
 
 // Save writes a token to disk, creating the directory if needed.
 // File permissions are restricted to owner-only (0600).
+//
+// The bytes land in a temp file in the same directory and are renamed
+// over the target, so a reader gets either the old token or the new one
+// and never a truncated file. Every launch re-mints and rewrites these
+// files while another slk instance may be reading them.
 func (s *TokenStore) Save(token Token) error {
 	if err := os.MkdirAll(s.dir, 0700); err != nil {
 		return fmt.Errorf("creating token dir: %w", err)
@@ -43,9 +48,32 @@ func (s *TokenStore) Save(token Token) error {
 		return fmt.Errorf("marshaling token: %w", err)
 	}
 
-	path := filepath.Join(s.dir, token.TeamID+".json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	// os.CreateTemp creates the file 0600, which is the mode a token
+	// file has to end up with anyway.
+	f, err := os.CreateTemp(s.dir, "."+token.TeamID+"-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp token: %w", err)
+	}
+	tmp := f.Name()
+	// No-op once the rename succeeds; on an earlier return it keeps a
+	// failed save from littering the token directory.
+	defer os.Remove(tmp)
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
 		return fmt.Errorf("writing token: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("syncing token: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("closing token: %w", err)
+	}
+
+	path := filepath.Join(s.dir, token.TeamID+".json")
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing token: %w", err)
 	}
 	return nil
 }
