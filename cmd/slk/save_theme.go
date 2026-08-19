@@ -69,6 +69,12 @@ func lockConfig(configPath string) (unlock func(), held bool, err error) {
 // would freeze the TUI, since the theme and width savers run on
 // bubbletea's Update goroutine. A locked section that ever grows beyond
 // one file rewrite makes this value wrong.
+//
+// It bounds one acquisition, not a saver's total wait: configWriteMu
+// queues this process's savers behind each other, so a theme save
+// landing while W workspaces boot behind a wedged holder waits for
+// their version_ts refreshes to time out first, roughly (W+1) times
+// this value.
 const configLockWait = 250 * time.Millisecond
 
 // acquireConfigLock takes lock, reporting whether it got it. It gives
