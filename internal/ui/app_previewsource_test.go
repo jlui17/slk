@@ -61,6 +61,9 @@ func (p *previewServer) hitCount(path string) int {
 // play whenever its own dimensions allow.
 func previewTestApp(t *testing.T, srv *previewServer, originalW, originalH int) (*App, string, string) {
 	t.Helper()
+	imgpkg.ResetUndecodableOriginalsForTest()
+	t.Cleanup(imgpkg.ResetUndecodableOriginalsForTest)
+
 	cache, err := imgpkg.NewCache(t.TempDir(), 10)
 	if err != nil {
 		t.Fatalf("NewCache: %v", err)

@@ -623,6 +623,13 @@ func MarkOriginalUndecodable(url string) {
 	debuglog.ImgFetch("MarkOriginalUndecodable: url=%s", url)
 }
 
+// ResetUndecodableOriginalsForTest clears the recorded decode failures.
+// The record is keyed by URL and httptest reuses ports, so without this
+// a mark left by one test can land on a later test's server.
+func ResetUndecodableOriginalsForTest() {
+	undecodableOriginals.Clear()
+}
+
 // maxOriginalPixels caps the original the preview is willing to fetch.
 // Decoding holds the whole image uncompressed at 4 bytes per pixel, so
 // this ceiling is ~160MB of RGBA plus the compressed bytes alongside it,

@@ -135,8 +135,8 @@ func TestPickPreviewSource_AcceptsOriginalAtCeiling(t *testing.T) {
 // that a HEIC or TIFF original is unreadable. Without the in-process
 // note, every preview open would re-download it in full.
 func TestPickPreviewSource_SkipsOriginalKnownUndecodable(t *testing.T) {
-	undecodableOriginals.Clear()
-	t.Cleanup(func() { undecodableOriginals.Clear() })
+	ResetUndecodableOriginalsForTest()
+	t.Cleanup(ResetUndecodableOriginalsForTest)
 
 	thumbs := []ThumbSpec{{URL: "u-1024", W: 1024, H: 1024}}
 	original := ThumbSpec{URL: "u-orig", W: 3200, H: 3200}
