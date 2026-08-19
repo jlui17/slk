@@ -527,3 +527,37 @@ func TestFetcher_UndecodableBytesCarrySentinel(t *testing.T) {
 		t.Errorf("err = %v, want it to wrap ErrUndecodable", err)
 	}
 }
+
+// Nothing reads a memo entry from a FitWithin fetch: Cached() is the
+// only reader and it looks up inline keys at a nonzero target. Storing
+// one would pin a screen-sized RGBA for the life of the process.
+func TestFetcher_FitWithinDoesNotPopulateDecodedMemo(t *testing.T) {
+	pngBytes := tinyPNG(t, 40, 30, imgcolor.RGBA{10, 20, 30, 255})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	cache, _ := NewCache(t.TempDir(), 10)
+	f := NewFetcher(cache, http.DefaultClient)
+
+	if _, err := f.Fetch(context.Background(), FetchRequest{
+		Key: "preview", URL: srv.URL, FitWithin: image.Pt(20, 20),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Cached("preview", image.Point{}); ok {
+		t.Error("a FitWithin fetch left an entry in the decoded memo; nothing ever reads it back")
+	}
+
+	// A Target fetch still memoizes — that entry has a real reader.
+	if _, err := f.Fetch(context.Background(), FetchRequest{
+		Key: "inline", URL: srv.URL, Target: image.Pt(20, 15),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Cached("inline", image.Pt(20, 15)); !ok {
+		t.Error("a Target fetch must still populate the memo Cached() serves from")
+	}
+}

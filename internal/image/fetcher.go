@@ -293,10 +293,12 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 		req.Key, req.ReqID, time.Since(decStart).Milliseconds(),
 		bounds.Dx(), bounds.Dy())
 
+	fitted := false
 	if req.Target.X > 0 && req.Target.Y > 0 {
 		img = downscale(img, req.Target)
 	} else if req.FitWithin.X > 0 && req.FitWithin.Y > 0 {
 		img = fitWithin(img, req.FitWithin)
+		fitted = true
 	}
 
 	// Populate the render-time memo so the UI thread's Cached() call
@@ -304,7 +306,17 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 	// downscale. Critical for keeping the bubbletea Update goroutine
 	// responsive when many images arrive in a burst (channel switch
 	// or scroll-up into unseen history).
-	f.decoded.Store(decodedMemoKey(req.Key, req.Target), img)
+	//
+	// FitWithin fetches are skipped: that path belongs to the
+	// full-screen preview, which reads the returned image directly.
+	// Cached() is the memo's only reader and both of its call sites
+	// (imgrender.go:345, blockkit/image.go:141) look up inline keys at
+	// a nonzero pixel target, so a preview entry would never be found
+	// again — it would just pin a screen-sized RGBA for the life of
+	// the process.
+	if !fitted {
+		f.decoded.Store(decodedMemoKey(req.Key, req.Target), img)
+	}
 
 	// Eagerly run protocol encoding off the UI thread so the next
 	// View() doesn't have to. Skipped when not configured or when
