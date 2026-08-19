@@ -166,8 +166,31 @@ func TestUserResolver_BatchesMissesThroughEdge(t *testing.T) {
 	r.Request("U001")
 	r.Request("U002")
 
+	resolvedMsgs := func() int {
+		sentMu.Lock()
+		defer sentMu.Unlock()
+		n := 0
+		for _, m := range sent {
+			if _, ok := m.(ui.UserResolvedMsg); ok {
+				n++
+			}
+		}
+		return n
+	}
+	// Wait on what flush produces, not on the call that starts it:
+	// fakeBatcher has recorded the batch by the time it returns to
+	// flush, which is before flush has upserted a single row, so a wait
+	// on calls() lets every assertion below race the writes.
+	batchApplied := func() bool {
+		for _, id := range []string{"U001", "U002"} {
+			if _, err := db.GetUser(id); err != nil {
+				return false
+			}
+		}
+		return resolvedMsgs() == 2
+	}
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && len(batcher.calls()) == 0 {
+	for time.Now().Before(deadline) && !batchApplied() {
 		time.Sleep(10 * time.Millisecond)
 	}
 	calls := batcher.calls()
@@ -202,15 +225,7 @@ func TestUserResolver_BatchesMissesThroughEdge(t *testing.T) {
 		t.Errorf("U002 display = %q; want the real-name fallback", u2.DisplayName)
 	}
 	// One UserResolvedMsg per resolved user, same as the per-user path.
-	sentMu.Lock()
-	resolved := 0
-	for _, m := range sent {
-		if _, ok := m.(ui.UserResolvedMsg); ok {
-			resolved++
-		}
-	}
-	sentMu.Unlock()
-	if resolved != 2 {
+	if resolved := resolvedMsgs(); resolved != 2 {
 		t.Errorf("UserResolvedMsg count = %d; want 2 — the UI patches display names live from these", resolved)
 	}
 	// Dedup end-to-end: a repeat Request resolves nothing further.
