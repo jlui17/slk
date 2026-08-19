@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gammons/slk/internal/config"
@@ -32,6 +31,12 @@ func uniqueSlug(base string, existing map[string]bool) string {
 // is created if it does not exist. Existing content is preserved
 // verbatim (textual append, not TOML re-marshal).
 func appendWorkspaceConfigBlock(configPath, slug, teamID, teamName string) error {
+	unlock, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	var existing []byte
 	if data, err := os.ReadFile(configPath); err == nil {
 		existing = data
@@ -55,10 +60,7 @@ func appendWorkspaceConfigBlock(configPath, slug, teamID, teamName string) error
 	fmt.Fprintf(&b, "[workspaces.%s]\n", slug)
 	fmt.Fprintf(&b, "team_id = %s\n", tomlString(teamID))
 
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(configPath, []byte(b.String()), 0644)
+	return writeConfigAtomic(configPath, []byte(b.String()))
 }
 
 // existingSlugs reads configPath (if present) and returns the set of

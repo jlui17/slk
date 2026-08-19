@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -12,14 +11,14 @@ import (
 // saveWorkspaceWidth rewrites or appends a sidebar_width entry in
 // [workspaces.<tomlKey>]. Mirrors saveWorkspaceTheme.
 func saveWorkspaceWidth(configPath, tomlKey, teamID, teamName string, width int) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	unlock, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
 		data = nil
 	} else if err != nil {
 		return err

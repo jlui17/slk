@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gammons/slk/internal/config"
@@ -46,14 +45,14 @@ func workspaceTOMLKey(cfg config.Config, teamID string) string {
 // a textual line rewrite rather than a TOML re-marshal, so user comments
 // and field ordering survive the write.
 func saveWorkspaceVersionTS(configPath, tomlKey, teamID, teamName, versionTS string) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
+	unlock, err := lockConfig(configPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
 		data = nil
 	} else if err != nil {
 		return err
