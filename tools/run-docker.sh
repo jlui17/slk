@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Run this checkout's slk inside docker with the TUI attached to the current
+# terminal — for Santa-lockdown hosts that kill locally built binaries.
+#
+# Config and cached tokens are seeded ONCE from the host into the
+# slk-test-state volume (never the live cache.db: copying a WAL database
+# mid-write can tear it, and slk rebuilds the cache from the API). Every pane
+# that runs this script shares that volume, and the containers share the
+# docker VM's kernel, so cross-process flocks are exercised for real.
+# Reseed with: docker volume rm slk-test-state
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+image=slk-go:1.26
+
+docker volume create slk-test-state >/dev/null
+docker run --rm \
+  -v slk-test-state:/state \
+  -v "$HOME/.config/slk":/seed/config:ro \
+  -v "$HOME/.local/share/slk/tokens":/seed/tokens:ro \
+  "$image" sh -c '
+    [ -e /state/.seeded ] && exit 0
+    mkdir -p /state/xdg/config/slk /state/xdg/data/slk/tokens /state/xdg/cache
+    cp /seed/config/config.toml /state/xdg/config/slk/
+    cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
+    touch /state/.seeded'
+
+bin="$repo/bin/slk-linux"
+if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]; then
+  echo "building linux slk..." >&2
+  docker run --rm -v "$repo":/src -w /src \
+    -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
+    -e GOFLAGS=-buildvcs=false \
+    "$image" go build -o bin/slk-linux ./cmd/slk
+fi
+
+# Terminal identity rides into the container so graphics-protocol detection
+# sees the real terminal; the kitty probe's reply comes back over the -it pty.
+exec docker run --rm -it \
+  -v "$repo":/src \
+  -v slk-test-state:/state \
+  -e XDG_CONFIG_HOME=/state/xdg/config \
+  -e XDG_DATA_HOME=/state/xdg/data \
+  -e XDG_CACHE_HOME=/state/xdg/cache \
+  -e TERM="${TERM:-xterm-256color}" \
+  ${TERM_PROGRAM:+-e TERM_PROGRAM="$TERM_PROGRAM"} \
+  ${KITTY_WINDOW_ID:+-e KITTY_WINDOW_ID="$KITTY_WINDOW_ID"} \
+  ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"} \
+  ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"} \
+  "$image" /src/bin/slk-linux "$@"
