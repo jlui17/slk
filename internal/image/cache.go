@@ -26,6 +26,14 @@ type Cache struct {
 	total int64
 }
 
+// staleTempAge is how old a leftover temp file must be before a
+// starting cache deletes it. A Put writes its bytes and renames in
+// milliseconds, so a temp file this old was stranded by a crash rather
+// than being written right now by another instance. Lower it far enough
+// and a boot deletes a live Put's file out from under it; raising it
+// only delays reclaiming the space.
+const staleTempAge = 10 * time.Minute
+
 type item struct {
 	key   string
 	path  string
@@ -64,15 +72,23 @@ func (c *Cache) loadIndex() error {
 	}
 	var infos []entryInfo
 	for _, e := range entries {
-		// Cache keys are Slack file and user IDs, never dot-prefixed, so
-		// a dotfile here is a temp file writeCacheFile left behind when
-		// a crash beat its rename. Indexing it would charge the cache
-		// for bytes no key can reach.
-		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if e.IsDir() {
 			continue
 		}
 		st, err := e.Info()
 		if err != nil {
+			continue
+		}
+		// Cache keys are Slack file and user IDs, never dot-prefixed, so
+		// a dotfile here is a writeCacheFile temp file. Indexing it would
+		// charge the cache for bytes no key can reach, and leaving it
+		// alone leaks the space for good: the deferred cleanup cannot run
+		// in a process that died, and eviction only removes paths the
+		// index knows about.
+		if strings.HasPrefix(e.Name(), ".") {
+			if time.Since(st.ModTime()) > staleTempAge {
+				os.Remove(filepath.Join(c.dir, e.Name()))
+			}
 			continue
 		}
 		infos = append(infos, entryInfo{e.Name(), st.Size(), st.ModTime()})

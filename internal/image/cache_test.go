@@ -2,6 +2,7 @@ package image
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -231,18 +232,36 @@ func TestCache_PutNeverExposesAPartialFile(t *testing.T) {
 	}
 }
 
-// A temp file a crash stranded before its rename is not a cache entry:
-// indexing it would charge the cache for bytes no key can reach.
-func TestCache_LoadIndexSkipsStrandedTempFiles(t *testing.T) {
+// A temp file stranded by a crash is not a cache entry, and nothing
+// else would ever remove it: eviction only deletes paths the index
+// knows, and the deferred cleanup died with the process. A fresh one
+// may belong to a live Put in another instance, so it stays.
+func TestCache_LoadIndexReapsOnlyOldStrandedTempFiles(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".tmp-123456"), bytes.Repeat([]byte{'a'}, 4096), 0600); err != nil {
+	stranded := filepath.Join(dir, ".tmp-stranded")
+	inflight := filepath.Join(dir, ".tmp-inflight")
+	for _, p := range []string{stranded, inflight} {
+		if err := os.WriteFile(p, bytes.Repeat([]byte{'a'}, 4096), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	aged := time.Now().Add(-2 * staleTempAge)
+	if err := os.Chtimes(stranded, aged, aged); err != nil {
 		t.Fatal(err)
 	}
+
 	c, err := NewCache(dir, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if _, err := os.Stat(stranded); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stranded temp file survived (stat: %v); its bytes are leaked for good", err)
+	}
+	if _, err := os.Stat(inflight); err != nil {
+		t.Errorf("deleted a temp file another instance may still be writing: %v", err)
+	}
 	if entries, total := c.Stats(); entries != 0 || total != 0 {
-		t.Errorf("Stats = (%d entries, %d bytes); want (0, 0)", entries, total)
+		t.Errorf("Stats = (%d entries, %d bytes); want (0, 0): neither is a cache entry", entries, total)
 	}
 }
