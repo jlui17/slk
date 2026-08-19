@@ -107,3 +107,26 @@ func TestPickPreviewSource_EmptyReturnsEmpty(t *testing.T) {
 		t.Errorf("expected empty, got %q", url)
 	}
 }
+
+// Decoding allocates the whole original uncompressed, so a huge upload
+// would spike hundreds of megabytes on one keypress. Above the ceiling
+// the thumbnail wins even though it renders softer.
+func TestPickPreviewSource_RefusesOversizedOriginal(t *testing.T) {
+	thumbs := []ThumbSpec{{URL: "u-1024", W: 1024, H: 1024}}
+	original := ThumbSpec{URL: "u-orig", W: 12000, H: 12000} // 144MP panorama
+
+	url, _ := PickPreviewSource(thumbs, original, image.Pt(2400, 1800))
+	if url != "u-1024" {
+		t.Errorf("url got %q, want u-1024 — a 144MP original is past the decode ceiling", url)
+	}
+}
+
+func TestPickPreviewSource_AcceptsOriginalAtCeiling(t *testing.T) {
+	thumbs := []ThumbSpec{{URL: "u-1024", W: 1024, H: 1024}}
+	original := ThumbSpec{URL: "u-orig", W: 8000, H: 5000} // 40MP exactly
+
+	url, _ := PickPreviewSource(thumbs, original, image.Pt(2400, 1800))
+	if url != "u-orig" {
+		t.Errorf("url got %q, want u-orig — 40MP is the ceiling, not past it", url)
+	}
+}

@@ -585,6 +585,16 @@ func decodedMemoKey(key string, target image.Point) string {
 	return fmt.Sprintf("%s|%dx%d", key, target.X, target.Y)
 }
 
+// maxOriginalPixels caps the original the preview is willing to fetch.
+// Decoding holds the whole image uncompressed at 4 bytes per pixel, so
+// this ceiling is ~160MB of RGBA plus the compressed bytes alongside it,
+// allocated on a single keypress. 40 megapixels is where consumer
+// hardware stops: it clears every phone, every mirrorless camera, and
+// any 6K screenshot, so what it turns away is panoramas and scanned
+// documents. For those the thumbnail's softness beats the spike. Raise
+// it only if ordinary uploads start landing above the line.
+const maxOriginalPixels = 40_000_000
+
 // ThumbSpec is one Slack thumbnail variant.
 type ThumbSpec struct {
 	URL string
@@ -643,6 +653,10 @@ func PickThumb(thumbs []ThumbSpec, target image.Point) (url, suffix string) {
 // bytes per key, so original bytes must not come back from a thumb-keyed
 // entry once the window grows.
 //
+// Originals larger than maxOriginalPixels are refused, because decoding
+// one allocates the whole image uncompressed before any of it is scaled
+// down.
+//
 // These dimensions only choose a source; they never size the result.
 // Slack reports original_w/original_h post-orientation while Go's JPEG
 // decoder ignores EXIF orientation, so the two disagree by a 90° turn on
@@ -657,6 +671,7 @@ func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Poin
 	}
 
 	if original.URL != "" && original.W > 0 && original.H > 0 &&
+		original.W*original.H <= maxOriginalPixels &&
 		(original.W > largest.W || original.H > largest.H) &&
 		(budget.X > largest.W || budget.Y > largest.H) {
 		debuglog.ImgRender("PickPreviewSource: chose original=(%d,%d) budget=(%d,%d) largest_thumb=(%d,%d)",
