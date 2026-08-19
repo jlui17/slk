@@ -67,6 +67,13 @@ type Attachment struct {
 	FileID string      // Slack file ID for cache key
 	Mime   string      // e.g. "image/png"
 	Thumbs []ThumbSpec // sorted ascending; empty for non-image
+
+	// OriginalURL is the unresized upload (url_private), fetched by the
+	// full-screen preview when the thumbnails are too small for the
+	// pane. OriginalW/H are Slack's original_w/original_h; zero means
+	// Slack didn't report them, which keeps the preview on thumbnails.
+	OriginalURL          string
+	OriginalW, OriginalH int
 }
 
 // ThumbSpec is one Slack thumbnail variant.

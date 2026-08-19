@@ -606,3 +606,57 @@ func PickThumb(thumbs []ThumbSpec, target image.Point) (url, suffix string) {
 		last.W, last.H, max(last.W, last.H), last.URL)
 	return last.URL, fmt.Sprintf("%d", max(last.W, last.H))
 }
+
+// PickPreviewSource chooses what the full-screen preview should fetch,
+// and the pixel size to retain it at.
+//
+// The overlay scales its source up to fill the pane, so a thumbnail
+// smaller than budget (the pane's size in pixels) renders soft. original
+// describes the unresized upload — Slack's url_private plus
+// original_w/original_h — and wins when its dimensions are known, beat
+// the largest thumb, and that thumb doesn't already cover budget on both
+// axes. Otherwise the largest thumb is used, as before.
+//
+// suffix distinguishes the two in the cache key. The fetcher stores raw
+// bytes per key, so original bytes must not come back from a thumb-keyed
+// entry once the window grows.
+//
+// target shrinks the original to fit budget with aspect preserved, so a
+// 24-megapixel upload isn't kept at full size in the decode memo. It is
+// the zero point whenever no resize applies, which FetchRequest reads as
+// "leave the decoded image alone".
+func PickPreviewSource(thumbs []ThumbSpec, original ThumbSpec, budget image.Point) (url, suffix string, target image.Point) {
+	var largest ThumbSpec
+	for _, t := range thumbs {
+		if t.URL != "" && max(t.W, t.H) > max(largest.W, largest.H) {
+			largest = t
+		}
+	}
+
+	if original.URL != "" && original.W > 0 && original.H > 0 &&
+		(original.W > largest.W || original.H > largest.H) &&
+		(budget.X > largest.W || budget.Y > largest.H) {
+		debuglog.ImgRender("PickPreviewSource: chose original=(%d,%d) budget=(%d,%d) largest_thumb=(%d,%d)",
+			original.W, original.H, budget.X, budget.Y, largest.W, largest.H)
+		return original.URL, "orig", fitPixels(original.W, original.H, budget)
+	}
+
+	if largest.URL == "" {
+		debuglog.ImgRender("PickPreviewSource: no source available budget=(%d,%d)", budget.X, budget.Y)
+		return "", "", image.Point{}
+	}
+	debuglog.ImgRender("PickPreviewSource: chose thumb=(%d,%d) budget=(%d,%d) original=(%d,%d)",
+		largest.W, largest.H, budget.X, budget.Y, original.W, original.H)
+	return largest.URL, fmt.Sprintf("%d", max(largest.W, largest.H)), image.Point{}
+}
+
+// fitPixels returns the size to retain (w, h) at so it fits inside
+// budget with the aspect ratio preserved. The zero point means no
+// resize is needed.
+func fitPixels(w, h int, budget image.Point) image.Point {
+	if w <= 0 || h <= 0 || budget.X <= 0 || budget.Y <= 0 || (w <= budget.X && h <= budget.Y) {
+		return image.Point{}
+	}
+	scale := min(float64(budget.X)/float64(w), float64(budget.Y)/float64(h))
+	return image.Pt(max(1, int(float64(w)*scale)), max(1, int(float64(h)*scale)))
+}

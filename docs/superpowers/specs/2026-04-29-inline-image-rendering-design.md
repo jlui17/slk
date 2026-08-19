@@ -42,7 +42,7 @@ These are out of scope for v1; each could be its own spec later:
 | Preview region | Covers messages + thread panes; sidebar + status bar visible |
 | Capability detection | Env-var heuristics + `[appearance] image_protocol` config override |
 | tmux behavior | Force half-block when `TMUX` is set |
-| Thumb selection | Smallest Slack `Thumb*` ≥ target render box; `Thumb1024` for preview |
+| Thumb selection | Smallest Slack `Thumb*` ≥ target render box; the largest thumb for preview, or `url_private` when no thumb covers the preview pane |
 | Cache eviction | LRU by total size, default 200 MB cap |
 | Animated GIFs | First-frame static for v1 |
 | Avatars | Always half-block, regardless of detected protocol |
@@ -179,9 +179,9 @@ func PickThumb(file slack.File, target image.Point) (url string, suffix string)
 
 Source data: `slack.File.Thumb360`/`Thumb720`/`Thumb1024` plus `*W`/`*H` companions. Inputs come from `slack-go` (`go/pkg/mod/github.com/slack-go/slack@v0.23.0/files.go:26-101`).
 
-Inline rendering uses cell-metrics-derived pixel target. The full-screen preview always asks for `Thumb1024`.
+Inline rendering uses cell-metrics-derived pixel target. The full-screen preview takes the largest thumb.
 
-The `url_private` (original) is **not** used — it requires Slack auth headers and is out of scope for v1.
+The `url_private` (original) is used by the preview only, and only when Slack reports `original_w`/`original_h` bigger than the largest thumb and that thumb doesn't cover the preview pane's pixel budget (`PickPreviewSource`). It needs Slack auth headers, which the fetcher already attaches for `files.slack.com`. Inline rendering stays on thumbnails so the bandwidth cost lands only on images the user opened.
 
 ## Renderer
 
