@@ -85,7 +85,7 @@ func DefaultKeyMap() KeyMap {
 		SidebarGrow:     key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "widen sidebar")),
 		SidebarShrink:   key.NewBinding(key.WithKeys("["), key.WithHelp("[", "narrow sidebar")),
 		ToggleThread:    key.NewBinding(key.WithKeys("ctrl+]"), key.WithHelp("ctrl+]", "toggle thread")),
-		ZoomThread:      key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "zoom thread")),
+		ZoomThread:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "zoom thread")),
 		FuzzyFinder:     key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "switch channel")),
 		FuzzyFinderAlt:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch channel")),
 		Top:             key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "top")),

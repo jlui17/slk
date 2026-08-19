@@ -1,6 +1,6 @@
 // internal/ui/app_threadzoom_test.go
 //
-// The `z` thread zoom: layout geometry and hit-test bands while the
+// The `t` thread zoom: layout geometry and hit-test bands while the
 // thread owns the whole messages area, the toggle's state transitions,
 // and the focus cycle with the messages pane no longer drawn.
 package ui
@@ -114,7 +114,7 @@ func TestZoomLayoutBypassesAutoHide(t *testing.T) {
 func TestZoomKeyTogglesAndPullsFocusOffMessages(t *testing.T) {
 	a := zoomTestApp()
 	a.focusedPanel = PanelMessages
-	z := tea.KeyPressMsg{Code: 'z', Text: "z"}
+	z := tea.KeyPressMsg{Code: 't', Text: "t"}
 
 	_ = handleNormalMode(a, z)
 	if !a.threadFullscreen {
@@ -135,7 +135,7 @@ func TestZoomKeyNoOpWithoutThread(t *testing.T) {
 	a.threadVisible = false
 	a.focusedPanel = PanelMessages
 
-	_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'z', Text: "z"})
+	_ = handleNormalMode(a, tea.KeyPressMsg{Code: 't', Text: "t"})
 
 	if a.threadFullscreen {
 		t.Error("z with no thread open should not zoom")

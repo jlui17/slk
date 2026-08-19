@@ -9,7 +9,7 @@
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
 //     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
 //     (nav back/forward through visited channels)
-//   - layout toggles: s (sidebar), t (thread), z (zoom thread over
+//   - layout toggles: ctrl+b (sidebar), ctrl+] (thread), t (zoom thread over
 //     the messages region)
 //   - message ops: y (copy permalink), E (edit), D (delete),
 //     M (mark unread), O (open image preview)
