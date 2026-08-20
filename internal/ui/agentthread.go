@@ -12,8 +12,8 @@ import (
 )
 
 // agentThreadState identifies the currently open agent thread — the thread
-// visible in the thread panel whose root message mentions a bot user. Zero
-// value means no agent thread is open.
+// visible in the thread panel whose root message mentions, or was written by,
+// a bot user. Zero value means no agent thread is open.
 type agentThreadState struct {
 	active    bool
 	channelID string
@@ -42,6 +42,9 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		return
 	}
 	botUserID, name, ok := a.firstBotMention(parent.Text)
+	if !ok {
+		botUserID, name, ok = a.botUser(parent.UserID)
+	}
 	if !ok {
 		a.releaseAgentThread()
 		return
@@ -96,12 +99,24 @@ func (a *App) releaseAgentThread() {
 // mention in text that resolves to a bot or app user.
 func (a *App) firstBotMention(text string) (userID, name string, ok bool) {
 	for _, id := range mrkdwn.MentionedUserIDs(text) {
-		name, isBot, ok := a.userInfo(id)
-		if ok && isBot && name != "" {
+		if id, name, ok := a.botUser(id); ok {
 			return id, name, true
 		}
 	}
 	return "", "", false
+}
+
+// botUser resolves userID to a bot or app user, echoing the ID back so both
+// detection paths (mention and root author) return the same shape.
+func (a *App) botUser(userID string) (string, string, bool) {
+	if userID == "" {
+		return "", "", false
+	}
+	name, isBot, ok := a.userInfo(userID)
+	if !ok || !isBot || name == "" {
+		return "", "", false
+	}
+	return userID, name, true
 }
 
 // flattenRootText renders a root message's mrkdwn to whitespace-collapsed

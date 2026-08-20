@@ -71,6 +71,28 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 	}
 }
 
+func TestAgentThreadDetectedFromBotAuthor(t *testing.T) {
+	a, calls, _, tabNames := newAgentTestAppWithTab()
+	parent := messages.MessageItem{TS: "100.0", Text: "kicking off the ingest retry fix", UserID: "UBOT"}
+	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
+	a.threadVisible = true
+	a.updateAgentThread(parent, "C1", "100.0")
+
+	if len(*calls) != 1 {
+		t.Fatalf("want 1 report, got %+v", *calls)
+	}
+	c := (*calls)[0]
+	if c.agent != "slack-claude" || c.displayName != "Claude" || c.working {
+		t.Errorf("unexpected report: %+v", c)
+	}
+	if want := "#z-claude-dreams kicking off the ingest retry fix"; c.title != want {
+		t.Errorf("title = %q, want %q", c.title, want)
+	}
+	if len(*tabNames) != 1 || (*tabNames)[0] != "kicking off the ingest retry …" {
+		t.Errorf("tab names = %+v", *tabNames)
+	}
+}
+
 func TestAgentThreadNamesTab(t *testing.T) {
 	a, _, _, tabNames := newAgentTestAppWithTab()
 	openAgentThread(a, "<@UBOT> please fix the ingest retries in colony")
