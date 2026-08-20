@@ -73,6 +73,14 @@ message_retention_days = 30
 max_db_size_mb = 500
 max_image_cache_mb = 200
 
+# When slk runs inside a herdr pane, it mirrors the open agent thread (a
+# thread whose root message @-mentions a bot, e.g. Claude) onto herdr's
+# agent sidebar: idle/working state, the bot's name, and a channel+snippet
+# title. This needs no configuration — it activates from herdr's own pane
+# environment (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
+[herdr]
+disabled = false   # set true to opt out of agent-sidebar reporting
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.
