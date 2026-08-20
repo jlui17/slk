@@ -45,6 +45,21 @@ type pendingLinkNav struct {
 	delivered bool
 }
 
+// SetStartupLink queues a permalink navigation for startup: once the
+// initial active workspace is ready, the app opens channelID and
+// selects messageTS (or opens the thread panel when threadTS is set)
+// instead of restoring the last-visited channel. Call before the
+// program starts; the caller is responsible for making the link's
+// workspace the initial active one.
+func (a *App) SetStartupLink(channelID, messageTS, threadTS string) {
+	a.startupLinkNav = &pendingLinkNav{
+		channelID:        channelID,
+		messageTS:        messageTS,
+		threadTS:         threadTS,
+		openParentThread: true,
+	}
+}
+
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	m, ok := msg.(OpenLinkMsg)
 	if !ok {
