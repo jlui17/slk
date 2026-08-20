@@ -90,7 +90,7 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	}
 	if p.threadTS != "" {
 		a.pendingLinkNav = nil
-		return a.openThreadForPermalink(p.channelID, p.threadTS)
+		return a.openThreadForPermalink(p.channelID, p.threadTS, p.messageTS)
 	}
 	if a.messagepane.SelectByTS(p.messageTS) {
 		// A best-effort (cache-render) select is not the end of the
@@ -122,7 +122,7 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 // the parent row is taken from the loaded buffer or the thread cache
 // when available, else a minimal stub that the ThreadRepliesLoadedMsg
 // handler backfills from cache once the fetch lands.
-func (a *App) openThreadForPermalink(channelID, threadTS string) tea.Cmd {
+func (a *App) openThreadForPermalink(channelID, threadTS, selectTS string) tea.Cmd {
 	parent := messages.MessageItem{TS: threadTS, ThreadTS: threadTS}
 	if channelID == a.activeChannelID {
 		for _, m := range a.messagepane.Messages() {
@@ -138,5 +138,11 @@ func (a *App) openThreadForPermalink(channelID, threadTS string) tea.Cmd {
 		}
 	}
 
-	return a.openThreadPanel(parent, channelID, threadTS)
+	cmd := a.openThreadPanel(parent, channelID, threadTS)
+	// Pin the cursor to the exact linked message across the panel's
+	// reloads (cache prime, authoritative fetch) — otherwise each
+	// SetThread snaps to the newest reply. Armed after openThreadPanel:
+	// its SetThread clears the pin on a thread-identity change.
+	a.threadPanel.SetPendingSelectTS(selectTS)
+	return cmd
 }
