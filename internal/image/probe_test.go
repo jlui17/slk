@@ -81,6 +81,50 @@ func TestProbeKittyGraphics_NoStdinTheftAfterTimeout(t *testing.T) {
 	}
 }
 
+func TestScanForOK_MatchesProbeID(t *testing.T) {
+	cases := []struct {
+		name        string
+		buf         string
+		wantID      int
+		wantMatched bool
+		wantOK      bool
+	}{
+		{"ok for our id", "\x1b_Gi=9999;OK\x1b\\", 9999, true, true},
+		{"error for our id", "\x1b_Gi=9999;EINVAL: unsupported format\x1b\\", 9999, true, false},
+		// A slow terminal's reply to an earlier probe (different id)
+		// must be skipped, not consumed as this probe's answer.
+		{"stale ok skipped", "\x1b_Gi=9998;OK\x1b\\", 9999, false, false},
+		{"stale ok then our error", "\x1b_Gi=9998;OK\x1b\\\x1b_Gi=9999;EBADPNG\x1b\\", 9999, true, false},
+		{"stale error then our ok", "\x1b_Gi=9999;EINVAL\x1b\\\x1b_Gi=9998;OK\x1b\\", 9998, true, true},
+		// i=999 must not match i=9998 as a prefix.
+		{"prefix id no match", "\x1b_Gi=9998;OK\x1b\\", 999, false, false},
+		// A reply with no id echo is judged on its own ;OK.
+		{"no id echoed", "\x1b_G;OK\x1b\\", 9999, true, true},
+		{"incomplete", "\x1b_Gi=9999;OK", 9999, false, false},
+		{"empty", "", 9999, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matched, ok := scanForOK([]byte(tc.buf), tc.wantID)
+			if matched != tc.wantMatched || ok != tc.wantOK {
+				t.Errorf("scanForOK(%q, %d) = (%v, %v), want (%v, %v)",
+					tc.buf, tc.wantID, matched, ok, tc.wantMatched, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestProbeKittyGraphics_IgnoresStaleReplyForOtherID(t *testing.T) {
+	t.Setenv("TMUX", "")
+	var w bytes.Buffer
+	// Only a stale RGBA-probe OK is buffered; the PNG probe must not
+	// claim it, so it times out instead of succeeding.
+	ok, rejected := ProbeKittyGraphics(&w, strings.NewReader("\x1b_Gi=9998;OK\x1b\\"), 100*time.Millisecond)
+	if ok || rejected {
+		t.Errorf("got (ok=%v, rejected=%v), want (false, false)", ok, rejected)
+	}
+}
+
 func TestProbeKittyGraphics_RejectedOnErrorReply(t *testing.T) {
 	t.Setenv("TMUX", "")
 	var w bytes.Buffer

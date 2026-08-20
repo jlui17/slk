@@ -53,7 +53,7 @@ func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) (ok, re
 	// Minimal valid 1x1 PNG.
 	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=="
 	header := fmt.Sprintf("a=T,f=100,t=d,i=%d,q=0", kittyProbeIDPNG)
-	return probeKittyTransmit(w, r, timeout, "png probe", header, tinyPNG)
+	return probeKittyTransmit(w, r, timeout, "png probe", kittyProbeIDPNG, header, tinyPNG)
 }
 
 // ProbeKittyRGBA is ProbeKittyGraphics with a raw-RGBA payload (f=32,
@@ -66,7 +66,7 @@ func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) (ok, re
 func ProbeKittyRGBA(w io.Writer, r io.Reader, timeout time.Duration) (ok, rejected bool) {
 	const rawWhitePixel = "/////w==" // base64 of 4×0xff: one RGBA pixel
 	header := fmt.Sprintf("a=T,f=32,s=1,v=1,t=d,i=%d,q=0", kittyProbeIDRGBA)
-	return probeKittyTransmit(w, r, timeout, "rgba probe", header, rawWhitePixel)
+	return probeKittyTransmit(w, r, timeout, "rgba probe", kittyProbeIDRGBA, header, rawWhitePixel)
 }
 
 // Distinct probe image IDs so a late reply to one probe can never be
@@ -80,7 +80,7 @@ const (
 // the terminal's answer: (true, false) on ;OK, (false, true) on a
 // complete non-OK reply, (false, false) when nothing came back before
 // timeout. tag labels the debug log line.
-func probeKittyTransmit(w io.Writer, r io.Reader, timeout time.Duration, tag, header, payload string) (ok, rejected bool) {
+func probeKittyTransmit(w io.Writer, r io.Reader, timeout time.Duration, tag string, id int, header, payload string) (ok, rejected bool) {
 	if err := writeKittySequence(w, fmt.Sprintf("\x1b_G%s;%s\x1b\\", header, payload)); err != nil {
 		return false, false
 	}
@@ -90,7 +90,7 @@ func probeKittyTransmit(w io.Writer, r io.Reader, timeout time.Duration, tag, he
 	// goroutine that can outlive a timeout return.
 	var sawReject atomic.Bool
 	scan := func(buf []byte) (bool, bool) {
-		matched, scanOK := scanForOK(buf)
+		matched, scanOK := scanForOK(buf, id)
 		if matched && !scanOK {
 			sawReject.Store(true)
 		}
@@ -267,19 +267,53 @@ func scanForSixelDA(buf []byte) (matched, ok bool) {
 	return true, false
 }
 
-// scanForOK returns (matched, ok). matched is true if a complete kitty
-// graphics response (\x1b_G ... \x1b\\) is present in buf. ok is true
-// when matched is true AND the payload contains ";OK". Used by both
-// the poll-based and goroutine-based probe paths.
-func scanForOK(buf []byte) (matched, ok bool) {
-	i := bytes.Index(buf, []byte("\x1b_G"))
-	if i < 0 {
-		return false, false
+// scanForOK returns (matched, ok). matched is true once a complete
+// kitty graphics response (\x1b_G ... \x1b\\) addressed to wantID is
+// present in buf; ok is true when that reply's payload contains ";OK".
+// A complete reply echoing a DIFFERENT id is skipped, not judged: it
+// is a stale answer to an earlier probe still sitting in the input
+// buffer (a slow terminal can reply after the earlier probe's timeout
+// already returned), and consuming it as this probe's answer is how a
+// probe sequence reaches the wrong protocol verdict. A reply echoing
+// no id at all is judged on its own ;OK — there is nothing to
+// disambiguate on, and a minimal implementation may omit the echo.
+func scanForOK(buf []byte, wantID int) (matched, ok bool) {
+	want := []byte(fmt.Sprintf("i=%d", wantID))
+	for {
+		i := bytes.Index(buf, []byte("\x1b_G"))
+		if i < 0 {
+			return false, false
+		}
+		tail := buf[i+3:] // skip past \x1b_G
+		j := bytes.Index(tail, []byte("\x1b\\"))
+		if j < 0 {
+			return false, false
+		}
+		reply := tail[:j]
+		if kittyReplyMatchesID(reply, want) {
+			return true, bytes.Contains(reply, []byte(";OK"))
+		}
+		buf = tail[j+2:] // stale reply for another id: skip past it
 	}
-	tail := buf[i+3:] // skip past \x1b_G
-	j := bytes.Index(tail, []byte("\x1b\\"))
-	if j < 0 {
-		return false, false
+}
+
+// kittyReplyMatchesID reports whether a kitty graphics reply's
+// comma-separated key block (everything before the first ';') carries
+// exactly the wanted i=<id> key. want must be the full "i=<id>" bytes
+// so "i=999" never matches "i=9998". A reply with no i= key matches
+// unconditionally — see scanForOK.
+func kittyReplyMatchesID(reply, want []byte) bool {
+	keys := reply
+	if end := bytes.IndexByte(reply, ';'); end >= 0 {
+		keys = reply[:end]
 	}
-	return true, bytes.Contains(tail[:j], []byte(";OK"))
+	if !bytes.Contains(keys, []byte("i=")) {
+		return true
+	}
+	for _, kv := range bytes.Split(keys, []byte(",")) {
+		if bytes.Equal(kv, want) {
+			return true
+		}
+	}
+	return false
 }
