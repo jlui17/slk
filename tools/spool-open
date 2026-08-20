@@ -1,0 +1,8 @@
+#!/bin/sh
+# $BROWSER hook for the run-docker.sh container: the container has no
+# browser, so spool the URL for the host-side watcher (run-docker.sh)
+# to open. Write-then-rename so the watcher never reads a partial file.
+set -eu
+tmp="/host-open/.url-$$"
+printf '%s\n' "$1" > "$tmp"
+mv "$tmp" "/host-open/url-$$"

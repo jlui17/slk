@@ -2404,16 +2404,23 @@ func launchOS(target string) error {
 	return cmd.Start()
 }
 
-// openURLCmd asynchronously launches the OS default browser for url.
-// Same launcher matrix as openInSystemViewerCmd (xdg-open / open /
-// rundll32). A failed launch surfaces a toast — unlike the image
-// viewer, the user otherwise gets no feedback at all.
+// openURLCmd asynchronously launches a browser for url: $BROWSER when
+// set (the conventional override; also how tools/run-docker.sh bridges
+// container link-opens to the host browser), else launchOS. A failed
+// launch surfaces a toast — unlike the image viewer, the user
+// otherwise gets no feedback at all.
 func openURLCmd(url string) tea.Cmd {
 	return func() tea.Msg {
 		if url == "" {
 			return nil
 		}
-		if err := launchOS(url); err != nil {
+		launch := launchOS
+		if browser := os.Getenv("BROWSER"); browser != "" {
+			launch = func(target string) error {
+				return exec.Command(browser, target).Start()
+			}
+		}
+		if err := launch(url); err != nil {
 			log.Printf("browser launch failed: %v", err)
 			return ToastMsg{Text: "Failed to open link"}
 		}
