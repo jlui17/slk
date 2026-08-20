@@ -77,7 +77,9 @@ max_image_cache_mb = 200
 # thread whose root message @-mentions a bot, e.g. Claude) onto herdr's
 # agent sidebar: idle/working state, the bot's name, and a channel+snippet
 # title. It also names the surrounding herdr tab after the thread's root
-# message ("fix the ingest retries") — but only over a default tab label or
+# message ("fix the ingest retries"; a task id anywhere in the message is
+# hoisted to the front, "[colony-562] fix the flow viewer") — but only over
+# a default tab label or
 # one slk set itself; a label you typed is never overwritten. This needs no
 # configuration — it activates from herdr's own pane environment
 # (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.

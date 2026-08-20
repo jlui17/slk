@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -108,10 +109,18 @@ func (a *App) agentThreadTitle(channelID, flat string) string {
 	return "#" + channel + " " + truncate.StringWithTail(flat, maxSnippet, "…")
 }
 
+// taskIDRe matches tracker-style task ids ("colony-562", "TAIGA-41"). Two+
+// letters before the dash keeps single-letter false positives out; short
+// hyphenated terms with digits ("sha-256") can still match, and the first
+// occurrence wins because task ids conventionally lead the message.
+var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
+
 // agentTabLabel derives a short tab name from the flattened root text,
 // dropping the leading agent mention ("@Claude fix the retries" → "fix the
 // retries") since the tab bar has no room for the part every agent thread
-// shares.
+// shares. A task id anywhere in the text is hoisted to a leading
+// "[colony-562] " prefix, matching the workspace-labeling convention, and
+// removed from the snippet so it doesn't appear twice.
 func agentTabLabel(agentName, flat string) string {
 	label := strings.TrimSpace(strings.TrimPrefix(flat, "@"+agentName))
 	label = strings.TrimLeft(label, ":,;.- ")
@@ -119,6 +128,14 @@ func agentTabLabel(agentName, flat string) string {
 		label = flat
 	}
 	const maxLabel = 30
+	if id := taskIDRe.FindString(label); id != "" {
+		rest := strings.Join(strings.Fields(strings.Replace(label, id, "", 1)), " ")
+		rest = strings.TrimLeft(rest, ":,;.- ")
+		if rest == "" {
+			return "[" + id + "]"
+		}
+		return "[" + id + "] " + truncate.StringWithTail(rest, maxLabel, "…")
+	}
 	return truncate.StringWithTail(label, maxLabel, "…")
 }
 

@@ -89,6 +89,20 @@ func TestAgentThreadNamesTab(t *testing.T) {
 	}
 }
 
+func TestAgentTabLabelHoistsTaskID(t *testing.T) {
+	cases := []struct{ flat, want string }{
+		{"@Claude colony-562: fix the flow viewer", "[colony-562] fix the flow viewer"},
+		{"@Claude please babysit colony-71 until merge", "[colony-71] please babysit until merge"},
+		{"@Claude colony-562", "[colony-562]"},
+		{"@Claude fix the ingest retries", "fix the ingest retries"},
+	}
+	for _, c := range cases {
+		if got := agentTabLabel("Claude", c.flat); got != c.want {
+			t.Errorf("agentTabLabel(%q) = %q, want %q", c.flat, got, c.want)
+		}
+	}
+}
+
 func TestAgentThreadTitleFlattensMrkdwn(t *testing.T) {
 	a, calls, _ := newAgentTestApp()
 	openAgentThread(a, "<@UBOT> look at <#C1> &amp; <https://x.test|the link>")
