@@ -339,6 +339,12 @@ type App struct {
 	// reducer_links.go.
 	pendingLinkNav *pendingLinkNav
 
+	// startupLinkNav is a permalink navigation requested on the command
+	// line (slk <link>). Set via SetStartupLink before the program
+	// starts; consumed once by reduceWorkspaceReady, which promotes it
+	// to pendingLinkNav in place of the last-visited channel restore.
+	startupLinkNav *pendingLinkNav
+
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
 	// searchGen is a monotonic generation counter: bumped on every
@@ -2607,6 +2613,20 @@ func (a *App) ActiveChannelID() string {
 // SetWorkspaceSwitcher sets the callback used to switch workspaces.
 func (a *App) SetWorkspaceSwitcher(fn SwitchWorkspaceFunc) {
 	a.workspaceSwitcher = fn
+}
+
+// SetStartupLink queues a permalink navigation for startup: once the
+// initial active workspace is ready, the app opens channelID and
+// selects messageTS (or opens the thread panel when threadTS is set)
+// instead of restoring the last-visited channel. Call before the
+// program starts; the caller is responsible for making the link's
+// workspace the initial active one.
+func (a *App) SetStartupLink(channelID, messageTS, threadTS string) {
+	a.startupLinkNav = &pendingLinkNav{
+		channelID: channelID,
+		messageTS: messageTS,
+		threadTS:  threadTS,
+	}
 }
 
 // SetThemeItems sets the available themes for the switcher.
