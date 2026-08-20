@@ -60,7 +60,7 @@ func TestKitty_UploadEscapeWrappedInTmux(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux")
 
 	var buf bytes.Buffer
-	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5, 170, 185); err != nil {
+	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5, 170, 185, false); err != nil {
 		t.Fatal(err)
 	}
 	s := buf.String()
@@ -77,11 +77,8 @@ func TestKitty_UploadEscapeWrappedInTmux(t *testing.T) {
 
 func TestKitty_UploadRGBAFormat(t *testing.T) {
 	t.Setenv("TMUX", "")
-	kittyUploadRGBA.Store(true)
-	t.Cleanup(func() { kittyUploadRGBA.Store(false) })
-
 	var buf bytes.Buffer
-	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5, 170, 185); err != nil {
+	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5, 170, 185, true); err != nil {
 		t.Fatal(err)
 	}
 	s := buf.String()
@@ -94,14 +91,11 @@ func TestKitty_UploadRGBAFormat(t *testing.T) {
 }
 
 func TestKitty_EncodePayloadRGBARoundtrip(t *testing.T) {
-	kittyUploadRGBA.Store(true)
-	t.Cleanup(func() { kittyUploadRGBA.Store(false) })
-
 	img := image.NewRGBA(image.Rect(0, 0, 3, 2))
 	for i := range img.Pix {
 		img.Pix[i] = byte(i * 7)
 	}
-	raw, err := encodeKittyPayload(img)
+	raw, err := encodeKittyPayload(img, true)
 	if err != nil {
 		t.Fatal(err)
 	}

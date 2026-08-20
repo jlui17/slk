@@ -146,7 +146,7 @@ type KittyRenderer struct {
 	// that on a Retina cell of ~17x37. Acceptable; if it ever becomes
 	// a concern, an LRU eviction can be added without changing the
 	// contract.
-	payloads map[payloadKey]string
+	payloads map[payloadKey]kittyPayload
 }
 
 // placeholderKey scopes the buildPlaceholderLines memo by the inputs
@@ -173,7 +173,7 @@ func NewKittyRenderer(reg *Registry) *KittyRenderer {
 		registry:     reg,
 		sources:      map[string]image.Image{},
 		placeholders: map[placeholderKey][]string{},
-		payloads:     map[payloadKey]string{},
+		payloads:     map[payloadKey]kittyPayload{},
 	}
 }
 
@@ -257,14 +257,21 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		payload, payloadHit := k.payloads[pKey]
 		k.mu.Unlock()
 		if !payloadHit {
+			// The ONLY read of the upload-format flag on this path:
+			// the encoded bytes and the header format they'll be
+			// emitted under travel together in the memo entry, so a
+			// flag flip after rendering starts can never pair a PNG
+			// payload with an f=32 header (stale entries keep their
+			// own format and stay self-consistent).
+			rgba := kittyUploadRGBA.Load()
 			// The terminal stretches the transmitted raster across the
 			// c=<cols>,r=<rows> box, so a raster smaller than that box's
 			// device-pixel size loses detail the terminal cannot restore.
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
 			draw.BiLinear.Scale(resized, resized.Bounds(), src, src.Bounds(), draw.Over, nil)
-			raw, err := encodeKittyPayload(resized)
+			raw, err := encodeKittyPayload(resized, rgba)
 			if err == nil {
-				payload = base64.StdEncoding.EncodeToString(raw)
+				payload = kittyPayload{b64: base64.StdEncoding.EncodeToString(raw), rgba: rgba}
 				k.mu.Lock()
 				k.payloads[pKey] = payload
 				k.mu.Unlock()
@@ -294,8 +301,8 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 				return nil
 			}
 			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",
-				imgID, cellsCols, cellsRows, cw, ch, len(payload), payloadHit)
-			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows, pxW, pxH); err != nil {
+				imgID, cellsCols, cellsRows, cw, ch, len(payload.b64), payloadHit)
+			if err := emitKittyUpload(w, imgID, payload.b64, cellsCols, cellsRows, pxW, pxH, payload.rgba); err != nil {
 				return err
 			}
 			reg.MarkUploaded(imgID)
@@ -305,14 +312,21 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 	return r
 }
 
-// encodeKittyPayload encodes the resized raster in whichever pixel
-// format kitty uploads are running in: PNG by default, zlib-compressed
-// raw RGBA when SetKittyUploadRGBA was called at startup. The raw path
-// serializes img.Pix directly — img is always freshly allocated by
-// image.NewRGBA at (0,0), so Pix is contiguous with no stride padding.
-func encodeKittyPayload(img *image.RGBA) ([]byte, error) {
+// kittyPayload is a memoized upload: the base64 bytes plus the pixel
+// format they were encoded in, so the emit header can never disagree
+// with the encoding.
+type kittyPayload struct {
+	b64  string
+	rgba bool
+}
+
+// encodeKittyPayload encodes the resized raster: PNG by default,
+// zlib-compressed raw RGBA when rgba is set. The raw path serializes
+// img.Pix directly — img is always freshly allocated by image.NewRGBA
+// at (0,0), so Pix is contiguous with no stride padding.
+func encodeKittyPayload(img *image.RGBA, rgba bool) ([]byte, error) {
 	var buf bytes.Buffer
-	if kittyUploadRGBA.Load() {
+	if rgba {
 		zw := zlib.NewWriter(&buf)
 		if _, err := zw.Write(img.Pix); err != nil {
 			return nil, err
@@ -330,10 +344,11 @@ func encodeKittyPayload(img *image.RGBA) ([]byte, error) {
 
 // emitKittyUpload writes the kitty graphics protocol APC sequence to
 // transmit an image and create a virtual placement of size cols×rows
-// for unicode-placeholder rendering. The payload is PNG (f=100) by
-// default or zlib-compressed raw RGBA (f=32,o=z) after
-// SetKittyUploadRGBA; raw needs its pixel dimensions spelled out via
-// s=<pxW>,v=<pxH> since there's no image header to carry them.
+// for unicode-placeholder rendering. rgba says how payload was encoded
+// (it travels with the payload, see kittyPayload): PNG (f=100), or
+// zlib-compressed raw RGBA (f=32,o=z), which needs its pixel
+// dimensions spelled out via s=<pxW>,v=<pxH> since there's no image
+// header to carry them.
 //
 // The first chunk uses `a=T` ("transmit AND display") with `U=1`
 // (unicode-placeholder mode), `c=<cols>` and `r=<rows>` to define the
@@ -344,7 +359,7 @@ func encodeKittyPayload(img *image.RGBA) ([]byte, error) {
 // chunked. The final chunk has m=0 to mark the end.
 //
 // Reference: https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders
-func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows, pxW, pxH int) error {
+func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows, pxW, pxH int, rgba bool) error {
 	const chunk = 4096
 	for i := 0; i < len(payload); i += chunk {
 		end := i + chunk
@@ -356,7 +371,7 @@ func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows, pxW, px
 		var hdr string
 		if i == 0 {
 			format := "f=100"
-			if kittyUploadRGBA.Load() {
+			if rgba {
 				format = fmt.Sprintf("f=32,o=z,s=%d,v=%d", pxW, pxH)
 			}
 			hdr = fmt.Sprintf("a=T,%s,t=d,i=%d,U=1,c=%d,r=%d,q=2,m=%d", format, id, cols, rows, more)
