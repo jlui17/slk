@@ -11,6 +11,53 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
+// AgentReportFunc mirrors the open agent thread (a thread whose root message
+// mentions, or was written by, a bot user) onto an external agent sidebar.
+// agent is the sidebar's
+// internal agent id, displayName the human name it shows, title the pane
+// title, working the in-progress flag, statusMessage the assistant's
+// transient status text ("is thinking…", may be empty). See internal/herdr.
+type AgentReportFunc func(agent, displayName, title string, working bool, statusMessage string)
+
+// AgentReleaseFunc removes the agent-sidebar entry published through
+// AgentReportFunc.
+type AgentReleaseFunc func()
+
+// AgentTabNameFunc names the pane's surrounding tab after the open agent
+// thread. The implementation decides whether the rename is allowed (it must
+// never overwrite a label the user set themselves).
+type AgentTabNameFunc func(label string)
+
+// UserInfoFunc resolves a user ID against the user cache. ok is false when
+// the user isn't cached yet; agent-thread detection then skips the candidate
+// rather than blocking on a network round-trip.
+type UserInfoFunc func(userID string) (displayName string, isBot, ok bool)
+
+// AssistantStatusMsg mirrors an ai_assistant_status WS event: an AI
+// assistant (Claude Tag) started or finished composing in a thread.
+// Fires for every thread in the workspace, not just visible ones;
+// a non-empty Status ("is thinking…") means the assistant's turn is
+// in progress, an empty Status clears it.
+type AssistantStatusMsg struct {
+	ChannelID string
+	ThreadTS  string
+	BotUserID string
+	Status    string
+}
+
+// agentSidebar bundles the herdr agent-sidebar integration: the callbacks
+// mirroring the open agent thread onto the sidebar (report/release), the tab
+// renamer, the user lookup backing bot-user detection, and the detection
+// state itself. The callbacks are nil unless slk runs inside a herdr pane
+// (see SetAgentReporter).
+type agentSidebar struct {
+	report   AgentReportFunc
+	release  AgentReleaseFunc
+	nameTab  AgentTabNameFunc
+	userInfo UserInfoFunc
+	thread   agentThreadState
+}
+
 // agentThreadState identifies the currently open agent thread — the thread
 // visible in the thread panel whose root message mentions, or was written by,
 // a bot user. Zero value means no agent thread is open.
@@ -21,6 +68,16 @@ type agentThreadState struct {
 	botUserID string
 	agentName string
 	title     string
+}
+
+// SetAgentReporter installs the agent-sidebar callbacks and the user lookup
+// backing bot-user detection. Installed only when slk runs inside a herdr
+// pane; unset, agent-thread detection is inert.
+func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc, nameTab AgentTabNameFunc, userInfo UserInfoFunc) {
+	a.agentSidebar.report = report
+	a.agentSidebar.release = release
+	a.agentSidebar.nameTab = nameTab
+	a.agentSidebar.userInfo = userInfo
 }
 
 // setThreadPanel is the single path that changes the thread panel's content;
@@ -38,7 +95,7 @@ func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.Mes
 // can't stomp a live working state back to idle. A nil agentReport (slk not
 // in a herdr pane, or integration disabled) makes it a no-op.
 func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS string) {
-	if a.agentReport == nil || a.userInfo == nil {
+	if a.agentSidebar.report == nil || a.agentSidebar.userInfo == nil {
 		return
 	}
 	botUserID, name, ok := a.firstBotMention(parent.Text)
@@ -58,21 +115,21 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		agentName: name,
 		title:     a.agentThreadTitle(channelID, flat),
 	}
-	if next == a.agentThread {
+	if next == a.agentSidebar.thread {
 		return
 	}
 	// herdr keys one sidebar entry per pane, so reporting a different agent
 	// id replaces the previous entry — switching between two agents'
 	// threads needs no cross-agent release.
-	a.agentThread = next
+	a.agentSidebar.thread = next
 	// The initial state is idle: ai_assistant_status is edge-triggered, so
 	// a turn already in progress isn't visible until its next event.
-	a.agentReport(agentSidebarID(name), name, next.title, false, "")
-	if a.agentNameTab != nil {
+	a.agentSidebar.report(agentSidebarID(name), name, next.title, false, "")
+	if a.agentSidebar.nameTab != nil {
 		// The mention is dropped from the raw text, not trimmed from the
 		// flattened string: trimming by rendered name breaks when the
 		// in-memory name map and the user cache disagree on the bot's name.
-		a.agentNameTab(agentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID))))
+		a.agentSidebar.nameTab(agentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID))))
 	}
 }
 
@@ -86,12 +143,12 @@ func stripMention(text, userID string) string {
 // releaseAgentThread removes the sidebar entry when the agent thread stops
 // being the open thread (panel closed, or a non-agent thread replaced it).
 func (a *App) releaseAgentThread() {
-	if !a.agentThread.active {
+	if !a.agentSidebar.thread.active {
 		return
 	}
-	a.agentThread = agentThreadState{}
-	if a.agentRelease != nil {
-		a.agentRelease()
+	a.agentSidebar.thread = agentThreadState{}
+	if a.agentSidebar.release != nil {
+		a.agentSidebar.release()
 	}
 }
 
@@ -112,7 +169,7 @@ func (a *App) botUser(userID string) (string, string, bool) {
 	if userID == "" {
 		return "", "", false
 	}
-	name, isBot, ok := a.userInfo(userID)
+	name, isBot, ok := a.agentSidebar.userInfo(userID)
 	if !ok || !isBot || name == "" {
 		return "", "", false
 	}
@@ -127,7 +184,7 @@ func (a *App) flattenRootText(rootText string) string {
 			if name := a.userNames[id]; name != "" {
 				return name, true
 			}
-			name, _, ok := a.userInfo(id)
+			name, _, ok := a.agentSidebar.userInfo(id)
 			return name, ok && name != ""
 		},
 		func(id string) (string, bool) {
@@ -193,10 +250,10 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
-	t := a.agentThread
+	t := a.agentSidebar.thread
 	if !t.active || m.ChannelID != t.channelID || m.ThreadTS != t.threadTS || m.BotUserID != t.botUserID {
 		return nil, true
 	}
-	a.agentReport(agentSidebarID(t.agentName), t.agentName, t.title, m.Status != "", m.Status)
+	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, m.Status != "", m.Status)
 	return nil, true
 }

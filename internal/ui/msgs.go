@@ -220,17 +220,6 @@ type (
 		DisplayName string
 		IsBot       bool
 	}
-	// AssistantStatusMsg mirrors an ai_assistant_status WS event: an AI
-	// assistant (Claude Tag) started or finished composing in a thread.
-	// Fires for every thread in the workspace, not just visible ones;
-	// a non-empty Status ("is thinking…") means the assistant's turn is
-	// in progress, an empty Status clears it.
-	AssistantStatusMsg struct {
-		ChannelID string
-		ThreadTS  string
-		BotUserID string
-		Status    string
-	}
 	// UserExternalMsg flags a single user as external (Slack Connect /
 	// shared-channel guest). Emitted by the user-resolution path when a
 	// users.info response shows team_id != workspace TeamID. The App

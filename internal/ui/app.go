@@ -190,15 +190,7 @@ type App struct {
 	// a status_command is configured (config: notifications.status_command).
 	statusReport StatusReportFunc
 
-	// agentReport/agentRelease mirror the open agent thread onto an external
-	// agent sidebar (herdr); agentNameTab names the surrounding tab after
-	// it; userInfo backs the bot-user detection. All nil unless slk runs
-	// inside a herdr pane (see SetAgentReporter).
-	agentReport  AgentReportFunc
-	agentRelease AgentReleaseFunc
-	agentNameTab AgentTabNameFunc
-	userInfo     UserInfoFunc
-	agentThread  agentThreadState
+	agentSidebar agentSidebar
 
 	// clipboardAvailable is set from the native clipboard reader's startup
 	// result. It gates Ctrl+V smart-paste only; OSC 52 writes do not depend on
@@ -2092,16 +2084,6 @@ func (a *App) SetWorkspaceUnreadReader(f func() []string) {
 // notifications.status_command).
 func (a *App) SetStatusReporter(fn StatusReportFunc) {
 	a.statusReport = fn
-}
-
-// SetAgentReporter installs the agent-sidebar callbacks and the user lookup
-// backing bot-user detection. Installed only when slk runs inside a herdr
-// pane; unset, agent-thread detection is inert.
-func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc, nameTab AgentTabNameFunc, userInfo UserInfoFunc) {
-	a.agentReport = report
-	a.agentRelease = release
-	a.agentNameTab = nameTab
-	a.userInfo = userInfo
 }
 
 func (a *App) SetChannelFinderItems(items []channelfinder.Item) {
