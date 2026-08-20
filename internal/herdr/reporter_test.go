@@ -182,6 +182,11 @@ func TestRelease(t *testing.T) {
 			t.Errorf("release_agent params[%q] = %v, want %v", k, params[k], v)
 		}
 	}
+	// A release without a fresh seq counts as 0, stale against the prior
+	// report's UnixNano, and herdr silently ignores it.
+	if seq, ok := params["seq"].(float64); !ok || seq <= 0 {
+		t.Errorf("release_agent seq = %v, want positive number", params["seq"])
+	}
 }
 
 func TestReleaseBeforeReportSendsNothing(t *testing.T) {

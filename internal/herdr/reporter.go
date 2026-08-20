@@ -92,6 +92,7 @@ type releaseAgentParams struct {
 	PaneID string `json:"pane_id"`
 	Source string `json:"source"`
 	Agent  string `json:"agent"`
+	Seq    int64  `json:"seq"`
 }
 
 // Report upserts this pane's agent-sidebar entry: agent is herdr's internal
@@ -154,10 +155,14 @@ func (r *Reporter) Release() {
 	if agent == "" {
 		return
 	}
+	// The seq is nullable in herdr's schema but not optional in effect: a
+	// missing seq counts as 0, stale against any prior report's UnixNano,
+	// and herdr silently ignores the release (returning ok).
+	seq := time.Now().UnixNano()
 	r.send(request{
-		ID:     fmt.Sprintf("slk:%d", time.Now().UnixNano()),
+		ID:     fmt.Sprintf("slk:%d", seq),
 		Method: "pane.release_agent",
-		Params: releaseAgentParams{PaneID: r.paneID, Source: source, Agent: agent},
+		Params: releaseAgentParams{PaneID: r.paneID, Source: source, Agent: agent, Seq: seq},
 	})
 }
 
