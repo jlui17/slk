@@ -157,19 +157,22 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case MessagesAroundLoadedMsg:
 		debuglog.Cache("MessagesAroundLoadedMsg: channel=%s active=%s count=%d err=%v",
 			m.ChannelID, a.activeChannelID, len(m.Messages), m.Err)
-		if m.ChannelID != a.activeChannelID {
-			return nil, true // stale: user navigated away
-		}
 		// A permalink nav whose target was off-buffer rides through
 		// FetchAround still armed (completePendingLinkNav can't tell
 		// whether an off-buffer target is a thread parent). This arm
-		// retires it on every outcome; the armed-nav gate keeps
-		// non-permalink jumps through this arm (in-channel search) at
-		// their plain select behavior.
+		// retires it on every outcome — including the stale drop below,
+		// or a ctrl+w focus change during the fetch (which retargets
+		// activeChannelID with no ChannelSelectedMsg) would leak the
+		// armed nav to replay on the channel's next visit. The
+		// armed-nav gate keeps non-permalink jumps through this arm
+		// (in-channel search) at their plain select behavior.
 		nav := a.pendingLinkNav
 		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
 		if navMatches {
 			a.pendingLinkNav = nil
+		}
+		if m.ChannelID != a.activeChannelID {
+			return nil, true // stale: user navigated away
 		}
 		if m.Err != nil || len(m.Messages) == 0 {
 			return func() tea.Msg { return ToastMsg{Text: "Failed to load history around message"} }, true

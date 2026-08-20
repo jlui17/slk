@@ -242,6 +242,25 @@ func TestMessagesAroundLoaded_NoNav_ParentStaysSelected(t *testing.T) {
 	}
 }
 
+// A ctrl+w focus change during the FetchAround round-trip retargets
+// activeChannelID with no ChannelSelectedMsg, so nothing else drops
+// the armed nav; the stale-window drop must retire it, or the next
+// visit to the channel replays the jump.
+func TestMessagesAroundLoaded_StaleWindowRetiresArmedNav(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "COTHER" // focus moved during the fetch
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1.0",
+		Messages:  []messages.MessageItem{{TS: "1.0", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked past the stale drop: %+v", app.pendingLinkNav)
+	}
+}
+
 // A failed window fetch must still retire the armed nav, or a later
 // visit to the channel would replay the stale jump.
 func TestMessagesAroundLoaded_FailureRetiresArmedNav(t *testing.T) {
