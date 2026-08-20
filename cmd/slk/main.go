@@ -820,6 +820,27 @@ func newImageHTTPClient() *http.Client {
 	return c
 }
 
+// withRawTerminal puts stdin in raw mode, runs fn, and restores on the
+// way out (deferred, so a panicking probe cannot leave the terminal
+// raw). Returns false without running fn when raw mode can't be
+// entered — the caller learned nothing. probeName labels the debug log
+// lines. Every interactive escape probe goes through here so the
+// enter/restore handling can't drift between probes.
+func withRawTerminal(probeName string, fn func()) bool {
+	state, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		debuglog.ImgRender("%s skipped: cannot enter raw mode: %v", probeName, err)
+		return false
+	}
+	defer func() {
+		if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
+			debuglog.ImgRender("term restore after %s: %v", probeName, rerr)
+		}
+	}()
+	fn()
+	return true
+}
+
 // probeKittySupport interrogates the real terminal for working kitty
 // graphics: PNG transmit first, then raw RGBA when the terminal
 // answered the PNG with an explicit rejection — a graphics
@@ -830,26 +851,18 @@ func newImageHTTPClient() *http.Client {
 // couldn't be entered and nothing was learned; ok is meaningful only
 // when probed. Must run before bubbletea takes over stdin.
 func probeKittySupport() (ok, probed bool) {
-	state, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		debuglog.ImgRender("kitty probe skipped: cannot enter raw mode: %v", err)
-		return false, false
-	}
-	defer func() {
-		if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
-			debuglog.ImgRender("term restore after kitty probe: %v", rerr)
+	probed = withRawTerminal("kitty probe", func() {
+		var rejected bool
+		ok, rejected = imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
+		if ok || !rejected {
+			return
 		}
-	}()
-
-	ok, rejected := imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
-	if ok || !rejected {
-		return ok, true
-	}
-	ok, _ = imgpkg.ProbeKittyRGBA(os.Stdout, os.Stdin, 200*time.Millisecond)
-	if ok {
-		imgpkg.SetKittyUploadRGBA()
-	}
-	return ok, true
+		ok, _ = imgpkg.ProbeKittyRGBA(os.Stdout, os.Stdin, 200*time.Millisecond)
+		if ok {
+			imgpkg.SetKittyUploadRGBA()
+		}
+	})
+	return ok, probed
 }
 
 func run(startupLink *slackurl.Permalink) error {
@@ -1091,19 +1104,12 @@ func run(startupLink *slackurl.Permalink) error {
 		imgpkg.IsAutoProtocol(cfg.Appearance.ImageProtocol) &&
 		os.Getenv("TMUX") == "" && os.Getenv("ZELLIJ") == "" &&
 		term.IsTerminal(int(os.Stdin.Fd())) {
-		state, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			debuglog.ImgRender("sixel probe skipped: cannot enter raw mode: %v", err)
-		} else {
-			ok := imgpkg.ProbeSixel(os.Stdout, os.Stdin, 200*time.Millisecond)
-			if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
-				debuglog.ImgRender("term restore after sixel probe: %v", rerr)
-			}
-			if ok {
+		withRawTerminal("sixel probe", func() {
+			if imgpkg.ProbeSixel(os.Stdout, os.Stdin, 200*time.Millisecond) {
 				debuglog.ImgRender("sixel probe succeeded, upgrading halfblock to sixel")
 				proto = imgpkg.ProtoSixel
 			}
-		}
+		})
 	}
 	debuglog.ImgRender("image protocol: %s", proto)
 
@@ -1138,22 +1144,15 @@ func run(startupLink *slackurl.Permalink) error {
 	// leaves the 8x16 fallback, and kitty/sixel then encode a raster
 	// 2-4x smaller than a hidpi cell box — the terminal stretches it
 	// back up and images render soft. Ask the terminal itself via
-	// XTWINOPS (CSI 16t) before settling. Same pre-bubbletea raw-mode
-	// dance as the protocol probes above; halfblock needs no pixel
+	// XTWINOPS (CSI 16t) before settling; halfblock needs no pixel
 	// metrics, so don't spend the probe there.
 	if !measured && (proto == imgpkg.ProtoKitty || proto == imgpkg.ProtoSixel) &&
 		term.IsTerminal(int(os.Stdin.Fd())) {
-		state, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			debuglog.ImgRender("cellpx probe skipped: cannot enter raw mode: %v", err)
-		} else {
+		withRawTerminal("cellpx probe", func() {
 			if w, h, ok := imgpkg.ProbeCellPixels(os.Stdout, os.Stdin, 200*time.Millisecond); ok {
 				pxW, pxH = w, h
 			}
-			if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
-				debuglog.ImgRender("term restore after cellpx probe: %v", rerr)
-			}
-		}
+		})
 	}
 	debuglog.ImgRender("cell pixels: %dx%d", pxW, pxH)
 	// Sixel encodes at absolute pixel dimensions — the terminal paints
