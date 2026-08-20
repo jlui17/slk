@@ -2793,6 +2793,10 @@ func (a *App) View() tea.View {
 	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	if frame.ThreadAutoHidden {
 		a.threadVisible = false
+		// An effective close: nothing restores the thread when the
+		// terminal widens again, so the agent-sidebar entry goes with it
+		// like CloseThread's does.
+		a.releaseAgentThread()
 		if a.focusedPanel == PanelThread {
 			a.focusedPanel = PanelMessages
 		}

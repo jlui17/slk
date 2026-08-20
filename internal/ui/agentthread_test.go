@@ -103,6 +103,22 @@ func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	}
 }
 
+func TestAgentThreadReleasedOnAutoHide(t *testing.T) {
+	a, _, releases := newAgentTestApp()
+	openAgentThread(a, "<@UBOT> hi")
+
+	// Narrow enough that layout.Compute cannot fit the thread pane, so
+	// View() auto-hides it — an effective close.
+	a.width, a.height = 40, 20
+	_ = a.View()
+	if a.threadVisible {
+		t.Fatal("precondition: thread should auto-hide at width 40")
+	}
+	if *releases != 1 {
+		t.Fatalf("auto-hide should release the agent entry, got %d", *releases)
+	}
+}
+
 func TestAgentThreadIgnoresHumanAndUncachedMentions(t *testing.T) {
 	a, calls, releases := newAgentTestApp()
 	openAgentThread(a, "<@UHUMAN> and <@USTRANGER> chatting")
