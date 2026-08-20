@@ -1097,6 +1097,7 @@ func (a *App) openLinksOfSelected() tea.Cmd {
 		return nil
 	}
 	links := messages.ExtractLinks(text)
+	debuglog.General("openLinksOfSelected: %d links", len(links))
 	switch len(links) {
 	case 0:
 		return func() tea.Msg { return ToastMsg{Text: "No links in message"} }

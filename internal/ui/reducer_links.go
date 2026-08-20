@@ -17,6 +17,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -42,14 +43,17 @@ var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 func (a *App) routeLink(rawURL string) tea.Cmd {
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
+		debuglog.General("routeLink: not a permalink, browser: %s", rawURL)
 		return a.browserOpener(rawURL)
 	}
 	domain := a.activeWorkspaceDomain()
 	if domain == "" || pl.Subdomain != domain {
+		debuglog.General("routeLink: domain %q != active %q, browser: %s", pl.Subdomain, domain, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	name, chType, found := a.channels.Lookup(pl.ChannelID)
 	if !found {
+		debuglog.General("routeLink: channel %s not found, browser: %s", pl.ChannelID, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	a.pendingLinkNav = &pendingLinkNav{
@@ -57,6 +61,8 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 		messageTS: string(pl.MessageTS),
 		threadTS:  string(pl.ThreadTS),
 	}
+	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
+		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
 	if string(pl.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
@@ -85,13 +91,16 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if p.channelID != channelID {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
+		debuglog.General("completePendingLinkNav: stale (pending=%s got=%s), dropped", p.channelID, channelID)
 		a.pendingLinkNav = nil
 		return nil
 	}
 	if p.threadTS != "" {
+		debuglog.General("completePendingLinkNav: opening thread %s select=%s", p.threadTS, p.messageTS)
 		a.pendingLinkNav = nil
 		return a.openThreadForPermalink(p.channelID, p.threadTS, p.messageTS)
 	}
+	debuglog.General("completePendingLinkNav: channel=%s ts=%s authoritative=%v", channelID, p.messageTS, authoritative)
 	if a.messagepane.SelectByTS(p.messageTS) {
 		// A best-effort (cache-render) select is not the end of the
 		// nav: the in-flight fetch's MessagesLoadedMsg will replace
