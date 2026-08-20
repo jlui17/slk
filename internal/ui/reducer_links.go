@@ -93,7 +93,15 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return a.openThreadForPermalink(p.channelID, p.threadTS)
 	}
 	if a.messagepane.SelectByTS(p.messageTS) {
-		a.pendingLinkNav = nil
+		// A best-effort (cache-render) select is not the end of the
+		// nav: the in-flight fetch's MessagesLoadedMsg will replace
+		// the buffer via SetMessages, which clears the selection and
+		// snaps to the bottom. Keep the nav armed so the authoritative
+		// completion re-selects the target on the fresh buffer; only
+		// an authoritative success retires it.
+		if authoritative {
+			a.pendingLinkNav = nil
+		}
 		return nil
 	}
 	if authoritative {
