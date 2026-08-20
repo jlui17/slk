@@ -991,15 +991,13 @@ func run(startupLink *slackurl.Permalink) error {
 	}
 	if hr := herdr.NewReporterFromEnv(); hr != nil && !cfg.Herdr.Disabled {
 		app.SetAgentReporter(hr.Report, hr.Release, hr.NameTab, func(userID string) (string, bool, bool) {
+			// Straight to the DB: detection needs IsBot, which the
+			// in-memory name map doesn't carry.
 			u, err := db.GetUser(userID)
 			if err != nil {
 				return "", false, false
 			}
-			name := u.DisplayName
-			if name == "" {
-				name = u.Name
-			}
-			return name, u.IsBot, true
+			return u.BestName(), u.IsBot, true
 		})
 		// A crash skips this, leaving a stale sidebar entry until herdr's
 		// own pane detection reclaims the pane; only clean exits release.
@@ -2911,11 +2909,7 @@ func lookupUserCached(userID string, userNames map[string]string, db *cache.DB) 
 	}
 	if db != nil {
 		if u, err := db.GetUser(userID); err == nil {
-			name := u.DisplayName
-			if name == "" {
-				name = u.Name
-			}
-			if name != "" {
+			if name := u.BestName(); name != "" {
 				return name, true
 			}
 		}
