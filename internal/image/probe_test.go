@@ -242,6 +242,62 @@ func TestProbeSixel_PollPathOnRealPipe(t *testing.T) {
 	}
 }
 
+func TestScanForXTVersion(t *testing.T) {
+	cases := []struct {
+		name        string
+		buf         string
+		wantMatched bool
+		wantText    string
+	}{
+		{"wezterm", "\x1bP>|WezTerm 20240203-110809-5046fc22\x1b\\", true, "WezTerm 20240203-110809-5046fc22"},
+		{"ghostty", "\x1bP>|ghostty 1.1.3\x1b\\", true, "ghostty 1.1.3"},
+		{"incomplete", "\x1bP>|WezTerm", false, ""},
+		{"empty", "", false, ""},
+		{"leading noise", "junk\x1bP>|kitty(0.32.2)\x1b\\", true, "kitty(0.32.2)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matched, text := scanForXTVersion([]byte(tc.buf))
+			if matched != tc.wantMatched || text != tc.wantText {
+				t.Errorf("scanForXTVersion(%q) = (%v, %q), want (%v, %q)",
+					tc.buf, matched, text, tc.wantMatched, tc.wantText)
+			}
+		})
+	}
+}
+
+func TestProbeTerminalVersion(t *testing.T) {
+	var w bytes.Buffer
+	got := ProbeTerminalVersion(&w, strings.NewReader("\x1bP>|WezTerm 2024\x1b\\"), time.Second)
+	if got != "WezTerm 2024" {
+		t.Errorf("ProbeTerminalVersion = %q, want %q", got, "WezTerm 2024")
+	}
+	if w.String() != "\x1b[>0q" {
+		t.Errorf("expected XTVERSION query, got %q", w.String())
+	}
+	if got := ProbeTerminalVersion(&bytes.Buffer{}, blockingReader{}, 50*time.Millisecond); got != "" {
+		t.Errorf("expected empty name on timeout, got %q", got)
+	}
+}
+
+func TestLacksUnicodePlaceholders(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"WezTerm 20240203-110809-5046fc22", true},
+		{"iTerm2 3.5.10", true},
+		{"ghostty 1.1.3", false},
+		{"kitty(0.32.2)", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := LacksUnicodePlaceholders(tc.name); got != tc.want {
+			t.Errorf("LacksUnicodePlaceholders(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestScanForCellSize(t *testing.T) {
 	cases := []struct {
 		name        string

@@ -1099,8 +1099,24 @@ func run(startupLink *slackurl.Permalink) error {
 	// at startup.
 	if proto == imgpkg.ProtoHalfBlock && upgradeProbeAllowed && !kittyProbed {
 		if ok, probed := probeKittySupport(); probed && ok {
-			debuglog.ImgRender("kitty upgrade probe succeeded, upgrading halfblock to kitty")
-			proto = imgpkg.ProtoKitty
+			// A transmit ack alone doesn't prove the unicode-placeholder
+			// placement the renderer depends on: WezTerm and iTerm2 ack
+			// uploads but print the placeholder codepoints as literal
+			// glyphs, and Detect's TERM_PROGRAM routing for them is
+			// useless here — this path only runs when that identity was
+			// stripped. Ask XTVERSION; a terminal naming itself as one
+			// of those stays halfblock so the sixel probe below picks
+			// the protocol that actually renders. No reply is no veto.
+			var name string
+			withRawTerminal("xtversion probe", func() {
+				name = imgpkg.ProbeTerminalVersion(os.Stdout, os.Stdin, 200*time.Millisecond)
+			})
+			if imgpkg.LacksUnicodePlaceholders(name) {
+				debuglog.ImgRender("kitty upgrade vetoed: %q acks transmits but lacks unicode placeholders", name)
+			} else {
+				debuglog.ImgRender("kitty upgrade probe succeeded, upgrading halfblock to kitty")
+				proto = imgpkg.ProtoKitty
+			}
 		}
 	}
 

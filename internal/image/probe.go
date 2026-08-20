@@ -192,6 +192,66 @@ func ProbeCellPixels(w io.Writer, r io.Reader, timeout time.Duration) (pxW, pxH 
 	return int(gotW.Load()), int(gotH.Load()), replied
 }
 
+// ProbeTerminalVersion sends the XTVERSION query (CSI > 0 q) and
+// returns the terminal's name/version reply (DCS > | text ST) verbatim,
+// or "" when nothing came back before timeout. The upgrade path uses
+// it to identify the terminal behind an identity-stripping mux: a
+// transmit ack alone doesn't prove unicode-placeholder support, and
+// the terminals known to lack it (see LacksUnicodePlaceholders) do
+// answer XTVERSION. Inputs match ProbeKittyGraphics; must run before
+// bubbletea takes over stdin.
+func ProbeTerminalVersion(w io.Writer, r io.Reader, timeout time.Duration) string {
+	if _, err := io.WriteString(w, "\x1b[>0q"); err != nil {
+		return ""
+	}
+
+	start := time.Now()
+	// name is read only after the probe reports a match: the poll path
+	// runs scan on this goroutine, and the goroutine fallback's channel
+	// receive orders the closure's write before the read.
+	var name string
+	scan := func(buf []byte) (matched, ok bool) {
+		matched, text := scanForXTVersion(buf)
+		if !matched {
+			return false, false
+		}
+		name = text
+		return true, true
+	}
+
+	if f, isFile := r.(*os.File); isFile {
+		replied, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
+		debuglog.ImgRender("xtversion probe: ok=%v reason=%s elapsed_ms=%d reply=%q",
+			replied, reason, time.Since(start).Milliseconds(), collected)
+		if !replied {
+			return ""
+		}
+		return name
+	}
+
+	// Test fallback for non-*os.File readers.
+	if !probeViaGoroutineScan(r, timeout, scan) {
+		return ""
+	}
+	return name
+}
+
+// scanForXTVersion returns (matched, text). matched is true once a
+// complete XTVERSION report (DCS > | text ST) is present in buf; text
+// is the name/version string between the markers.
+func scanForXTVersion(buf []byte) (matched bool, text string) {
+	i := bytes.Index(buf, []byte("\x1bP>|"))
+	if i < 0 {
+		return false, ""
+	}
+	tail := buf[i+4:]
+	j := bytes.Index(tail, []byte("\x1b\\"))
+	if j < 0 {
+		return false, ""
+	}
+	return true, string(tail[:j])
+}
+
 // scanForCellSize returns (matched, pxW, pxH). matched is true once a
 // complete XTWINOPS cell-size report (CSI 6 ; height ; width t) is
 // present in buf; pxW/pxH are zero when the report's values are (the
