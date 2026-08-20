@@ -120,6 +120,34 @@ func TestOpenLink_ActiveChannel_SelectsMessage(t *testing.T) {
 	}
 }
 
+// Pressing o in an open thread panel on a permalink to a channel-level
+// message of the SAME channel must land somewhere visible: the select
+// happens in the messages pane, so the thread panel closes and focus
+// moves there. Without this the cursor moved behind the panel and the
+// key press looked like a no-op.
+func TestOpenLink_ActiveChannel_FromThreadPanel_ClosesThreadAndSelects(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "target"},
+		{TS: "1779284734.000000", Text: "reply with the link"},
+	})
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	drainCmd(cmd)
+	if app.threadVisible {
+		t.Error("thread panel still open")
+	}
+	if app.focusedPanel != PanelMessages {
+		t.Errorf("focusedPanel = %v, want PanelMessages", app.focusedPanel)
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+}
+
 func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	app, _ := linkTestApp(t)
 	var fetchedChannel, fetchedTS string

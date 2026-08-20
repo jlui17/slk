@@ -101,6 +101,16 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return a.openThreadForPermalink(p.channelID, p.threadTS, p.messageTS)
 	}
 	debuglog.General("completePendingLinkNav: channel=%s ts=%s authoritative=%v", channelID, p.messageTS, authoritative)
+	// The select lands in the messages pane; with a thread panel open
+	// (or zoomed) that pane is hidden or unfocused and the jump would
+	// be invisible. Close the panel and focus the pane, mirroring the
+	// cross-channel path (reduceChannelSelected closes the thread on
+	// every switch). Ordering: CloseThread clears pane selections, so
+	// it must precede SelectByTS.
+	if a.threadVisible {
+		a.CloseThread()
+	}
+	a.focusedPanel = PanelMessages
 	if a.messagepane.SelectByTS(p.messageTS) {
 		// A best-effort (cache-render) select is not the end of the
 		// nav: the in-flight fetch's MessagesLoadedMsg will replace
