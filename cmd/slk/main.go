@@ -1146,9 +1146,12 @@ func run(startupLink *slackurl.Permalink) error {
 	// 2-4x smaller than a hidpi cell box — the terminal stretches it
 	// back up and images render soft. Ask the terminal itself via
 	// XTWINOPS (CSI 16t) before settling; halfblock needs no pixel
-	// metrics, so don't spend the probe there.
+	// metrics, so don't spend the probe there, and noMuxTTY keeps it
+	// out of tmux/zellij like every other escape probe (older tmux
+	// ignores 16t, so the probe would stall its full timeout on every
+	// startup and a late reply would leak into bubbletea as keys).
 	if !measured && (proto == imgpkg.ProtoKitty || proto == imgpkg.ProtoSixel) &&
-		term.IsTerminal(int(os.Stdin.Fd())) {
+		noMuxTTY {
 		withRawTerminal("cellpx probe", func() {
 			if w, h, ok := imgpkg.ProbeCellPixels(os.Stdout, os.Stdin, 200*time.Millisecond); ok {
 				pxW, pxH = w, h
