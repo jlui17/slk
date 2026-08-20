@@ -2,6 +2,7 @@ package image
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -15,6 +16,20 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	"golang.org/x/image/draw"
 )
+
+// kittyUploadRGBA switches every kitty transmit from PNG (f=100) to
+// zlib-compressed raw RGBA (f=32,o=z). Set once at startup, before any
+// rendering goroutine runs (same publication contract as cellPxW/H),
+// when the terminal's graphics implementation rejects PNG but acks raw
+// pixels — libghostty-vt embedders without a wired PNG decoder, e.g.
+// herdr (probed via ProbeKittyGraphics / ProbeKittyRGBA).
+var kittyUploadRGBA atomic.Bool
+
+// SetKittyUploadRGBA switches kitty uploads to raw RGBA encoding.
+func SetKittyUploadRGBA() {
+	kittyUploadRGBA.Store(true)
+	debuglog.ImgRender("kitty uploads: raw RGBA (terminal rejects PNG)")
+}
 
 // kittyDiacritics is the 297-entry table from kitty's rowcolumn-diacritics.txt.
 // Index i -> rune used to encode row-or-column index i in unicode-placeholder mode.
@@ -104,8 +119,9 @@ type KittyRenderer struct {
 	// per session, ~12KB per typical 60x20 cached image.
 	placeholders map[placeholderKey][]string
 
-	// payloads memoizes the base64-encoded PNG payload per
-	// (id, target, cell pixel size).
+	// payloads memoizes the base64-encoded upload payload (PNG, or
+	// raw RGBA after SetKittyUploadRGBA) per (id, target, cell pixel
+	// size).
 	//
 	// Why this exists: Registry.Lookup keeps returning fresh=true for
 	// any image whose OnFlush has never fired -- and OnFlush only fires
@@ -113,7 +129,7 @@ type KittyRenderer struct {
 	// viewport (see internal/ui/messages/model.go:2748). For an
 	// image-heavy channel with 21 images but only ~5 visible at a
 	// time, 16 of the 21 images would re-pay bilinear-resize +
-	// PNG-encode + base64 on EVERY buildCache because their
+	// encode + base64 on EVERY buildCache because their
 	// MarkUploaded was never called. That cost (~22 ms/image at
 	// typical Slack thumbnail sizes) is the dominant remaining channel-
 	// switch latency observed in slk-debug.log perf traces.
@@ -144,7 +160,7 @@ type placeholderKey struct {
 
 // payloadKey scopes the payload memo. The raster is resampled to
 // cells × cell-pixel-size, so the same (id, target) encodes a
-// different PNG once the terminal reports a different cell size.
+// different payload once the terminal reports a different cell size.
 type payloadKey struct {
 	placeholderKey
 	cellPxW int
@@ -242,9 +258,9 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			pxH := target.Y * ch
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
 			draw.BiLinear.Scale(resized, resized.Bounds(), src, src.Bounds(), draw.Over, nil)
-			var pngBuf bytes.Buffer
-			if err := imgpng.Encode(&pngBuf, resized); err == nil {
-				payload = base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+			raw, err := encodeKittyPayload(resized)
+			if err == nil {
+				payload = base64.StdEncoding.EncodeToString(raw)
 				k.mu.Lock()
 				k.payloads[pKey] = payload
 				k.mu.Unlock()
@@ -259,6 +275,8 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		imgID := id
 		cellsCols := target.X
 		cellsRows := target.Y
+		payloadPxW := target.X * cw
+		payloadPxH := target.Y * ch
 		reg := k.registry
 		// fired guards against per-closure double-emission (e.g. the
 		// same viewEntry being flushed twice in one frame). The
@@ -275,7 +293,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			}
 			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",
 				imgID, cellsCols, cellsRows, cw, ch, len(payload), payloadHit)
-			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows); err != nil {
+			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows, payloadPxW, payloadPxH); err != nil {
 				return err
 			}
 			reg.MarkUploaded(imgID)
@@ -285,9 +303,35 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 	return r
 }
 
+// encodeKittyPayload encodes the resized raster in whichever pixel
+// format kitty uploads are running in: PNG by default, zlib-compressed
+// raw RGBA when SetKittyUploadRGBA was called at startup. The raw path
+// serializes img.Pix directly — img is always freshly allocated by
+// image.NewRGBA at (0,0), so Pix is contiguous with no stride padding.
+func encodeKittyPayload(img *image.RGBA) ([]byte, error) {
+	var buf bytes.Buffer
+	if kittyUploadRGBA.Load() {
+		zw := zlib.NewWriter(&buf)
+		if _, err := zw.Write(img.Pix); err != nil {
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+	if err := imgpng.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // emitKittyUpload writes the kitty graphics protocol APC sequence to
-// transmit a PNG image and create a virtual placement of size cols×rows
-// for unicode-placeholder rendering.
+// transmit an image and create a virtual placement of size cols×rows
+// for unicode-placeholder rendering. The payload is PNG (f=100) by
+// default or zlib-compressed raw RGBA (f=32,o=z) after
+// SetKittyUploadRGBA; raw needs its pixel dimensions spelled out via
+// s=<pxW>,v=<pxH> since there's no image header to carry them.
 //
 // The first chunk uses `a=T` ("transmit AND display") with `U=1`
 // (unicode-placeholder mode), `c=<cols>` and `r=<rows>` to define the
@@ -298,7 +342,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 // chunked. The final chunk has m=0 to mark the end.
 //
 // Reference: https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders
-func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) error {
+func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows, pxW, pxH int) error {
 	const chunk = 4096
 	for i := 0; i < len(payload); i += chunk {
 		end := i + chunk
@@ -309,7 +353,11 @@ func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) err
 		}
 		var hdr string
 		if i == 0 {
-			hdr = fmt.Sprintf("a=T,f=100,t=d,i=%d,U=1,c=%d,r=%d,q=2,m=%d", id, cols, rows, more)
+			format := "f=100"
+			if kittyUploadRGBA.Load() {
+				format = fmt.Sprintf("f=32,o=z,s=%d,v=%d", pxW, pxH)
+			}
+			hdr = fmt.Sprintf("a=T,%s,t=d,i=%d,U=1,c=%d,r=%d,q=2,m=%d", format, id, cols, rows, more)
 		} else {
 			hdr = fmt.Sprintf("m=%d", more)
 		}

@@ -42,10 +42,12 @@ Run it in two panes and both instances share the volume on the docker VM's
 kernel, so cross-process file locking behaves exactly as it does natively.
 Reset the sandbox with `docker volume rm slk-test-state`.
 
-**Caveat:** the docker pty reports no pixel dimensions, so cell metrics fall
-back to 8x16 and images render at low resolution regardless of terminal.
-Judging image quality needs a native run, or `COLORTERM_CELL_WIDTH` /
-`COLORTERM_CELL_HEIGHT` set before launching (the script forwards them).
+**Caveat:** the docker pty reports no pixel dimensions, so the TIOCGWINSZ
+path for cell metrics always fails. slk recovers by querying the terminal
+directly (XTWINOPS `CSI 16t`), which rides through the docker pty; only a
+terminal that ignores that query too falls back to 8x16 and renders images
+at low resolution. `COLORTERM_CELL_WIDTH` / `COLORTERM_CELL_HEIGHT` remain
+as a manual override (the script forwards them).
 
 ## Native alternative
 

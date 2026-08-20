@@ -820,6 +820,38 @@ func newImageHTTPClient() *http.Client {
 	return c
 }
 
+// probeKittySupport interrogates the real terminal for working kitty
+// graphics: PNG transmit first, then raw RGBA when the terminal
+// answered the PNG with an explicit rejection — a graphics
+// implementation without a PNG decoder (herdr's embedded
+// libghostty-vt) rejects f=100 but decodes raw pixels natively. An
+// RGBA-only ack flips the renderer to raw uploads for the whole
+// session (imgpkg.SetKittyUploadRGBA). probed is false when raw mode
+// couldn't be entered and nothing was learned; ok is meaningful only
+// when probed. Must run before bubbletea takes over stdin.
+func probeKittySupport() (ok, probed bool) {
+	state, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		debuglog.ImgRender("kitty probe skipped: cannot enter raw mode: %v", err)
+		return false, false
+	}
+	defer func() {
+		if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
+			debuglog.ImgRender("term restore after kitty probe: %v", rerr)
+		}
+	}()
+
+	ok, rejected := imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
+	if ok || !rejected {
+		return ok, true
+	}
+	ok, _ = imgpkg.ProbeKittyRGBA(os.Stdout, os.Stdin, 200*time.Millisecond)
+	if ok {
+		imgpkg.SetKittyUploadRGBA()
+	}
+	return ok, true
+}
+
 func run(startupLink *slackurl.Permalink) error {
 	// Resolve XDG paths
 	configDir := xdgConfig()
@@ -1013,18 +1045,33 @@ func run(startupLink *slackurl.Permalink) error {
 	// Optional: run kitty version probe if detected as kitty AND stdin is a TTY.
 	// Must happen BEFORE bubbletea takes over the terminal.
 	if proto == imgpkg.ProtoKitty && term.IsTerminal(int(os.Stdin.Fd())) {
-		state, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			debuglog.ImgRender("kitty probe skipped: cannot enter raw mode: %v", err)
-		} else {
-			ok := imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
-			if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
-				debuglog.ImgRender("term restore after kitty probe: %v", rerr)
-			}
-			if !ok {
-				debuglog.ImgRender("kitty probe failed, downgrading to halfblock")
-				proto = imgpkg.ProtoHalfBlock
-			}
+		if ok, probed := probeKittySupport(); probed && !ok {
+			debuglog.ImgRender("kitty probe failed, downgrading to halfblock")
+			proto = imgpkg.ProtoHalfBlock
+		}
+	}
+
+	// Kitty upgrade probe: Detect only recognizes kitty-capable
+	// terminals it can name from the env, so a mux that strips the
+	// outer terminal's identity but passes graphics escapes through
+	// verbatim (a herdr pane in front of Ghostty: TERM=xterm-256color,
+	// no TERM_PROGRAM) lands on halfblock even though kitty graphics
+	// would work. Ask the terminal directly — the probe upload gets an
+	// explicit ;OK reply, so a hit is authoritative. Runs before the
+	// sixel probe because kitty is the preferred protocol (sharper
+	// scaling, and emoji-as-images requires it). Same guards as the
+	// sixel probe below: auto mode only, never under tmux/zellij
+	// (tmux is handled by Detect's client_termname path; zellij
+	// swallows the escape and we'd pay the full timeout for nothing).
+	// A terminal with no kitty support ignores the probe, costing the
+	// 200ms timeout once at startup.
+	if proto == imgpkg.ProtoHalfBlock &&
+		imgpkg.IsAutoProtocol(cfg.Appearance.ImageProtocol) &&
+		os.Getenv("TMUX") == "" && os.Getenv("ZELLIJ") == "" &&
+		term.IsTerminal(int(os.Stdin.Fd())) {
+		if ok, probed := probeKittySupport(); probed && ok {
+			debuglog.ImgRender("kitty upgrade probe succeeded, upgrading halfblock to kitty")
+			proto = imgpkg.ProtoKitty
 		}
 	}
 
@@ -1086,7 +1133,28 @@ func run(startupLink *slackurl.Permalink) error {
 	avatarCache := avatar.NewCache(imageFetcher, imgpkg.KittyRendererInstance(), proto == imgpkg.ProtoKitty)
 
 	// Cell pixel metrics for sizing decisions.
-	pxW, pxH := imgpkg.CellPixels(int(os.Stdout.Fd()))
+	pxW, pxH, measured := imgpkg.CellPixels(int(os.Stdout.Fd()))
+	// A pty that strips TIOCGWINSZ pixel fields (docker -it, some muxes)
+	// leaves the 8x16 fallback, and kitty/sixel then encode a raster
+	// 2-4x smaller than a hidpi cell box — the terminal stretches it
+	// back up and images render soft. Ask the terminal itself via
+	// XTWINOPS (CSI 16t) before settling. Same pre-bubbletea raw-mode
+	// dance as the protocol probes above; halfblock needs no pixel
+	// metrics, so don't spend the probe there.
+	if !measured && (proto == imgpkg.ProtoKitty || proto == imgpkg.ProtoSixel) &&
+		term.IsTerminal(int(os.Stdin.Fd())) {
+		state, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			debuglog.ImgRender("cellpx probe skipped: cannot enter raw mode: %v", err)
+		} else {
+			if w, h, ok := imgpkg.ProbeCellPixels(os.Stdout, os.Stdin, 200*time.Millisecond); ok {
+				pxW, pxH = w, h
+			}
+			if rerr := term.Restore(int(os.Stdin.Fd()), state); rerr != nil {
+				debuglog.ImgRender("term restore after cellpx probe: %v", rerr)
+			}
+		}
+	}
 	debuglog.ImgRender("cell pixels: %dx%d", pxW, pxH)
 	// Sixel encodes at absolute pixel dimensions — the terminal paints
 	// one sixel pixel per device pixel rather than scaling into a cell

@@ -10,10 +10,10 @@ import "time"
 // safest behavior is to report failure so the caller downgrades to
 // halfblock.
 //
-// Returns (false, 0, "unsupported_platform") unconditionally.
-func pollProbe(fd int, timeout time.Duration, scan func([]byte) (bool, bool)) (bool, int, string) {
+// Returns (false, nil, "unsupported_platform") unconditionally.
+func pollProbe(fd int, timeout time.Duration, scan func([]byte) (bool, bool)) (bool, []byte, string) {
 	_ = fd
 	_ = timeout
 	_ = scan
-	return false, 0, "unsupported_platform"
+	return false, nil, "unsupported_platform"
 }

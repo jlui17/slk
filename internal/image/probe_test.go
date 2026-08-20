@@ -12,9 +12,9 @@ func TestProbeKittyGraphics_TimeoutFails(t *testing.T) {
 	t.Setenv("TMUX", "")
 	r := blockingReader{}
 	var w bytes.Buffer
-	ok := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
-	if ok {
-		t.Error("expected probe to fail on timeout")
+	ok, rejected := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
+	if ok || rejected {
+		t.Errorf("expected (false, false) on timeout, got (%v, %v)", ok, rejected)
 	}
 	if !strings.Contains(w.String(), "\x1b_G") {
 		t.Errorf("expected \\e_G in probe output, got %q", w.String())
@@ -25,7 +25,7 @@ func TestProbeKittyGraphics_WrapsProbeInTmux(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux")
 	r := blockingReader{}
 	var w bytes.Buffer
-	ok := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
+	ok, _ := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
 	if ok {
 		t.Error("expected probe to fail on timeout")
 	}
@@ -56,7 +56,7 @@ func TestProbeKittyGraphics_NoStdinTheftAfterTimeout(t *testing.T) {
 	defer pw.Close()
 
 	var wbuf bytes.Buffer
-	ok := ProbeKittyGraphics(&wbuf, pr, 50*time.Millisecond)
+	ok, _ := ProbeKittyGraphics(&wbuf, pr, 50*time.Millisecond)
 	if ok {
 		t.Fatal("expected probe to fail on timeout (pipe never replies)")
 	}
@@ -78,6 +78,30 @@ func TestProbeKittyGraphics_NoStdinTheftAfterTimeout(t *testing.T) {
 	if err != nil || n != 1 || buf[0] != 'X' {
 		t.Fatalf("expected to read 'X' from pipe after probe; got n=%d err=%v buf=%q (probe goroutine likely leaked and stole the byte)",
 			n, err, buf[:n])
+	}
+}
+
+func TestProbeKittyGraphics_RejectedOnErrorReply(t *testing.T) {
+	t.Setenv("TMUX", "")
+	var w bytes.Buffer
+	// herdr's embedded libghostty-vt without a PNG decoder answers
+	// exactly this.
+	r := strings.NewReader("\x1b_Gi=9999;EINVAL: unsupported format\x1b\\")
+	ok, rejected := ProbeKittyGraphics(&w, r, time.Second)
+	if ok || !rejected {
+		t.Errorf("got (ok=%v, rejected=%v), want (false, true)", ok, rejected)
+	}
+}
+
+func TestProbeKittyRGBA_SendsRawTransmit(t *testing.T) {
+	t.Setenv("TMUX", "")
+	var w bytes.Buffer
+	ok, rejected := ProbeKittyRGBA(&w, strings.NewReader("\x1b_Gi=9998;OK\x1b\\"), time.Second)
+	if !ok || rejected {
+		t.Errorf("got (ok=%v, rejected=%v), want (true, false)", ok, rejected)
+	}
+	if !strings.Contains(w.String(), "f=32,s=1,v=1") {
+		t.Errorf("expected raw RGBA probe header, got %q", w.String())
 	}
 }
 
@@ -171,6 +195,72 @@ func TestProbeSixel_PollPathOnRealPipe(t *testing.T) {
 	if err != nil || n != 1 || buf[0] != 'X' {
 		t.Fatalf("expected to read 'X' from pipe after probe; got n=%d err=%v buf=%q",
 			n, err, buf[:n])
+	}
+}
+
+func TestScanForCellSize(t *testing.T) {
+	cases := []struct {
+		name        string
+		buf         string
+		wantMatched bool
+		wantW       int
+		wantH       int
+	}{
+		{"ghostty retina", "\x1b[6;38;18t", true, 18, 38},
+		{"zero values", "\x1b[6;0;0t", true, 0, 0},
+		{"malformed: missing field", "\x1b[6;38t", true, 0, 0},
+		{"malformed: non-numeric", "\x1b[6;a;bt", true, 0, 0},
+		{"incomplete: no terminator", "\x1b[6;38;18", false, 0, 0},
+		{"empty", "", false, 0, 0},
+		// A late DA1 reply from the sixel probe starts \x1b[? and must
+		// not anchor.
+		{"da1 reply ignored", "\x1b[?62;4;22c", false, 0, 0},
+		{"leading noise", "junk\x1b[6;38;18t", true, 18, 38},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matched, w, h := scanForCellSize([]byte(tc.buf))
+			if matched != tc.wantMatched || w != tc.wantW || h != tc.wantH {
+				t.Errorf("scanForCellSize(%q) = (%v, %d, %d), want (%v, %d, %d)",
+					tc.buf, matched, w, h, tc.wantMatched, tc.wantW, tc.wantH)
+			}
+		})
+	}
+}
+
+func TestProbeCellPixels_SendsQueryAndFailsOnTimeout(t *testing.T) {
+	var w bytes.Buffer
+	if _, _, ok := ProbeCellPixels(&w, blockingReader{}, 50*time.Millisecond); ok {
+		t.Error("expected probe to fail on timeout")
+	}
+	if w.String() != "\x1b[16t" {
+		t.Errorf("expected XTWINOPS 16t query, got %q", w.String())
+	}
+}
+
+func TestProbeCellPixels_ReadsReply(t *testing.T) {
+	var w bytes.Buffer
+	pxW, pxH, ok := ProbeCellPixels(&w, strings.NewReader("\x1b[6;38;18t"), time.Second)
+	if !ok || pxW != 18 || pxH != 38 {
+		t.Errorf("ProbeCellPixels = (%d, %d, %v), want (18, 38, true)", pxW, pxH, ok)
+	}
+}
+
+func TestProbeCellPixels_PollPathOnRealPipe(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer pr.Close()
+	defer pw.Close()
+
+	if _, err := pw.Write([]byte("\x1b[6;38;18t")); err != nil {
+		t.Fatalf("pipe write: %v", err)
+	}
+	var w bytes.Buffer
+	pxW, pxH, ok := ProbeCellPixels(&w, pr, time.Second)
+	if !ok || pxW != 18 || pxH != 38 {
+		t.Fatalf("ProbeCellPixels = (%d, %d, %v), want (18, 38, true)", pxW, pxH, ok)
 	}
 }
 

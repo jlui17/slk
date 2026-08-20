@@ -6,16 +6,24 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
 )
 
-// ProbeKittyGraphics sends a tiny image upload with response requested
-// and waits up to timeout for the OK reply. Returns true if the
-// terminal acknowledges. Used at startup to downgrade ProtoKitty when
-// the terminal claims kitty support but doesn't actually deliver
+// ProbeKittyGraphics sends a tiny PNG upload with response requested
+// and waits up to timeout for the OK reply. ok is true if the terminal
+// acknowledges. rejected is true when a complete reply arrived that
+// was NOT an OK — the terminal speaks the graphics protocol but
+// refused this transmit — as opposed to no reply at all (a mux
+// swallowed the escape, or no kitty support whatsoever). Callers use
+// rejected to decide whether trying another pixel format is worth a
+// second probe: libghostty-vt embedders without a wired PNG decoder
+// (herdr) answer "EINVAL: unsupported format" here but accept raw
+// RGBA (see ProbeKittyRGBA). Used at startup to downgrade ProtoKitty
+// when the terminal claims kitty support but doesn't actually deliver
 // (e.g., iTerm2's limited kitty implementation, or zellij / tmux with
 // allow-passthrough=off swallowing the probe escape).
 //
@@ -38,29 +46,66 @@ import (
 //
 // The poll-based path needs r to be an *os.File (any Go file with a
 // real fd works: os.Stdin, os.Pipe). For non-*os.File readers
-// (blockingReader in tests), this falls back to the legacy goroutine-
-// based probe; that path may leak but tests exit immediately so it
-// doesn't matter.
-func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) bool {
+// (blockingReader in tests), this falls back to the goroutine-based
+// probe; that path may leak a goroutine on timeout but tests exit
+// immediately so it doesn't matter.
+func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) (ok, rejected bool) {
 	// Minimal valid 1x1 PNG.
 	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=="
-	const probeID = 9999
-	header := fmt.Sprintf("a=T,f=100,t=d,i=%d,q=0", probeID)
-	if err := writeKittySequence(w, fmt.Sprintf("\x1b_G%s;%s\x1b\\", header, tinyPNG)); err != nil {
-		return false
+	header := fmt.Sprintf("a=T,f=100,t=d,i=%d,q=0", kittyProbeIDPNG)
+	return probeKittyTransmit(w, r, timeout, "png probe", header, tinyPNG)
+}
+
+// ProbeKittyRGBA is ProbeKittyGraphics with a raw-RGBA payload (f=32,
+// one opaque white pixel) instead of PNG. Raw pixel formats are the
+// part of the kitty graphics protocol every implementation decodes
+// natively — libghostty-vt embedders that reject PNG (no decoder
+// wired) still accept these — so an OK here means uploads work as
+// long as they're encoded raw (see SetKittyUploadRGBA). rejected has
+// the same meaning as in ProbeKittyGraphics.
+func ProbeKittyRGBA(w io.Writer, r io.Reader, timeout time.Duration) (ok, rejected bool) {
+	const rawWhitePixel = "/////w==" // base64 of 4×0xff: one RGBA pixel
+	header := fmt.Sprintf("a=T,f=32,s=1,v=1,t=d,i=%d,q=0", kittyProbeIDRGBA)
+	return probeKittyTransmit(w, r, timeout, "rgba probe", header, rawWhitePixel)
+}
+
+// Distinct probe image IDs so a late reply to one probe can never be
+// misread as the answer to the other.
+const (
+	kittyProbeIDPNG  = 9999
+	kittyProbeIDRGBA = 9998
+)
+
+// probeKittyTransmit sends one kitty graphics transmit and classifies
+// the terminal's answer: (true, false) on ;OK, (false, true) on a
+// complete non-OK reply, (false, false) when nothing came back before
+// timeout. tag labels the debug log line.
+func probeKittyTransmit(w io.Writer, r io.Reader, timeout time.Duration, tag, header, payload string) (ok, rejected bool) {
+	if err := writeKittySequence(w, fmt.Sprintf("\x1b_G%s;%s\x1b\\", header, payload)); err != nil {
+		return false, false
 	}
 
 	start := time.Now()
+	// atomic: the test-only goroutine fallback runs scan on another
+	// goroutine that can outlive a timeout return.
+	var sawReject atomic.Bool
+	scan := func(buf []byte) (bool, bool) {
+		matched, scanOK := scanForOK(buf)
+		if matched && !scanOK {
+			sawReject.Store(true)
+		}
+		return matched, scanOK
+	}
 
-	if f, ok := r.(*os.File); ok {
-		ok, bytesRead, reason := pollProbe(int(f.Fd()), timeout, scanForOK)
-		debuglog.ImgRender("probe: ok=%v reason=%s bytes_read=%d elapsed_ms=%d",
-			ok, reason, bytesRead, time.Since(start).Milliseconds())
-		return ok
+	if f, isFile := r.(*os.File); isFile {
+		acked, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
+		debuglog.ImgRender("%s: ok=%v reason=%s elapsed_ms=%d reply=%q",
+			tag, acked, reason, time.Since(start).Milliseconds(), collected)
+		return acked, sawReject.Load()
 	}
 
 	// Test fallback for non-*os.File readers.
-	return probeViaGoroutine(r, timeout)
+	return probeViaGoroutineScan(r, timeout, scan), sawReject.Load()
 }
 
 // ProbeSixel sends a Primary Device Attributes query (CSI c) and reports
@@ -89,9 +134,9 @@ func ProbeSixel(w io.Writer, r io.Reader, timeout time.Duration) bool {
 	start := time.Now()
 
 	if f, ok := r.(*os.File); ok {
-		ok, bytesRead, reason := pollProbe(int(f.Fd()), timeout, scanForSixelDA)
-		debuglog.ImgRender("sixel probe: ok=%v reason=%s bytes_read=%d elapsed_ms=%d",
-			ok, reason, bytesRead, time.Since(start).Milliseconds())
+		ok, collected, reason := pollProbe(int(f.Fd()), timeout, scanForSixelDA)
+		debuglog.ImgRender("sixel probe: ok=%v reason=%s elapsed_ms=%d reply=%q",
+			ok, reason, time.Since(start).Milliseconds(), collected)
 		return ok
 	}
 
@@ -99,10 +144,80 @@ func ProbeSixel(w io.Writer, r io.Reader, timeout time.Duration) bool {
 	return probeViaGoroutineScan(r, timeout, scanForSixelDA)
 }
 
+// ProbeCellPixels asks the terminal for its cell size in pixels via
+// the XTWINOPS query CSI 16t; the reply is CSI 6 ; height ; width t.
+//
+// This exists because TIOCGWINSZ pixel fields don't survive every pty:
+// docker's -it pty and some multiplexers propagate rows/cols but leave
+// ws_xpixel/ws_ypixel at zero, so CellPixels falls back to 8x16 and
+// the pixel-addressed renderers encode a raster far smaller than a
+// hidpi cell box — the terminal stretches it back up and images render
+// soft. The escape query rides through those layers like the protocol
+// probes do.
+//
+// Inputs match ProbeKittyGraphics: w is the terminal writer, r the
+// terminal reader in raw mode, timeout the reply deadline. Must run
+// before bubbletea takes over stdin. ok is false on timeout (the
+// terminal doesn't implement 16t, or a mux swallowed it) and on a
+// malformed or zero-valued reply.
+func ProbeCellPixels(w io.Writer, r io.Reader, timeout time.Duration) (pxW, pxH int, ok bool) {
+	if _, err := io.WriteString(w, "\x1b[16t"); err != nil {
+		return 0, 0, false
+	}
+
+	start := time.Now()
+	var gotW, gotH int
+	scan := func(buf []byte) (matched, ok bool) {
+		matched, cw, ch := scanForCellSize(buf)
+		if !matched {
+			return false, false
+		}
+		gotW, gotH = cw, ch
+		return true, cw > 0 && ch > 0
+	}
+
+	if f, isFile := r.(*os.File); isFile {
+		replied, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
+		debuglog.ImgRender("cellpx probe: ok=%v reason=%s elapsed_ms=%d cell=%dx%d reply=%q",
+			replied, reason, time.Since(start).Milliseconds(), gotW, gotH, collected)
+		return gotW, gotH, replied
+	}
+
+	// Test fallback for non-*os.File readers.
+	return gotW, gotH, probeViaGoroutineScan(r, timeout, scan)
+}
+
+// scanForCellSize returns (matched, pxW, pxH). matched is true once a
+// complete XTWINOPS cell-size report (CSI 6 ; height ; width t) is
+// present in buf; pxW/pxH are zero when the reply is malformed. The
+// anchor "\x1b[6;" cannot collide with a late DA1 reply from the sixel
+// probe — that one starts "\x1b[?".
+func scanForCellSize(buf []byte) (matched bool, pxW, pxH int) {
+	i := bytes.Index(buf, []byte("\x1b[6;"))
+	if i < 0 {
+		return false, 0, 0
+	}
+	tail := buf[i+4:]
+	j := bytes.IndexByte(tail, 't')
+	if j < 0 {
+		return false, 0, 0
+	}
+	parts := bytes.Split(tail[:j], []byte(";"))
+	if len(parts) != 2 {
+		return true, 0, 0
+	}
+	h, errH := strconv.Atoi(string(parts[0]))
+	w, errW := strconv.Atoi(string(parts[1]))
+	if errH != nil || errW != nil || w <= 0 || h <= 0 {
+		return true, 0, 0
+	}
+	return true, w, h
+}
+
 // probeViaGoroutineScan is the generic goroutine-based probe used for
-// non-*os.File readers (tests only — see probeViaGoroutine). It reads
-// byte by byte, re-running scan over everything collected so far, and
-// stops at the first complete reply.
+// non-*os.File readers (tests only). It reads byte by byte, re-running
+// scan over everything collected so far, and stops once scan reports a
+// match.
 func probeViaGoroutineScan(r io.Reader, timeout time.Duration, scan func([]byte) (bool, bool)) bool {
 	ch := make(chan bool, 1)
 	go func() {
@@ -150,58 +265,6 @@ func scanForSixelDA(buf []byte) (matched, ok bool) {
 		}
 	}
 	return true, false
-}
-
-// probeViaGoroutine is the legacy goroutine-based probe. Retained for
-// tests that pass a non-*os.File reader. NOT used in production. The
-// goroutine spawned here is intentionally not cleaned up on timeout;
-// see the doc comment on ProbeKittyGraphics for why that's acceptable
-// in test-only code paths.
-func probeViaGoroutine(r io.Reader, timeout time.Duration) bool {
-	type result struct{ ok bool }
-	ch := make(chan result, 1)
-	go func() {
-		br := bufio.NewReader(r)
-		for {
-			b, err := br.ReadByte()
-			if err != nil {
-				ch <- result{false}
-				return
-			}
-			if b != 0x1b {
-				continue
-			}
-			next, err := br.ReadByte()
-			if err != nil || next != '_' {
-				if err != nil {
-					ch <- result{false}
-					return
-				}
-				continue
-			}
-			next, err = br.ReadByte()
-			if err != nil || next != 'G' {
-				if err != nil {
-					ch <- result{false}
-					return
-				}
-				continue
-			}
-			payload, err := br.ReadString(0x1b)
-			if err != nil {
-				ch <- result{false}
-				return
-			}
-			ch <- result{strings.Contains(payload, ";OK")}
-			return
-		}
-	}()
-	select {
-	case res := <-ch:
-		return res.ok
-	case <-time.After(timeout):
-		return false
-	}
 }
 
 // scanForOK returns (matched, ok). matched is true if a complete kitty
