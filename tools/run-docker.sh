@@ -40,15 +40,20 @@ tz="${TZ:-$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')}"
 
 # Terminal identity rides into the container so graphics-protocol detection
 # sees the real terminal; the kitty probe's reply comes back over the -it pty.
+# -w /src puts slk-debug.log (written to cwd under SLK_DEBUG) in the
+# host checkout instead of dying with the --rm container.
 exec docker run --rm -it \
   -v "$repo":/src \
+  -w /src \
   -v slk-test-state:/state \
   ${tz:+-e TZ="$tz"} \
+  ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \
   -e XDG_CACHE_HOME=/state/xdg/cache \
   -e TERM="${TERM:-xterm-256color}" \
   ${TERM_PROGRAM:+-e TERM_PROGRAM="$TERM_PROGRAM"} \
+  ${COLORTERM:+-e COLORTERM="$COLORTERM"} \
   ${KITTY_WINDOW_ID:+-e KITTY_WINDOW_ID="$KITTY_WINDOW_ID"} \
   ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"} \
   ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"} \
