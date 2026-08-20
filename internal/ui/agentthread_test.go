@@ -91,15 +91,27 @@ func TestAgentThreadNamesTab(t *testing.T) {
 
 func TestAgentTabLabelHoistsTaskID(t *testing.T) {
 	cases := []struct{ flat, want string }{
-		{"@Claude colony-562: fix the flow viewer", "[colony-562] fix the flow viewer"},
-		{"@Claude please babysit colony-71 until merge", "[colony-71] please babysit until merge"},
-		{"@Claude colony-562", "[colony-562]"},
-		{"@Claude fix the ingest retries", "fix the ingest retries"},
+		{"colony-562: fix the flow viewer", "[colony-562] fix the flow viewer"},
+		{"please babysit colony-71 until merge", "[colony-71] please babysit until merge"},
+		{"colony-562", "[colony-562]"},
+		{"fix the ingest retries", "fix the ingest retries"},
 	}
 	for _, c := range cases {
-		if got := agentTabLabel("Claude", c.flat); got != c.want {
+		if got := agentTabLabel(c.flat); got != c.want {
 			t.Errorf("agentTabLabel(%q) = %q, want %q", c.flat, got, c.want)
 		}
+	}
+}
+
+func TestAgentTabNameIndependentOfNameSources(t *testing.T) {
+	a, _, _, tabNames := newAgentTestAppWithTab()
+	// The in-memory name map and the user cache disagree on the bot's
+	// name; the tab label must not carry a mangled fragment of either.
+	a.userNames = map[string]string{"UBOT": "Claude Tag"}
+	openAgentThread(a, "<@UBOT> fix the retries")
+
+	if len(*tabNames) != 1 || (*tabNames)[0] != "fix the retries" {
+		t.Errorf("tab names = %+v, want [fix the retries]", *tabNames)
 	}
 }
 

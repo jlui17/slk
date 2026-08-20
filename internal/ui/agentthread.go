@@ -52,8 +52,18 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// a turn already in progress isn't visible until its next event.
 	a.agentReport(agentSidebarID(name), name, title, false, "")
 	if a.agentNameTab != nil {
-		a.agentNameTab(agentTabLabel(name, flat))
+		// The mention is dropped from the raw text, not trimmed from the
+		// flattened string: trimming by rendered name breaks when the
+		// in-memory name map and the user cache disagree on the bot's name.
+		a.agentNameTab(agentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID))))
 	}
+}
+
+// stripMention removes every <@userID> mention (bare or labeled) from raw
+// mrkdwn text.
+func stripMention(text, userID string) string {
+	re := regexp.MustCompile(`<@` + regexp.QuoteMeta(userID) + `(\|[^>]*)?>`)
+	return re.ReplaceAllLiteralString(text, "")
 }
 
 // releaseAgentThread removes the sidebar entry when the agent thread stops
@@ -115,15 +125,14 @@ func (a *App) agentThreadTitle(channelID, flat string) string {
 // occurrence wins because task ids conventionally lead the message.
 var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
 
-// agentTabLabel derives a short tab name from the flattened root text,
-// dropping the leading agent mention ("@Claude fix the retries" → "fix the
-// retries") since the tab bar has no room for the part every agent thread
-// shares. A task id anywhere in the text is hoisted to a leading
-// "[colony-562] " prefix, matching the workspace-labeling convention, and
-// removed from the snippet so it doesn't appear twice.
-func agentTabLabel(agentName, flat string) string {
-	label := strings.TrimSpace(strings.TrimPrefix(flat, "@"+agentName))
-	label = strings.TrimLeft(label, ":,;.- ")
+// agentTabLabel derives a short tab name from the flattened root text with
+// the agent's own mention already stripped (the tab bar has no room for the
+// part every agent thread shares). A task id anywhere in the text is
+// hoisted to a leading "[colony-562] " prefix, matching the
+// workspace-labeling convention, and removed from the snippet so it doesn't
+// appear twice.
+func agentTabLabel(flat string) string {
+	label := strings.TrimLeft(strings.TrimSpace(flat), ":,;.- ")
 	if label == "" {
 		label = flat
 	}
