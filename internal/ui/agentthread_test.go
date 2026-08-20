@@ -64,6 +64,18 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 	}
 }
 
+func TestAgentThreadTitleFlattensMrkdwn(t *testing.T) {
+	a, calls, _ := newAgentTestApp()
+	openAgentThread(a, "<@UBOT> look at <#C1> &amp; <https://x.test|the link>")
+
+	if len(*calls) != 1 {
+		t.Fatalf("want 1 report, got %+v", *calls)
+	}
+	if want := "#z-claude-dreams @Claude look at #z-claude-dreams & the link"; (*calls)[0].title != want {
+		t.Errorf("title = %q, want %q", (*calls)[0].title, want)
+	}
+}
+
 func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	a, calls, _ := newAgentTestApp()
 	root := messages.MessageItem{TS: "100.0", Text: "<@UBOT> hello", UserID: "UHUMAN", ThreadTS: "100.0"}

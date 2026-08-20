@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/muesli/reflow/truncate"
 
 	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -75,29 +76,28 @@ func (a *App) firstBotMention(text string) (userID, name string, ok bool) {
 }
 
 // agentThreadTitle labels the sidebar entry with the thread's home channel
-// and a snippet of the root message, mentions resolved to @names so the raw
-// <@U…> wire syntax never reaches the sidebar.
+// and a snippet of the root message, entity tokens flattened so no raw
+// mrkdwn wire syntax reaches the sidebar.
 func (a *App) agentThreadTitle(channelID, rootText string) string {
 	channel := a.channelNames[channelID]
 	if channel == "" {
 		channel = channelID
 	}
-	text := rootText
-	for _, id := range mrkdwn.MentionedUserIDs(rootText) {
-		name := a.userNames[id]
-		if name == "" {
-			name, _, _ = a.userInfo(id)
-		}
-		if name != "" {
-			text = strings.ReplaceAll(text, "<@"+id+">", "@"+name)
-		}
-	}
+	text := messages.FlattenMrkdwn(rootText,
+		func(id string) (string, bool) {
+			if name := a.userNames[id]; name != "" {
+				return name, true
+			}
+			name, _, ok := a.userInfo(id)
+			return name, ok && name != ""
+		},
+		func(id string) (string, bool) {
+			name, ok := a.channelNames[id]
+			return name, ok
+		})
 	text = strings.Join(strings.Fields(text), " ")
 	const maxSnippet = 48
-	if r := []rune(text); len(r) > maxSnippet {
-		text = string(r[:maxSnippet-1]) + "…"
-	}
-	return "#" + channel + " " + text
+	return "#" + channel + " " + truncate.StringWithTail(text, maxSnippet, "…")
 }
 
 // agentSidebarID derives the sidebar's internal agent id from a bot display
