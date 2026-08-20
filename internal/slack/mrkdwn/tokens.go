@@ -57,6 +57,16 @@ var (
 	reEmoji = regexp.MustCompile(`:([a-z0-9_+-]+):`)
 )
 
+// MentionedUserIDs returns the user ID of every <@U…> mention in a raw
+// mrkdwn string, in order of appearance.
+func MentionedUserIDs(input string) []string {
+	var ids []string
+	for _, m := range reUser.FindAllStringSubmatch(input, -1) {
+		ids = append(ids, m[1])
+	}
+	return ids
+}
+
 // tokenize replaces all Slack wire-form tokens in s with sentinel
 // markers and returns the rewritten string plus an ordered table.
 // The marker for table index N is the three-rune sequence
