@@ -14,6 +14,7 @@ type recorder struct {
 	mu       sync.Mutex
 	lines    []string
 	tabLabel string
+	tokens   map[string]string
 }
 
 func (r *recorder) add(line string) {
@@ -38,6 +39,25 @@ func (r *recorder) getTabLabel() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.tabLabel
+}
+
+func (r *recorder) setToken(k, v string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.tokens == nil {
+		r.tokens = map[string]string{}
+	}
+	r.tokens[k] = v
+}
+
+func (r *recorder) getTokens() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := map[string]string{}
+	for k, v := range r.tokens {
+		out[k] = v
+	}
+	return out
 }
 
 // startServer runs a fake herdr endpoint that mirrors the real server's
@@ -67,7 +87,8 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 					var req struct {
 						Method string `json:"method"`
 						Params struct {
-							Label string `json:"label"`
+							Label  string            `json:"label"`
+							Tokens map[string]string `json:"tokens"`
 						} `json:"params"`
 					}
 					_ = json.Unmarshal([]byte(line), &req)
@@ -83,6 +104,20 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 						conn.Write(append(resp, '\n'))
 					case "tab.rename":
 						rec.setTabLabel(req.Params.Label)
+						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
+					case "pane.get":
+						resp, _ := json.Marshal(map[string]any{
+							"id": "x",
+							"result": map[string]any{
+								"type": "pane_info",
+								"pane": map[string]any{"tokens": rec.getTokens()},
+							},
+						})
+						conn.Write(append(resp, '\n'))
+					case "pane.report_metadata":
+						for k, v := range req.Params.Tokens {
+							rec.setToken(k, v)
+						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 					default:
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
@@ -169,9 +204,24 @@ func TestReport(t *testing.T) {
 	}
 	// Strictly past the agent report's seq — herdr's per-pane seq counter
 	// is shared across report methods and drops an equal-or-stale seq.
-	if metaSeq, ok := params["seq"].(float64); !ok || metaSeq <= seq {
-		t.Errorf("report_metadata seq = %v, want > %v", params["seq"], seq)
+	// Compared as int64: UnixNano exceeds float64's exact-integer range,
+	// so the map[string]any float values collapse adjacent seqs.
+	if agentSeq, metaSeq := seqOf(t, lines[0]), seqOf(t, lines[1]); metaSeq <= agentSeq {
+		t.Errorf("report_metadata seq = %d, want > %d", metaSeq, agentSeq)
 	}
+}
+
+func seqOf(t *testing.T, line string) int64 {
+	t.Helper()
+	var req struct {
+		Params struct {
+			Seq int64 `json:"seq"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(line), &req); err != nil {
+		t.Fatalf("bad request line %q: %v", line, err)
+	}
+	return req.Params.Seq
 }
 
 func TestNextSeqMonotonic(t *testing.T) {
@@ -281,20 +331,41 @@ func TestNameTabRenamesDefaultAndOwnLabel(t *testing.T) {
 }
 
 func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
+	for _, userLabel := range []string{"my precious tab", "2024"} {
+		sock := filepath.Join(t.TempDir(), "herdr.sock")
+		_, rec := startServer(t, "unix", sock)
+		rec.setTabLabel(userLabel)
+		r := newReporter("unix", sock, "pane-1", "tab-1")
+
+		r.NameTab("fix ingest retries")
+		r.Close(time.Second)
+		if got := rec.getTabLabel(); got != userLabel {
+			t.Fatalf("user label %q overwritten: %q", userLabel, got)
+		}
+		for _, line := range rec.snapshot() {
+			if method, _ := decode(t, line); method == "tab.rename" {
+				t.Fatalf("tab.rename sent over user label %q", userLabel)
+			}
+		}
+	}
+}
+
+func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	rec.setTabLabel("my precious tab")
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	// A previous slk run named the tab and recorded the ownership token
+	// in the herdr server.
+	rec.setTabLabel("old thread name")
+	rec.setToken(tabLabelToken, "old thread name")
 
-	r.NameTab("fix ingest retries")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r.NameTab("new thread name")
 	r.Close(time.Second)
-	if got := rec.getTabLabel(); got != "my precious tab" {
-		t.Fatalf("user label overwritten: %q", got)
+	if got := rec.getTabLabel(); got != "new thread name" {
+		t.Fatalf("own label from a previous run not renamed: %q", got)
 	}
-	for _, line := range rec.snapshot() {
-		if method, _ := decode(t, line); method == "tab.rename" {
-			t.Fatalf("tab.rename sent over a user label: %v", rec.snapshot())
-		}
+	if got := rec.getTokens()[tabLabelToken]; got != "new thread name" {
+		t.Fatalf("ownership token not updated: %q", got)
 	}
 }
 

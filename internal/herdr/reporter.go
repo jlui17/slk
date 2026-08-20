@@ -63,12 +63,10 @@ type Reporter struct {
 	// pane.release_agent requires it. Empty means no entry to release.
 	agent string
 
-	// tabMu serializes NameTab's read-then-rename pair, and is separate
+	// tabMu serializes NameTab's read-then-rename sequence, and is separate
 	// from mu so a Report on the UI goroutine never waits behind NameTab's
-	// socket round-trips. lastTabLabel is the label NameTab set most
-	// recently, guarded by tabMu.
-	tabMu        sync.Mutex
-	lastTabLabel string
+	// socket round-trips.
+	tabMu sync.Mutex
 }
 
 // NewReporterFromEnv returns a Reporter when slk is running inside a herdr
@@ -210,10 +208,29 @@ type tabRenameParams struct {
 	Label string `json:"label"`
 }
 
+type paneGetParams struct {
+	PaneID string `json:"pane_id"`
+}
+
+// reportTokensParams writes only metadata tokens; display_agent and title
+// are omitted entirely so an ownership write can't clear them.
+type reportTokensParams struct {
+	PaneID string            `json:"pane_id"`
+	Source string            `json:"source"`
+	Tokens map[string]string `json:"tokens"`
+	Seq    int64             `json:"seq"`
+}
+
+// tabLabelToken is the pane-metadata token recording the tab label NameTab
+// set. It lives in the herdr server, so ownership survives slk restarts in
+// the same pane.
+const tabLabelToken = "slk_tab_label"
+
 // NameTab renames the pane's herdr tab to label — but only over a label
-// herdr assigned by default (the tab's position digits) or one NameTab
-// itself set earlier; a label the user typed is never overwritten. No-op
-// without a tab id (HERDR_TAB_ID absent) and nil-safe.
+// herdr assigned by default (the tab's position digits) or one NameTab set
+// itself, tracked via a pane-metadata token; a label the user typed is
+// never overwritten. No-op without a tab id (HERDR_TAB_ID absent) and
+// nil-safe.
 func (r *Reporter) NameTab(label string) {
 	if r == nil || r.tabID == "" || label == "" {
 		return
@@ -229,14 +246,21 @@ func (r *Reporter) NameTab(label string) {
 			return
 		}
 		if current == label {
-			r.lastTabLabel = label
+			// Already named, possibly by a previous slk run in this pane;
+			// claim it so later renames keep working.
+			r.recordTabLabel(label)
 			return
 		}
-		if current != r.lastTabLabel && !isDefaultTabLabel(current) {
+		owned, err := r.ownsTabLabel(current)
+		if err != nil {
+			debuglog.Notify("herdr: pane.get: %v", err)
+			return
+		}
+		if !owned && !isDefaultTabLabel(current) {
 			return
 		}
 		req, err := json.Marshal(request{
-			ID:     fmt.Sprintf("slk:%d", time.Now().UnixNano()),
+			ID:     fmt.Sprintf("slk:%d", nextSeq()),
 			Method: "tab.rename",
 			Params: tabRenameParams{TabID: r.tabID, Label: label},
 		})
@@ -248,8 +272,58 @@ func (r *Reporter) NameTab(label string) {
 			debuglog.Notify("herdr: tab.rename: %v", err)
 			return
 		}
-		r.lastTabLabel = label
+		r.recordTabLabel(label)
 	}()
+}
+
+// ownsTabLabel reports whether current is a label NameTab set: the pane's
+// ownership token matches it.
+func (r *Reporter) ownsTabLabel(current string) (bool, error) {
+	req, err := json.Marshal(request{
+		ID:     fmt.Sprintf("slk:%d", nextSeq()),
+		Method: "pane.get",
+		Params: paneGetParams{PaneID: r.paneID},
+	})
+	if err != nil {
+		return false, err
+	}
+	resp, err := r.deliver(append(req, '\n'))
+	if err != nil {
+		return false, err
+	}
+	var parsed struct {
+		Result struct {
+			Pane struct {
+				Tokens map[string]string `json:"tokens"`
+			} `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		return false, err
+	}
+	return parsed.Result.Pane.Tokens[tabLabelToken] == current, nil
+}
+
+// recordTabLabel stores the ownership token; failures only cost a future
+// rename, so they are logged and dropped.
+func (r *Reporter) recordTabLabel(label string) {
+	req, err := json.Marshal(request{
+		ID:     fmt.Sprintf("slk:%d", nextSeq()),
+		Method: "pane.report_metadata",
+		Params: reportTokensParams{
+			PaneID: r.paneID,
+			Source: source,
+			Tokens: map[string]string{tabLabelToken: label},
+			Seq:    nextSeq(),
+		},
+	})
+	if err != nil {
+		debuglog.Notify("herdr: encode token write: %v", err)
+		return
+	}
+	if _, err := r.deliver(append(req, '\n')); err != nil {
+		debuglog.Notify("herdr: token write: %v", err)
+	}
 }
 
 // tabLabel fetches the tab's current label via tab.get.
@@ -280,10 +354,15 @@ func (r *Reporter) tabLabel() (string, error) {
 }
 
 // isDefaultTabLabel reports whether label is a herdr-assigned default: an
-// unnamed tab's label is its position rendered as digits.
+// unnamed tab's label is its position rendered as digits. Capped at two
+// digits so a user-typed "2024" is protected; a user label of "7" is
+// indistinguishable from a default and remains the residual clobber risk.
 func isDefaultTabLabel(label string) bool {
 	if label == "" {
 		return true
+	}
+	if len(label) > 2 {
+		return false
 	}
 	for _, r := range label {
 		if r < '0' || r > '9' {
