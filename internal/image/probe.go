@@ -166,25 +166,30 @@ func ProbeCellPixels(w io.Writer, r io.Reader, timeout time.Duration) (pxW, pxH 
 	}
 
 	start := time.Now()
-	var gotW, gotH int
+	// atomics: the test-only goroutine fallback runs scan on another
+	// goroutine that can outlive a timeout return (same hazard
+	// sawReject guards against in probeKittyTransmit).
+	var gotW, gotH atomic.Int32
 	scan := func(buf []byte) (matched, ok bool) {
 		matched, cw, ch := scanForCellSize(buf)
 		if !matched {
 			return false, false
 		}
-		gotW, gotH = cw, ch
+		gotW.Store(int32(cw))
+		gotH.Store(int32(ch))
 		return true, cw > 0 && ch > 0
 	}
 
 	if f, isFile := r.(*os.File); isFile {
 		replied, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
 		debuglog.ImgRender("cellpx probe: ok=%v reason=%s elapsed_ms=%d cell=%dx%d reply=%q",
-			replied, reason, time.Since(start).Milliseconds(), gotW, gotH, collected)
-		return gotW, gotH, replied
+			replied, reason, time.Since(start).Milliseconds(), gotW.Load(), gotH.Load(), collected)
+		return int(gotW.Load()), int(gotH.Load()), replied
 	}
 
 	// Test fallback for non-*os.File readers.
-	return gotW, gotH, probeViaGoroutineScan(r, timeout, scan)
+	replied := probeViaGoroutineScan(r, timeout, scan)
+	return int(gotW.Load()), int(gotH.Load()), replied
 }
 
 // scanForCellSize returns (matched, pxW, pxH). matched is true once a
