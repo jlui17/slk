@@ -246,6 +246,12 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// from kitty's perspective: re-transmitting the same image id
 		// just re-asserts the binding).
 		cw, ch := cellPixels()
+		// pxW/pxH size the encoded raster AND fill the raw-RGBA upload
+		// header's s=,v= keys; one computation for both, because raw
+		// RGBA carries no embedded dimensions to catch a mismatch and
+		// q=2 suppresses the terminal's error.
+		pxW := target.X * cw
+		pxH := target.Y * ch
 		pKey := payloadKey{placeholderKey: phKey, cellPxW: cw, cellPxH: ch}
 		k.mu.Lock()
 		payload, payloadHit := k.payloads[pKey]
@@ -254,8 +260,6 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			// The terminal stretches the transmitted raster across the
 			// c=<cols>,r=<rows> box, so a raster smaller than that box's
 			// device-pixel size loses detail the terminal cannot restore.
-			pxW := target.X * cw
-			pxH := target.Y * ch
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
 			draw.BiLinear.Scale(resized, resized.Bounds(), src, src.Bounds(), draw.Over, nil)
 			raw, err := encodeKittyPayload(resized)
@@ -275,8 +279,6 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		imgID := id
 		cellsCols := target.X
 		cellsRows := target.Y
-		payloadPxW := target.X * cw
-		payloadPxH := target.Y * ch
 		reg := k.registry
 		// fired guards against per-closure double-emission (e.g. the
 		// same viewEntry being flushed twice in one frame). The
@@ -293,7 +295,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			}
 			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",
 				imgID, cellsCols, cellsRows, cw, ch, len(payload), payloadHit)
-			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows, payloadPxW, payloadPxH); err != nil {
+			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows, pxW, pxH); err != nil {
 				return err
 			}
 			reg.MarkUploaded(imgID)
