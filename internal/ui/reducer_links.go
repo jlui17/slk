@@ -6,17 +6,21 @@
 //   - Slack archive permalinks whose subdomain matches the active
 //     workspace AND whose channel resolves via ChannelService.Lookup
 //     navigate in-app: dispatch ChannelSelectedMsg, then complete via
-//     pendingLinkNav once the channel's messages are loaded (select
-//     the target ts, or open the thread panel for thread_ts links).
+//     pendingLinkNav once the channel's messages are loaded (open the
+//     thread panel for thread_ts links and for targets that turn out
+//     to be thread parents, else select the target ts in-channel).
 //   - Everything else opens in the OS browser (a.browserOpener).
 //
-// Completion hooks live in reducer_channels.go (ChannelSelectedMsg
-// and MessagesLoadedMsg arms call completePendingLinkNav).
+// Completion hooks live in reducer_channels.go (the ChannelSelectedMsg
+// and MessagesLoadedMsg arms call completePendingLinkNav; the
+// MessagesAroundLoadedMsg arm retires a nav that rode through
+// FetchAround).
 package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -28,6 +32,17 @@ type pendingLinkNav struct {
 	channelID string
 	messageTS string
 	threadTS  string // non-empty: open the thread panel instead of selecting
+	// openParentThread: a target that turns out to be a thread parent
+	// opens its thread panel. True for permalink navs (a parent's
+	// permalink carries no thread_ts, but following it means the
+	// thread); false for workspace-search jumps, where a top-level hit
+	// should stay a plain in-channel select.
+	openParentThread bool
+	// delivered flips once the jump has visibly landed (a SelectByTS
+	// succeeded). A nav kept armed past that point only re-selects on
+	// the fresh buffer; it must not re-yank focus or close a thread
+	// panel the user opened in the meantime.
+	delivered bool
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -42,21 +57,27 @@ var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 func (a *App) routeLink(rawURL string) tea.Cmd {
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
+		debuglog.General("routeLink: not a permalink, browser: %s", rawURL)
 		return a.browserOpener(rawURL)
 	}
 	domain := a.activeWorkspaceDomain()
 	if domain == "" || pl.Subdomain != domain {
+		debuglog.General("routeLink: domain %q != active %q, browser: %s", pl.Subdomain, domain, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	name, chType, found := a.channels.Lookup(pl.ChannelID)
 	if !found {
+		debuglog.General("routeLink: channel %s not found, browser: %s", pl.ChannelID, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	a.pendingLinkNav = &pendingLinkNav{
-		channelID: string(pl.ChannelID),
-		messageTS: string(pl.MessageTS),
-		threadTS:  string(pl.ThreadTS),
+		channelID:        string(pl.ChannelID),
+		messageTS:        string(pl.MessageTS),
+		threadTS:         string(pl.ThreadTS),
+		openParentThread: true,
 	}
+	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
+		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
 	if string(pl.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
@@ -72,7 +93,8 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 // navigation for channelID. authoritative=true means "no more message
 // data is coming for this channel" — if the target ts still isn't in
 // the buffer, dispatch ChannelService.FetchAround to load a history
-// window centered on the target instead of waiting.
+// window centered on the target instead of waiting; the nav stays
+// armed and the MessagesAroundLoadedMsg arm finishes it.
 //
 // Called from: routeLink (already-active channel, authoritative),
 // reduceChannels' ChannelSelectedMsg arm (cache render, best-effort),
@@ -85,14 +107,59 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if p.channelID != channelID {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
+		debuglog.General("completePendingLinkNav: stale (pending=%s got=%s), dropped", p.channelID, channelID)
 		a.pendingLinkNav = nil
 		return nil
 	}
 	if p.threadTS != "" {
+		debuglog.General("completePendingLinkNav: opening thread %s select=%s", p.threadTS, p.messageTS)
 		a.pendingLinkNav = nil
 		return a.openThreadForPermalink(p.channelID, p.threadTS, p.messageTS)
 	}
+	debuglog.General("completePendingLinkNav: channel=%s ts=%s authoritative=%v", channelID, p.messageTS, authoritative)
+	// The select lands in the messages pane; with a thread panel open
+	// (or zoomed) that pane is hidden or unfocused and the jump would
+	// be invisible. Close the panel and focus the pane, mirroring the
+	// cross-channel path (reduceChannelSelected closes the thread on
+	// every switch). Only until the jump first lands: a re-completion
+	// (the authoritative pass after a best-effort success) just
+	// re-selects, without tearing down whatever the user opened since.
+	// Ordering: CloseThread clears pane selections, so it must precede
+	// SelectByTS.
+	firstLanding := !p.delivered
+	if firstLanding {
+		if a.threadVisible {
+			a.CloseThread()
+		}
+		a.focusedPanel = PanelMessages
+	}
 	if a.messagepane.SelectByTS(p.messageTS) {
+		p.delivered = true
+		// A thread parent's permalink carries no thread_ts, but
+		// following it means the thread: when the target has replies,
+		// open its thread panel (cursor on the parent row) instead of
+		// stopping at the in-channel select. Permalink navs only
+		// (openParentThread): a workspace-search jump to a top-level
+		// hit stays a plain select. First landing only: a best-effort
+		// open keeps the nav armed (falling through to the keep-armed
+		// logic below) so the authoritative pass re-selects the parent
+		// on the fresh buffer — behind the panel it already opened,
+		// which stays put.
+		if p.openParentThread && firstLanding {
+			for _, m := range a.messagepane.Messages() {
+				if m.TS != p.messageTS {
+					continue
+				}
+				if m.ReplyCount > 0 {
+					debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
+					if authoritative {
+						a.pendingLinkNav = nil
+					}
+					return a.openThreadForPermalink(p.channelID, p.messageTS, p.messageTS)
+				}
+				break
+			}
+		}
 		// A best-effort (cache-render) select is not the end of the
 		// nav: the in-flight fetch's MessagesLoadedMsg will replace
 		// the buffer via SetMessages, which clears the selection and
@@ -105,7 +172,10 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return nil
 	}
 	if authoritative {
-		a.pendingLinkNav = nil
+		// The nav stays armed: the target is off-buffer, so whether it
+		// is a thread parent is unknowable until the fetched window
+		// lands. The MessagesAroundLoadedMsg arm finishes (or drops)
+		// the nav.
 		channels := a.channels
 		chID, ts := p.channelID, p.messageTS
 		return func() tea.Msg {
