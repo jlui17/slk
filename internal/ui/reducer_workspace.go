@@ -67,8 +67,8 @@ import (
 
 // lookupChannelIn resolves channelID against the workspace data carried
 // on WorkspaceReadyMsg, in ChannelService.Lookup's scan order (sidebar
-// items, then finder items); at startup the msg is the data Lookup
-// would read, without depending on the router being active yet.
+// items, then finder items): the msg is the exact snapshot this arm is
+// applying, so the result can't diverge from what gets rendered.
 func lookupChannelIn(channelID string, channels []sidebar.ChannelItem, finder []channelfinder.Item) (name, chType string, ok bool) {
 	for _, ch := range channels {
 		if ch.ID == channelID {
