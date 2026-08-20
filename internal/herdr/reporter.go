@@ -132,7 +132,11 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 				Source:       source,
 				DisplayAgent: displayName,
 				Title:        title,
-				Seq:          seq,
+				// Past the agent report's seq: herdr's per-pane seq counter
+				// is shared across report methods and silently drops an
+				// equal-or-stale seq (returning ok), which would eat the
+				// metadata every time.
+				Seq: seq + 1,
 			},
 		},
 	)

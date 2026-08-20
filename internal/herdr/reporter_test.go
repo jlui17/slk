@@ -123,7 +123,9 @@ func TestReport(t *testing.T) {
 		"source":        "slk",
 		"display_agent": "Claude",
 		"title":         "#general · thread",
-		"seq":           seq,
+		// Strictly past the agent report's seq — herdr's per-pane seq
+		// counter is shared across report methods and drops an equal seq.
+		"seq": seq + 1,
 	}
 	for k, v := range want {
 		if params[k] != v {
