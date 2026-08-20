@@ -120,6 +120,293 @@ func TestOpenLink_ActiveChannel_SelectsMessage(t *testing.T) {
 	}
 }
 
+// Pressing o in an open thread panel on a permalink to a channel-level
+// message of the SAME channel must land somewhere visible: the select
+// happens in the messages pane, so the thread panel closes and focus
+// moves there. Without this the cursor moved behind the panel and the
+// key press looked like a no-op.
+func TestOpenLink_ActiveChannel_FromThreadPanel_ClosesThreadAndSelects(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "target"},
+		{TS: "1779284734.000000", Text: "reply with the link"},
+	})
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	drainCmd(cmd)
+	if app.threadVisible {
+		t.Error("thread panel still open")
+	}
+	if app.focusedPanel != PanelMessages {
+		t.Errorf("focusedPanel = %v, want PanelMessages", app.focusedPanel)
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+}
+
+// A thread parent's permalink carries no thread_ts; following it must
+// open the thread, not stop at selecting the parent in-channel. This
+// is the in-buffer case (the parent is already in the pane).
+func TestOpenLink_ActiveChannel_ParentWithReplies_OpensThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	var fetchedChannel, fetchedThread string
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetchedChannel, fetchedThread = string(channelID), string(threadTS)
+		return nil
+	})
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 3},
+		{TS: "1779284734.000000", Text: "message with the link"},
+	})
+	// The user's own repro: reading some other thread when pressing o.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	drainCmd(cmd)
+	if !app.threadVisible {
+		t.Fatal("thread panel not visible")
+	}
+	if got := app.threadPanel.ThreadTS(); got != "1779284733.270139" {
+		t.Errorf("ThreadTS = %q, want the parent's ts", got)
+	}
+	if fetchedChannel != "C054JFCBN69" || fetchedThread != "1779284733.270139" {
+		t.Errorf("thread fetch = (%q, %q)", fetchedChannel, fetchedThread)
+	}
+	// The channel cursor lands on the parent so closing the thread
+	// leaves the user at the linked message.
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("channel selection = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// A best-effort parent open keeps the nav armed: the in-flight fetch's
+// MessagesLoadedMsg replaces the buffer and snaps its cursor to the
+// bottom, so the authoritative pass must re-select the parent — and do
+// it behind the already-open panel, without reopening it (no duplicate
+// thread fetch).
+func TestBestEffortParentOpen_AuthoritativeReselectsBehindPanel(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	threadFetches := 0
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		threadFetches++
+		return nil
+	})
+	parent := messages.MessageItem{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 3}
+	app.messagepane.SetMessages([]messages.MessageItem{parent})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	// Best-effort (cache render) completion opens the thread.
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
+	if !app.threadVisible {
+		t.Fatal("thread panel not opened on best-effort completion")
+	}
+	if app.pendingLinkNav == nil {
+		t.Fatal("nav retired on best-effort completion; authoritative re-select can't run")
+	}
+	// The in-flight fetch lands: fresh buffer, cursor snapped away.
+	_, cmd := app.Update(MessagesLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		Messages:  []messages.MessageItem{parent, {TS: "1779284740.000000", Text: "newer"}},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible || app.threadPanel.ThreadTS() != "1779284733.270139" {
+		t.Error("authoritative pass disturbed the open thread panel")
+	}
+	if threadFetches != 1 {
+		t.Errorf("thread fetched %d times, want 1", threadFetches)
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("channel selection = %+v ok=%v, want the parent", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// The off-buffer variant: the parent arrives via FetchAround, so the
+// MessagesAroundLoadedMsg arm makes the thread-open call.
+func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	var fetchedThread string
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetchedThread = string(threadTS)
+		return nil
+	})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1779284733.270139",
+		Messages: []messages.MessageItem{
+			{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 2},
+			{TS: "1779284734.000000", Text: "newer"},
+		},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible {
+		t.Fatal("thread panel not visible")
+	}
+	if got := app.threadPanel.ThreadTS(); got != "1779284733.270139" {
+		t.Errorf("ThreadTS = %q", got)
+	}
+	if fetchedThread != "1779284733.270139" {
+		t.Errorf("thread fetch = %q", fetchedThread)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// The upload guard refuses the channel switch, so the nav it was
+// carrying must die with it: the completion hook otherwise runs
+// against the OLD channel's UI (closing the user's thread, dispatching
+// FetchAround for a channel that never became active) and leaks the
+// armed nav.
+func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "CELSEWHERE"
+	app.compose.SetUploading(true)
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	var fetchedAround bool
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+		fetchedAround = true
+		return nil
+	})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	for _, m := range drainCmd(cmd) {
+		if cs, ok := m.(ChannelSelectedMsg); ok {
+			_, c2 := app.Update(cs)
+			drainCmd(c2)
+		}
+	}
+	if !app.threadVisible || app.focusedPanel != PanelThread {
+		t.Error("refused switch tore down the thread panel or moved focus")
+	}
+	if fetchedAround {
+		t.Error("FetchAround dispatched for a channel that never became active")
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked past the refused switch: %+v", app.pendingLinkNav)
+	}
+}
+
+// The async landing needs the same visibility treatment as the
+// synchronous path: if the user opened a thread while FetchAround was
+// in flight, the landed jump must close it and focus the messages
+// pane, not select invisibly behind the panel.
+func TestMessagesAroundLoaded_ArmedNavLanding_ClosesThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0", openParentThread: true}
+	// The user opened some thread during the fetch round-trip.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1.0",
+		Messages:  []messages.MessageItem{{TS: "1.0", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if app.threadVisible || app.focusedPanel != PanelMessages {
+		t.Error("landed jump left the thread panel up / focus away")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1.0" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// A workspace-search jump (openParentThread=false) to a top-level hit
+// stays a plain in-channel select even when the hit is a thread parent;
+// only reply hits (which carry thread_ts) open the thread panel.
+func TestSearchNav_ParentHit_SelectsWithoutOpeningThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 4},
+	})
+	// Arm the nav the way handleWorkspaceSearchMode does: no
+	// openParentThread.
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139"}
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", true))
+	if app.threadVisible {
+		t.Fatal("search jump to a top-level hit opened the thread panel")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// Without an armed nav the arm keeps its plain select behavior — an
+// in-channel search jump to a thread parent must NOT open the thread.
+func TestMessagesAroundLoaded_NoNav_ParentStaysSelected(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C1",
+		TargetTS:  "2.0",
+		Messages:  []messages.MessageItem{{TS: "2.0", Text: "parent", ReplyCount: 5}},
+	})
+	drainCmd(cmd)
+	if app.threadVisible {
+		t.Fatal("thread panel opened on a non-permalink jump")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "2.0" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+}
+
+// A ctrl+w focus change during the FetchAround round-trip retargets
+// activeChannelID with no ChannelSelectedMsg, so nothing else drops
+// the armed nav; the stale-window drop must retire it, or the next
+// visit to the channel replays the jump.
+func TestMessagesAroundLoaded_StaleWindowRetiresArmedNav(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "COTHER" // focus moved during the fetch
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1.0",
+		Messages:  []messages.MessageItem{{TS: "1.0", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked past the stale drop: %+v", app.pendingLinkNav)
+	}
+}
+
+// A failed window fetch must still retire the armed nav, or a later
+// visit to the channel would replay the stale jump.
+func TestMessagesAroundLoaded_FailureRetiresArmedNav(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{ChannelID: "C054JFCBN69", TargetTS: "1.0", Err: errors.New("boom")})
+	drainCmd(cmd)
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked: %+v", app.pendingLinkNav)
+	}
+}
+
 func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	app, _ := linkTestApp(t)
 	var fetchedChannel, fetchedTS string
@@ -136,8 +423,11 @@ func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1779284733.270139" {
 		t.Errorf("FetchAround not dispatched: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
-	if app.pendingLinkNav != nil {
-		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	// The nav rides through FetchAround still armed: whether the target
+	// is a thread parent is unknowable until the window lands, so the
+	// MessagesAroundLoadedMsg arm retires it.
+	if app.pendingLinkNav == nil {
+		t.Error("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
 	}
 }
 
@@ -159,6 +449,42 @@ func TestOpenLink_ThreadPermalink_OpensThread(t *testing.T) {
 	}
 	if fetchedChannel != "C054JFCBN69" || fetchedThread != "1779284700.000100" {
 		t.Errorf("fetch = (%q, %q)", fetchedChannel, fetchedThread)
+	}
+}
+
+// After a best-effort select already landed the jump, the
+// authoritative re-completion only re-selects: it must not close a
+// thread the user opened during the fetch window or yank focus back.
+func TestAuthoritativeRecompletion_KeepsUserThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "target"},
+	})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	// Best-effort (cache render) completion lands the jump.
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
+	if app.pendingLinkNav == nil || !app.pendingLinkNav.delivered {
+		t.Fatalf("nav should stay armed and delivered: %+v", app.pendingLinkNav)
+	}
+	// The user opens some thread while the network fetch is in flight.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	// Authoritative completion on the fresh buffer.
+	_, cmd := app.Update(MessagesLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		Messages:  []messages.MessageItem{{TS: "1779284733.270139", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible || app.focusedPanel != PanelThread {
+		t.Error("re-completion closed the user's thread or yanked focus")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
 	}
 }
 
@@ -220,8 +546,18 @@ func TestOpenLink_OtherChannel_FreshCacheMissingTS_FetchesAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1779284733.270139" {
 		t.Errorf("FetchAround not dispatched on tier-1 fresh path: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
+	// Armed across FetchAround; the MessagesAroundLoadedMsg arm retires it.
+	if app.pendingLinkNav == nil {
+		t.Error("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
+	}
+	_, c3 := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1779284733.270139",
+		Messages:  []messages.MessageItem{{TS: "1779284733.270139", Text: "target"}},
+	})
+	drainCmd(c3)
 	if app.pendingLinkNav != nil {
-		t.Errorf("pendingLinkNav leaked on tier-1 fresh path: %+v", app.pendingLinkNav)
+		t.Errorf("pendingLinkNav leaked after window landed: %+v", app.pendingLinkNav)
 	}
 }
 
@@ -329,7 +665,7 @@ func TestCompletePendingNav_OffBufferTriggersFetchAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1700000001.000000" {
 		t.Fatalf("FetchAround not dispatched: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
-	if app.pendingLinkNav != nil {
-		t.Fatal("pendingLinkNav not cleared")
+	if app.pendingLinkNav == nil {
+		t.Fatal("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
 	}
 }

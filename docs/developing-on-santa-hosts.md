@@ -42,6 +42,11 @@ Run it in two panes and both instances share the volume on the docker VM's
 kernel, so cross-process file locking behaves exactly as it does natively.
 Reset the sandbox with `docker volume rm slk-test-state`.
 
+Link opening (`o`) works through a bridge: the container has no browser, so
+slk honors `$BROWSER`, which the script points at `tools/spool-open` — it
+drops the URL into a `/tmp` spool directory that a host-side watcher in the
+script opens with `open`.
+
 **Caveat:** the docker pty reports no pixel dimensions, so the TIOCGWINSZ
 path for cell metrics always fails. slk recovers by querying the terminal
 directly (XTWINOPS `CSI 16t`), which rides through the docker pty; only a

@@ -157,10 +157,26 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case MessagesAroundLoadedMsg:
 		debuglog.Cache("MessagesAroundLoadedMsg: channel=%s active=%s count=%d err=%v",
 			m.ChannelID, a.activeChannelID, len(m.Messages), m.Err)
+		// A permalink nav whose target was off-buffer rides through
+		// FetchAround still armed (completePendingLinkNav can't tell
+		// whether an off-buffer target is a thread parent). This arm
+		// retires it on every outcome — a matching nav surviving the
+		// stale drop (e.g. a ctrl+w focus change during the fetch,
+		// which retargets activeChannelID with no ChannelSelectedMsg)
+		// or a failed fetch would leak and replay on the channel's
+		// next visit.
+		nav := a.pendingLinkNav
+		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
 		if m.ChannelID != a.activeChannelID {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return nil, true // stale: user navigated away
 		}
 		if m.Err != nil || len(m.Messages) == 0 {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return func() tea.Msg { return ToastMsg{Text: "Failed to load history around message"} }, true
 		}
 		// Confirm the target is actually in the fetched window BEFORE
@@ -175,9 +191,20 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}
 		if !found {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return func() tea.Msg { return ToastMsg{Text: "Message not found in loaded history"} }, true
 		}
 		a.messagepane.SetMessages(m.Messages)
+		if navMatches {
+			// The landed window finishes the nav through the single
+			// completion path: close/focus for a jump that hasn't
+			// visibly landed yet, the parent thread-open decision,
+			// retire (the select can't miss — `found` above). An
+			// inline copy of that logic here would drift.
+			return a.completePendingLinkNav(m.ChannelID, true), true
+		}
 		a.messagepane.SelectByTS(m.TargetTS)
 		return nil, true
 
@@ -312,6 +339,12 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 // flag.
 func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
+		// A refused switch can't ever complete a pending permalink nav,
+		// and the caller's completion hook still runs against the OLD
+		// channel's UI — with the nav armed it would tear down the
+		// user's thread panel and dispatch FetchAround for a channel
+		// that never became active. Drop the nav with the switch.
+		a.pendingLinkNav = nil
 		return a.uploadToastCmd("Upload in progress", 2*time.Second), false
 	}
 	// Perf instrumentation: wall-clock the synchronous portion of the
