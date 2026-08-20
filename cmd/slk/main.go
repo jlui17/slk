@@ -1055,6 +1055,19 @@ func run(startupLink *slackurl.Permalink) error {
 	proto := imgpkg.Detect(imgpkg.CaptureEnv(), cfg.Appearance.ImageProtocol)
 	debuglog.ImgRender("image protocol detect: cfg=%q result=%s", cfg.Appearance.ImageProtocol, proto)
 
+	// noMuxTTY gates every optional escape probe below: never inside
+	// tmux/zellij (tmux protocol policy lives in Detect's
+	// client_termname path; zellij swallows the escapes, so each probe
+	// would burn its full timeout for nothing), and only when stdin is
+	// really the terminal.
+	noMuxTTY := os.Getenv("TMUX") == "" && os.Getenv("ZELLIJ") == "" &&
+		term.IsTerminal(int(os.Stdin.Fd()))
+	// upgradeProbeAllowed is the single statement of when a 200ms
+	// upgrade probe (kitty or sixel) may be spent from halfblock: auto
+	// mode only — an explicit image_protocol stays what it says — on a
+	// probeable terminal.
+	upgradeProbeAllowed := imgpkg.IsAutoProtocol(cfg.Appearance.ImageProtocol) && noMuxTTY
+
 	// Optional: run kitty version probe if detected as kitty AND stdin is a TTY.
 	// Must happen BEFORE bubbletea takes over the terminal.
 	if proto == imgpkg.ProtoKitty && term.IsTerminal(int(os.Stdin.Fd())) {
@@ -1072,16 +1085,10 @@ func run(startupLink *slackurl.Permalink) error {
 	// would work. Ask the terminal directly — the probe upload gets an
 	// explicit ;OK reply, so a hit is authoritative. Runs before the
 	// sixel probe because kitty is the preferred protocol (sharper
-	// scaling, and emoji-as-images requires it). Same guards as the
-	// sixel probe below: auto mode only, never under tmux/zellij
-	// (tmux is handled by Detect's client_termname path; zellij
-	// swallows the escape and we'd pay the full timeout for nothing).
-	// A terminal with no kitty support ignores the probe, costing the
-	// 200ms timeout once at startup.
-	if proto == imgpkg.ProtoHalfBlock &&
-		imgpkg.IsAutoProtocol(cfg.Appearance.ImageProtocol) &&
-		os.Getenv("TMUX") == "" && os.Getenv("ZELLIJ") == "" &&
-		term.IsTerminal(int(os.Stdin.Fd())) {
+	// scaling, and emoji-as-images requires it). A terminal with no
+	// kitty support ignores the probe, costing the 200ms timeout once
+	// at startup.
+	if proto == imgpkg.ProtoHalfBlock && upgradeProbeAllowed {
 		if ok, probed := probeKittySupport(); probed && ok {
 			debuglog.ImgRender("kitty upgrade probe succeeded, upgrading halfblock to kitty")
 			proto = imgpkg.ProtoKitty
@@ -1095,15 +1102,9 @@ func run(startupLink *slackurl.Permalink) error {
 	// mosaic even though real pixels would work. Ask the terminal
 	// directly via DA1 before settling for halfblock.
 	//
-	// Only in auto mode — an explicit image_protocol=halfblock must stay
-	// half-block — and never inside a multiplexer: tmux keeps sixel off
-	// by policy (see Detect's doc comment) and zellij has no sixel path
-	// at all, so probing there only risks paying the full timeout for an
-	// answer we would ignore.
-	if proto == imgpkg.ProtoHalfBlock &&
-		imgpkg.IsAutoProtocol(cfg.Appearance.ImageProtocol) &&
-		os.Getenv("TMUX") == "" && os.Getenv("ZELLIJ") == "" &&
-		term.IsTerminal(int(os.Stdin.Fd())) {
+	// Shares upgradeProbeAllowed with the kitty upgrade probe above —
+	// one policy for when an upgrade probe may be spent.
+	if proto == imgpkg.ProtoHalfBlock && upgradeProbeAllowed {
 		withRawTerminal("sixel probe", func() {
 			if imgpkg.ProbeSixel(os.Stdout, os.Stdin, 200*time.Millisecond) {
 				debuglog.ImgRender("sixel probe succeeded, upgrading halfblock to sixel")
