@@ -138,18 +138,23 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		// A thread parent's permalink carries no thread_ts, but
 		// following it means the thread: when the target has replies,
 		// open its thread panel (cursor on the parent row) instead of
-		// stopping at the in-channel select. Retires the nav even on a
-		// best-effort completion, like the thread_ts branch above.
-		// Permalink navs only (openParentThread): a workspace-search
-		// jump to a top-level hit stays a plain select.
-		if p.openParentThread {
+		// stopping at the in-channel select. Permalink navs only
+		// (openParentThread): a workspace-search jump to a top-level
+		// hit stays a plain select. First landing only: a best-effort
+		// open keeps the nav armed (falling through to the keep-armed
+		// logic below) so the authoritative pass re-selects the parent
+		// on the fresh buffer — behind the panel it already opened,
+		// which stays put.
+		if p.openParentThread && firstLanding {
 			for _, m := range a.messagepane.Messages() {
 				if m.TS != p.messageTS {
 					continue
 				}
 				if m.ReplyCount > 0 {
 					debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
-					a.pendingLinkNav = nil
+					if authoritative {
+						a.pendingLinkNav = nil
+					}
 					return a.openThreadForPermalink(p.channelID, p.messageTS, p.messageTS)
 				}
 				break
