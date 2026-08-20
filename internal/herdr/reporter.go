@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
@@ -22,6 +23,28 @@ const (
 	source      = "slk"
 	sendTimeout = 500 * time.Millisecond
 )
+
+// seqCounter backs nextSeq. Process-wide is fine: one slk process reports
+// for one pane.
+var seqCounter atomic.Int64
+
+// nextSeq returns a strictly increasing seq, seeded from the wall clock so
+// it also outranks seqs from a previous slk run in the same pane. Bare
+// UnixNano would regress on a backward clock step (NTP), and herdr silently
+// drops any equal-or-stale seq — freezing the sidebar and eating the final
+// release.
+func nextSeq() int64 {
+	for {
+		prev := seqCounter.Load()
+		next := time.Now().UnixNano()
+		if next <= prev {
+			next = prev + 1
+		}
+		if seqCounter.CompareAndSwap(prev, next) {
+			return next
+		}
+	}
+}
 
 // Reporter sends agent-sidebar updates for one herdr pane. Every method
 // returns immediately (sends run on their own goroutine, ordered on the
@@ -123,7 +146,11 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 	if working {
 		state = "working"
 	}
-	seq := time.Now().UnixNano()
+	seq := nextSeq()
+	// The metadata draws its own seq: herdr's per-pane seq counter is
+	// shared across report methods and silently drops an equal-or-stale
+	// seq (returning ok), which would eat the metadata every time.
+	metaSeq := nextSeq()
 	r.send(
 		request{
 			ID:     fmt.Sprintf("slk:%d", seq),
@@ -138,18 +165,14 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 			},
 		},
 		request{
-			ID:     fmt.Sprintf("slk:%d", seq+1),
+			ID:     fmt.Sprintf("slk:%d", metaSeq),
 			Method: "pane.report_metadata",
 			Params: reportMetadataParams{
 				PaneID:       r.paneID,
 				Source:       source,
 				DisplayAgent: displayName,
 				Title:        title,
-				// Past the agent report's seq: herdr's per-pane seq counter
-				// is shared across report methods and silently drops an
-				// equal-or-stale seq (returning ok), which would eat the
-				// metadata every time.
-				Seq: seq + 1,
+				Seq:          metaSeq,
 			},
 		},
 	)
@@ -168,9 +191,9 @@ func (r *Reporter) Release() {
 		return
 	}
 	// The seq is nullable in herdr's schema but not optional in effect: a
-	// missing seq counts as 0, stale against any prior report's UnixNano,
-	// and herdr silently ignores the release (returning ok).
-	seq := time.Now().UnixNano()
+	// missing seq counts as 0, stale against any prior report's, and herdr
+	// silently ignores the release (returning ok).
+	seq := nextSeq()
 	r.send(request{
 		ID:     fmt.Sprintf("slk:%d", seq),
 		Method: "pane.release_agent",

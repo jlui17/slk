@@ -161,14 +161,27 @@ func TestReport(t *testing.T) {
 		"source":        "slk",
 		"display_agent": "Claude",
 		"title":         "#general · thread",
-		// Strictly past the agent report's seq — herdr's per-pane seq
-		// counter is shared across report methods and drops an equal seq.
-		"seq": seq + 1,
 	}
 	for k, v := range want {
 		if params[k] != v {
 			t.Errorf("report_metadata params[%q] = %v, want %v", k, params[k], v)
 		}
+	}
+	// Strictly past the agent report's seq — herdr's per-pane seq counter
+	// is shared across report methods and drops an equal-or-stale seq.
+	if metaSeq, ok := params["seq"].(float64); !ok || metaSeq <= seq {
+		t.Errorf("report_metadata seq = %v, want > %v", params["seq"], seq)
+	}
+}
+
+func TestNextSeqMonotonic(t *testing.T) {
+	prev := nextSeq()
+	for i := 0; i < 1000; i++ {
+		next := nextSeq()
+		if next <= prev {
+			t.Fatalf("seq regressed: %d then %d", prev, next)
+		}
+		prev = next
 	}
 }
 
