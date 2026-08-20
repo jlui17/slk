@@ -149,6 +149,11 @@ type AgentReportFunc func(agent, displayName, title string, working bool, status
 // AgentReportFunc.
 type AgentReleaseFunc func()
 
+// AgentTabNameFunc names the pane's surrounding tab after the open agent
+// thread. The implementation decides whether the rename is allowed (it must
+// never overwrite a label the user set themselves).
+type AgentTabNameFunc func(label string)
+
 // UserInfoFunc resolves a user ID against the user cache. ok is false when
 // the user isn't cached yet; agent-thread detection then skips the mention
 // rather than blocking on a network round-trip.

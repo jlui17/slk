@@ -31,6 +31,7 @@ type Reporter struct {
 	network string
 	addr    string
 	paneID  string
+	tabID   string
 
 	wg sync.WaitGroup
 
@@ -38,6 +39,13 @@ type Reporter struct {
 	// agent is the id from the last Report, carried into Release because
 	// pane.release_agent requires it. Empty means no entry to release.
 	agent string
+
+	// tabMu serializes NameTab's read-then-rename pair, and is separate
+	// from mu so a Report on the UI goroutine never waits behind NameTab's
+	// socket round-trips. lastTabLabel is the label NameTab set most
+	// recently, guarded by tabMu.
+	tabMu        sync.Mutex
+	lastTabLabel string
 }
 
 // NewReporterFromEnv returns a Reporter when slk is running inside a herdr
@@ -53,17 +61,20 @@ func NewReporterFromEnv() *Reporter {
 	if paneID == "" {
 		return nil
 	}
+	// HERDR_TAB_ID is optional: without it NameTab is a no-op and the
+	// agent-sidebar reporting still works.
+	tabID := os.Getenv("HERDR_TAB_ID")
 	if addr := os.Getenv("SLK_HERDR_ADDR"); addr != "" {
-		return newReporter("tcp", addr, paneID)
+		return newReporter("tcp", addr, paneID, tabID)
 	}
 	if path := os.Getenv("HERDR_SOCKET_PATH"); path != "" {
-		return newReporter("unix", path, paneID)
+		return newReporter("unix", path, paneID, tabID)
 	}
 	return nil
 }
 
-func newReporter(network, addr, paneID string) *Reporter {
-	return &Reporter{network: network, addr: addr, paneID: paneID}
+func newReporter(network, addr, paneID, tabID string) *Reporter {
+	return &Reporter{network: network, addr: addr, paneID: paneID, tabID: tabID}
 }
 
 type request struct {
@@ -167,6 +178,98 @@ func (r *Reporter) Release() {
 	})
 }
 
+type tabGetParams struct {
+	TabID string `json:"tab_id"`
+}
+
+type tabRenameParams struct {
+	TabID string `json:"tab_id"`
+	Label string `json:"label"`
+}
+
+// NameTab renames the pane's herdr tab to label — but only over a label
+// herdr assigned by default (the tab's position digits) or one NameTab
+// itself set earlier; a label the user typed is never overwritten. No-op
+// without a tab id (HERDR_TAB_ID absent) and nil-safe.
+func (r *Reporter) NameTab(label string) {
+	if r == nil || r.tabID == "" || label == "" {
+		return
+	}
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.tabMu.Lock()
+		defer r.tabMu.Unlock()
+		current, err := r.tabLabel()
+		if err != nil {
+			debuglog.Notify("herdr: tab.get: %v", err)
+			return
+		}
+		if current == label {
+			r.lastTabLabel = label
+			return
+		}
+		if current != r.lastTabLabel && !isDefaultTabLabel(current) {
+			return
+		}
+		req, err := json.Marshal(request{
+			ID:     fmt.Sprintf("slk:%d", time.Now().UnixNano()),
+			Method: "tab.rename",
+			Params: tabRenameParams{TabID: r.tabID, Label: label},
+		})
+		if err != nil {
+			debuglog.Notify("herdr: encode tab.rename: %v", err)
+			return
+		}
+		if _, err := r.deliver(append(req, '\n')); err != nil {
+			debuglog.Notify("herdr: tab.rename: %v", err)
+			return
+		}
+		r.lastTabLabel = label
+	}()
+}
+
+// tabLabel fetches the tab's current label via tab.get.
+func (r *Reporter) tabLabel() (string, error) {
+	req, err := json.Marshal(request{
+		ID:     fmt.Sprintf("slk:%d", time.Now().UnixNano()),
+		Method: "tab.get",
+		Params: tabGetParams{TabID: r.tabID},
+	})
+	if err != nil {
+		return "", err
+	}
+	resp, err := r.deliver(append(req, '\n'))
+	if err != nil {
+		return "", err
+	}
+	var parsed struct {
+		Result struct {
+			Tab struct {
+				Label string `json:"label"`
+			} `json:"tab"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		return "", err
+	}
+	return parsed.Result.Tab.Label, nil
+}
+
+// isDefaultTabLabel reports whether label is a herdr-assigned default: an
+// unnamed tab's label is its position rendered as digits.
+func isDefaultTabLabel(label string) bool {
+	if label == "" {
+		return true
+	}
+	for _, r := range label {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // Close releases the entry and waits up to timeout for in-flight sends to
 // finish; called once at process shutdown.
 func (r *Reporter) Close(timeout time.Duration) {
@@ -203,23 +306,28 @@ func (r *Reporter) send(reqs ...request) {
 	go func() {
 		defer r.wg.Done()
 		for i, b := range bufs {
-			if err := r.deliver(b); err != nil {
+			if _, err := r.deliver(b); err != nil {
 				debuglog.Notify("herdr: %s: %v", reqs[i].Method, err)
 			}
 		}
 	}()
 }
 
-func (r *Reporter) deliver(line []byte) error {
+// deliver sends one request line over a fresh connection and returns the
+// single response line (empty when the server closes without replying).
+func (r *Reporter) deliver(line []byte) ([]byte, error) {
 	conn, err := net.DialTimeout(r.network, r.addr, sendTimeout)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(sendTimeout))
 	if _, err := conn.Write(line); err != nil {
-		return err
+		return nil, err
 	}
-	bufio.NewScanner(conn).Scan()
-	return nil
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		return nil, scanner.Err()
+	}
+	return scanner.Bytes(), nil
 }

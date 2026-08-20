@@ -191,10 +191,12 @@ type App struct {
 	statusReport StatusReportFunc
 
 	// agentReport/agentRelease mirror the open agent thread onto an external
-	// agent sidebar (herdr); userInfo backs the bot-mention detection. All
-	// nil unless slk runs inside a herdr pane (see SetAgentReporter).
+	// agent sidebar (herdr); agentNameTab names the surrounding tab after
+	// it; userInfo backs the bot-mention detection. All nil unless slk runs
+	// inside a herdr pane (see SetAgentReporter).
 	agentReport  AgentReportFunc
 	agentRelease AgentReleaseFunc
+	agentNameTab AgentTabNameFunc
 	userInfo     UserInfoFunc
 	agentThread  agentThreadState
 
@@ -2096,9 +2098,10 @@ func (a *App) SetStatusReporter(fn StatusReportFunc) {
 // SetAgentReporter installs the agent-sidebar callbacks and the user lookup
 // backing bot-mention detection. Installed only when slk runs inside a herdr
 // pane; unset, agent-thread detection is inert.
-func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc, userInfo UserInfoFunc) {
+func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc, nameTab AgentTabNameFunc, userInfo UserInfoFunc) {
 	a.agentReport = report
 	a.agentRelease = release
+	a.agentNameTab = nameTab
 	a.userInfo = userInfo
 }
 

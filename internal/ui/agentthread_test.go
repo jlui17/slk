@@ -19,14 +19,21 @@ type agentReportCall struct {
 // user cache: UBOT is a bot ("Claude"), UHUMAN is not, everything else is
 // uncached.
 func newAgentTestApp() (*App, *[]agentReportCall, *int) {
+	a, calls, releases, _ := newAgentTestAppWithTab()
+	return a, calls, releases
+}
+
+func newAgentTestAppWithTab() (*App, *[]agentReportCall, *int, *[]string) {
 	a := NewApp()
 	calls := &[]agentReportCall{}
 	releases := new(int)
+	tabNames := &[]string{}
 	a.SetAgentReporter(
 		func(agent, displayName, title string, working bool, statusMessage string) {
 			*calls = append(*calls, agentReportCall{agent, displayName, title, working, statusMessage})
 		},
 		func() { *releases++ },
+		func(label string) { *tabNames = append(*tabNames, label) },
 		func(userID string) (string, bool, bool) {
 			switch userID {
 			case "UBOT":
@@ -38,7 +45,7 @@ func newAgentTestApp() (*App, *[]agentReportCall, *int) {
 		},
 	)
 	a.channelNames = map[string]string{"C1": "z-claude-dreams"}
-	return a, calls, releases
+	return a, calls, releases, tabNames
 }
 
 func openAgentThread(a *App, text string) {
@@ -61,6 +68,24 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 	}
 	if want := "#z-claude-dreams @Claude please fix the ingest retries"; c.title != want {
 		t.Errorf("title = %q, want %q", c.title, want)
+	}
+}
+
+func TestAgentThreadNamesTab(t *testing.T) {
+	a, _, _, tabNames := newAgentTestAppWithTab()
+	openAgentThread(a, "<@UBOT> please fix the ingest retries in colony")
+
+	if len(*tabNames) != 1 {
+		t.Fatalf("want 1 tab name, got %+v", *tabNames)
+	}
+	// The leading agent mention is dropped and the label truncated to 30
+	// cells; closing the thread does not rename back.
+	if want := "please fix the ingest retries…"; (*tabNames)[0] != want {
+		t.Errorf("tab name = %q, want %q", (*tabNames)[0], want)
+	}
+	a.CloseThread()
+	if len(*tabNames) != 1 {
+		t.Errorf("close must not rename the tab; got %+v", *tabNames)
 	}
 }
 

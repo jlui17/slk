@@ -81,6 +81,7 @@ run_opts=(--rm -it
   ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"}
   ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"}
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"}
+  ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}}
 )
 
 if [ -z "$bridge_pid" ]; then

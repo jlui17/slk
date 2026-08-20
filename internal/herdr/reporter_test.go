@@ -11,8 +11,9 @@ import (
 )
 
 type recorder struct {
-	mu    sync.Mutex
-	lines []string
+	mu       sync.Mutex
+	lines    []string
+	tabLabel string
 }
 
 func (r *recorder) add(line string) {
@@ -25,6 +26,18 @@ func (r *recorder) snapshot() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.lines...)
+}
+
+func (r *recorder) setTabLabel(label string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tabLabel = label
+}
+
+func (r *recorder) getTabLabel() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.tabLabel
 }
 
 // startServer runs a fake herdr endpoint that mirrors the real server's
@@ -49,8 +62,31 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 				defer conn.Close()
 				scanner := bufio.NewScanner(conn)
 				if scanner.Scan() {
-					rec.add(scanner.Text())
-					conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
+					line := scanner.Text()
+					rec.add(line)
+					var req struct {
+						Method string `json:"method"`
+						Params struct {
+							Label string `json:"label"`
+						} `json:"params"`
+					}
+					_ = json.Unmarshal([]byte(line), &req)
+					switch req.Method {
+					case "tab.get":
+						resp, _ := json.Marshal(map[string]any{
+							"id": "x",
+							"result": map[string]any{
+								"type": "tab_info",
+								"tab":  map[string]any{"label": rec.getTabLabel()},
+							},
+						})
+						conn.Write(append(resp, '\n'))
+					case "tab.rename":
+						rec.setTabLabel(req.Params.Label)
+						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
+					default:
+						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
+					}
 				}
 			}()
 		}
@@ -90,7 +126,7 @@ func decode(t *testing.T, line string) (method string, params map[string]any) {
 func TestReport(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "#general · thread", true, "is thinking…")
 	lines := waitLines(t, rec, 2)
@@ -139,7 +175,7 @@ func TestReport(t *testing.T) {
 func TestReportIdleOmitsEmptyMessage(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", false, "")
 	lines := waitLines(t, rec, 2)
@@ -155,7 +191,7 @@ func TestReportIdleOmitsEmptyMessage(t *testing.T) {
 
 func TestReportTCP(t *testing.T) {
 	ln, rec := startServer(t, "tcp", "127.0.0.1:0")
-	r := newReporter("tcp", ln.Addr().String(), "pane-1")
+	r := newReporter("tcp", ln.Addr().String(), "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", true, "")
 	lines := waitLines(t, rec, 2)
@@ -167,7 +203,7 @@ func TestReportTCP(t *testing.T) {
 func TestRelease(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", true, "")
 	waitLines(t, rec, 2)
@@ -194,7 +230,7 @@ func TestRelease(t *testing.T) {
 func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
 
 	r.Release()
 	r.Close(time.Second)
@@ -207,13 +243,64 @@ func TestNilReporter(t *testing.T) {
 	var r *Reporter
 	r.Report("a", "A", "t", true, "m")
 	r.Release()
+	r.NameTab("x")
 	r.Close(time.Second)
+}
+
+func TestNameTabRenamesDefaultAndOwnLabel(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	rec.setTabLabel("2") // herdr default: position digits
+	r := newReporter("unix", sock, "pane-1", "tab-1")
+
+	r.NameTab("fix ingest retries")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "fix ingest retries" {
+		t.Fatalf("default label not renamed: %q", got)
+	}
+
+	// A later agent thread replaces a name NameTab itself set.
+	r.NameTab("review the deploy")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "review the deploy" {
+		t.Fatalf("own label not renamed: %q", got)
+	}
+}
+
+func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	rec.setTabLabel("my precious tab")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
+
+	r.NameTab("fix ingest retries")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "my precious tab" {
+		t.Fatalf("user label overwritten: %q", got)
+	}
+	for _, line := range rec.snapshot() {
+		if method, _ := decode(t, line); method == "tab.rename" {
+			t.Fatalf("tab.rename sent over a user label: %v", rec.snapshot())
+		}
+	}
+}
+
+func TestNameTabNoTabID(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	r := newReporter("unix", sock, "pane-1", "")
+
+	r.NameTab("fix ingest retries")
+	r.Close(time.Second)
+	if lines := rec.snapshot(); len(lines) != 0 {
+		t.Fatalf("expected no requests without a tab id, got %v", lines)
+	}
 }
 
 func TestCloseWaitsForInFlight(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", true, "")
 	r.Close(2 * time.Second)

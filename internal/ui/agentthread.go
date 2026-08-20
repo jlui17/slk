@@ -37,7 +37,8 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		a.releaseAgentThread()
 		return
 	}
-	title := a.agentThreadTitle(channelID, parent.Text)
+	flat := a.flattenRootText(parent.Text)
+	title := a.agentThreadTitle(channelID, flat)
 	a.agentThread = agentThreadState{
 		active:    true,
 		channelID: channelID,
@@ -49,6 +50,9 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// The initial state is idle: ai_assistant_status is edge-triggered, so
 	// a turn already in progress isn't visible until its next event.
 	a.agentReport(agentSidebarID(name), name, title, false, "")
+	if a.agentNameTab != nil {
+		a.agentNameTab(agentTabLabel(name, flat))
+	}
 }
 
 // releaseAgentThread removes the sidebar entry when the agent thread stops
@@ -75,14 +79,9 @@ func (a *App) firstBotMention(text string) (userID, name string, ok bool) {
 	return "", "", false
 }
 
-// agentThreadTitle labels the sidebar entry with the thread's home channel
-// and a snippet of the root message, entity tokens flattened so no raw
-// mrkdwn wire syntax reaches the sidebar.
-func (a *App) agentThreadTitle(channelID, rootText string) string {
-	channel := a.channelNames[channelID]
-	if channel == "" {
-		channel = channelID
-	}
+// flattenRootText renders a root message's mrkdwn to whitespace-collapsed
+// plain text so no raw wire syntax reaches the sidebar or the tab bar.
+func (a *App) flattenRootText(rootText string) string {
 	text := messages.FlattenMrkdwn(rootText,
 		func(id string) (string, bool) {
 			if name := a.userNames[id]; name != "" {
@@ -95,9 +94,32 @@ func (a *App) agentThreadTitle(channelID, rootText string) string {
 			name, ok := a.channelNames[id]
 			return name, ok
 		})
-	text = strings.Join(strings.Fields(text), " ")
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// agentThreadTitle labels the sidebar entry with the thread's home channel
+// and a snippet of the flattened root message.
+func (a *App) agentThreadTitle(channelID, flat string) string {
+	channel := a.channelNames[channelID]
+	if channel == "" {
+		channel = channelID
+	}
 	const maxSnippet = 48
-	return "#" + channel + " " + truncate.StringWithTail(text, maxSnippet, "…")
+	return "#" + channel + " " + truncate.StringWithTail(flat, maxSnippet, "…")
+}
+
+// agentTabLabel derives a short tab name from the flattened root text,
+// dropping the leading agent mention ("@Claude fix the retries" → "fix the
+// retries") since the tab bar has no room for the part every agent thread
+// shares.
+func agentTabLabel(agentName, flat string) string {
+	label := strings.TrimSpace(strings.TrimPrefix(flat, "@"+agentName))
+	label = strings.TrimLeft(label, ":,;.- ")
+	if label == "" {
+		label = flat
+	}
+	const maxLabel = 30
+	return truncate.StringWithTail(label, maxLabel, "…")
 }
 
 // agentSidebarID derives the sidebar's internal agent id from a bot display

@@ -990,7 +990,7 @@ func run(startupLink *slackurl.Permalink) error {
 		app.SetStatusReporter(sr.Enqueue)
 	}
 	if hr := herdr.NewReporterFromEnv(); hr != nil && !cfg.Herdr.Disabled {
-		app.SetAgentReporter(hr.Report, hr.Release, func(userID string) (string, bool, bool) {
+		app.SetAgentReporter(hr.Report, hr.Release, hr.NameTab, func(userID string) (string, bool, bool) {
 			u, err := db.GetUser(userID)
 			if err != nil {
 				return "", false, false
