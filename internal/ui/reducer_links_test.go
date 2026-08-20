@@ -222,6 +222,40 @@ func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
 	}
 }
 
+// The upload guard refuses the channel switch, so the nav it was
+// carrying must die with it: the completion hook otherwise runs
+// against the OLD channel's UI (closing the user's thread, dispatching
+// FetchAround for a channel that never became active) and leaks the
+// armed nav.
+func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "CELSEWHERE"
+	app.compose.SetUploading(true)
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	var fetchedAround bool
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+		fetchedAround = true
+		return nil
+	})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	for _, m := range drainCmd(cmd) {
+		if cs, ok := m.(ChannelSelectedMsg); ok {
+			_, c2 := app.Update(cs)
+			drainCmd(c2)
+		}
+	}
+	if !app.threadVisible || app.focusedPanel != PanelThread {
+		t.Error("refused switch tore down the thread panel or moved focus")
+	}
+	if fetchedAround {
+		t.Error("FetchAround dispatched for a channel that never became active")
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked past the refused switch: %+v", app.pendingLinkNav)
+	}
+}
+
 // Without an armed nav the arm keeps its plain select behavior — an
 // in-channel search jump to a thread parent must NOT open the thread.
 func TestMessagesAroundLoaded_NoNav_ParentStaysSelected(t *testing.T) {

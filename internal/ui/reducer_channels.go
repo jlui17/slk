@@ -334,6 +334,12 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 // flag.
 func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
+		// A refused switch can't ever complete a pending permalink nav,
+		// and the caller's completion hook still runs against the OLD
+		// channel's UI — with the nav armed it would tear down the
+		// user's thread panel and dispatch FetchAround for a channel
+		// that never became active. Drop the nav with the switch.
+		a.pendingLinkNav = nil
 		return a.uploadToastCmd("Upload in progress", 2*time.Second), false
 	}
 	// Perf instrumentation: wall-clock the synchronous portion of the
