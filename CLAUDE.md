@@ -1,5 +1,12 @@
 # slk
 
+## Branch workflow
+
+Squash-merge every feature branch into main (`git merge --squash <branch>`,
+then one commit named for the feature): main carries one commit per feature,
+never a merge commit from a local branch. Merges *from* `upstream/main` are
+the exception: keep those as true merge commits.
+
 ## Running Go on Santa-managed hosts
 
 This machine runs Santa, which SIGKILLs locally built binaries (every `go
