@@ -2416,9 +2416,12 @@ func openURLCmd(url string) tea.Cmd {
 			return nil
 		}
 		launch := launchOS
-		if browser := os.Getenv("BROWSER"); browser != "" {
+		// Word-split: $BROWSER conventionally carries flags
+		// ("open -a Firefox", "firefox --new-tab"), and a multi-word
+		// value used whole as argv[0] would fail every launch.
+		if argv := strings.Fields(os.Getenv("BROWSER")); len(argv) > 0 {
 			launch = func(target string) error {
-				return exec.Command(browser, target).Start()
+				return exec.Command(argv[0], append(argv[1:], target)...).Start()
 			}
 		}
 		if err := launch(url); err != nil {
