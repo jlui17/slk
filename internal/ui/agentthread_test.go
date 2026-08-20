@@ -127,11 +127,13 @@ func TestAgentThreadStatusTransitions(t *testing.T) {
 	*calls = nil
 
 	// A status for some other thread is swallowed without reporting.
-	if _, handled := reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "999.0", Status: "is thinking…"}); !handled {
+	if _, handled := reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "999.0", BotUserID: "UBOT", Status: "is thinking…"}); !handled {
 		t.Fatal("reducer must claim AssistantStatusMsg")
 	}
+	// So is a status from a different bot in the open thread.
+	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UOTHERBOT", Status: "is thinking…"})
 	if len(*calls) != 0 {
-		t.Fatalf("status for another thread must not report; calls=%+v", *calls)
+		t.Fatalf("status for another thread or bot must not report; calls=%+v", *calls)
 	}
 
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})

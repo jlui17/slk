@@ -16,6 +16,7 @@ type agentThreadState struct {
 	active    bool
 	channelID string
 	threadTS  string
+	botUserID string
 	agentName string
 	title     string
 }
@@ -30,7 +31,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	if a.agentReport == nil || a.userInfo == nil {
 		return
 	}
-	name, ok := a.firstBotMention(parent.Text)
+	botUserID, name, ok := a.firstBotMention(parent.Text)
 	if !ok {
 		a.releaseAgentThread()
 		return
@@ -40,6 +41,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		active:    true,
 		channelID: channelID,
 		threadTS:  threadTS,
+		botUserID: botUserID,
 		agentName: name,
 		title:     title,
 	}
@@ -60,16 +62,16 @@ func (a *App) releaseAgentThread() {
 	}
 }
 
-// firstBotMention returns the display name of the first <@U…> mention in
-// text that resolves to a bot or app user.
-func (a *App) firstBotMention(text string) (string, bool) {
+// firstBotMention returns the user ID and display name of the first <@U…>
+// mention in text that resolves to a bot or app user.
+func (a *App) firstBotMention(text string) (userID, name string, ok bool) {
 	for _, id := range mrkdwn.MentionedUserIDs(text) {
 		name, isBot, ok := a.userInfo(id)
 		if ok && isBot && name != "" {
-			return name, true
+			return id, name, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // agentThreadTitle labels the sidebar entry with the thread's home channel
@@ -115,7 +117,7 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	t := a.agentThread
-	if !t.active || m.ChannelID != t.channelID || m.ThreadTS != t.threadTS {
+	if !t.active || m.ChannelID != t.channelID || m.ThreadTS != t.threadTS || m.BotUserID != t.botUserID {
 		return nil, true
 	}
 	a.agentReport(agentSidebarID(t.agentName), t.agentName, t.title, m.Status != "", m.Status)
