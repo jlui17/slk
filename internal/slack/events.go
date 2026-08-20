@@ -86,6 +86,13 @@ type EventHandler interface {
 
 	// OnMemberLeft is delivered for member_left_channel WS events.
 	OnMemberLeft(channelID, userID string)
+
+	// OnAssistantStatus is delivered for ai_assistant_status WS events:
+	// an AI assistant (bot) started or stopped composing a reply in a
+	// thread. Fires for every thread in the workspace, not just visible
+	// ones. A non-empty status (e.g. "is thinking…") means the
+	// assistant's turn is in progress; an empty status clears it.
+	OnAssistantStatus(channelID, threadTS, botUserID, status string)
 }
 
 // wsEvent is the minimal structure for identifying a WebSocket event type.
@@ -272,6 +279,18 @@ type wsThreadSubscribedEvent struct {
 	} `json:"subscription"`
 }
 
+// wsAssistantStatusEvent represents an ai_assistant_status event. The
+// payload also carries a status_type field (banner/typing) whose values
+// vary; it is deliberately not parsed — only whether status is empty
+// matters.
+type wsAssistantStatusEvent struct {
+	Type      string `json:"type"`
+	Channel   string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts"`
+	BotUserID string `json:"bot_user_id"`
+	Status    string `json:"status"`
+}
+
 // dispatchWebSocketEvent parses a raw JSON WebSocket message and routes it
 // to the appropriate EventHandler method.
 func dispatchWebSocketEvent(data []byte, handler EventHandler) {
@@ -414,6 +433,15 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		}
 		debuglog.WS("user_typing: channel=%s user=%s", evt.Channel, evt.User)
 		handler.OnUserTyping(evt.Channel, evt.User)
+
+	case "ai_assistant_status":
+		var evt wsAssistantStatusEvent
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return
+		}
+		debuglog.WS("ai_assistant_status: channel=%s thread_ts=%s bot_user=%s status=%q",
+			evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
+		handler.OnAssistantStatus(evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
 
 	case "member_joined_channel":
 		var evt wsMemberChannelEvent

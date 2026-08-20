@@ -13,15 +13,16 @@ import (
 )
 
 type Config struct {
-	General       General                      `toml:"general"`
-	Appearance    Appearance                   `toml:"appearance"`
-	Animations    Animations                   `toml:"animations"`
-	Notifications Notifications                `toml:"notifications"`
-	Cache         CacheConfig                  `toml:"cache"`
-	Sidebar       Sidebar                      `toml:"sidebar"`
-	Sections      map[string]SectionDef        `toml:"sections"`
-	Theme         Theme                        `toml:"theme"`
-	Workspaces    map[string]Workspace         `toml:"workspaces"`
+	General       General               `toml:"general"`
+	Appearance    Appearance            `toml:"appearance"`
+	Animations    Animations            `toml:"animations"`
+	Notifications Notifications         `toml:"notifications"`
+	Cache         CacheConfig           `toml:"cache"`
+	Sidebar       Sidebar               `toml:"sidebar"`
+	Herdr         Herdr                 `toml:"herdr"`
+	Sections      map[string]SectionDef `toml:"sections"`
+	Theme         Theme                 `toml:"theme"`
+	Workspaces    map[string]Workspace  `toml:"workspaces"`
 }
 
 // SectionDef defines a sidebar section with channel name patterns.
@@ -130,6 +131,13 @@ type Notifications struct {
 	//   $SLK_WORKSPACE     active workspace name
 	//   $SLK_TITLE         the window-title string, e.g. "slk SW (3) +1"
 	StatusCommand string `toml:"status_command"`
+}
+
+// Herdr configures the herdr agent-sidebar integration, which activates
+// only when slk runs inside a herdr pane (HERDR_ENV/HERDR_PANE_ID set).
+type Herdr struct {
+	// Disabled turns off agent-thread reporting even inside a herdr pane.
+	Disabled bool `toml:"disabled"`
 }
 
 type CacheConfig struct {

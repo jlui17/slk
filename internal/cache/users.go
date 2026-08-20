@@ -21,6 +21,14 @@ type User struct {
 	UpdatedAt  int64
 }
 
+// BestName returns DisplayName, falling back to Name.
+func (u User) BestName() string {
+	if u.DisplayName != "" {
+		return u.DisplayName
+	}
+	return u.Name
+}
+
 func (db *DB) UpsertUser(u User) error {
 	_, err := db.conn.Exec(`
 		INSERT INTO users (id, workspace_id, name, display_name, avatar_url, presence, is_bot, is_external, updated_at)

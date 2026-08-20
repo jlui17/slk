@@ -137,3 +137,24 @@ var defaultClipboardWriter clipboardWriter = tea.SetClipboard
 // active-workspace unread count, the other-workspace unread count, the active
 // workspace name, and the window-title string. See notifications.status_command.
 type StatusReportFunc func(unread, otherUnread int, workspace, title string)
+
+// AgentReportFunc mirrors the open agent thread (a thread whose root message
+// mentions a bot user) onto an external agent sidebar. agent is the sidebar's
+// internal agent id, displayName the human name it shows, title the pane
+// title, working the in-progress flag, statusMessage the assistant's
+// transient status text ("is thinking…", may be empty). See internal/herdr.
+type AgentReportFunc func(agent, displayName, title string, working bool, statusMessage string)
+
+// AgentReleaseFunc removes the agent-sidebar entry published through
+// AgentReportFunc.
+type AgentReleaseFunc func()
+
+// AgentTabNameFunc names the pane's surrounding tab after the open agent
+// thread. The implementation decides whether the rename is allowed (it must
+// never overwrite a label the user set themselves).
+type AgentTabNameFunc func(label string)
+
+// UserInfoFunc resolves a user ID against the user cache. ok is false when
+// the user isn't cached yet; agent-thread detection then skips the mention
+// rather than blocking on a network round-trip.
+type UserInfoFunc func(userID string) (displayName string, isBot, ok bool)

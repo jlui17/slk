@@ -190,6 +190,16 @@ type App struct {
 	// a status_command is configured (config: notifications.status_command).
 	statusReport StatusReportFunc
 
+	// agentReport/agentRelease mirror the open agent thread onto an external
+	// agent sidebar (herdr); agentNameTab names the surrounding tab after
+	// it; userInfo backs the bot-mention detection. All nil unless slk runs
+	// inside a herdr pane (see SetAgentReporter).
+	agentReport  AgentReportFunc
+	agentRelease AgentReleaseFunc
+	agentNameTab AgentTabNameFunc
+	userInfo     UserInfoFunc
+	agentThread  agentThreadState
+
 	// clipboardAvailable is set from the native clipboard reader's startup
 	// result. It gates Ctrl+V smart-paste only; OSC 52 writes do not depend on
 	// native clipboard initialization.
@@ -636,6 +646,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceNewMessagePicker,
 		reduceIO,
 		reduceMouse,
+		reduceAgentThread,
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1601,7 +1612,7 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
-	a.threadPanel.SetThread(parent, nil, channelID, threadTS)
+	a.setThreadPanel(parent, nil, channelID, threadTS)
 	a.threadCompose.SetChannel("thread")
 	a.applyThreadUnreadBoundary(channelID)
 
@@ -1778,6 +1789,7 @@ func (a *App) ToggleThreadFullscreen() {
 
 func (a *App) CloseThread() {
 	a.clearSelections()
+	a.releaseAgentThread()
 	a.threadVisible = false
 	a.threadFullscreen = false
 	a.statusbar.SetInThread(false)
@@ -1824,7 +1836,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 		Text:     sum.ParentText,
 		ThreadTS: sum.ThreadTS,
 	}
-	a.threadPanel.SetThread(parent, nil, sum.ChannelID, sum.ThreadTS)
+	a.setThreadPanel(parent, nil, sum.ChannelID, sum.ThreadTS)
 	a.threadCompose.SetChannel("thread")
 	// Snapshot the parent channel's last_read_ts BEFORE the local mark-
 	// read flips below, so the "── new ──" landmark in the thread panel
@@ -2080,6 +2092,16 @@ func (a *App) SetWorkspaceUnreadReader(f func() []string) {
 // notifications.status_command).
 func (a *App) SetStatusReporter(fn StatusReportFunc) {
 	a.statusReport = fn
+}
+
+// SetAgentReporter installs the agent-sidebar callbacks and the user lookup
+// backing bot-mention detection. Installed only when slk runs inside a herdr
+// pane; unset, agent-thread detection is inert.
+func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc, nameTab AgentTabNameFunc, userInfo UserInfoFunc) {
+	a.agentReport = report
+	a.agentRelease = release
+	a.agentNameTab = nameTab
+	a.userInfo = userInfo
 }
 
 func (a *App) SetChannelFinderItems(items []channelfinder.Item) {
@@ -2784,6 +2806,10 @@ func (a *App) View() tea.View {
 	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	if frame.ThreadAutoHidden {
 		a.threadVisible = false
+		// An effective close: nothing restores the thread when the
+		// terminal widens again, so the agent-sidebar entry goes with it
+		// like CloseThread's does.
+		a.releaseAgentThread()
 		if a.focusedPanel == PanelThread {
 			a.focusedPanel = PanelMessages
 		}
