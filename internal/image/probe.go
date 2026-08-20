@@ -189,29 +189,50 @@ func ProbeCellPixels(w io.Writer, r io.Reader, timeout time.Duration) (pxW, pxH 
 
 // scanForCellSize returns (matched, pxW, pxH). matched is true once a
 // complete XTWINOPS cell-size report (CSI 6 ; height ; width t) is
-// present in buf; pxW/pxH are zero when the reply is malformed. The
-// anchor "\x1b[6;" cannot collide with a late DA1 reply from the sixel
-// probe — that one starts "\x1b[?".
+// present in buf; pxW/pxH are zero when the report's values are (the
+// terminal's way of saying it doesn't know). The anchor "\x1b[6;" is
+// not unique to the report — a modified-PageDown keystroke encodes as
+// \x1b[6;2~ and can land in the raw-mode probe window — so an anchor
+// whose body isn't digits-and-semicolons ending in 't' is skipped and
+// the scan continues, rather than poisoning a genuine reply sitting
+// behind the noise. A late DA1 reply from the sixel probe cannot
+// anchor at all — it starts "\x1b[?".
 func scanForCellSize(buf []byte) (matched bool, pxW, pxH int) {
-	i := bytes.Index(buf, []byte("\x1b[6;"))
-	if i < 0 {
-		return false, 0, 0
+	for {
+		i := bytes.Index(buf, []byte("\x1b[6;"))
+		if i < 0 {
+			return false, 0, 0
+		}
+		tail := buf[i+4:]
+		j := 0
+		for j < len(tail) && (tail[j] == ';' || (tail[j] >= '0' && tail[j] <= '9')) {
+			j++
+		}
+		if j == len(tail) {
+			// Body still valid but unterminated: the reply may be
+			// arriving byte by byte, keep waiting.
+			return false, 0, 0
+		}
+		if tail[j] != 't' {
+			buf = tail[j:] // not the report (e.g. \x1b[6;2~): skip anchor
+			continue
+		}
+		parts := bytes.Split(tail[:j], []byte(";"))
+		if len(parts) != 2 {
+			buf = tail[j+1:]
+			continue
+		}
+		h, errH := strconv.Atoi(string(parts[0]))
+		w, errW := strconv.Atoi(string(parts[1]))
+		if errH != nil || errW != nil {
+			buf = tail[j+1:]
+			continue
+		}
+		if w <= 0 || h <= 0 {
+			return true, 0, 0
+		}
+		return true, w, h
 	}
-	tail := buf[i+4:]
-	j := bytes.IndexByte(tail, 't')
-	if j < 0 {
-		return false, 0, 0
-	}
-	parts := bytes.Split(tail[:j], []byte(";"))
-	if len(parts) != 2 {
-		return true, 0, 0
-	}
-	h, errH := strconv.Atoi(string(parts[0]))
-	w, errW := strconv.Atoi(string(parts[1]))
-	if errH != nil || errW != nil || w <= 0 || h <= 0 {
-		return true, 0, 0
-	}
-	return true, w, h
 }
 
 // probeViaGoroutineScan is the generic goroutine-based probe used for

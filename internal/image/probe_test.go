@@ -252,14 +252,20 @@ func TestScanForCellSize(t *testing.T) {
 	}{
 		{"ghostty retina", "\x1b[6;38;18t", true, 18, 38},
 		{"zero values", "\x1b[6;0;0t", true, 0, 0},
-		{"malformed: missing field", "\x1b[6;38t", true, 0, 0},
-		{"malformed: non-numeric", "\x1b[6;a;bt", true, 0, 0},
+		// Wrong shape at the anchor is skipped, not judged: keep
+		// waiting for a real report.
+		{"malformed: missing field", "\x1b[6;38t", false, 0, 0},
+		{"malformed: non-numeric", "\x1b[6;a;bt", false, 0, 0},
 		{"incomplete: no terminator", "\x1b[6;38;18", false, 0, 0},
 		{"empty", "", false, 0, 0},
 		// A late DA1 reply from the sixel probe starts \x1b[? and must
 		// not anchor.
 		{"da1 reply ignored", "\x1b[?62;4;22c", false, 0, 0},
 		{"leading noise", "junk\x1b[6;38;18t", true, 18, 38},
+		// A modified-PageDown keystroke (\x1b[6;2~) contains the anchor;
+		// it must not poison the genuine report behind it.
+		{"keystroke then report", "\x1b[6;2~\x1b[6;38;18t", true, 18, 38},
+		{"keystroke only", "\x1b[6;5~", false, 0, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
