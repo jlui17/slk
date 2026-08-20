@@ -688,6 +688,7 @@ func main() {
 		debuglog.General("=== slk debug session started ===")
 	}
 	// Handle simple flags before anything else
+	var startupLink *slackurl.Permalink
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v", "version":
@@ -729,6 +730,19 @@ func main() {
 			}
 			os.Exit(0)
 		}
+		// A URL argument is a Slack message permalink to open on
+		// startup (slk <link>). Unparseable URLs are rejected before
+		// any TUI setup; non-URL arguments fall through to the normal
+		// launch.
+		if arg := os.Args[1]; strings.HasPrefix(arg, "https://") || strings.HasPrefix(arg, "http://") {
+			pl, ok := slackurl.Parse(arg)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "Error: not a Slack message link: %s\n", arg)
+				fmt.Fprintln(os.Stderr, "Expected https://<workspace>.slack.com/archives/<channel>/p<timestamp>")
+				os.Exit(1)
+			}
+			startupLink = &pl
+		}
 	}
 
 	// Load config early (best-effort) so we can pre-detect the image
@@ -767,7 +781,7 @@ func main() {
 		}
 	}
 
-	if err := run(); err != nil {
+	if err := run(startupLink); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -778,6 +792,7 @@ func printHelp() {
 
 Usage:
   slk                    Launch the TUI
+  slk <permalink>        Launch and open a Slack message/thread link
   slk --add-workspace     Add a Slack workspace (interactive)
   slk --remove-workspace  Remove a configured workspace (interactive)
   slk --list-workspaces   List configured workspaces (TeamID, Slug, Name)
@@ -805,7 +820,7 @@ func newImageHTTPClient() *http.Client {
 	return c
 }
 
-func run() error {
+func run(startupLink *slackurl.Permalink) error {
 	// Resolve XDG paths
 	configDir := xdgConfig()
 	dataDir := xdgData()
@@ -1941,6 +1956,24 @@ func run() error {
 			log.Printf("Warning: default_workspace resolves to team %q but no token is configured for it; ignoring", defaultTeamID)
 			defaultTeamID = ""
 		}
+	}
+
+	// A command-line permalink overrides default_workspace: the link's
+	// workspace must claim the initial active slot for the startup
+	// navigation queued below to run.
+	if startupLink != nil {
+		linkTeamID := ""
+		for _, t := range tokens {
+			if t.Domain == startupLink.Subdomain {
+				linkTeamID = t.TeamID
+				break
+			}
+		}
+		if linkTeamID == "" {
+			return fmt.Errorf("link is for %s.slack.com, which is not a configured workspace (see slk --list-workspaces)", startupLink.Subdomain)
+		}
+		defaultTeamID = linkTeamID
+		app.SetStartupLink(string(startupLink.ChannelID), string(startupLink.MessageTS), string(startupLink.ThreadTS))
 	}
 
 	// firstReady gates the "first workspace to connect wins" logic when

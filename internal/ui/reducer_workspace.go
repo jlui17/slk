@@ -60,8 +60,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ids"
+	"github.com/gammons/slk/internal/ui/channelfinder"
+	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/styles"
 )
+
+// lookupChannelIn resolves channelID against the workspace data carried
+// on WorkspaceReadyMsg, in ChannelService.Lookup's scan order (sidebar
+// items, then finder items); at startup the msg is the data Lookup
+// would read, without depending on the router being active yet.
+func lookupChannelIn(channelID string, channels []sidebar.ChannelItem, finder []channelfinder.Item) (name, chType string, ok bool) {
+	for _, ch := range channels {
+		if ch.ID == channelID {
+			return ch.Name, ch.Type, true
+		}
+	}
+	for _, it := range finder {
+		if it.ID == channelID {
+			return it.Name, it.Type, true
+		}
+	}
+	return "", "", false
+}
 
 var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
@@ -223,12 +243,29 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 					}
 				}
 			}
-			a.sidebar.SelectByID(target.ID)
+			id, name, chType := target.ID, target.Name, target.Type
+			// A command-line permalink (slk <link>) overrides the
+			// last-visited restore: promote it to pendingLinkNav so the
+			// completion hooks in reducer_channels.go select the target
+			// message / open the thread panel, exactly as an in-app
+			// link click would.
+			if nav := a.startupLinkNav; nav != nil {
+				a.startupLinkNav = nil
+				if n, t, found := lookupChannelIn(nav.channelID, m.Channels, m.FinderItems); found {
+					a.pendingLinkNav = nav
+					id, name, chType = nav.channelID, n, t
+				} else {
+					batch = append(batch, func() tea.Msg {
+						return ToastMsg{Text: "Linked channel not found in this workspace"}
+					})
+				}
+			}
+			a.sidebar.SelectByID(id)
 			a.messagepane.SetLoading(true)
 			a.messagepane.SetMessages(nil)
 			batch = append(batch, spinnerTickCmd())
 			batch = append(batch, func() tea.Msg {
-				return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type}
+				return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
 			})
 		}
 	}
