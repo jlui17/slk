@@ -38,6 +38,11 @@ type pendingLinkNav struct {
 	// thread); false for workspace-search jumps, where a top-level hit
 	// should stay a plain in-channel select.
 	openParentThread bool
+	// delivered flips once the jump has visibly landed (a SelectByTS
+	// succeeded). A nav kept armed past that point only re-selects on
+	// the fresh buffer; it must not re-yank focus or close a thread
+	// panel the user opened in the meantime.
+	delivered bool
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -116,13 +121,20 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	// (or zoomed) that pane is hidden or unfocused and the jump would
 	// be invisible. Close the panel and focus the pane, mirroring the
 	// cross-channel path (reduceChannelSelected closes the thread on
-	// every switch). Ordering: CloseThread clears pane selections, so
-	// it must precede SelectByTS.
-	if a.threadVisible {
-		a.CloseThread()
+	// every switch). Only until the jump first lands: a re-completion
+	// (the authoritative pass after a best-effort success) just
+	// re-selects, without tearing down whatever the user opened since.
+	// Ordering: CloseThread clears pane selections, so it must precede
+	// SelectByTS.
+	firstLanding := !p.delivered
+	if firstLanding {
+		if a.threadVisible {
+			a.CloseThread()
+		}
+		a.focusedPanel = PanelMessages
 	}
-	a.focusedPanel = PanelMessages
 	if a.messagepane.SelectByTS(p.messageTS) {
+		p.delivered = true
 		// A thread parent's permalink carries no thread_ts, but
 		// following it means the thread: when the target has replies,
 		// open its thread panel (cursor on the parent row) instead of

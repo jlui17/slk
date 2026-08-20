@@ -378,6 +378,42 @@ func TestOpenLink_ThreadPermalink_OpensThread(t *testing.T) {
 	}
 }
 
+// After a best-effort select already landed the jump, the
+// authoritative re-completion only re-selects: it must not close a
+// thread the user opened during the fetch window or yank focus back.
+func TestAuthoritativeRecompletion_KeepsUserThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "target"},
+	})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	// Best-effort (cache render) completion lands the jump.
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
+	if app.pendingLinkNav == nil || !app.pendingLinkNav.delivered {
+		t.Fatalf("nav should stay armed and delivered: %+v", app.pendingLinkNav)
+	}
+	// The user opens some thread while the network fetch is in flight.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	// Authoritative completion on the fresh buffer.
+	_, cmd := app.Update(MessagesLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		Messages:  []messages.MessageItem{{TS: "1779284733.270139", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible || app.focusedPanel != PanelThread {
+		t.Error("re-completion closed the user's thread or yanked focus")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
 func TestMessagesLoaded_CompletesPendingNav(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
