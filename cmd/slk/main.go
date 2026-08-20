@@ -27,6 +27,7 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	emojiwidth "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/filedl"
+	"github.com/gammons/slk/internal/herdr"
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/notify"
@@ -987,6 +988,22 @@ func run(startupLink *slackurl.Permalink) error {
 		// external surface can't end up pinned to a stale count by an
 		// out-of-order subprocess.
 		app.SetStatusReporter(sr.Enqueue)
+	}
+	if hr := herdr.NewReporterFromEnv(); hr != nil && !cfg.Herdr.Disabled {
+		app.SetAgentReporter(hr.Report, hr.Release, func(userID string) (string, bool, bool) {
+			u, err := db.GetUser(userID)
+			if err != nil {
+				return "", false, false
+			}
+			name := u.DisplayName
+			if name == "" {
+				name = u.Name
+			}
+			return name, u.IsBot, true
+		})
+		// A crash skips this, leaving a stale sidebar entry until herdr's
+		// own pane detection reclaims the pane; only clean exits release.
+		defer hr.Close(time.Second)
 	}
 	if useWaylandClipboard {
 		app.SetClipboardReader(ui.WaylandClipboardReader())
@@ -4324,6 +4341,18 @@ func (h *rtmEventHandler) OnUserTyping(channelID, userID string) {
 		ChannelID:   channelID,
 		UserID:      userID,
 		WorkspaceID: h.workspaceID,
+	})
+}
+
+func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
+	if h.program == nil {
+		return
+	}
+	h.program.Send(ui.AssistantStatusMsg{
+		ChannelID: channelID,
+		ThreadTS:  threadTS,
+		BotUserID: botUserID,
+		Status:    status,
 	})
 }
 
