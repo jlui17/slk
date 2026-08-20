@@ -1070,8 +1070,17 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// Optional: run kitty version probe if detected as kitty AND stdin is a TTY.
 	// Must happen BEFORE bubbletea takes over the terminal.
+	// kittyProbed records that the terminal already answered (or timed
+	// out on) the kitty probe sequence this startup, so the upgrade
+	// block below never re-runs the identical probes against a terminal
+	// that just failed them — that would double the startup stall and
+	// give a slow terminal's late round-one reply a second window to be
+	// misread.
+	kittyProbed := false
 	if proto == imgpkg.ProtoKitty && term.IsTerminal(int(os.Stdin.Fd())) {
-		if ok, probed := probeKittySupport(); probed && !ok {
+		ok, probed := probeKittySupport()
+		kittyProbed = probed
+		if probed && !ok {
 			debuglog.ImgRender("kitty probe failed, downgrading to halfblock")
 			proto = imgpkg.ProtoHalfBlock
 		}
@@ -1088,7 +1097,7 @@ func run(startupLink *slackurl.Permalink) error {
 	// scaling, and emoji-as-images requires it). A terminal with no
 	// kitty support ignores the probe, costing the 200ms timeout once
 	// at startup.
-	if proto == imgpkg.ProtoHalfBlock && upgradeProbeAllowed {
+	if proto == imgpkg.ProtoHalfBlock && upgradeProbeAllowed && !kittyProbed {
 		if ok, probed := probeKittySupport(); probed && ok {
 			debuglog.ImgRender("kitty upgrade probe succeeded, upgrading halfblock to kitty")
 			proto = imgpkg.ProtoKitty
