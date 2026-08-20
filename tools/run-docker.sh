@@ -49,6 +49,12 @@ cleanup() {
   rm -rf "$spool"
 }
 trap cleanup EXIT
+# A PID-targeted signal must not skip cleanup and orphan the watcher;
+# `exit` re-routes through the EXIT trap. Bash delivers these traps
+# only once the foreground docker run returns.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 (
   while :; do
     for f in "$spool"/url-*; do
