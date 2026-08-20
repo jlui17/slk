@@ -20,10 +20,12 @@ type agentThreadState struct {
 	title     string
 }
 
-// updateAgentThread re-evaluates agent-thread detection for the thread that
-// just opened in the thread panel and publishes or removes the sidebar entry
-// accordingly. Called from every SetThread path; a nil agentReport (slk not
-// in a herdr pane, or integration disabled) makes it a no-op.
+// updateAgentThread re-evaluates agent-thread detection against the thread
+// panel's root message and publishes or removes the sidebar entry
+// accordingly. Runs at each open path (thread panel, threads view) and again
+// from the permalink backfill, where the root text is only known after the
+// fetch. A nil agentReport (slk not in a herdr pane, or integration
+// disabled) makes it a no-op.
 func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS string) {
 	if a.agentReport == nil || a.userInfo == nil {
 		return

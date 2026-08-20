@@ -98,10 +98,13 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		parentMsg := a.threadPanel.ParentMsg()
 		// Permalink-opened threads start with a stub parent (TS only).
 		// The fetch that produced this msg also wrote the full thread
-		// to cache — backfill the parent row from there.
+		// to cache — backfill the parent row from there. Agent-thread
+		// detection ran against the empty stub at open, so it re-runs
+		// here, the first time the root text is actually known.
 		if parentMsg.Text == "" {
 			if cached := a.threads.CacheRead(ids.ChannelID(channelID), ids.ThreadTS(m.ThreadTS)); len(cached) > 0 && cached[0].Text != "" {
 				parentMsg = cached[0]
+				a.updateAgentThread(parentMsg, channelID, m.ThreadTS)
 			}
 		}
 		a.threadPanel.SetThread(parentMsg, m.Replies, channelID, m.ThreadTS)

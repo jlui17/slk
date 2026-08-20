@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -60,6 +61,33 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 	}
 	if want := "#z-claude-dreams @Claude please fix the ingest retries"; c.title != want {
 		t.Errorf("title = %q, want %q", c.title, want)
+	}
+}
+
+func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
+	a, calls, _ := newAgentTestApp()
+	root := messages.MessageItem{TS: "100.0", Text: "<@UBOT> hello", UserID: "UHUMAN", ThreadTS: "100.0"}
+	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
+		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem {
+			return []messages.MessageItem{root}
+		},
+	}))
+
+	// Permalink-style open: the parent is a stub with no text yet, so
+	// detection finds nothing at open time.
+	stub := messages.MessageItem{TS: "100.0"}
+	a.threadPanel.SetThread(stub, nil, "C1", "100.0")
+	a.threadVisible = true
+	a.updateAgentThread(stub, "C1", "100.0")
+	if len(*calls) != 0 {
+		t.Fatalf("stub parent must not detect; calls=%+v", *calls)
+	}
+
+	// The fetch lands, the reducer backfills the real parent from cache,
+	// and detection re-runs against it.
+	reduceThreads(a, ThreadRepliesLoadedMsg{ThreadTS: "100.0", Replies: []messages.MessageItem{}})
+	if len(*calls) != 1 || (*calls)[0].agent != "slack-claude" {
+		t.Fatalf("backfill must re-run detection; calls=%+v", *calls)
 	}
 }
 
