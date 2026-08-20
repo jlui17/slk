@@ -32,6 +32,12 @@ type pendingLinkNav struct {
 	channelID string
 	messageTS string
 	threadTS  string // non-empty: open the thread panel instead of selecting
+	// openParentThread: a target that turns out to be a thread parent
+	// opens its thread panel. True for permalink navs (a parent's
+	// permalink carries no thread_ts, but following it means the
+	// thread); false for workspace-search jumps, where a top-level hit
+	// should stay a plain in-channel select.
+	openParentThread bool
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -60,9 +66,10 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 		return a.browserOpener(rawURL)
 	}
 	a.pendingLinkNav = &pendingLinkNav{
-		channelID: string(pl.ChannelID),
-		messageTS: string(pl.MessageTS),
-		threadTS:  string(pl.ThreadTS),
+		channelID:        string(pl.ChannelID),
+		messageTS:        string(pl.MessageTS),
+		threadTS:         string(pl.ThreadTS),
+		openParentThread: true,
 	}
 	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
 		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
@@ -121,16 +128,20 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		// open its thread panel (cursor on the parent row) instead of
 		// stopping at the in-channel select. Retires the nav even on a
 		// best-effort completion, like the thread_ts branch above.
-		for _, m := range a.messagepane.Messages() {
-			if m.TS != p.messageTS {
-				continue
+		// Permalink navs only (openParentThread): a workspace-search
+		// jump to a top-level hit stays a plain select.
+		if p.openParentThread {
+			for _, m := range a.messagepane.Messages() {
+				if m.TS != p.messageTS {
+					continue
+				}
+				if m.ReplyCount > 0 {
+					debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
+					a.pendingLinkNav = nil
+					return a.openThreadForPermalink(p.channelID, p.messageTS, p.messageTS)
+				}
+				break
 			}
-			if m.ReplyCount > 0 {
-				debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
-				a.pendingLinkNav = nil
-				return a.openThreadForPermalink(p.channelID, p.messageTS, p.messageTS)
-			}
-			break
 		}
 		// A best-effort (cache-render) select is not the end of the
 		// nav: the in-flight fetch's MessagesLoadedMsg will replace

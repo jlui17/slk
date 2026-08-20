@@ -164,8 +164,8 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// or a ctrl+w focus change during the fetch (which retargets
 		// activeChannelID with no ChannelSelectedMsg) would leak the
 		// armed nav to replay on the channel's next visit. The
-		// armed-nav gate keeps non-permalink jumps through this arm
-		// (in-channel search) at their plain select behavior.
+		// openParentThread gate below keeps workspace-search jumps to
+		// top-level hits at their plain select behavior.
 		nav := a.pendingLinkNav
 		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
 		if navMatches {
@@ -193,7 +193,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.messagepane.SetMessages(m.Messages)
 		a.messagepane.SelectByTS(m.TargetTS)
-		if navMatches {
+		if navMatches && nav.openParentThread {
 			for _, msg := range m.Messages {
 				if msg.TS == m.TargetTS && msg.ReplyCount > 0 {
 					debuglog.General("MessagesAroundLoadedMsg: permalink target is a thread parent (%d replies), opening thread", msg.ReplyCount)

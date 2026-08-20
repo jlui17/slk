@@ -2634,9 +2634,10 @@ func (a *App) SetWorkspaceSwitcher(fn SwitchWorkspaceFunc) {
 // workspace the initial active one.
 func (a *App) SetStartupLink(channelID, messageTS, threadTS string) {
 	a.startupLinkNav = &pendingLinkNav{
-		channelID: channelID,
-		messageTS: messageTS,
-		threadTS:  threadTS,
+		channelID:        channelID,
+		messageTS:        messageTS,
+		threadTS:         threadTS,
+		openParentThread: true,
 	}
 }
 

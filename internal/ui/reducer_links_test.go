@@ -198,7 +198,7 @@ func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
 		fetchedThread = string(threadTS)
 		return nil
 	})
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139"}
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
 	_, cmd := app.Update(MessagesAroundLoadedMsg{
 		ChannelID: "C054JFCBN69",
 		TargetTS:  "1779284733.270139",
@@ -253,6 +253,31 @@ func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
 	}
 	if app.pendingLinkNav != nil {
 		t.Errorf("pendingLinkNav leaked past the refused switch: %+v", app.pendingLinkNav)
+	}
+}
+
+// A workspace-search jump (openParentThread=false) to a top-level hit
+// stays a plain in-channel select even when the hit is a thread parent;
+// only reply hits (which carry thread_ts) open the thread panel.
+func TestSearchNav_ParentHit_SelectsWithoutOpeningThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 4},
+	})
+	// Arm the nav the way handleWorkspaceSearchMode does: no
+	// openParentThread.
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139"}
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", true))
+	if app.threadVisible {
+		t.Fatal("search jump to a top-level hit opened the thread panel")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
 	}
 }
 
