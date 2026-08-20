@@ -1611,9 +1611,8 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
-	a.threadPanel.SetThread(parent, nil, channelID, threadTS)
+	a.setThreadPanel(parent, nil, channelID, threadTS)
 	a.threadCompose.SetChannel("thread")
-	a.updateAgentThread(parent, channelID, threadTS)
 	a.applyThreadUnreadBoundary(channelID)
 
 	threads := a.threads
@@ -1836,9 +1835,8 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 		Text:     sum.ParentText,
 		ThreadTS: sum.ThreadTS,
 	}
-	a.threadPanel.SetThread(parent, nil, sum.ChannelID, sum.ThreadTS)
+	a.setThreadPanel(parent, nil, sum.ChannelID, sum.ThreadTS)
 	a.threadCompose.SetChannel("thread")
-	a.updateAgentThread(parent, sum.ChannelID, sum.ThreadTS)
 	// Snapshot the parent channel's last_read_ts BEFORE the local mark-
 	// read flips below, so the "── new ──" landmark in the thread panel
 	// reflects what the user had actually seen prior to opening this

@@ -23,12 +23,20 @@ type agentThreadState struct {
 	title     string
 }
 
+// setThreadPanel is the single path that changes the thread panel's content;
+// agent-thread detection rides on it so no present or future open path can
+// skip it.
+func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
+	a.threadPanel.SetThread(parent, replies, channelID, threadTS)
+	a.updateAgentThread(parent, channelID, threadTS)
+}
+
 // updateAgentThread re-evaluates agent-thread detection against the thread
 // panel's root message and publishes or removes the sidebar entry
-// accordingly. Runs at each open path (thread panel, threads view) and again
-// from the permalink backfill, where the root text is only known after the
-// fetch. A nil agentReport (slk not in a herdr pane, or integration
-// disabled) makes it a no-op.
+// accordingly. Idempotent: an unchanged detection (same thread, bot, title)
+// returns without re-reporting, so replies reloading through setThreadPanel
+// can't stomp a live working state back to idle. A nil agentReport (slk not
+// in a herdr pane, or integration disabled) makes it a no-op.
 func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS string) {
 	if a.agentReport == nil || a.userInfo == nil {
 		return
@@ -39,18 +47,24 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		return
 	}
 	flat := a.flattenRootText(parent.Text)
-	title := a.agentThreadTitle(channelID, flat)
-	a.agentThread = agentThreadState{
+	next := agentThreadState{
 		active:    true,
 		channelID: channelID,
 		threadTS:  threadTS,
 		botUserID: botUserID,
 		agentName: name,
-		title:     title,
+		title:     a.agentThreadTitle(channelID, flat),
 	}
+	if next == a.agentThread {
+		return
+	}
+	// herdr keys one sidebar entry per pane, so reporting a different agent
+	// id replaces the previous entry — switching between two agents'
+	// threads needs no cross-agent release.
+	a.agentThread = next
 	// The initial state is idle: ai_assistant_status is edge-triggered, so
 	// a turn already in progress isn't visible until its next event.
-	a.agentReport(agentSidebarID(name), name, title, false, "")
+	a.agentReport(agentSidebarID(name), name, next.title, false, "")
 	if a.agentNameTab != nil {
 		// The mention is dropped from the raw text, not trimmed from the
 		// flattened string: trimming by rendered name breaks when the

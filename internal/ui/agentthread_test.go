@@ -170,6 +170,20 @@ func TestAgentThreadReleasedOnAutoHide(t *testing.T) {
 	}
 }
 
+func TestAgentThreadReplyReloadDoesNotStompWorkingState(t *testing.T) {
+	a, calls, _ := newAgentTestApp()
+	openAgentThread(a, "<@UBOT> hi")
+	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
+	*calls = nil
+
+	// A replies reload re-enters setThreadPanel with the same parent;
+	// unchanged detection must not re-report and reset the sidebar to idle.
+	reduceThreads(a, ThreadRepliesLoadedMsg{ThreadTS: "100.0", Replies: []messages.MessageItem{{TS: "101.0", ThreadTS: "100.0", Text: "reply"}}})
+	if len(*calls) != 0 {
+		t.Fatalf("unchanged detection must not re-report; calls=%+v", *calls)
+	}
+}
+
 func TestAgentThreadIgnoresHumanAndUncachedMentions(t *testing.T) {
 	a, calls, releases := newAgentTestApp()
 	openAgentThread(a, "<@UHUMAN> and <@USTRANGER> chatting")
