@@ -30,3 +30,15 @@ func wireHerdr(app *ui.App, db *cache.DB, disabled bool) func() {
 	// own pane detection reclaims the pane; only clean exits release.
 	return func() { hr.Close(time.Second) }
 }
+
+func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
+	if h.program == nil {
+		return
+	}
+	h.program.Send(ui.AssistantStatusMsg{
+		ChannelID: channelID,
+		ThreadTS:  threadTS,
+		BotUserID: botUserID,
+		Status:    status,
+	})
+}

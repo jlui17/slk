@@ -4175,18 +4175,6 @@ func (h *rtmEventHandler) OnUserTyping(channelID, userID string) {
 	})
 }
 
-func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
-	if h.program == nil {
-		return
-	}
-	h.program.Send(ui.AssistantStatusMsg{
-		ChannelID: channelID,
-		ThreadTS:  threadTS,
-		BotUserID: botUserID,
-		Status:    status,
-	})
-}
-
 func (h *rtmEventHandler) OnConnect() {
 	// connected doubles as "has this handler ever connected". It is
 	// never cleared on disconnect, deliberately: what the catch-up
