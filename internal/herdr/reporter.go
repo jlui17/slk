@@ -1,7 +1,8 @@
 // Package herdr reports the currently open agent thread to herdr's
-// agent sidebar over herdr's socket API: one fresh
-// connection per call, newline-delimited JSON requests, one JSON
-// response line per request (read best-effort, contents ignored).
+// agent sidebar over herdr's socket API: one fresh connection per
+// request — the server handles a single newline-delimited JSON request
+// per connection and silently discards pipelined extras — with one JSON
+// response line each (read best-effort, contents ignored).
 package herdr
 
 import (
@@ -184,38 +185,41 @@ func (r *Reporter) Close(timeout time.Duration) {
 	}
 }
 
-// send delivers reqs over one fresh connection on its own goroutine, so
-// callers (the UI goroutine) never block on the socket. Failures are logged
-// and dropped: the sidebar is best-effort, and the next Report supersedes
-// anything lost.
+// send delivers each req over its own fresh connection, all on one
+// goroutine so callers (the UI goroutine) never block on the socket and
+// reqs from a single call stay ordered. Failures are logged and dropped:
+// the sidebar is best-effort, and the next Report supersedes anything lost.
 func (r *Reporter) send(reqs ...request) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
+	bufs := make([][]byte, 0, len(reqs))
 	for _, req := range reqs {
-		if err := enc.Encode(req); err != nil {
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(req); err != nil {
 			debuglog.Notify("herdr: encode %s: %v", req.Method, err)
 			return
 		}
+		bufs = append(bufs, buf.Bytes())
 	}
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		conn, err := net.DialTimeout(r.network, r.addr, sendTimeout)
-		if err != nil {
-			debuglog.Notify("herdr: dial %s %s: %v", r.network, r.addr, err)
-			return
-		}
-		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(sendTimeout))
-		if _, err := conn.Write(buf.Bytes()); err != nil {
-			debuglog.Notify("herdr: write: %v", err)
-			return
-		}
-		scanner := bufio.NewScanner(conn)
-		for range reqs {
-			if !scanner.Scan() {
-				return
+		for i, b := range bufs {
+			if err := r.deliver(b); err != nil {
+				debuglog.Notify("herdr: %s: %v", reqs[i].Method, err)
 			}
 		}
 	}()
+}
+
+func (r *Reporter) deliver(line []byte) error {
+	conn, err := net.DialTimeout(r.network, r.addr, sendTimeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(sendTimeout))
+	if _, err := conn.Write(line); err != nil {
+		return err
+	}
+	bufio.NewScanner(conn).Scan()
+	return nil
 }

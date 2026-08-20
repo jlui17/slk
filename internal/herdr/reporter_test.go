@@ -27,8 +27,10 @@ func (r *recorder) snapshot() []string {
 	return append([]string(nil), r.lines...)
 }
 
-// startServer runs a fake herdr endpoint that records each request line and
-// replies with one ok-result line per request.
+// startServer runs a fake herdr endpoint that mirrors the real server's
+// connection contract: exactly one request per connection — the first line
+// is recorded and answered, then the connection closes, so a client that
+// pipelines a second request on the same connection loses it.
 func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 	t.Helper()
 	ln, err := net.Listen(network, addr)
@@ -46,7 +48,7 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 			go func() {
 				defer conn.Close()
 				scanner := bufio.NewScanner(conn)
-				for scanner.Scan() {
+				if scanner.Scan() {
 					rec.add(scanner.Text())
 					conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 				}
