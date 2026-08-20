@@ -301,6 +301,35 @@ func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
 	}
 }
 
+// The async landing needs the same visibility treatment as the
+// synchronous path: if the user opened a thread while FetchAround was
+// in flight, the landed jump must close it and focus the messages
+// pane, not select invisibly behind the panel.
+func TestMessagesAroundLoaded_ArmedNavLanding_ClosesThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0", openParentThread: true}
+	// The user opened some thread during the fetch round-trip.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1.0",
+		Messages:  []messages.MessageItem{{TS: "1.0", Text: "target"}},
+	})
+	drainCmd(cmd)
+	if app.threadVisible || app.focusedPanel != PanelMessages {
+		t.Error("landed jump left the thread panel up / focus away")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1.0" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
 // A workspace-search jump (openParentThread=false) to a top-level hit
 // stays a plain in-channel select even when the hit is a thread parent;
 // only reply hits (which carry thread_ts) open the thread panel.

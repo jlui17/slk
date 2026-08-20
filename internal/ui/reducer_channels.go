@@ -160,21 +160,23 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// A permalink nav whose target was off-buffer rides through
 		// FetchAround still armed (completePendingLinkNav can't tell
 		// whether an off-buffer target is a thread parent). This arm
-		// retires it on every outcome — including the stale drop below,
-		// or a ctrl+w focus change during the fetch (which retargets
-		// activeChannelID with no ChannelSelectedMsg) would leak the
-		// armed nav to replay on the channel's next visit. The
-		// openParentThread gate below keeps workspace-search jumps to
-		// top-level hits at their plain select behavior.
+		// retires it on every outcome — a matching nav surviving the
+		// stale drop (e.g. a ctrl+w focus change during the fetch,
+		// which retargets activeChannelID with no ChannelSelectedMsg)
+		// or a failed fetch would leak and replay on the channel's
+		// next visit.
 		nav := a.pendingLinkNav
 		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
-		if navMatches {
-			a.pendingLinkNav = nil
-		}
 		if m.ChannelID != a.activeChannelID {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return nil, true // stale: user navigated away
 		}
 		if m.Err != nil || len(m.Messages) == 0 {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return func() tea.Msg { return ToastMsg{Text: "Failed to load history around message"} }, true
 		}
 		// Confirm the target is actually in the fetched window BEFORE
@@ -189,18 +191,21 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}
 		if !found {
+			if navMatches {
+				a.pendingLinkNav = nil
+			}
 			return func() tea.Msg { return ToastMsg{Text: "Message not found in loaded history"} }, true
 		}
 		a.messagepane.SetMessages(m.Messages)
-		a.messagepane.SelectByTS(m.TargetTS)
-		if navMatches && nav.openParentThread {
-			for _, msg := range m.Messages {
-				if msg.TS == m.TargetTS && msg.ReplyCount > 0 {
-					debuglog.General("MessagesAroundLoadedMsg: permalink target is a thread parent (%d replies), opening thread", msg.ReplyCount)
-					return a.openThreadForPermalink(m.ChannelID, m.TargetTS, m.TargetTS), true
-				}
-			}
+		if navMatches {
+			// The landed window finishes the nav through the single
+			// completion path: close/focus for a jump that hasn't
+			// visibly landed yet, the parent thread-open decision,
+			// retire (the select can't miss — `found` above). An
+			// inline copy of that logic here would drift.
+			return a.completePendingLinkNav(m.ChannelID, true), true
 		}
+		a.messagepane.SelectByTS(m.TargetTS)
 		return nil, true
 
 	case ChannelMarkedRemoteMsg:
