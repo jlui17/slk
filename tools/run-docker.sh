@@ -34,11 +34,16 @@ if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -ne
     "$image" go build -o bin/slk-linux ./cmd/slk
 fi
 
+# The container has no host timezone, so timestamps render as UTC unless the
+# host zone rides in; the image's Debian tzdata resolves the name.
+tz="${TZ:-$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')}"
+
 # Terminal identity rides into the container so graphics-protocol detection
 # sees the real terminal; the kitty probe's reply comes back over the -it pty.
 exec docker run --rm -it \
   -v "$repo":/src \
   -v slk-test-state:/state \
+  ${tz:+-e TZ="$tz"} \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \
   -e XDG_CACHE_HOME=/state/xdg/cache \
