@@ -160,6 +160,17 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.ChannelID != a.activeChannelID {
 			return nil, true // stale: user navigated away
 		}
+		// A permalink nav whose target was off-buffer rides through
+		// FetchAround still armed (completePendingLinkNav can't tell
+		// whether an off-buffer target is a thread parent). This arm
+		// retires it on every outcome; the armed-nav gate keeps
+		// non-permalink jumps through this arm (in-channel search) at
+		// their plain select behavior.
+		nav := a.pendingLinkNav
+		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
+		if navMatches {
+			a.pendingLinkNav = nil
+		}
 		if m.Err != nil || len(m.Messages) == 0 {
 			return func() tea.Msg { return ToastMsg{Text: "Failed to load history around message"} }, true
 		}
@@ -179,6 +190,14 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.messagepane.SetMessages(m.Messages)
 		a.messagepane.SelectByTS(m.TargetTS)
+		if navMatches {
+			for _, msg := range m.Messages {
+				if msg.TS == m.TargetTS && msg.ReplyCount > 0 {
+					debuglog.General("MessagesAroundLoadedMsg: permalink target is a thread parent (%d replies), opening thread", msg.ReplyCount)
+					return a.openThreadForPermalink(m.ChannelID, m.TargetTS, m.TargetTS), true
+				}
+			}
+		}
 		return nil, true
 
 	case ChannelMarkedRemoteMsg:

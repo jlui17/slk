@@ -148,6 +148,113 @@ func TestOpenLink_ActiveChannel_FromThreadPanel_ClosesThreadAndSelects(t *testin
 	}
 }
 
+// A thread parent's permalink carries no thread_ts; following it must
+// open the thread, not stop at selecting the parent in-channel. This
+// is the in-buffer case (the parent is already in the pane).
+func TestOpenLink_ActiveChannel_ParentWithReplies_OpensThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	var fetchedChannel, fetchedThread string
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetchedChannel, fetchedThread = string(channelID), string(threadTS)
+		return nil
+	})
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 3},
+		{TS: "1779284734.000000", Text: "message with the link"},
+	})
+	// The user's own repro: reading some other thread when pressing o.
+	app.threadVisible = true
+	app.focusedPanel = PanelThread
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+	drainCmd(cmd)
+	if !app.threadVisible {
+		t.Fatal("thread panel not visible")
+	}
+	if got := app.threadPanel.ThreadTS(); got != "1779284733.270139" {
+		t.Errorf("ThreadTS = %q, want the parent's ts", got)
+	}
+	if fetchedChannel != "C054JFCBN69" || fetchedThread != "1779284733.270139" {
+		t.Errorf("thread fetch = (%q, %q)", fetchedChannel, fetchedThread)
+	}
+	// The channel cursor lands on the parent so closing the thread
+	// leaves the user at the linked message.
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "1779284733.270139" {
+		t.Errorf("channel selection = %+v ok=%v", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// The off-buffer variant: the parent arrives via FetchAround, so the
+// MessagesAroundLoadedMsg arm makes the thread-open call.
+func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	var fetchedThread string
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetchedThread = string(threadTS)
+		return nil
+	})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139"}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1779284733.270139",
+		Messages: []messages.MessageItem{
+			{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 2},
+			{TS: "1779284734.000000", Text: "newer"},
+		},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible {
+		t.Fatal("thread panel not visible")
+	}
+	if got := app.threadPanel.ThreadTS(); got != "1779284733.270139" {
+		t.Errorf("ThreadTS = %q", got)
+	}
+	if fetchedThread != "1779284733.270139" {
+		t.Errorf("thread fetch = %q", fetchedThread)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
+// Without an armed nav the arm keeps its plain select behavior — an
+// in-channel search jump to a thread parent must NOT open the thread.
+func TestMessagesAroundLoaded_NoNav_ParentStaysSelected(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	_, cmd := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C1",
+		TargetTS:  "2.0",
+		Messages:  []messages.MessageItem{{TS: "2.0", Text: "parent", ReplyCount: 5}},
+	})
+	drainCmd(cmd)
+	if app.threadVisible {
+		t.Fatal("thread panel opened on a non-permalink jump")
+	}
+	sel, ok := app.messagepane.SelectedMessage()
+	if !ok || sel.TS != "2.0" {
+		t.Errorf("selected = %+v ok=%v", sel, ok)
+	}
+}
+
+// A failed window fetch must still retire the armed nav, or a later
+// visit to the channel would replay the stale jump.
+func TestMessagesAroundLoaded_FailureRetiresArmedNav(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	_, cmd := app.Update(MessagesAroundLoadedMsg{ChannelID: "C054JFCBN69", TargetTS: "1.0", Err: errors.New("boom")})
+	drainCmd(cmd)
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav leaked: %+v", app.pendingLinkNav)
+	}
+}
+
 func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	app, _ := linkTestApp(t)
 	var fetchedChannel, fetchedTS string
@@ -164,8 +271,11 @@ func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1779284733.270139" {
 		t.Errorf("FetchAround not dispatched: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
-	if app.pendingLinkNav != nil {
-		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	// The nav rides through FetchAround still armed: whether the target
+	// is a thread parent is unknowable until the window lands, so the
+	// MessagesAroundLoadedMsg arm retires it.
+	if app.pendingLinkNav == nil {
+		t.Error("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
 	}
 }
 
@@ -248,8 +358,18 @@ func TestOpenLink_OtherChannel_FreshCacheMissingTS_FetchesAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1779284733.270139" {
 		t.Errorf("FetchAround not dispatched on tier-1 fresh path: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
+	// Armed across FetchAround; the MessagesAroundLoadedMsg arm retires it.
+	if app.pendingLinkNav == nil {
+		t.Error("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
+	}
+	_, c3 := app.Update(MessagesAroundLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		TargetTS:  "1779284733.270139",
+		Messages:  []messages.MessageItem{{TS: "1779284733.270139", Text: "target"}},
+	})
+	drainCmd(c3)
 	if app.pendingLinkNav != nil {
-		t.Errorf("pendingLinkNav leaked on tier-1 fresh path: %+v", app.pendingLinkNav)
+		t.Errorf("pendingLinkNav leaked after window landed: %+v", app.pendingLinkNav)
 	}
 }
 
@@ -357,7 +477,7 @@ func TestCompletePendingNav_OffBufferTriggersFetchAround(t *testing.T) {
 	if fetchedChannel != "C054JFCBN69" || fetchedTS != "1700000001.000000" {
 		t.Fatalf("FetchAround not dispatched: ch=%q ts=%q", fetchedChannel, fetchedTS)
 	}
-	if app.pendingLinkNav != nil {
-		t.Fatal("pendingLinkNav not cleared")
+	if app.pendingLinkNav == nil {
+		t.Fatal("pendingLinkNav should stay armed until MessagesAroundLoadedMsg")
 	}
 }
