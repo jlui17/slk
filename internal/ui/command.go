@@ -25,12 +25,13 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":   cmdWorkspaceFinder,
-	"sp":   cmdSplit,
-	"vsp":  cmdVSplit,
-	"q":    cmdCloseWindow,
-	"only": cmdOnlyWindow,
-	"on":   cmdOnlyWindow,
+	"ws":     cmdWorkspaceFinder,
+	"sp":     cmdSplit,
+	"vsp":    cmdVSplit,
+	"q":      cmdCloseWindow,
+	"only":   cmdOnlyWindow,
+	"on":     cmdOnlyWindow,
+	"reload": cmdReload,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -46,6 +47,10 @@ func cmdOnlyWindow(a *App, _ []string) tea.Cmd {
 	a.onlyWindow()
 	return nil
 }
+
+// cmdReload forces every workspace's websocket to reconnect — the
+// :command alias of the ctrl+r manual reload.
+func cmdReload(a *App, _ []string) tea.Cmd { return a.reloadConnections() }
 
 // cmdWorkspaceFinder opens the workspace finder overlay —
 // the :command replacement for the finder's old ctrl+w binding.

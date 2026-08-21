@@ -29,7 +29,7 @@ Last updated: 2026-05-03
 - [x] Multi-line message compose (bubbles/textarea, Shift+Enter for newline)
 - [x] Compose box with thick left border and dark background
 - [x] Status bar showing current mode, channel, workspace, connection state
-- [x] Three-state connection indicator (green Connected / yellow Connecting / red Disconnected)
+- [x] Connection indicator (green Connected / yellow Connecting / red Disconnected / yellow reconnect countdown while a redial is pending)
 - [x] Thick border on focused panel, rounded border on unfocused
 - [x] Insert mode indicated by compose box highlight only (panel borders stay gray)
 - [x] Lipgloss styling throughout with dark theme

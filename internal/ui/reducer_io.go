@@ -12,7 +12,12 @@
 //	UploadResultMsg           - upload finished: clear compose
 //	                            attachments + Sent/Failed toast.
 //	ConnectionStateMsg        - WS connection state changed:
-//	                            push to status bar.
+//	                            push to status bar; a reconnect
+//	                            wait also starts the countdown
+//	                            tick chain.
+//	statusbar.ReconnectTickMsg - once-a-second reconnect countdown
+//	                            refresh; stops when the segment
+//	                            leaves the reconnect-wait state.
 //	ToastMsg                  - generic toast (3s auto-clear).
 //	editEmptyToastMsg         - "Edit must have text" toast.
 //
@@ -67,6 +72,62 @@ func copiedClearAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg {
 		return statusbar.CopiedClearMsg{}
 	})
+}
+
+// reconnectTick schedules the next reconnect-countdown refresh.
+func reconnectTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return statusbar.ReconnectTickMsg{}
+	})
+}
+
+// connectionState is one workspace's cached connection state; retryAt
+// and attempt are meaningful only in StateReconnecting.
+type connectionState struct {
+	state   statusbar.ConnectionState
+	retryAt time.Time
+	attempt int
+}
+
+// applyConnState pushes a connection state into the statusbar segment
+// and starts the countdown tick chain when entering a reconnect wait
+// (one chain at a time; a live chain just picks up the new values).
+func (a *App) applyConnState(st connectionState) tea.Cmd {
+	if st.state == statusbar.StateReconnecting {
+		a.statusbar.SetReconnectWait(st.retryAt, st.attempt)
+		if !a.claimReconnectTicker() {
+			return nil
+		}
+		return reconnectTick()
+	}
+	a.statusbar.SetConnectionState(st.state)
+	return nil
+}
+
+// claimReconnectTicker / clearReconnectTicker guard the reconnect
+// countdown tick chain, mirroring presenceController.ClaimTicker /
+// ClearTicker for the DND chain: Claim returns true exactly once
+// until Clear, so rapid reconnect-wait messages can't accumulate
+// parallel chains.
+func (a *App) claimReconnectTicker() bool {
+	if a.reconnectTickerOn {
+		return false
+	}
+	a.reconnectTickerOn = true
+	return true
+}
+
+func (a *App) clearReconnectTicker() { a.reconnectTickerOn = false }
+
+// applyActiveConnState pushes the active workspace's cached connection
+// state on workspace switch; a workspace with no cached state yet has
+// never connected, which is StateConnecting.
+func (a *App) applyActiveConnState() tea.Cmd {
+	st, ok := a.connStates[a.activeTeamID]
+	if !ok {
+		st = connectionState{state: statusbar.StateConnecting}
+	}
+	return a.applyConnState(st)
 }
 
 // emojiInvalidateDebounce is the coalesce window for EmojiImageReadyMsg
@@ -166,8 +227,27 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return a.uploadToastCmd("Sent", 2*time.Second), true
 
 	case ConnectionStateMsg:
-		a.statusbar.SetConnectionState(statusbar.ConnectionState(m.State))
-		return nil, true
+		st := connectionState{
+			state:   statusbar.ConnectionState(m.State),
+			retryAt: m.RetryAt,
+			attempt: m.Attempt,
+		}
+		if m.TeamID != "" {
+			a.connStates[m.TeamID] = st
+			if m.TeamID != a.activeTeamID {
+				// Cache only; applied when this workspace becomes
+				// active (reduceWorkspaceReady/Switched).
+				return nil, true
+			}
+		}
+		return a.applyConnState(st), true
+
+	case statusbar.ReconnectTickMsg:
+		if !a.statusbar.TickReconnect() {
+			a.clearReconnectTicker()
+			return nil, true
+		}
+		return reconnectTick(), true
 
 	case imgrender.ImageReadyMsg:
 		debuglog.ImgFetch("recv: kind=ready channel=%s ts=%s key=%s req_id=%d",

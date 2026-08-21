@@ -229,6 +229,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.activeTeamID = m.TeamID
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
+		batch = append(batch, a.applyActiveConnState())
 		a.workspaceRail.SelectByID(m.TeamID)
 		if len(m.Channels) > 0 {
 			// Restore the persisted channel across restarts (the pane's
@@ -359,6 +360,8 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.activeTeamID = m.TeamID
 	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
+	var batch []tea.Cmd
+	batch = append(batch, a.applyActiveConnState())
 	// Apply per-workspace theme. Must run on Update goroutine so
 	// the component cache invalidations and compose-style refreshes
 	// below take effect on the next render.
@@ -375,7 +378,6 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	}
 	a.workspaceRail.SelectByID(m.TeamID)
 
-	var batch []tea.Cmd
 	// Restore the last-viewed channel for this workspace if we
 	// have one and it still exists; otherwise fall back to the
 	// first channel in the sidebar. Move the sidebar cursor to

@@ -112,6 +112,13 @@ type (
 		Err   error
 	}
 	NewMessageMsg struct {
+		// TeamID is the workspace the message arrived in — the
+		// canonical background-dispatch contract: thread replies from
+		// a background (non-active) workspace reach the Update stream
+		// tagged, for consumers that track threads across workspaces;
+		// the standard handling ignores background-team messages. ""
+		// is treated as the active workspace.
+		TeamID    string
 		ChannelID string
 		Message   messages.MessageItem
 	}
@@ -170,7 +177,16 @@ type (
 		TeamID string
 	}
 	ConnectionStateMsg struct {
-		State int // 0=connecting, 1=connected, 2=disconnected
+		// TeamID scopes the state to one workspace; the statusbar
+		// segment shows only the active workspace's state, others are
+		// cached and applied on workspace switch. "" applies directly
+		// (treated as the active workspace).
+		TeamID string
+		State  int // statusbar.ConnectionState values
+		// RetryAt and Attempt describe the backoff wait; meaningful
+		// only when State is statusbar.StateReconnecting.
+		RetryAt time.Time
+		Attempt int
 	}
 	ReactionAddedMsg struct {
 		ChannelID string
@@ -550,6 +566,9 @@ type ChannelMarkedRemoteMsg struct {
 // now read (clear local boundary + threads-view row); Read=false means
 // it's unread.
 type ThreadMarkedRemoteMsg struct {
+	// TeamID scopes the mark to a workspace — contract in
+	// NewMessageMsg.TeamID.
+	TeamID    string
 	ChannelID string
 	ThreadTS  string
 	TS        string
@@ -560,6 +579,9 @@ type ThreadMarkedRemoteMsg struct {
 // message_deleted event arrives. App.Update handles it by removing the
 // message from both panes and the cache.
 type WSMessageDeletedMsg struct {
+	// TeamID scopes the deletion to a workspace — contract in
+	// NewMessageMsg.TeamID.
+	TeamID    string
 	ChannelID string
 	TS        string
 }

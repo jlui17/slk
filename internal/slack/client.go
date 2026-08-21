@@ -419,8 +419,14 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	if err != nil {
 		return fmt.Errorf("websocket connect failed: %w", err)
 	}
+	// wsMu: StopWebSocket may run concurrently from another goroutine
+	// (ConnectionManager.Reconnect on the UI goroutine's manual-reload
+	// path) and must see either the previous conn or this one, never a
+	// torn pointer.
+	c.wsMu.Lock()
 	c.wsConn = conn
 	c.wsDone = make(chan struct{})
+	c.wsMu.Unlock()
 
 	// Detect dead connections: set a read deadline that resets on every
 	// incoming message or pong. Slack sends pings ~every 30s, so a 60s
@@ -462,6 +468,8 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 
 // StopWebSocket disconnects the WebSocket connection.
 func (c *Client) StopWebSocket() error {
+	c.wsMu.Lock()
+	defer c.wsMu.Unlock()
 	if c.wsConn != nil {
 		return c.wsConn.Close()
 	}

@@ -17,6 +17,9 @@ const (
 	StateConnecting ConnectionState = iota
 	StateConnected
 	StateDisconnected
+	// StateReconnecting is the backoff wait between redial attempts;
+	// the segment renders a countdown to the retryAt deadline.
+	StateReconnecting
 )
 
 type Model struct {
@@ -26,6 +29,8 @@ type Model struct {
 	workspace   string
 	unreadCount int
 	connState   ConnectionState
+	retryAt     time.Time // redial deadline; meaningful only in StateReconnecting
+	attempt     int       // 1-based reconnect attempt; meaningful only in StateReconnecting
 	inThread    bool
 	toast       string // "" == no toast; otherwise rendered verbatim in the right slot
 	presence    string // "active", "away", or "" (unknown — segment hidden)
@@ -107,6 +112,27 @@ func (m *Model) SetConnectionState(state ConnectionState) {
 		m.connState = state
 		m.dirty()
 	}
+}
+
+// SetReconnectWait switches the connection segment to the reconnect
+// countdown. retryAt is the redial deadline; attempt is the 1-based
+// retry number (rendered from the second attempt on).
+func (m *Model) SetReconnectWait(retryAt time.Time, attempt int) {
+	m.connState = StateReconnecting
+	m.retryAt = retryAt
+	m.attempt = attempt
+	m.dirty()
+}
+
+// TickReconnect marks the bar dirty so the countdown re-renders, and
+// reports whether the segment is still in the reconnect wait — false
+// tells the caller to stop its tick chain.
+func (m *Model) TickReconnect() bool {
+	if m.connState != StateReconnecting {
+		return false
+	}
+	m.dirty()
+	return true
 }
 
 // SetStatus updates the self-presence and DND segment. presence is one of
@@ -290,6 +316,9 @@ func (m Model) View(width int) string {
 	case StateDisconnected:
 		rightParts = append(rightParts,
 			lipgloss.NewStyle().Foreground(styles.Error).Background(styles.SurfaceDark).Render("● Disconnected"))
+	case StateReconnecting:
+		rightParts = append(rightParts,
+			lipgloss.NewStyle().Foreground(styles.Warning).Background(styles.SurfaceDark).Render(formatReconnect(m.retryAt, m.attempt)))
 	}
 
 	// The :command prompt owns the left side while active (the
@@ -377,6 +406,31 @@ func formatDND(endTS time.Time) string {
 	}
 	return fmt.Sprintf("🌙 DND %dm", minutes)
 }
+
+// formatReconnect renders the reconnect-wait segment: a countdown to
+// the redial deadline, plus the attempt number once the first quick
+// retry has already failed. A past deadline means the redial is in
+// flight ("hello" hasn't arrived yet), rendered without a countdown.
+func formatReconnect(retryAt time.Time, attempt int) string {
+	label := "⟳ Reconnecting"
+	if d := time.Until(retryAt); d > 0 {
+		secs := int(d.Round(time.Second) / time.Second)
+		if secs < 1 {
+			secs = 1
+		}
+		label = fmt.Sprintf("⟳ Reconnecting in %ds", secs)
+	}
+	if attempt > 1 {
+		label += fmt.Sprintf(" (try %d)", attempt)
+	}
+	return label
+}
+
+// ReconnectTickMsg is the once-a-second tick that refreshes the
+// reconnect countdown segment. App starts the chain on the first
+// reconnect-wait ConnectionStateMsg and reschedules from the tick
+// handler while the segment remains in StateReconnecting.
+type ReconnectTickMsg struct{}
 
 // CopiedMsg is delivered when the messages or thread pane copies a
 // selection to the clipboard. App handles it by calling ShowCopied and

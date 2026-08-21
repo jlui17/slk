@@ -58,6 +58,10 @@ import (
 var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case NewMessageMsg:
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			// Background workspace — see NewMessageMsg.TeamID.
+			return nil, true
+		}
 		return reduceNewMessage(a, m), true
 
 	case SendMessageMsg:
@@ -176,6 +180,10 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}, true
 
 	case WSMessageDeletedMsg:
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			// Background workspace — see NewMessageMsg.TeamID.
+			return nil, true
+		}
 		debuglog.Cache("WSMessageDeletedMsg: channel=%s ts=%s active=%s",
 			m.ChannelID, m.TS, a.activeChannelID)
 		for _, mm := range a.modelsForChannel(m.ChannelID) {

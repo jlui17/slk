@@ -109,6 +109,12 @@ type FrecentRecordFunc func(emoji string)
 // TypingSendFunc is called to broadcast a typing indicator.
 type TypingSendFunc func(channelID string)
 
+// ReloadFunc forces every workspace's websocket to reconnect now (the
+// manual reload, slk's cmd+r analog): pending backoff waits are
+// skipped and the reconnect catch-up dedupe gates are reset so the
+// catch-up pass runs even right after a natural reconnect.
+type ReloadFunc func()
+
 // JoinChannelFunc is called to join a public channel by ID. Returns a tea.Msg
 // describing the result (typically ChannelJoinedMsg or ChannelJoinFailedMsg).
 type JoinChannelFunc func(channelID ids.ChannelID, channelName string) tea.Msg

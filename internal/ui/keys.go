@@ -54,6 +54,7 @@ type KeyMap struct {
 	ToggleSection       key.Binding
 	NavBack             key.Binding
 	NavForward          key.Binding
+	Reload              key.Binding
 	Help                key.Binding
 	SaveThread          key.Binding
 	ListReactions       key.Binding
@@ -122,6 +123,7 @@ func DefaultKeyMap() KeyMap {
 		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
+		Reload:              key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r / :reload", "reload connections")),
 		Help:                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
 		SaveThread:          key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
 		ListReactions:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),

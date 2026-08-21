@@ -331,6 +331,18 @@ type App struct {
 	// rather than switching channels behind the user's back.
 	newMessageCancelled bool
 
+	// reloader forces every workspace's websocket to reconnect
+	// (ctrl+r / :reload). Nil until SetReloader.
+	reloader ReloadFunc
+	// reconnectTickerOn guards the reconnect-countdown tick chain
+	// (reducer_io.go) against parallel chains when several
+	// reconnect-wait messages arrive in a row.
+	reconnectTickerOn bool
+	// connStates caches the latest per-workspace connection state so
+	// the statusbar segment can follow the active workspace across
+	// switches (mirrors presenceController's per-team status cache).
+	connStates map[string]connectionState
+
 	// Workspace switching
 	workspaceSwitcher SwitchWorkspaceFunc
 	workspaceItems    []workspace.WorkspaceItem // cached for lookup
@@ -565,6 +577,7 @@ func NewApp() *App {
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
 		lastChannelByTeam:     map[string]string{},
+		connStates:            map[string]connectionState{},
 		workspaceDomains:      map[string]string{},
 		browserOpener:         openURLCmd,
 		navHistory:            newNavHistoryStore(),
@@ -2704,6 +2717,22 @@ func (a *App) ActiveChannelID() string {
 // SetWorkspaceSwitcher sets the callback used to switch workspaces.
 func (a *App) SetWorkspaceSwitcher(fn SwitchWorkspaceFunc) {
 	a.workspaceSwitcher = fn
+}
+
+// SetReloader sets the callback that forces every workspace's
+// websocket to reconnect (ctrl+r / :reload).
+func (a *App) SetReloader(fn ReloadFunc) {
+	a.reloader = fn
+}
+
+// reloadConnections runs the manual reload and acknowledges it with a
+// toast. No-op before SetReloader is wired.
+func (a *App) reloadConnections() tea.Cmd {
+	if a.reloader == nil {
+		return nil
+	}
+	a.reloader()
+	return toastWithClear(a, "Reloading connections…", 2*time.Second)
 }
 
 // SetThemeItems sets the available themes for the switcher.

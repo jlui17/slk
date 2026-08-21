@@ -154,6 +154,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			return cmd
 		}
 
+	case key.Matches(msg, a.keys.Reload):
+		return a.reloadConnections()
+
 	case key.Matches(msg, a.keys.NavForward):
 		if cmd := a.navigateForward(); cmd != nil {
 			return cmd

@@ -107,7 +107,7 @@ type WorkspaceContext struct {
 	// Edge is the edgeapi client for this workspace: the
 	// conditional-revalidation and server-side-search endpoints. Nil
 	// only if construction failed, and every caller nil-checks.
-	Edge       *edge.Client
+	Edge *edge.Client
 	// EdgeHealth records whether edge resolution is working for this
 	// workspace this session. bootstrap marks it degraded on a
 	// wholesale failure; the user resolver reads it to skip batch
@@ -243,17 +243,29 @@ func (w *WorkspaceContext) SetUserGroups(groups map[string]string) {
 	w.userGroups.Store(&groups)
 }
 
+// ForceReconnect bounces this workspace's websocket immediately AND
+// resets the reconnect catch-up dedupe gate so the catch-up pass runs
+// on the resulting OnConnect. Always use this over ConnMgr.Reconnect()
+// directly: a bare Reconnect inside the gate's dedupe window silently
+// skips the catch-up (debug-log only), leaving offline-gap messages
+// unbackfilled.
+func (w *WorkspaceContext) ForceReconnect() {
+	w.RTMHandler.backfillGate.reset()
+	w.ConnMgr.Reconnect()
+}
+
 // workspaceRouter holds the program-wide "active workspace" pointer.
 // wireCallbacks(router) is invoked ONCE at startup. Every workspace-
 // scoped callback reads router.Active() at invocation time so the
 // effective workspace tracks the user's current Ctrl-N selection
 // without any closure rebinding.
 //
-// The `all` map is populated only during the connect-workspaces phase
-// (before p.Run); subsequent reads from p.Send-invoked callbacks are
-// race-free without a mutex.
+// The `all` map is written from the per-workspace connect goroutines
+// and read from the wake detector, p.Send-invoked callbacks and the
+// manual reload, so every access goes through allMu.
 type workspaceRouter struct {
 	active atomic.Pointer[WorkspaceContext]
+	allMu  sync.RWMutex
 	all    map[string]*WorkspaceContext
 }
 
@@ -264,7 +276,26 @@ func newWorkspaceRouter() *workspaceRouter {
 func (r *workspaceRouter) Active() *WorkspaceContext  { return r.active.Load() }
 func (r *workspaceRouter) Set(wctx *WorkspaceContext) { r.active.Store(wctx) }
 func (r *workspaceRouter) ByID(teamID string) *WorkspaceContext {
+	r.allMu.RLock()
+	defer r.allMu.RUnlock()
 	return r.all[teamID]
+}
+
+func (r *workspaceRouter) Add(wctx *WorkspaceContext) {
+	r.allMu.Lock()
+	defer r.allMu.Unlock()
+	r.all[wctx.TeamID] = wctx
+}
+
+// All returns a snapshot of every connected workspace.
+func (r *workspaceRouter) All() []*WorkspaceContext {
+	r.allMu.RLock()
+	defer r.allMu.RUnlock()
+	out := make([]*WorkspaceContext, 0, len(r.all))
+	for _, wctx := range r.all {
+		out = append(out, wctx)
+	}
+	return out
 }
 
 // userResolverConcurrency caps how many users.info round trips the
@@ -1147,13 +1178,20 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// Declare p before wiring callbacks so closures can capture it
 	var p *tea.Program
-	workspaces := make(map[string]*WorkspaceContext)
-	var activeTeamID string
 
 	// router holds the program-wide active workspace pointer. All
 	// wireCallbacks-registered callbacks read router.Active() at
 	// invocation time so they always see the current workspace.
 	router := newWorkspaceRouter()
+
+	// Manual reload (ctrl+r / :reload): bounce every workspace's
+	// websocket now, catch-up guaranteed — explicit user intent
+	// outranks flap protection.
+	app.SetReloader(func() {
+		for _, wctx := range router.All() {
+			wctx.ForceReconnect()
+		}
+	})
 
 	// Wire avatar rendering with a lazy-fetch path. AvatarFunc is
 	// called by the messages/thread panes on the bubbletea Update
@@ -1196,20 +1234,22 @@ func run(startupLink *slackurl.Permalink) error {
 	app.SetThemeSaver(func(name string, scope themeswitcher.ThemeScope) {
 		switch scope {
 		case themeswitcher.ScopeWorkspace:
-			if activeTeamID == "" {
+			wctx := router.Active()
+			if wctx == nil {
 				return // shouldn't happen, but guard against it
 			}
-			teamName := activeTeamID
-			if wctx, ok := workspaces[activeTeamID]; ok && wctx.TeamName != "" {
+			teamID := wctx.TeamID
+			teamName := teamID
+			if wctx.TeamName != "" {
 				teamName = wctx.TeamName
 			}
 			// Find the existing TOML key for this workspace, if any.
 			// If no block exists yet we use the team ID as the key
 			// (legacy default); a future --add-workspace may have
 			// already written a slug-keyed block.
-			tomlKey := activeTeamID
+			tomlKey := teamID
 			for k, w := range cfg.Workspaces {
-				if w.TeamID == activeTeamID {
+				if w.TeamID == teamID {
 					tomlKey = k
 					break
 				}
@@ -1219,11 +1259,11 @@ func run(startupLink *slackurl.Permalink) error {
 				cfg.Workspaces = make(map[string]config.Workspace)
 			}
 			ws := cfg.Workspaces[tomlKey]
-			ws.TeamID = activeTeamID
+			ws.TeamID = teamID
 			ws.Theme = name
 			cfg.Workspaces[tomlKey] = ws
 			// Persist.
-			if err := saveWorkspaceTheme(configPath, tomlKey, activeTeamID, teamName, name); err != nil {
+			if err := saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, name); err != nil {
 				log.Printf("save workspace theme: %v", err)
 			}
 		case themeswitcher.ScopeGlobal:
@@ -1236,16 +1276,18 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// Wire sidebar width saver: always persist to the active workspace.
 	app.SetWidthSaver(func(width int) {
-		if activeTeamID == "" {
+		wctx := router.Active()
+		if wctx == nil {
 			return
 		}
-		teamName := activeTeamID
-		if wctx, ok := workspaces[activeTeamID]; ok && wctx.TeamName != "" {
+		teamID := wctx.TeamID
+		teamName := teamID
+		if wctx.TeamName != "" {
 			teamName = wctx.TeamName
 		}
-		tomlKey := activeTeamID
+		tomlKey := teamID
 		for k, w := range cfg.Workspaces {
-			if w.TeamID == activeTeamID {
+			if w.TeamID == teamID {
 				tomlKey = k
 				break
 			}
@@ -1254,19 +1296,19 @@ func run(startupLink *slackurl.Permalink) error {
 			cfg.Workspaces = make(map[string]config.Workspace)
 		}
 		ws := cfg.Workspaces[tomlKey]
-		ws.TeamID = activeTeamID
+		ws.TeamID = teamID
 		ws.SidebarWidth = width
 		cfg.Workspaces[tomlKey] = ws
-		if err := saveWorkspaceWidth(configPath, tomlKey, activeTeamID, teamName, width); err != nil {
+		if err := saveWorkspaceWidth(configPath, tomlKey, teamID, teamName, width); err != nil {
 			log.Printf("save workspace sidebar width: %v", err)
 		}
 	})
 
-	// Wire presence/DND status setter. Captured workspaces map and
-	// activeTeamID by reference so the closure always targets the
+	// Wire presence/DND status setter. Reads router.Active() at
+	// invocation time so the closure always targets the
 	// currently-active workspace context.
 	app.SetStatusSetter(func(action presencemenu.Action, snoozeMinutes int) {
-		wctx := workspaces[activeTeamID]
+		wctx := router.Active()
 		if wctx == nil || wctx.Client == nil {
 			return
 		}
@@ -1906,7 +1948,6 @@ func run(startupLink *slackurl.Permalink) error {
 
 		// Update active pointer; callbacks read router.Active() at
 		// invocation time, so no closure rebinding is needed.
-		activeTeamID = teamID
 		router.Set(wctx)
 
 		// Build external-user set from cached records so the mention
@@ -2019,7 +2060,7 @@ func run(startupLink *slackurl.Permalink) error {
 	// no default_workspace is configured. sync.Once ensures exactly one
 	// connect goroutine claims the initial active slot, eliminating the
 	// race where two simultaneous WorkspaceReadyMsgs both observed
-	// activeTeamID == "" and both set InitialActive=true.
+	// no claimed active workspace and both set InitialActive=true.
 	var firstReady sync.Once
 
 	// Start the TUI immediately (shows loading overlay). All output —
@@ -2086,8 +2127,6 @@ func run(startupLink *slackurl.Permalink) error {
 				return
 			}
 
-			workspaces[wctx.TeamID] = wctx
-			router.all[wctx.TeamID] = wctx
 			wsMgr.AddWorkspace(wctx.TeamID, wctx.TeamName, "")
 
 			// Decide whether this workspace becomes the active one.
@@ -2099,14 +2138,12 @@ func run(startupLink *slackurl.Permalink) error {
 				if wctx.TeamID == defaultTeamID {
 					isInitial = true
 					router.Set(wctx)
-					activeTeamID = wctx.TeamID
 				}
 				// else: not the configured default; never claim.
 			} else {
 				firstReady.Do(func() {
 					isInitial = true
 					router.Set(wctx)
-					activeTeamID = wctx.TeamID
 				})
 			}
 
@@ -2121,12 +2158,15 @@ func run(startupLink *slackurl.Permalink) error {
 			// Start WebSocket for this workspace
 			teamID := wctx.TeamID
 			handler := &rtmEventHandler{
-				program:         p,
-				userNames:       wctx.UserNames,
-				tsFormat:        tsFormat,
-				db:              db,
-				workspaceID:     teamID,
-				isActive:        func() bool { return teamID == activeTeamID },
+				program:     p,
+				userNames:   wctx.UserNames,
+				tsFormat:    tsFormat,
+				db:          db,
+				workspaceID: teamID,
+				isActive: func() bool {
+					w := router.Active()
+					return w != nil && w.TeamID == teamID
+				},
 				notifier:        notifier,
 				notifyCfg:       cfg.Notifications,
 				currentUserID:   wctx.UserID,
@@ -2162,6 +2202,20 @@ func run(startupLink *slackurl.Permalink) error {
 			}
 			wctx.RTMHandler = handler
 			wctx.ConnMgr = slackclient.NewConnectionManager(wctx.Client, handler)
+			wctx.ConnMgr.OnReconnectWait = func(retryAt time.Time, attempt int) {
+				p.Send(ui.ConnectionStateMsg{
+					TeamID:  teamID,
+					State:   int(statusbar.StateReconnecting),
+					RetryAt: retryAt,
+					Attempt: attempt,
+				})
+			}
+			// Publish to the router only now: Add's mutex-guarded insert
+			// is the publication point for cross-goroutine readers
+			// (reloader, wake detector), so RTMHandler/ConnMgr above must
+			// be assigned before it — an Add any earlier lets a reader
+			// observe a wctx whose fields aren't yet visible.
+			router.Add(wctx)
 			go wctx.ConnMgr.Run(ctx)
 
 			// Build external-user set from cached records so the
@@ -2256,7 +2310,7 @@ func run(startupLink *slackurl.Permalink) error {
 	defer wakeCancel()
 	go wake.New(10*time.Second, 5*time.Second, func(elapsed time.Duration) {
 		debuglog.Backfill("wake detected: elapsed=%v — triggering catch-up across all workspaces", elapsed)
-		for _, wctx := range router.all {
+		for _, wctx := range router.All() {
 			if wctx == nil || wctx.RTMHandler == nil {
 				continue
 			}
@@ -2290,10 +2344,8 @@ func run(startupLink *slackurl.Permalink) error {
 	}
 
 	// Clean up connection managers
-	for _, wctx := range workspaces {
-		if wctx.ConnMgr != nil {
-			wctx.ConnMgr.Stop()
-		}
+	for _, wctx := range router.All() {
+		wctx.ConnMgr.Stop()
 	}
 
 	return err
@@ -3843,7 +3895,7 @@ func xdgCache() string {
 // state from Slack, populates the WorkspaceContext, and sends an initial
 // StatusChangeMsg. Also subscribes to presence_change events for the self
 // user and every DM peer so external state changes arrive over the WS.
-func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program *tea.Program) {
+func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender) {
 	if wctx == nil || wctx.Client == nil {
 		return
 	}
@@ -3991,7 +4043,7 @@ func mostRecentlyVisitedChannel(visits map[string]int64) string {
 // rtmEventHandler bridges WebSocket events into bubbletea messages via p.Send()
 // and caches all incoming messages to the SQLite database.
 type rtmEventHandler struct {
-	program     *tea.Program
+	program     teaSender
 	userNames   map[string]string
 	tsFormat    string
 	db          *cache.DB
@@ -4171,18 +4223,49 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		// its dot from db.WorkspacesWithUnreads(). The sidebar's
 		// Invalidate is a no-op here because the active workspace's
 		// sidebar isn't showing this channel anyway.
-		if shouldMarkChannel {
-			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=inactive_workspace_persisted",
-				h.workspaceID, channelID, ts, subtype, threadTS)
-		} else {
-			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=skipped_thread_reply_inactive",
-				h.workspaceID, channelID, ts, subtype, threadTS)
-		}
 		if h.program != nil {
 			h.program.Send(ui.ReadStateChangedMsg{
 				WorkspaceID: h.workspaceID,
 				ChannelID:   channelID,
 			})
+		}
+		// Background dispatch is thread-replies-only (contract:
+		// ui.NewMessageMsg.TeamID): dispatching top-level messages
+		// would force a discarded Update+View cycle per message the
+		// user can't see. The name is a read-only map lookup with the
+		// raw ID as fallback — resolveUserCached both writes the map
+		// (this WS goroutine would race UI-goroutine readers) and
+		// SELECTs on misses that can never be repaired here (the
+		// resolver fill is active-only).
+		if isThreadReply && h.program != nil {
+			userName := authorID
+			if resolved, ok := h.userNames[authorID]; ok {
+				userName = resolved
+			} else if userID == "" && username != "" {
+				userName = username
+			}
+			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=dispatched_background_thread_reply",
+				h.workspaceID, channelID, ts, subtype, threadTS)
+			h.program.Send(ui.NewMessageMsg{
+				TeamID:    h.workspaceID,
+				ChannelID: channelID,
+				Message: messages.MessageItem{
+					TS:                ts,
+					UserID:            authorID,
+					UserName:          userName,
+					Text:              text,
+					Timestamp:         formatTimestamp(ts, h.tsFormat),
+					ThreadTS:          threadTS,
+					Subtype:           subtype,
+					IsEdited:          edited,
+					Attachments:       extractAttachments(files),
+					Blocks:            extractBlocks(blocks),
+					LegacyAttachments: extractLegacyAttachments(attachments),
+				},
+			})
+		} else {
+			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=inactive_workspace_persisted",
+				h.workspaceID, channelID, ts, subtype, threadTS)
 		}
 		return
 	}
@@ -4204,6 +4287,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		h.workspaceID, channelID, ts, subtype, threadTS)
 	if h.program != nil {
 		h.program.Send(ui.NewMessageMsg{
+			TeamID:    h.workspaceID,
 			ChannelID: channelID,
 			Message: messages.MessageItem{
 				TS:                ts,
@@ -4226,11 +4310,12 @@ func (h *rtmEventHandler) OnMessageDeleted(channelID, ts string) {
 	if err := h.db.DeleteMessage(channelID, ts); err != nil {
 		log.Printf("Warning: failed to soft-delete cached message %s/%s: %v", channelID, ts, err)
 	}
-	if h.isActive != nil && !h.isActive() {
-		// Inactive workspace — nothing to update in the UI.
-		return
-	}
-	h.program.Send(ui.WSMessageDeletedMsg{ChannelID: channelID, TS: ts})
+	// Dispatched for every workspace, tagged (contract:
+	// ui.NewMessageMsg.TeamID): a deletion in a background workspace
+	// must retract from thread-scoped consumers what the tagged reply
+	// dispatch delivered. Deletions are rare, so none of OnMessage's
+	// background-volume narrowing applies.
+	h.program.Send(ui.WSMessageDeletedMsg{TeamID: h.workspaceID, ChannelID: channelID, TS: ts})
 }
 
 func (h *rtmEventHandler) OnReactionAdded(channelID, ts, userID, emojiName string) {
@@ -4326,7 +4411,7 @@ func (h *rtmEventHandler) OnConnect() {
 	// this session, not whether the socket is up right now.
 	firstConnect := !h.connected
 	h.connected = true
-	h.program.Send(ui.ConnectionStateMsg{State: int(statusbar.StateConnected)})
+	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
 	if h.wsCtx != nil {
 		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program)
 	}
@@ -4446,7 +4531,7 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 }
 
 func (h *rtmEventHandler) OnDisconnect() {
-	h.program.Send(ui.ConnectionStateMsg{State: int(statusbar.StateDisconnected)})
+	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateDisconnected)})
 }
 
 func (h *rtmEventHandler) OnSelfPresenceChange(presence string) {
@@ -4540,16 +4625,15 @@ func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, ts string, read bo
 		}
 	}
 
-	// UI dispatch is active-only: the threads-view list and sidebar
-	// badge live on the active workspace; inactive workspaces pick up
-	// fresh state on the next switch via threadsListFetcher.
-	if h.isActive != nil && !h.isActive() {
-		return
-	}
+	// Dispatched for every workspace, tagged (contract:
+	// ui.NewMessageMsg.TeamID); the threads-view/sidebar handling
+	// ignores background-team marks and picks up fresh state on the
+	// next switch via threadsListFetcher.
 	if h.program == nil {
 		return
 	}
 	h.program.Send(ui.ThreadMarkedRemoteMsg{
+		TeamID:    h.workspaceID,
 		ChannelID: channelID,
 		ThreadTS:  threadTS,
 		TS:        ts,

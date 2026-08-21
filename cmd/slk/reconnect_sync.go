@@ -173,3 +173,12 @@ func (g *dedupeGate) tryStart(now time.Time) bool {
 	g.last = now
 	return true
 }
+
+// reset clears the gate so the next tryStart succeeds regardless of
+// when the last pass ran. Used by the manual reload, where explicit
+// user intent outranks flap protection.
+func (g *dedupeGate) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.last = time.Time{}
+}

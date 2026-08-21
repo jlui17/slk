@@ -53,6 +53,10 @@ import (
 var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ThreadMarkedRemoteMsg:
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			// Background workspace — see NewMessageMsg.TeamID.
+			return nil, true
+		}
 		a.applyThreadMark(m.ChannelID, m.ThreadTS, m.TS, m.Read)
 		return nil, true
 
