@@ -300,6 +300,11 @@ type App struct {
 	pickerFiles []messages.Attachment
 	pickerInTab bool
 
+	// linkPreviewGen guards the picker's async permalink previews:
+	// bumped on every links-picker open, echoed by LinkPreviewMsg.Gen,
+	// so previews from an earlier picker can't fill a later one's rows.
+	linkPreviewGen uint64
+
 	// Reaction picker
 	reactionPicker *reactionpicker.Model
 	reactionsView  *reactionsview.Model
@@ -1141,9 +1146,18 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		url := links[0].URL
 		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inHerdrTab} }
 	default:
+		a.linkPreviewGen++
 		items := make([]linkpicker.Item, len(links))
+		var previews []tea.Cmd
 		for i, l := range links {
-			items[i] = linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
+			item := linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
+			if pl, ok := slackurl.Parse(l.URL); ok {
+				item.Display = a.permalinkRowText(pl, item.InApp)
+				if item.InApp {
+					previews = append(previews, a.fetchLinkPreview(a.linkPreviewGen, i, pl))
+				}
+			}
+			items[i] = item
 		}
 		title := "Open link"
 		if tabOpenerActive {
@@ -1153,7 +1167,51 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		a.pickerInTab = inHerdrTab
 		a.linkPicker.Open(title, items)
 		a.SetMode(ModeLinkPicker)
-		return nil
+		return tea.Batch(previews...)
+	}
+}
+
+// permalinkRowText is a permalink row's fallback display: what the
+// picker shows until (or instead of, on fetch failure) the message
+// preview. In-app links decode to "#channel · Today · thread reply";
+// foreign-workspace links to "sub.slack.com · Today".
+func (a *App) permalinkRowText(pl slackurl.Permalink, inApp bool) string {
+	parts := []string{pl.Subdomain + ".slack.com"}
+	if inApp {
+		// inApp implies the Lookup succeeds (linkOpensInApp requires it).
+		name, chType, _ := a.channels.Lookup(pl.ChannelID)
+		parts[0] = channelDisplayName(name, chType)
+	}
+	if date := messages.DateFromTS(string(pl.MessageTS)); date != "" {
+		parts = append(parts, messages.FormatDateSeparator(date))
+	}
+	if pl.ThreadTS != "" && string(pl.ThreadTS) != string(pl.MessageTS) {
+		parts = append(parts, "thread reply")
+	}
+	return strings.Join(parts, " · ")
+}
+
+func channelDisplayName(name, chType string) string {
+	return messages.ChannelGlyph(chType) + name
+}
+
+// fetchLinkPreview resolves a picker row's target message via
+// MessageService.Preview off the Update loop. Failures and unresolved
+// messages produce no msg: the row keeps its permalinkRowText.
+func (a *App) fetchLinkPreview(gen uint64, index int, pl slackurl.Permalink) tea.Cmd {
+	messageSvc := a.messageSvc
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		userID, text, err := messageSvc.Preview(ctx, pl.ChannelID, pl.MessageTS, pl.ThreadTS)
+		if err != nil {
+			debuglog.General("linkPreview: %s/%s: %v", pl.ChannelID, pl.MessageTS, err)
+			return nil
+		}
+		if text == "" {
+			return nil
+		}
+		return LinkPreviewMsg{Index: index, Gen: gen, ChannelID: string(pl.ChannelID), UserID: userID, Text: text}
 	}
 }
 

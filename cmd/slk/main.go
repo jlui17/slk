@@ -1650,6 +1650,28 @@ func run(startupLink *slackurl.Permalink) error {
 				}
 				return wctx.Client.GetPermalink(ctx, string(channelID), string(ts))
 			},
+			Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
+				chIDStr, tsStr := string(channelID), string(ts)
+				if userID, text, found := cachedMessagePreview(db, chIDStr, tsStr); found {
+					return userID, text, nil
+				}
+				wctx := router.Active()
+				if wctx == nil {
+					return "", "", nil
+				}
+				if threadTS != "" && string(threadTS) != tsStr {
+					m, err := wctx.Client.GetReplyAt(ctx, chIDStr, string(threadTS), tsStr)
+					if err != nil || m == nil {
+						return "", "", err
+					}
+					return m.User, m.Text, nil
+				}
+				m, err := wctx.Client.GetMessageAt(ctx, chIDStr, tsStr)
+				if err != nil || m == nil {
+					return "", "", err
+				}
+				return m.User, m.Text, nil
+			},
 		}))
 
 		app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
@@ -3753,6 +3775,22 @@ func formatSearchTimestamp(ts, timeFormat string, now time.Time) string {
 	default:
 		return t.Format("Jan 2 2006, ") + t.Format(timeFormat)
 	}
+}
+
+// cachedMessagePreview is the Preview seam's cache tier: the target
+// message's sender and raw text when the cache holds it. A tombstone
+// (soft-deleted row; GetMessage is the one cache read without an
+// is_deleted filter) counts as found with no text, so the network
+// tier isn't asked to resurrect a message we know is gone.
+func cachedMessagePreview(db *cache.DB, channelID, ts string) (userID, text string, found bool) {
+	m, err := db.GetMessage(channelID, ts)
+	if err != nil {
+		return "", "", false
+	}
+	if m.IsDeleted {
+		return "", "", true
+	}
+	return m.UserID, m.Text, true
 }
 
 func formatTimestamp(ts, format string) string {

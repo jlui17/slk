@@ -261,8 +261,8 @@ func (t threadAdapter) ChannelLastRead(channelID ids.ChannelID) string {
 //
 // All methods are best-effort and nil-safe at the adapter level: an
 // implementation built via NewMessageService with a nil component
-// silently no-ops that operation (returning nil tea.Msg or
-// ("", nil) for Permalink).
+// silently no-ops that operation (returning nil tea.Msg, ("", nil)
+// for Permalink, or ("", "", nil) for Preview).
 type MessageService interface {
 	// Send dispatches chat.postMessage for channelID with text.
 	// Returns a tea.Msg (typically MessageSentMsg or
@@ -290,6 +290,12 @@ type MessageService interface {
 	// keybind. Synchronous (HTTP); callers wrap in a goroutine to
 	// avoid blocking the Update loop.
 	Permalink(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS) (string, error)
+
+	// Preview resolves the sender ID and raw mrkdwn text of the
+	// message identified by (channelID, ts), for the link picker's
+	// permalink preview rows. Synchronous (SQLite, then HTTP on a
+	// cache miss); callers wrap in a tea.Cmd.
+	Preview(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (userID, text string, err error)
 }
 
 // MessageServiceFuncs is the closure bundle accepted by
@@ -301,6 +307,7 @@ type MessageServiceFuncs struct {
 	Delete     MessageDeleteFunc
 	MarkUnread MarkUnreadFunc
 	Permalink  PermalinkFetchFunc
+	Preview    MessagePreviewFetchFunc
 }
 
 // NewMessageService builds a MessageService from a MessageServiceFuncs
@@ -351,6 +358,13 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 		return "", nil
 	}
 	return m.fns.Permalink(ctx, channelID, ts)
+}
+
+func (m messageAdapter) Preview(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
+	if m.fns.Preview == nil {
+		return "", "", nil
+	}
+	return m.fns.Preview(ctx, channelID, ts, threadTS)
 }
 
 // ChannelService is the App's interface to the Slack channels API,

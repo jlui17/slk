@@ -51,7 +51,10 @@ func (m *Model) renderBox(termWidth int) string {
 		if it.Label != "" {
 			parts = append(parts, it.Label)
 		}
-		if it.URL != "" && it.URL != it.Label {
+		switch {
+		case it.Display != "":
+			parts = append(parts, it.Display)
+		case it.URL != "" && it.URL != it.Label:
 			parts = append(parts, it.URL)
 		}
 		if it.Detail != "" {

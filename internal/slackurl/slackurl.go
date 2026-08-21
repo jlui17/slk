@@ -41,7 +41,10 @@ var archivePathRe = regexp.MustCompile(`^/archives/([A-Z0-9]+)/p(\d{11,})$`)
 // link. The cid query parameter is accepted but ignored — the channel
 // ID in the path wins.
 func Parse(rawURL string) (Permalink, bool) {
-	u, err := url.Parse(rawURL)
+	// Permalinks extracted from mrkdwn keep the wire-escaped "&amp;":
+	// left alone, url.Query() would file thread_ts under "amp;thread_ts"
+	// whenever it isn't the first parameter.
+	u, err := url.Parse(strings.ReplaceAll(rawURL, "&amp;", "&"))
 	if err != nil || u.Scheme != "https" {
 		return Permalink{}, false
 	}

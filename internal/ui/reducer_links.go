@@ -14,6 +14,9 @@
 //     running a second slk instance on the link.
 //   - Everything else opens in the OS browser (a.browserOpener).
 //
+// LinkPreviewMsg (the picker's async permalink previews) also lands
+// here: applyLinkPreview fills the row it targets.
+//
 // Completion hooks live in reducer_channels.go (the ChannelSelectedMsg
 // and MessagesLoadedMsg arms call completePendingLinkNav; the
 // MessagesAroundLoadedMsg arm retires a nav that rode through
@@ -71,11 +74,37 @@ func (a *App) SetHerdrTabOpener(open func(url, label string) error) {
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
-	m, ok := msg.(OpenLinkMsg)
-	if !ok {
-		return nil, false
+	switch m := msg.(type) {
+	case OpenLinkMsg:
+		return a.routeLink(m.URL, m.InHerdrTab), true
+	case LinkPreviewMsg:
+		a.applyLinkPreview(m)
+		return nil, true
 	}
-	return a.routeLink(m.URL, m.InHerdrTab), true
+	return nil, false
+}
+
+// applyLinkPreview fills one picker row with its fetched message
+// preview ("#channel · sender: text"). Drops stale generations and
+// results arriving after the picker closed or reopened for files.
+func (a *App) applyLinkPreview(m LinkPreviewMsg) {
+	if m.Gen != a.linkPreviewGen || a.pickerKind != "links" || !a.linkPicker.IsVisible() {
+		return
+	}
+	text := a.flattenRootText(m.Text)
+	if text == "" {
+		// Raw mrkdwn that flattens to nothing (whitespace, bare
+		// entity tokens): the date-bearing fallback row beats a
+		// dangling "sender: ".
+		return
+	}
+	if sender := a.userNameFor(m.UserID); sender != "" {
+		text = sender + ": " + text
+	}
+	if name, chType, found := a.channels.Lookup(ids.ChannelID(m.ChannelID)); found {
+		text = channelDisplayName(name, chType) + " · " + text
+	}
+	a.linkPicker.SetDisplay(m.Index, text)
 }
 
 // routeLink decides between in-app navigation, a new herdr tab, and

@@ -10,6 +10,10 @@ package linkpicker
 type Item struct {
 	URL   string
 	Label string // filename for file rows; link label (may be empty) for links
+	// Display replaces URL in the rendered row when non-empty (a
+	// decoded permalink description, later the fetched message
+	// snippet). URL stays the open target either way.
+	Display string
 	// Detail is trailing muted info shown after the label (e.g. file
 	// size). Empty for link rows.
 	Detail string
@@ -50,6 +54,15 @@ func (m *Model) Close() {
 	m.visible = false
 	m.items = nil
 	m.selected = 0
+}
+
+// SetDisplay replaces row index's Display text in place (async
+// preview fill). Out-of-range indexes are ignored.
+func (m *Model) SetDisplay(index int, display string) {
+	if index < 0 || index >= len(m.items) {
+		return
+	}
+	m.items[index].Display = display
 }
 
 // IsVisible reports whether the picker is showing.
