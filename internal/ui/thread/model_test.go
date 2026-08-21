@@ -538,8 +538,8 @@ func TestThreadPatchUserName_UpdatesMatchingRowsAndUserNamesMap(t *testing.T) {
 	if m.replies[2].UserName != "bob" {
 		t.Errorf("replies[2].UserName = %q, want bob", m.replies[2].UserName)
 	}
-	if got := m.userNames["U1"]; got != "bob" {
-		t.Errorf("userNames[U1] = %q, want bob", got)
+	if got, _ := m.userNames.Get("U1"); got != "bob" {
+		t.Errorf("userNames.Get(U1) = %q, want bob", got)
 	}
 	if m.Version() <= verBefore {
 		t.Error("Version should bump after PatchUserName")

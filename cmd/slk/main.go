@@ -43,6 +43,7 @@ import (
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/usernames"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/presencemenu"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
@@ -115,7 +116,7 @@ type WorkspaceContext struct {
 	EdgeHealth *edge.Health
 	ConnMgr    *slackclient.ConnectionManager
 	RTMHandler *rtmEventHandler
-	UserNames  map[string]string
+	UserNames  *usernames.Store
 	// AvatarURLs maps userID -> avatar image URL. Populated from the
 	// local users cache at connect time (synchronous, before any
 	// goroutines spin up), from conversations.view's users array via
@@ -213,7 +214,7 @@ type WorkspaceContext struct {
 	LastVisitedByChannel map[string]int64
 	// UserResolver dispatches background users.info lookups for
 	// unknown message authors. Set in connectWorkspace once the
-	// in-memory UserNames map and the *tea.Program are both available.
+	// in-memory UserNames store and the *tea.Program are both available.
 	// Hot-path message processors call resolveUserCached first and
 	// fall back to UserResolver.Request(userID) to enqueue an async
 	// fetch; the goroutine emits ui.UserResolvedMsg back into the
@@ -452,18 +453,14 @@ func (r *userResolver) resolveOne(userID string) {
 	// to falsely flag.
 	isExternal := u.TeamID != "" && u.TeamID != r.teamID
 	// Persist to the cache DB (its own goroutine-safe SQLite
-	// connection) and the avatar cache (internal RWMutex), but
-	// do NOT write r.userNames[userID] from this goroutine —
-	// userNames is a plain map shared with the UI goroutine and
-	// other code paths, and a direct write here trips Go's
-	// "concurrent map writes" detector under load (two parallel
-	// Request goroutines for different userIDs is enough). The
-	// UserResolvedMsg below is delivered to the bubbletea Update
-	// loop, which calls Model.PatchUserName on the UI goroutine
-	// — that is the single safe writer for in-history rows.
-	// Subsequent resolveUserCached misses fall back to the DB
-	// row we just upserted, so we don't re-fetch on every miss
-	// in the small window before UserResolvedMsg lands.
+	// connection) and the avatar cache (internal RWMutex). The
+	// user-name store fill rides the UserResolvedMsg below rather
+	// than a direct store write: Model.PatchUserName both fills
+	// the store and rewrites in-history rows, and splitting the
+	// two would let a row render with a name the store doesn't
+	// hold yet. Subsequent resolveUserCached misses fall back to
+	// the DB row we just upserted, so we don't re-fetch on every
+	// miss in the small window before UserResolvedMsg lands.
 	r.avatars.Preload(userID, u.Profile.Image32)
 	_ = r.db.UpsertUser(cache.User{
 		ID:          userID,
@@ -1598,7 +1595,7 @@ func run(startupLink *slackurl.Permalink) error {
 					return ui.MessageSendFailedMsg{ChannelID: chIDStr, Reason: err.Error()}
 				}
 				userName := "you"
-				if resolved, ok := userNames[client.UserID()]; ok {
+				if resolved, ok := userNames.Get(client.UserID()); ok {
 					userName = resolved
 				}
 				return ui.MessageSentMsg{
@@ -1814,7 +1811,7 @@ func run(startupLink *slackurl.Permalink) error {
 					return ui.ThreadReplySendFailedMsg{ChannelID: chIDStr, ThreadTS: threadTSStr, Reason: err.Error()}
 				}
 				userName := "you"
-				if resolved, ok := userNames[client.UserID()]; ok {
+				if resolved, ok := userNames.Get(client.UserID()); ok {
 					userName = resolved
 				}
 				return ui.ThreadReplySentMsg{
@@ -2456,7 +2453,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		TeamID:               client.TeamID(),
 		TeamName:             token.TeamName,
 		UserID:               client.UserID(),
-		UserNames:            make(map[string]string),
+		UserNames:            usernames.NewStore(),
 		AvatarURLs:           &sync.Map{},
 		UserNamesByHandle:    make(map[string]string),
 		BotUserIDs:           make(map[string]bool),
@@ -2470,12 +2467,13 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// flag is what lets channel construction below classify app DMs
 	// into "app" vs "dm" without waiting for the network fetch.
 	cachedUsers, _ := db.ListUsers(client.TeamID())
+	seedNames := make(map[string]string, len(cachedUsers))
 	for _, u := range cachedUsers {
 		name := u.DisplayName
 		if name == "" {
 			name = u.Name
 		}
-		wctx.UserNames[u.ID] = name
+		seedNames[u.ID] = name
 		if u.Name != "" {
 			wctx.UserNamesByHandle[u.Name] = name
 		}
@@ -2500,14 +2498,15 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			wctx.AvatarURLs.Store(u.ID, u.AvatarURL)
 		}
 	}
+	wctx.UserNames.Apply(seedNames)
 
 	// Construct the per-workspace async user resolver. It writes
 	// resolved display names to the cache DB and emits
 	// UserResolvedMsg back into the bubbletea program; the UI's
-	// Update handler patches the in-memory userNames map on the
-	// UI goroutine via Model.PatchUserName (the single safe writer
-	// for that shared map). p may be nil in tests, in which case
-	// the resolver's send callback is a no-op.
+	// Update handler patches the user-name store via
+	// Model.PatchUserName, which also rewrites in-history rows.
+	// p may be nil in tests, in which case the resolver's send
+	// callback is a no-op.
 	wctx.UserResolver = newUserResolver(
 		wctx.TeamID,
 		wctx.Client,
@@ -2705,7 +2704,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		upsertChannelInDB(db, ch, item.Type, client.TeamID())
 
 		if ch.IsIM {
-			if _, ok := wctx.UserNames[ch.User]; !ok {
+			if _, ok := wctx.UserNames.Get(ch.User); !ok {
 				wctx.UnresolvedDMs = append(wctx.UnresolvedDMs, UnresolvedDM{
 					ChannelID: ch.ID,
 					UserID:    ch.User,
@@ -2896,17 +2895,14 @@ func pickAttachmentURL(f slack.File, kind string) string {
 }
 
 // lookupUserCached returns the display name for userID using only
-// local sources: the in-memory userNames map and the cached users
-// table. Never hits the network and NEVER writes to userNames — safe
-// to call from goroutines off the UI loop (e.g. the search cmd),
-// where a map write would race the UI goroutine (see the
-// concurrent-map-writes note on userResolver.Request). Returns
+// local sources: the workspace's user-name store and the cached users
+// table. Never hits the network and never writes the store. Returns
 // ("", false) when the user is unknown.
-func lookupUserCached(userID string, userNames map[string]string, db *cache.DB) (string, bool) {
+func lookupUserCached(userID string, userNames *usernames.Store, db *cache.DB) (string, bool) {
 	if userID == "" {
 		return "", false
 	}
-	if name, ok := userNames[userID]; ok && name != "" {
+	if name, ok := userNames.Get(userID); ok && name != "" {
 		return name, true
 	}
 	if db != nil {
@@ -2919,18 +2915,53 @@ func lookupUserCached(userID string, userNames map[string]string, db *cache.DB) 
 	return "", false
 }
 
-// resolveUserCached is lookupUserCached plus map memoization: a DB hit
-// is written back to userNames so subsequent lookups skip SQLite.
-// UI-goroutine callers only — the map write is what lookupUserCached
-// exists to avoid. Returns ("", false) when the user is unknown —
-// caller is expected to fall back to userID-as-name and enqueue an
-// async lookup via wctx.UserResolver.Request.
-func resolveUserCached(userID string, userNames map[string]string, db *cache.DB) (string, bool) {
+// resolveUserCached is lookupUserCached plus store memoization: a DB
+// hit is filled back into the store so subsequent lookups skip SQLite.
+// Fill, not Set: a cache-sourced name must not overwrite a fresher
+// live-resolved one that landed between the lookup and the write.
+// Returns ("", false) when the user is unknown — caller is expected to
+// fall back to userID-as-name and enqueue an async lookup via
+// wctx.UserResolver.Request.
+func resolveUserCached(userID string, userNames *usernames.Store, db *cache.DB) (string, bool) {
 	name, ok := lookupUserCached(userID, userNames, db)
 	if ok {
-		userNames[userID] = name
+		userNames.Fill(map[string]string{userID: name})
 	}
 	return name, ok
+}
+
+// userNameFill batches one fetch/load pass's memoizations so the store
+// publishes once per pass (one copy-on-write) instead of once per
+// author.
+type userNameFill struct {
+	names   *usernames.Store
+	pending map[string]string
+}
+
+func newUserNameFill(names *usernames.Store) *userNameFill {
+	return &userNameFill{names: names, pending: map[string]string{}}
+}
+
+// lookup is lookupUserCached with this pass's pending fills consulted
+// first and DB hits (only) memoized into them — store hits need no
+// republish, and apply's Fill keeps a pending name from overwriting a
+// fresher live-resolved one.
+func (f *userNameFill) lookup(userID string, db *cache.DB) (string, bool) {
+	if name, ok := f.pending[userID]; ok && name != "" {
+		return name, true
+	}
+	if name, ok := f.names.Get(userID); ok && name != "" {
+		return name, true
+	}
+	name, ok := lookupUserCached(userID, f.names, db)
+	if ok {
+		f.pending[userID] = name
+	}
+	return name, ok
+}
+
+func (f *userNameFill) apply() {
+	f.names.Fill(f.pending)
 }
 
 // resolveUser ensures we have the display name and avatar for a user.
@@ -2942,8 +2973,8 @@ func resolveUserCached(userID string, userNames map[string]string, db *cache.DB)
 // and return false. Callers that care (the unresolved-DM goroutine)
 // only invoke resolveUser for users not yet in the cache, so the
 // fast-path miss is irrelevant for them.
-func resolveUser(client *slackclient.Client, userID string, userNames map[string]string, db *cache.DB, avatarCache *avatar.Cache) (string, bool) {
-	if name, ok := userNames[userID]; ok {
+func resolveUser(client *slackclient.Client, userID string, userNames *usernames.Store, db *cache.DB, avatarCache *avatar.Cache) (string, bool) {
+	if name, ok := userNames.Get(userID); ok {
 		// Check if avatar is also cached
 		if avatarCache.Get(userID) == "" {
 			// Have name but no avatar — try to fetch profile for avatar URL
@@ -2977,7 +3008,7 @@ func resolveUser(client *slackclient.Client, userID string, userNames map[string
 		}
 		isBot := u.IsBot || u.IsAppUser
 		isExternal := u.TeamID != "" && u.TeamID != client.TeamID()
-		userNames[userID] = name
+		userNames.Set(userID, name)
 		avatarCache.Preload(userID, u.Profile.Image32)
 		db.UpsertUser(cache.User{
 			ID:          userID,
@@ -3067,9 +3098,9 @@ func resolveDMNames(wctx *WorkspaceContext, db *cache.DB, avatarCache *avatar.Ca
 // username for the name, and enqueue a bots.info lookup for the avatar
 // (and a name fallback). The returned userID is what both the cache row
 // and the MessageItem are keyed on so the avatar pipeline can attach.
-func messageAuthor(m slack.Message, userNames map[string]string, db *cache.DB, router *workspaceRouter) (userID, userName string) {
+func messageAuthor(m slack.Message, fill *userNameFill, db *cache.DB, router *workspaceRouter) (userID, userName string) {
 	if m.User != "" {
-		name, ok := resolveUserCached(m.User, userNames, db)
+		name, ok := fill.lookup(m.User, db)
 		if !ok {
 			name = m.User
 			if router != nil {
@@ -3083,7 +3114,7 @@ func messageAuthor(m slack.Message, userNames map[string]string, db *cache.DB, r
 	if m.BotID != "" {
 		name := m.Username
 		if name == "" {
-			if cached, ok := resolveUserCached(m.BotID, userNames, db); ok {
+			if cached, ok := fill.lookup(m.BotID, db); ok {
 				name = cached
 			} else {
 				name = m.BotID
@@ -3099,7 +3130,7 @@ func messageAuthor(m slack.Message, userNames map[string]string, db *cache.DB, r
 	return m.User, m.User
 }
 
-func fetchOlderMessages(client *slackclient.Client, channelID, latestTS string, db *cache.DB, userNames map[string]string, tsFormat string, router *workspaceRouter) []messages.MessageItem {
+func fetchOlderMessages(client *slackclient.Client, channelID, latestTS string, db *cache.DB, userNames *usernames.Store, tsFormat string, router *workspaceRouter) []messages.MessageItem {
 	ctx := context.Background()
 	debuglog.Cache("fetchOlderMessages: channel=%s latest_ts=%s entry", channelID, latestTS)
 	start := time.Now()
@@ -3124,7 +3155,7 @@ func fetchOlderMessages(client *slackclient.Client, channelID, latestTS string, 
 // window is empty — callers cannot distinguish the two from the
 // return value alone (the FetchAround closure treats both as
 // failure).
-func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string, db *cache.DB, userNames map[string]string, tsFormat string, router *workspaceRouter) []messages.MessageItem {
+func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string, db *cache.DB, userNames *usernames.Store, tsFormat string, router *workspaceRouter) []messages.MessageItem {
 	ctx := context.Background()
 	debuglog.Cache("fetchMessagesAround: channel=%s target_ts=%s entry", channelID, targetTS)
 	start := time.Now()
@@ -3148,13 +3179,14 @@ func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string,
 // messages.MessageItem, and reverses the slice from Slack's
 // newest-first order to the ascending-by-TS convention used
 // throughout slk.
-func convertAndCacheHistory(client *slackclient.Client, channelID string, history []slack.Message, db *cache.DB, userNames map[string]string, tsFormat string, router *workspaceRouter) []messages.MessageItem {
+func convertAndCacheHistory(client *slackclient.Client, channelID string, history []slack.Message, db *cache.DB, userNames *usernames.Store, tsFormat string, router *workspaceRouter) []messages.MessageItem {
 	var msgItems []messages.MessageItem
+	fill := newUserNameFill(userNames)
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("convertAndCacheHistory: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
-		authorID, userName := messageAuthor(m, userNames, db, router)
+		authorID, userName := messageAuthor(m, fill, db, router)
 		db.UpsertMessage(cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
@@ -3202,6 +3234,8 @@ func convertAndCacheHistory(client *slackclient.Client, channelID string, histor
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+
+	fill.apply()
 
 	// Reverse: Slack returns newest first
 	for i, j := 0, len(msgItems)-1; i < j; i, j = i+1, j-1 {
@@ -3295,7 +3329,7 @@ func loadCachedMessages(
 	db *cache.DB,
 	selfUserID string,
 	channelID string,
-	userNames map[string]string,
+	userNames *usernames.Store,
 	tsFormat string,
 	router *workspaceRouter,
 ) []messages.MessageItem {
@@ -3331,10 +3365,12 @@ func loadCachedMessages(
 		return nil
 	}
 
+	fill := newUserNameFill(userNames)
 	out := make([]messages.MessageItem, 0, len(rows))
 	for _, m := range rows {
-		out = append(out, enrichCachedRow(db, selfUserID, channelID, m, userNames, tsFormat, "loadCachedMessages", router, stats))
+		out = append(out, enrichCachedRow(db, selfUserID, channelID, m, fill, tsFormat, "loadCachedMessages", router, stats))
 	}
+	fill.apply()
 	debuglog.Cache("loadCachedMessages: channel=%s result %s", channelID, summarizeMessages(out))
 	if stats != nil {
 		debuglog.Perf("loadCachedMessages channel=%s N=%d total=%s GetMessages=%s GetReactions(n=%d)=%s GetUser(n=%d)=%s json.Unmarshal(n=%d)=%s",
@@ -3351,9 +3387,9 @@ func loadCachedMessages(
 // 3-tier username fallback, per-row reactions, and raw_json
 // reconstruction of files / blocks / legacy attachments.
 //
-// userNames may be nil — username resolution still works via the
-// cached users table or the userID fallback, but no memoization
-// occurs.
+// fill may wrap a nil store — username resolution still works via the
+// cached users table or the userID fallback; the memoized batch then
+// applies to nowhere.
 //
 // raw_json unmarshal failures degrade the row to text-only without
 // failing the caller. logPrefix tags the per-row log lines so callers
@@ -3364,7 +3400,7 @@ func enrichCachedRow(
 	selfUserID string,
 	channelID string,
 	m cache.Message,
-	userNames map[string]string,
+	fill *userNameFill,
 	tsFormat string,
 	logPrefix string,
 	router *workspaceRouter,
@@ -3393,12 +3429,12 @@ func enrichCachedRow(
 		}
 	}
 
-	// Resolve username from the in-memory map first; fall back to
-	// the cached users table; finally fall back to the bot username /
-	// user ID so the row still renders something readable.
-	var userName string
-	if userNames != nil {
-		userName = userNames[effUserID]
+	// Resolve username from the store (and this pass's fills) first;
+	// fall back to the cached users table; finally fall back to the bot
+	// username / user ID so the row still renders something readable.
+	userName := fill.pending[effUserID]
+	if userName == "" {
+		userName, _ = fill.names.Get(effUserID)
 	}
 	if userName == "" && effUserID != "" {
 		var t0 time.Time
@@ -3416,8 +3452,8 @@ func enrichCachedRow(
 			} else if u.Name != "" {
 				userName = u.Name
 			}
-			if userName != "" && userNames != nil {
-				userNames[effUserID] = userName
+			if userName != "" {
+				fill.pending[effUserID] = userName
 			}
 		}
 	}
@@ -3531,7 +3567,7 @@ func loadCachedThreadReplies(
 	db *cache.DB,
 	selfUserID string,
 	channelID, threadTS string,
-	userNames map[string]string,
+	userNames *usernames.Store,
 	tsFormat string,
 	router *workspaceRouter,
 ) []messages.MessageItem {
@@ -3550,10 +3586,12 @@ func loadCachedThreadReplies(
 		return nil
 	}
 
+	fill := newUserNameFill(userNames)
 	out := make([]messages.MessageItem, 0, len(rows))
 	for _, m := range rows {
-		out = append(out, enrichCachedRow(db, selfUserID, channelID, m, userNames, tsFormat, "loadCachedThreadReplies", router, nil))
+		out = append(out, enrichCachedRow(db, selfUserID, channelID, m, fill, tsFormat, "loadCachedThreadReplies", router, nil))
 	}
+	fill.apply()
 	debuglog.Cache("loadCachedThreadReplies: channel=%s thread_ts=%s result %s",
 		channelID, threadTS, summarizeMessages(out))
 	return out
@@ -3569,7 +3607,7 @@ func loadCachedThreadReplies(
 // The MessagesLoadedMsg handler distinguishes nil from empty so a
 // failed background refresh doesn't wipe a successfully-rendered
 // cache view. Do NOT change nil to mean "empty channel".
-func fetchChannelMessages(client *slackclient.Client, channelID string, db *cache.DB, userNames map[string]string, tsFormat string, avatarCache *avatar.Cache, router *workspaceRouter) []messages.MessageItem {
+func fetchChannelMessages(client *slackclient.Client, channelID string, db *cache.DB, userNames *usernames.Store, tsFormat string, avatarCache *avatar.Cache, router *workspaceRouter) []messages.MessageItem {
 	ctx := context.Background()
 	debuglog.Cache("fetchChannelMessages: channel=%s entry", channelID)
 	start := time.Now()
@@ -3580,12 +3618,13 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 		return nil
 	}
 
+	fill := newUserNameFill(userNames)
 	msgItems := make([]messages.MessageItem, 0, len(history))
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchChannelMessages: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
-		authorID, userName := messageAuthor(m, userNames, db, router)
+		authorID, userName := messageAuthor(m, fill, db, router)
 		db.UpsertMessage(cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
@@ -3633,6 +3672,8 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+
+	fill.apply()
 
 	// Reverse: Slack returns newest first
 	for i, j := 0, len(msgItems)-1; i < j; i, j = i+1, j-1 {
@@ -3652,7 +3693,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 // fetchChannelMessages: nil signals failure, [] signals "no replies",
 // so the ThreadRepliesLoadedMsg consumer can decide whether to clobber
 // an already-rendered cached view.
-func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, db *cache.DB, userNames map[string]string, tsFormat string, avatarCache *avatar.Cache, router *workspaceRouter) []messages.MessageItem {
+func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, db *cache.DB, userNames *usernames.Store, tsFormat string, avatarCache *avatar.Cache, router *workspaceRouter) []messages.MessageItem {
 	ctx := context.Background()
 	debuglog.Cache("fetchThreadReplies: channel=%s thread_ts=%s entry", channelID, threadTS)
 	start := time.Now()
@@ -3663,12 +3704,13 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 		return nil
 	}
 
+	fill := newUserNameFill(userNames)
 	msgItems := make([]messages.MessageItem, 0, len(history))
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchThreadReplies: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
-		authorID, userName := messageAuthor(m, userNames, db, router)
+		authorID, userName := messageAuthor(m, fill, db, router)
 		db.UpsertMessage(cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
@@ -3716,6 +3758,8 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+
+	fill.apply()
 
 	// First message from GetConversationReplies is the parent -- skip it for the replies list.
 	// Return non-nil empty on success-no-replies so the consumer can distinguish from the
@@ -3748,9 +3792,8 @@ func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string)
 		if err != nil {
 			return ui.WorkspaceSearchResultsMsg{Query: query, Err: err}
 		}
-		// Read-only lookup: this closure runs in a bubbletea cmd
-		// goroutine, so it must not write wctx.UserNames (shared with
-		// the UI goroutine; see userResolver.Request).
+		// lookupUserCached, not resolveUserCached: a one-off search
+		// pass has nothing worth memoizing into the store.
 		resolveUser := func(id string) (string, bool) {
 			return lookupUserCached(id, wctx.UserNames, db)
 		}
@@ -4049,7 +4092,7 @@ func mostRecentlyVisitedChannel(visits map[string]int64) string {
 // and caches all incoming messages to the SQLite database.
 type rtmEventHandler struct {
 	program     teaSender
-	userNames   map[string]string
+	userNames   *usernames.Store
 	tsFormat    string
 	db          *cache.DB
 	workspaceID string
@@ -4174,7 +4217,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		// empty userID is intentional, not a bug to "fix" later.
 		if notify.ShouldNotify(ctx, channelID, userID, text, chType) {
 			senderName := authorID
-			if resolved, ok := h.userNames[authorID]; ok {
+			if resolved, ok := h.userNames.Get(authorID); ok {
 				senderName = resolved
 			} else if username != "" {
 				senderName = username
@@ -4188,7 +4231,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			if h.wsCtx != nil {
 				groupNames = h.wsCtx.UserGroups()
 			}
-			body := senderName + ": " + notify.StripSlackMarkupWithUserGroups(text, h.userNames, groupNames)
+			body := senderName + ": " + notify.StripSlackMarkupWithUserGroups(text, h.userNames.Current(), groupNames)
 			go func() {
 				if err := h.notifier.Notify(title, body); err != nil {
 					debuglog.Notify("notification failed: %v", err)
@@ -4237,14 +4280,13 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		// Background dispatch is thread-replies-only (contract:
 		// ui.NewMessageMsg.TeamID): dispatching top-level messages
 		// would force a discarded Update+View cycle per message the
-		// user can't see. The name is a read-only map lookup with the
-		// raw ID as fallback — resolveUserCached both writes the map
-		// (this WS goroutine would race UI-goroutine readers) and
-		// SELECTs on misses that can never be repaired here (the
-		// resolver fill is active-only).
+		// user can't see. The name is a store lookup with the raw ID
+		// as fallback — resolveUserCached would SELECT on misses that
+		// can never be repaired here (the resolver fill is
+		// active-only).
 		if isThreadReply && h.program != nil {
 			userName := authorID
-			if resolved, ok := h.userNames[authorID]; ok {
+			if resolved, ok := h.userNames.Get(authorID); ok {
 				userName = resolved
 			} else if userID == "" && username != "" {
 				userName = username

@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // TestUserResolver_BoundsConcurrentRequests is the second half of the
@@ -462,7 +463,7 @@ func TestResolveDMNames(t *testing.T) {
 	}}
 	wctx := &WorkspaceContext{
 		TeamID:       "T1",
-		UserNames:    map[string]string{},
+		UserNames:    usernames.NewStore(),
 		BotUserIDs:   map[string]bool{},
 		UserResolver: newUserResolver("T1", nil, db, nil, nil, batcher, nil),
 		UnresolvedDMs: []UnresolvedDM{

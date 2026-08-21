@@ -9,6 +9,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/statusbar"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 type agentReportCall struct {
@@ -152,7 +153,7 @@ func TestAgentTabNameIndependentOfNameSources(t *testing.T) {
 	a, _, _, tabNames := newAgentTestAppWithTab()
 	// The in-memory name map and the user cache disagree on the bot's
 	// name; the tab label must not carry a mangled fragment of either.
-	a.userNames = map[string]string{"UBOT": "Claude Tag"}
+	a.userNames = usernames.FromMap(map[string]string{"UBOT": "Claude Tag"})
 	openAgentThread(a, "<@UBOT> fix the retries")
 
 	if len(*tabNames) != 1 || (*tabNames)[0] != "fix the retries" {

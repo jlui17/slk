@@ -24,6 +24,7 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/workspace"
 	"golang.design/x/clipboard"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func TestAppFocusCycle(t *testing.T) {
@@ -146,7 +147,7 @@ func TestRenderTypingIndicator(t *testing.T) {
 	app.currentUserID = "U_SELF"
 
 	// Set up user names
-	app.messagepane.SetUserNames(map[string]string{"U1": "Alice", "U2": "Bob"})
+	app.messagepane.SetUserNames(usernames.FromMap(map[string]string{"U1": "Alice", "U2": "Bob"}))
 
 	// No one typing — should return empty
 	line := app.renderTypingLine()
@@ -648,7 +649,7 @@ func TestApp_ThreadsViewActivation(t *testing.T) {
 	app := NewApp()
 	app.SetCurrentUserID("USELF")
 	app.activeTeamID = "T1"
-	app.SetUserNames(map[string]string{"U1": "alice"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "alice"}))
 
 	// Default: ViewChannels.
 	if app.view != ViewChannels {
@@ -3117,7 +3118,7 @@ func TestSendMessage_InstantDisplay(t *testing.T) {
 	app := NewApp()
 	app.SetCurrentUserID("USELF")
 	app.activeChannelID = "C1"
-	app.userNames = map[string]string{"USELF": "you"}
+	app.userNames = usernames.FromMap(map[string]string{"USELF": "you"})
 
 	app.Update(SendMessageMsg{ChannelID: "C1", Text: "hello"})
 
@@ -3952,7 +3953,7 @@ func TestUserExternalMsgFlagsPickerEntry(t *testing.T) {
 	app.activeChannelID = "C1"
 	app.compose.SetActiveChannel("C1")
 	app.threadCompose.SetActiveChannel("C1")
-	app.SetUserNames(map[string]string{"U1": "alice"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "alice"}))
 
 	_, _ = app.Update(UserExternalMsg{UserID: "U1", IsExternal: true})
 
@@ -4095,7 +4096,7 @@ func TestSetChannelMembershipForwardsToCompose(t *testing.T) {
 	app.activeChannelID = "C1"
 	app.compose.SetActiveChannel("C1")
 	app.threadCompose.SetActiveChannel("C1")
-	app.SetUserNames(map[string]string{"U1": "alice", "U2": "bob"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}))
 
 	app.SetChannelMembership("C1", []string{"U1"})
 
@@ -4116,7 +4117,7 @@ func TestSetExternalUsersPropagates(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
 	app.SetExternalUsers(map[string]bool{"U_EXT": true})
-	app.SetUserNames(map[string]string{"U_EXT": "ext.user", "U1": "alice"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U_EXT": "ext.user", "U1": "alice"}))
 	app.activeChannelID = "C1"
 	app.compose.SetActiveChannel("C1")
 	app.threadCompose.SetActiveChannel("C1")
@@ -4142,7 +4143,7 @@ func TestChannelMembershipMsgUpdatesPicker(t *testing.T) {
 	app.activeChannelID = "C1"
 	app.compose.SetActiveChannel("C1")
 	app.threadCompose.SetActiveChannel("C1")
-	app.SetUserNames(map[string]string{"U1": "alice", "U2": "bob"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}))
 
 	_, _ = app.Update(ChannelMembershipMsg{ChannelID: "C1", MemberIDs: []string{"U1"}})
 
@@ -4342,11 +4343,11 @@ func TestChannelSelectedReturnsPromptlyEvenIfFetcherBlocks(t *testing.T) {
 func TestSeedNewMessagePicker_PopulatesUsersAndExcludesSelf(t *testing.T) {
 	app := NewApp()
 	app.currentUserID = "USELF"
-	app.SetUserNames(map[string]string{
+	app.SetUserNames(usernames.FromMap(map[string]string{
 		"USELF": "Me",
 		"U1":    "Alice",
 		"U2":    "Bob",
-	})
+	}))
 	app.SetExternalUsers(map[string]bool{"U2": true})
 
 	app.seedNewMessagePicker()
@@ -4388,7 +4389,7 @@ func TestListReactionsKeyOpensModal(t *testing.T) {
 			{Emoji: "thumbsup", Count: 2, UserIDs: []string{"U1", "U2"}},
 		},
 	}})
-	app.SetUserNames(map[string]string{"U1": "Alice", "U2": "Bob"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "Alice", "U2": "Bob"}))
 
 	app.openReactionsView()
 

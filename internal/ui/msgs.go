@@ -22,6 +22,7 @@ import (
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/searchresults"
+	"github.com/gammons/slk/internal/usernames"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
@@ -262,7 +263,7 @@ type (
 		SidebarWidth int    // resolved sidebar width (per-workspace or global default)
 		Channels     []sidebar.ChannelItem
 		FinderItems  []channelfinder.Item
-		UserNames    map[string]string
+		UserNames    *usernames.Store
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
 		// cache.User.IsExternal so the mention picker can flag externals
@@ -327,7 +328,7 @@ type (
 		SidebarWidth int    // resolved sidebar width (per-workspace or global default)
 		Channels     []sidebar.ChannelItem
 		FinderItems  []channelfinder.Item
-		UserNames    map[string]string
+		UserNames    *usernames.Store
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
 		// cache.User.IsExternal so the mention picker can flag externals

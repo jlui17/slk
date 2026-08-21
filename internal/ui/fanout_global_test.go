@@ -14,11 +14,12 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/wintree"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func TestGlobalFanout_UserNamesReachAllWindows(t *testing.T) {
 	a, w1, w2 := twoWindowApp(t)
-	a.SetUserNames(map[string]string{"U7": "newname"})
+	a.SetUserNames(usernames.FromMap(map[string]string{"U7": "newname"}))
 	if got := a.winModels[w1].ResolveUserName("U7"); got != "newname" {
 		t.Fatalf("w1 ResolveUserName = %q", got)
 	}

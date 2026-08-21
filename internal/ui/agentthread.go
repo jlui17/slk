@@ -435,7 +435,7 @@ func (a *App) botUser(userID string) (string, string, bool) {
 func (a *App) flattenRootText(rootText string) string {
 	text := messages.FlattenMrkdwn(rootText,
 		func(id string) (string, bool) {
-			if name := a.userNames[id]; name != "" {
+			if name, _ := a.userNames.Get(id); name != "" {
 				return name, true
 			}
 			name, _, ok := a.agentSidebar.userInfo(id)

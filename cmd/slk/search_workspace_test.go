@@ -8,6 +8,7 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // TestSearchWorkspaceNoActiveWorkspaceReturnsErr verifies the
@@ -15,10 +16,9 @@ import (
 // is active: a nil msg would leave the ctrl+f modal spinner stuck
 // (the reducer only clears loading on a WorkspaceSearchResultsMsg).
 // TestLookupUserCachedDoesNotMutateMap pins the read-only contract of
-// lookupUserCached: the search path runs in a bubbletea cmd goroutine,
-// where a write to the shared UserNames map would race the UI goroutine
-// (see the concurrent-map-writes note on userResolver.Request). A DB
-// hit must be returned WITHOUT being memoized into the map.
+// lookupUserCached: a DB hit must be returned WITHOUT being memoized
+// into the store (memoization is resolveUserCached's job; the search
+// path deliberately skips it).
 func TestLookupUserCachedDoesNotMutateMap(t *testing.T) {
 	db, err := cache.New(":memory:")
 	if err != nil {
@@ -32,23 +32,24 @@ func TestLookupUserCachedDoesNotMutateMap(t *testing.T) {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 
-	userNames := map[string]string{}
+	userNames := usernames.NewStore()
 	name, ok := lookupUserCached("U1", userNames, db)
 	if !ok || name != "Alice" {
 		t.Fatalf("lookupUserCached = (%q, %v), want (\"Alice\", true)", name, ok)
 	}
-	if len(userNames) != 0 {
-		t.Fatalf("lookupUserCached mutated the map: %v", userNames)
+	if userNames.Len() != 0 {
+		t.Fatalf("lookupUserCached mutated the store: %v", userNames.Current())
 	}
 
-	// Map hits still work and still don't mutate.
-	userNames = map[string]string{"U2": "Bob"}
+	// Store hits still work and still don't publish.
+	userNames = usernames.FromMap(map[string]string{"U2": "Bob"})
+	v0 := userNames.Version()
 	name, ok = lookupUserCached("U2", userNames, db)
 	if !ok || name != "Bob" {
-		t.Fatalf("map hit = (%q, %v), want (\"Bob\", true)", name, ok)
+		t.Fatalf("store hit = (%q, %v), want (\"Bob\", true)", name, ok)
 	}
-	if len(userNames) != 1 || userNames["U2"] != "Bob" {
-		t.Fatalf("map changed: %v", userNames)
+	if userNames.Len() != 1 || userNames.Version() != v0 {
+		t.Fatalf("store changed: %v", userNames.Current())
 	}
 }
 

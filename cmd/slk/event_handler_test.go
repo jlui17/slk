@@ -8,6 +8,7 @@ import (
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // TestOnConversationOpened_AppendsAndSends verifies that a new mpdm event
@@ -17,7 +18,7 @@ import (
 func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 	wctx := &WorkspaceContext{
 		BotUserIDs:        map[string]bool{},
-		UserNames:         map[string]string{},
+		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 		Channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
 		FinderItems:       []channelfinder.Item{{ID: "C1", Name: "general", Type: "channel", Joined: true}},
@@ -62,7 +63,7 @@ func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 func TestOnConversationOpened_DedupesByID(t *testing.T) {
 	wctx := &WorkspaceContext{
 		BotUserIDs:        map[string]bool{},
-		UserNames:         map[string]string{},
+		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
 		Channels: []sidebar.ChannelItem{
 			{ID: "G1", Name: "old", Type: "group_dm"},
@@ -108,7 +109,7 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 func TestOnConversationOpened_InactiveWorkspace_PersistsContext(t *testing.T) {
 	wctx := &WorkspaceContext{
 		BotUserIDs:        map[string]bool{},
-		UserNames:         map[string]string{},
+		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 	}
 	h := &rtmEventHandler{

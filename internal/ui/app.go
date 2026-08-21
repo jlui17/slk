@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/usernames"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/emoji"
@@ -237,11 +238,11 @@ type App struct {
 	// a no-longer-viewed channel must still clear its own flag).
 	fetchingOlder map[string]bool
 
-	// Cached user-id -> display-name map (mirror of what SetUserNames
-	// last received). Used by openSelectedThreadCmd to populate the
+	// The active workspace's user-name store (what SetUserNames last
+	// received). Used by openSelectedThreadCmd to populate the
 	// thread panel parent's UserName without round-tripping through any
 	// sub-component's API.
-	userNames map[string]string
+	userNames *usernames.Store
 
 	// Per-window model config retention (Phase 3): the most recent
 	// values pushed through the App-level Set* forwarders, kept so
@@ -584,7 +585,7 @@ func NewApp() *App {
 		channelSearchDebounce: channelSearchDebounceDelay,
 		fetchingOlder:         map[string]bool{},
 		mouseWheelLines:       3,
-		userNames:             map[string]string{},
+		userNames:             usernames.NewStore(),
 		externalUsers:         map[string]bool{},
 		presence:              newPresenceController(),
 		renderCache:           newPanelRenderCache(),
@@ -2067,7 +2068,7 @@ func (a *App) userNameFor(userID string) string {
 	if userID == "" {
 		return ""
 	}
-	if n, ok := a.userNames[userID]; ok && n != "" {
+	if n, ok := a.userNames.Get(userID); ok && n != "" {
 		return n
 	}
 	return userID
@@ -2592,8 +2593,8 @@ func (a *App) downloadFileCmd(att messages.Attachment) tea.Cmd {
 	}
 }
 
-// SetUserNames passes the user ID -> display name map to the message pane for mention resolution.
-func (a *App) SetUserNames(names map[string]string) {
+// SetUserNames passes the user-name store to the message pane for mention resolution.
+func (a *App) SetUserNames(names *usernames.Store) {
 	a.userNames = names
 	a.threadsView.SetUserNames(names)
 	for _, m := range a.allWinModels() {
@@ -2602,8 +2603,9 @@ func (a *App) SetUserNames(names map[string]string) {
 	a.threadPanel.SetUserNames(names)
 
 	// Build user list for mention picker
-	users := make([]mentionpicker.User, 0, len(names))
-	for id, displayName := range names {
+	current := names.Current()
+	users := make([]mentionpicker.User, 0, len(current))
+	for id, displayName := range current {
 		users = append(users, mentionpicker.User{
 			ID:          id,
 			DisplayName: displayName,
@@ -2646,8 +2648,9 @@ func (a *App) SetUserGroups(groups map[string]string) {
 //   - Self (a.currentUserID) is excluded both at slice-build time
 //     and via SetCurrentUserID (belt-and-suspenders).
 func (a *App) seedNewMessagePicker() {
-	users := make([]newmessagepicker.User, 0, len(a.userNames))
-	for id, name := range a.userNames {
+	current := a.userNames.Current()
+	users := make([]newmessagepicker.User, 0, len(current))
+	for id, name := range current {
 		if id == a.currentUserID {
 			continue
 		}
@@ -2672,7 +2675,7 @@ func (a *App) SetExternalUsers(externalIDs map[string]bool) {
 		externalIDs = map[string]bool{}
 	}
 	a.externalUsers = externalIDs
-	if len(a.userNames) > 0 {
+	if a.userNames.Len() > 0 {
 		a.SetUserNames(a.userNames)
 	}
 }

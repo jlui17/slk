@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func newApp_WithOpenConvCapture(t *testing.T) (*App, *capturedOpenConv) {
 	t.Helper()
 	app := NewApp()
 	app.currentUserID = "USELF"
-	app.SetUserNames(map[string]string{"USELF": "Me", "U1": "Alice", "U2": "Bob"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"USELF": "Me", "U1": "Alice", "U2": "Bob"}))
 
 	cap := &capturedOpenConv{}
 	app.SetChannelService(NewChannelService(ChannelServiceFuncs{

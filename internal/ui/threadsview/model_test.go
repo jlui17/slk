@@ -8,6 +8,7 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func sampleSummaries() []cache.ThreadSummary {
@@ -28,7 +29,7 @@ func sampleSummaries() []cache.ThreadSummary {
 }
 
 func TestNew_StartsAtTop(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	if got := m.SelectedIndex(); got != 0 {
 		t.Errorf("SelectedIndex = %d, want 0", got)
@@ -36,7 +37,7 @@ func TestNew_StartsAtTop(t *testing.T) {
 }
 
 func TestMoveDown_ClampsAtBottom(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	m.MoveDown()
 	if m.SelectedIndex() != 1 {
@@ -49,7 +50,7 @@ func TestMoveDown_ClampsAtBottom(t *testing.T) {
 }
 
 func TestSelected_ReturnsChannelAndThread(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	m.MoveDown()
 	chID, threadTS, ok := m.Selected()
@@ -59,7 +60,7 @@ func TestSelected_ReturnsChannelAndThread(t *testing.T) {
 }
 
 func TestSetSummaries_PreservesSelectionByThreadTS(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	m.MoveDown() // selected: thread 2
 
@@ -77,7 +78,7 @@ func TestSetSummaries_PreservesSelectionByThreadTS(t *testing.T) {
 }
 
 func TestVersion_BumpsOnMutation(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	v0 := m.Version()
 	m.SetSummaries(sampleSummaries())
 	v1 := m.Version()
@@ -92,7 +93,7 @@ func TestVersion_BumpsOnMutation(t *testing.T) {
 }
 
 func TestView_RendersChannelAndPreview(t *testing.T) {
-	m := New(map[string]string{"U1": "alice", "U2": "bob"}, "USELF")
+	m := New(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	// Args: height=40, width=60.
 	out := m.View(40, 60)
@@ -108,7 +109,7 @@ func TestView_RendersChannelAndPreview(t *testing.T) {
 }
 
 func TestView_EmptyState(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	out := m.View(40, 60)
 	if !strings.Contains(strings.ToLower(out), "no threads") {
 		t.Errorf("empty View output should mention 'no threads', got:\n%s", out)
@@ -116,7 +117,7 @@ func TestView_EmptyState(t *testing.T) {
 }
 
 func TestUnreadCount(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	if got := m.UnreadCount(); got != 1 {
 		t.Errorf("UnreadCount = %d, want 1", got)
@@ -126,7 +127,7 @@ func TestUnreadCount(t *testing.T) {
 // M7: Parent-not-loaded fallback renders the placeholder when both
 // ParentText and ParentUserID are empty.
 func TestView_ParentNotLoadedFallback(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries([]cache.ThreadSummary{{
 		ChannelID: "C1", ChannelName: "general", ChannelType: "channel",
 		ThreadTS: "1.000000", ParentUserID: "", ParentText: "",
@@ -142,7 +143,7 @@ func TestView_ParentNotLoadedFallback(t *testing.T) {
 // M8: Selecting a different row must produce different View() output --
 // catches the case where selection styling silently no-ops.
 func TestView_SelectionChangesOutput(t *testing.T) {
-	m := New(map[string]string{"U1": "alice", "U2": "bob"}, "USELF")
+	m := New(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	before := m.View(40, 60)
 	m.MoveDown()
@@ -155,7 +156,7 @@ func TestView_SelectionChangesOutput(t *testing.T) {
 // M9: When the list overflows the viewport, MoveDown beyond the visible
 // window must snap-to-selected so the active card stays on screen.
 func TestView_SnapsToSelectedOnOverflow(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	// 10 summaries with distinct channel names so we can spot which one
 	// is on-screen.
 	var summaries []cache.ThreadSummary
@@ -199,7 +200,7 @@ func TestView_SnapsToSelectedOnOverflow(t *testing.T) {
 // rows reserve the same column with a background-colored (invisible)
 // border for layout consistency.
 func TestView_SelectedRowHasGreenLeftBorder(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	out := m.View(40, 60)
 
@@ -230,7 +231,7 @@ func TestView_SelectedRowHasGreenLeftBorder(t *testing.T) {
 // All rendered lines (including blank separator lines) must be exactly
 // `width` columns wide so the panel composes cleanly with borders.
 func TestView_AllLinesUniformWidth(t *testing.T) {
-	m := New(map[string]string{"U1": "alice", "U2": "bob"}, "USELF")
+	m := New(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	const (
 		height = 60
@@ -245,18 +246,19 @@ func TestView_AllLinesUniformWidth(t *testing.T) {
 }
 
 func TestSetUserNames_IdempotentDoesNotBumpVersion(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
-	names := map[string]string{"U1": "alice", "U2": "bob"}
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
+	names := usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"})
 	m.SetUserNames(names)
 	v0 := m.Version()
-	m.SetUserNames(names) // same map -> should be a no-op
+	m.SetUserNames(names) // same store at same publish version -> no-op
 	if v1 := m.Version(); v1 != v0 {
-		t.Errorf("SetUserNames(same map) bumped Version: v0=%d v1=%d", v0, v1)
+		t.Errorf("SetUserNames(same store) bumped Version: v0=%d v1=%d", v0, v1)
 	}
-	// A genuinely different map MUST still bump.
-	m.SetUserNames(map[string]string{"U1": "alice", "U2": "carol"})
+	// A store that published since the last push MUST still bump.
+	names.Set("U2", "carol")
+	m.SetUserNames(names)
 	if v2 := m.Version(); v2 == v0 {
-		t.Errorf("SetUserNames(different map) did NOT bump Version: v0=%d v2=%d", v0, v2)
+		t.Errorf("SetUserNames(changed store) did NOT bump Version: v0=%d v2=%d", v0, v2)
 	}
 }
 
@@ -264,7 +266,7 @@ func TestSetUserNames_IdempotentDoesNotBumpVersion(t *testing.T) {
 // app.go:4068-4093 cache-key bug: pushing the same userNames + selfUserID
 // repeatedly must NOT bump Version, otherwise the panel cache can never hit.
 func TestVersion_StableAcrossIdenticalSetCalls(t *testing.T) {
-	names := map[string]string{"U1": "alice", "U2": "bob"}
+	names := usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"})
 	m := New(names, "U1")
 	m.SetSummaries(sampleSummaries())
 	v0 := m.Version()
@@ -278,7 +280,7 @@ func TestVersion_StableAcrossIdenticalSetCalls(t *testing.T) {
 }
 
 func TestMarkByThreadTSUnread_FlipsFlagAndReturnsTrue(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries([]cache.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", Unread: false},
 		{ChannelID: "C1", ThreadTS: "P2", Unread: false},
@@ -299,7 +301,7 @@ func TestMarkByThreadTSUnread_FlipsFlagAndReturnsTrue(t *testing.T) {
 }
 
 func TestMarkByThreadTSUnread_AlreadyUnread_ReturnsFalse(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries([]cache.ThreadSummary{{ChannelID: "C1", ThreadTS: "P1", Unread: true}})
 
 	if m.MarkByThreadTSUnread("C1", "P1") {
@@ -308,7 +310,7 @@ func TestMarkByThreadTSUnread_AlreadyUnread_ReturnsFalse(t *testing.T) {
 }
 
 func TestMarkByThreadTSUnread_NotFound_ReturnsFalse(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries([]cache.ThreadSummary{{ChannelID: "C1", ThreadTS: "P1", Unread: false}})
 
 	if m.MarkByThreadTSUnread("C2", "P9") {
@@ -317,7 +319,7 @@ func TestMarkByThreadTSUnread_NotFound_ReturnsFalse(t *testing.T) {
 }
 
 func TestMarkByThreadTSUnread_EmptyArgs_ReturnsFalse(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries([]cache.ThreadSummary{{ChannelID: "C1", ThreadTS: "P1", Unread: false}})
 
 	if m.MarkByThreadTSUnread("", "P1") {
@@ -359,7 +361,7 @@ func TestSelectedCardDimsWhenUnfocused(t *testing.T) {
 	styles.Apply("dark", config.Theme{})
 	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
 
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 
 	// Focused
@@ -395,7 +397,7 @@ func TestSelectedCardDimsWhenUnfocused(t *testing.T) {
 }
 
 func TestView_RendersBannerWhenSubscriptionsUnavailable(t *testing.T) {
-	m := New(map[string]string{}, "U1")
+	m := New(usernames.FromMap(map[string]string{}), "U1")
 	m.SetSubscriptionsAvailable(false)
 	out := m.View(10, 80)
 	if !strings.Contains(out, "Threads list unavailable") {
@@ -404,7 +406,7 @@ func TestView_RendersBannerWhenSubscriptionsUnavailable(t *testing.T) {
 }
 
 func TestView_NoBannerWhenSubscriptionsAvailable(t *testing.T) {
-	m := New(map[string]string{}, "U1")
+	m := New(usernames.FromMap(map[string]string{}), "U1")
 	// Default is true; no need to call setter.
 	out := m.View(10, 80)
 	if strings.Contains(out, "Threads list unavailable") {
@@ -413,7 +415,7 @@ func TestView_NoBannerWhenSubscriptionsAvailable(t *testing.T) {
 }
 
 func TestView_BannerVisibleWithEmptySummaries(t *testing.T) {
-	m := New(map[string]string{}, "U1")
+	m := New(usernames.FromMap(map[string]string{}), "U1")
 	m.SetSubscriptionsAvailable(false)
 	out := m.View(10, 80)
 	if !strings.Contains(out, "Threads list unavailable") {
@@ -422,7 +424,7 @@ func TestView_BannerVisibleWithEmptySummaries(t *testing.T) {
 }
 
 func TestView_BannerVisibleWithSummaries(t *testing.T) {
-	m := New(map[string]string{"U2": "alice"}, "U1")
+	m := New(usernames.FromMap(map[string]string{"U2": "alice"}), "U1")
 	m.SetSummaries([]cache.ThreadSummary{
 		{ChannelID: "C1", ChannelName: "general", ThreadTS: "1.0", ParentText: "hi", LastReplyTS: "2.0", LastReplyBy: "U2"},
 	})
@@ -443,7 +445,7 @@ func TestView_BannerVisibleWithSummaries(t *testing.T) {
 // 1 separator row); card 0 occupies rows [0,1,2], separator at row
 // 3, card 1 at rows [4,5,6], separator at row 7, card 2 at [8,9,10].
 func TestClickAt_SelectsCardOnCardRow(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 
 	// Click row 5 — middle row of card 1. Should select card 1.
@@ -466,7 +468,7 @@ func TestClickAt_SelectsCardOnCardRow(t *testing.T) {
 // TestClickAt_SeparatorRowIsNoop ensures a click on the blank line
 // between cards is ignored (no selection movement, returns false).
 func TestClickAt_SeparatorRowIsNoop(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	m.MoveDown() // selected = 1
 
@@ -483,7 +485,7 @@ func TestClickAt_SeparatorRowIsNoop(t *testing.T) {
 // below the last card and on the negative-y region. Both return
 // false and leave selection alone.
 func TestClickAt_OutOfRangeIsNoop(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	// Two cards: last card occupies up to row 6 (card 1 = rows 4,5,6).
 	// Row 50 is well past the list.
@@ -503,7 +505,7 @@ func TestClickAt_OutOfRangeIsNoop(t *testing.T) {
 // With banner shown, paneY=0 is the banner (no-op) and paneY=1 maps
 // to the first card row.
 func TestClickAt_AccountsForBannerRow(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	m.SetSummaries(sampleSummaries())
 	m.SetSubscriptionsAvailable(false)
 	m.MoveDown() // selected = 1, so the banner-aware test starts away from 0
@@ -529,7 +531,7 @@ func TestClickAt_AccountsForBannerRow(t *testing.T) {
 // moving the selection cursor past the viewport bottom (View() will
 // snap yOffset down to keep the selected card visible).
 func TestClickAt_AccountsForYOffset(t *testing.T) {
-	m := New(map[string]string{}, "USELF")
+	m := New(usernames.FromMap(map[string]string{}), "USELF")
 	sums := []cache.ThreadSummary{
 		{ChannelID: "C1", ChannelName: "g1", ThreadTS: "1.0", ParentText: "a", LastReplyTS: "2.0", LastReplyBy: "U2"},
 		{ChannelID: "C2", ChannelName: "g2", ThreadTS: "2.0", ParentText: "b", LastReplyTS: "3.0", LastReplyBy: "U2"},

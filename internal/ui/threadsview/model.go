@@ -17,6 +17,7 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
+	"github.com/gammons/slk/internal/usernames"
 	"github.com/muesli/reflow/truncate"
 )
 
@@ -84,7 +85,8 @@ func borderFillStyle() lipgloss.Style {
 // Model holds the threads-list state.
 type Model struct {
 	summaries    []cache.ThreadSummary
-	userNames    map[string]string
+	userNames    *usernames.Store
+	userNamesV   uint64
 	channelNames map[string]string
 	userGroups   map[string]string
 	selfUserID   string
@@ -110,16 +112,14 @@ type Model struct {
 	version int64
 }
 
-// New creates an empty Model. userNames is the user-id -> display-name map
-// used to resolve mention IDs in the parent-text preview and the author /
-// last-reply-by fields. selfUserID is the current user's ID; rows whose
-// author / replier is selfUserID render as "me".
-func New(userNames map[string]string, selfUserID string) Model {
-	if userNames == nil {
-		userNames = map[string]string{}
-	}
+// New creates an empty Model. userNames is the user-id -> display-name
+// store used to resolve mention IDs in the parent-text preview and the
+// author / last-reply-by fields. selfUserID is the current user's ID; rows
+// whose author / replier is selfUserID render as "me".
+func New(userNames *usernames.Store, selfUserID string) Model {
 	return Model{
 		userNames:              userNames,
+		userNamesV:             userNames.Version(),
 		selfUserID:             selfUserID,
 		channelNames:           map[string]string{},
 		subscriptionsAvailable: true,
@@ -132,25 +132,21 @@ func (m *Model) Version() int64 { return m.version }
 
 func (m *Model) dirty() { m.version++ }
 
-// SetUserNames replaces the user id -> display name map. No-op (no version
-// bump) when the new map has the same length and the same key/value pairs as
-// the current one — required so the App-level panel cache (app.go:4068-4093)
-// can hit on idle re-renders.
-func (m *Model) SetUserNames(names map[string]string) {
-	if names == nil {
-		names = map[string]string{}
-	}
-	if stringMapsEqual(m.userNames, names) {
+// SetUserNames replaces the user-name store. No-op (no version bump) when
+// it is the same store at the same publish version — required so the
+// App-level panel cache (app.go:4068-4093) can hit on idle re-renders.
+func (m *Model) SetUserNames(names *usernames.Store) {
+	if m.userNames == names && m.userNamesV == names.Version() {
 		return
 	}
 	m.userNames = names
+	m.userNamesV = names.Version()
 	m.dirty()
 }
 
 // stringMapsEqual reports whether two map[string]string have identical
-// contents. Used by SetUserNames and SetChannelNames to short-circuit Set*
-// calls with unchanged input so the App-level panel cache can hit on idle
-// re-renders.
+// contents. Used by SetChannelNames to short-circuit calls with unchanged
+// input so the App-level panel cache can hit on idle re-renders.
 //
 // Hand-rolled (rather than reflect.DeepEqual) because this runs on the render
 // hot path — every threadsview render checks it. Please don't "simplify" this
@@ -638,7 +634,7 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 		previewBody = mutedStyle().Render("(parent not loaded)")
 	} else {
 		preview := messages.RenderSlackMarkdownWith(s.ParentText, messages.RenderSlackMarkdownOpts{
-			UserNames:    m.userNames,
+			UserNames:    m.userNames.Current(),
 			ChannelNames: m.channelNames,
 			UserGroups:   m.userGroups,
 		})
@@ -703,7 +699,7 @@ func (m *Model) resolveUser(uid string) string {
 	if uid == m.selfUserID {
 		return "me"
 	}
-	if name, ok := m.userNames[uid]; ok && name != "" {
+	if name, ok := m.userNames.Get(uid); ok && name != "" {
 		return name
 	}
 	return uid

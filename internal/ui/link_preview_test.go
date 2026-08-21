@@ -6,6 +6,7 @@ import (
 
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func dateLabel(ts string) string {
@@ -47,7 +48,7 @@ func TestOpenLinkKey_PermalinkRows_DecodedDisplay(t *testing.T) {
 func linkPreviewTestApp(t *testing.T) *App {
 	t.Helper()
 	app, _ := linkTestApp(t)
-	app.SetUserNames(map[string]string{"U1": "matt"})
+	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "matt"}))
 	app.channelNames = map[string]string{"C054JFCBN69": "general"}
 	app.SetMessageService(NewMessageService(MessageServiceFuncs{
 		Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {

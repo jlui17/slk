@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/slack-go/slack"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // TestMessageAuthorBotIdentity is the headline of the bot-avatar fix: a
@@ -11,11 +12,11 @@ import (
 // uses the message's username, so a name and avatar can attach — while
 // human messages keep resolving by user ID.
 func TestMessageAuthorBotIdentity(t *testing.T) {
-	userNames := map[string]string{}
+	fill := newUserNameFill(usernames.NewStore())
 
 	// Bot message: empty user, bot_id + username present.
 	bot := slack.Message{Msg: slack.Msg{User: "", BotID: "B123", Username: "Deploybot"}}
-	uid, name := messageAuthor(bot, userNames, nil, nil)
+	uid, name := messageAuthor(bot, fill, nil, nil)
 	if uid != "B123" {
 		t.Errorf("bot author ID: want B123, got %q", uid)
 	}
@@ -24,9 +25,9 @@ func TestMessageAuthorBotIdentity(t *testing.T) {
 	}
 
 	// Human message: user present, name pre-cached (so no db/resolver needed).
-	userNames["U1"] = "Alice"
+	fill.names.Set("U1", "Alice")
 	human := slack.Message{Msg: slack.Msg{User: "U1"}}
-	uid2, name2 := messageAuthor(human, userNames, nil, nil)
+	uid2, name2 := messageAuthor(human, fill, nil, nil)
 	if uid2 != "U1" {
 		t.Errorf("human author ID: want U1, got %q", uid2)
 	}

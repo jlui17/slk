@@ -353,13 +353,15 @@ func bootUserDisplayName(u boot.User) string {
 // what replaces it, alongside the cache seed and on-demand resolveUser.
 //
 // Called on the connectWorkspace goroutine before the UI is told the
-// workspace is ready, which is why these maps can be written directly:
-// after that point wctx.UserNames has other readers and
-// Model.PatchUserName is the only safe writer.
+// workspace is ready, which is why the plain maps (UserNamesByHandle,
+// BotUserIDs) can be written directly: after that point they have
+// other readers and no synchronization. UserNames is store-backed and
+// batch-applied.
 func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
+	bootNames := make(map[string]string, len(res.Users))
 	for _, u := range res.Users {
 		name := bootUserDisplayName(u)
-		wctx.UserNames[u.ID] = name
+		bootNames[u.ID] = name
 		if u.Name != "" {
 			wctx.UserNamesByHandle[u.Name] = name
 		}
@@ -374,6 +376,7 @@ func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 			wctx.AvatarURLs.Store(u.ID, u.Profile.ImageOriginal)
 		}
 	}
+	wctx.UserNames.Apply(bootNames)
 }
 
 // bootConversations converts what client.userBoot returned into the

@@ -20,6 +20,7 @@ import (
 	"github.com/gammons/slk/internal/ui/selection"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 type MessageItem struct {
@@ -251,7 +252,7 @@ type Model struct {
 	loading      bool
 	spinnerFrame int               // braille-spinner frame index for "Loading messages..." animation
 	avatarFn     AvatarFunc        // optional: returns half-block avatar for a userID
-	userNames    map[string]string // user ID -> display name for mention resolution
+	userNames    *usernames.Store  // user ID -> display name for mention resolution
 	channelNames map[string]string // channel ID -> name for bare <#CID> resolution
 	userGroups   map[string]string // usergroup ID -> handle for bare subteam resolution
 
@@ -1338,14 +1339,12 @@ func (m *Model) SetAvatarFunc(fn AvatarFunc) {
 
 // ResolveUserName returns the display name for a user ID, or empty string if unknown.
 func (m *Model) ResolveUserName(userID string) string {
-	if m.userNames == nil {
-		return ""
-	}
-	return m.userNames[userID]
+	name, _ := m.userNames.Get(userID)
+	return name
 }
 
-// SetUserNames sets the user ID -> display name map used to resolve @mentions.
-func (m *Model) SetUserNames(names map[string]string) {
+// SetUserNames sets the user-name store used to resolve @mentions.
+func (m *Model) SetUserNames(names *usernames.Store) {
 	m.userNames = names
 	m.cache = nil // invalidate cache so mentions re-render
 	m.dirty()
@@ -1366,7 +1365,7 @@ func (m *Model) SetCurrentUser(userID string) {
 	m.currentUserID = userID
 }
 
-// PatchUserName updates the in-memory userNames map (used for @mention
+// PatchUserName updates the user-name store (used for @mention
 // rendering) and overwrites the UserName field on every cached message
 // authored by userID. Invalidates the render cache so the next View()
 // re-renders affected rows. Idempotent: no-op when the name is
@@ -1381,12 +1380,12 @@ func (m *Model) PatchUserName(userID, displayName string) {
 		return
 	}
 	if m.userNames == nil {
-		m.userNames = map[string]string{}
+		m.userNames = usernames.NewStore()
 	}
-	if m.userNames[userID] == displayName {
+	if current, _ := m.userNames.Get(userID); current == displayName {
 		return
 	}
-	m.userNames[userID] = displayName
+	m.userNames.Set(userID, displayName)
 	// The render cache stores rows with their mentions already resolved
 	// (RenderSlackMarkdown consults userNames at render time), so any
 	// cached row that mentioned <@userID> is now stale. Mirror
@@ -1644,7 +1643,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	if m.avatarFn != nil {
 		avatarStr = m.avatarFn(msg.UserID)
 	}
-	rendered, attachFlushes, attachSixel, attachHits, reactHits := m.renderMessagePlain(msg, width, avatarStr, m.userNames, m.channelNames, i == m.selected, stats)
+	rendered, attachFlushes, attachSixel, attachHits, reactHits := m.renderMessagePlain(msg, width, avatarStr, m.userNames.Current(), m.channelNames, i == m.selected, stats)
 	// Two filled variants: borderFill (Background) for the unselected
 	// pre-render, and the SelectionTintColor for the selected pre-render.
 	// Without per-variant fills, the trailing whitespace of every wrapped

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // BenchmarkViewScroll simulates j/k scrolling through a long threads list
@@ -26,7 +27,7 @@ func BenchmarkViewScroll(b *testing.B) {
 			Unread:       i%4 == 0,
 		}
 	}
-	m := New(map[string]string{"U1": "alice", "U2": "bob"}, "U1")
+	m := New(usernames.FromMap(map[string]string{"U1": "alice", "U2": "bob"}), "U1")
 	m.SetSummaries(summaries)
 
 	// Prime caches.

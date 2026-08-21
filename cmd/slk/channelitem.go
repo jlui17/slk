@@ -44,7 +44,7 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 
 	displayName := ch.Name
 	if ch.IsIM {
-		if resolved, ok := wctx.UserNames[ch.User]; ok {
+		if resolved, ok := wctx.UserNames.Get(ch.User); ok {
 			displayName = resolved
 		} else {
 			displayName = ch.User

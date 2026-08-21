@@ -22,6 +22,7 @@ import (
 	"github.com/gammons/slk/internal/slack/boot"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/slackhttp"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // newTestClient returns a real *slackclient.Client whose every request
@@ -672,7 +673,7 @@ func TestHydrateFirstSight_LeavesExistingRowsAlone(t *testing.T) {
 
 func TestApplyBootUsers_FillsTheMapsTheSidebarReads(t *testing.T) {
 	wctx := &WorkspaceContext{
-		UserNames:         map[string]string{},
+		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 		BotUserIDs:        map[string]bool{},
 		AvatarURLs:        &sync.Map{},
@@ -688,8 +689,8 @@ func TestApplyBootUsers_FillsTheMapsTheSidebarReads(t *testing.T) {
 	}})
 
 	want := map[string]string{"U1": "Pat", "U2": "Sam Real", "U3": "handle-only", "U4": "appy"}
-	if !reflect.DeepEqual(wctx.UserNames, want) {
-		t.Errorf("UserNames = %+v; want %+v", wctx.UserNames, want)
+	if !reflect.DeepEqual(wctx.UserNames.Current(), want) {
+		t.Errorf("UserNames = %+v; want %+v", wctx.UserNames.Current(), want)
 	}
 	if got := wctx.UserNamesByHandle["pat"]; got != "Pat" {
 		t.Errorf("UserNamesByHandle[pat] = %q; want Pat", got)

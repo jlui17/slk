@@ -21,6 +21,7 @@ import (
 	"github.com/gammons/slk/internal/ui/selection"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
@@ -109,7 +110,7 @@ type Model struct {
 	focused           bool
 	coloredUsernames  bool
 	avatarFn          messages.AvatarFunc
-	userNames         map[string]string
+	userNames         *usernames.Store
 	channelNames      map[string]string
 	vp                viewport.Model
 	reactionNavActive bool
@@ -155,7 +156,7 @@ type Model struct {
 	chromeCacheValid    bool
 	chromeWidth         int
 	chromeReplyCount    int
-	chromeUserNamesV    uint64 // version of the userNames map at build time
+	chromeUserNamesV    uint64 // value of userNamesV at build time
 	chromeChannelNamesV uint64 // version of the channelNames map at build time
 
 	// userNamesV / channelNamesV are bumped every time SetUserNames /
@@ -525,7 +526,7 @@ func (m *Model) Replies() []messages.MessageItem {
 }
 
 // UserNames returns the user-ID-to-display-name map used for rendering mentions.
-func (m *Model) UserNames() map[string]string { return m.userNames }
+func (m *Model) UserNames() map[string]string { return m.userNames.Current() }
 
 // ChannelNames returns the channel-ID-to-name map used for rendering channel mentions.
 func (m *Model) ChannelNames() map[string]string { return m.channelNames }
@@ -603,10 +604,10 @@ func (m *Model) SetAvatarFunc(fn messages.AvatarFunc) {
 	m.avatarFn = fn
 }
 
-// SetUserNames sets the user ID -> display name map for mention resolution.
+// SetUserNames sets the user-name store for mention resolution.
 // Bumps userNamesV unconditionally so chromeCache (and any other cache
 // keyed by this version counter) sees the change via a simple `!=` check.
-func (m *Model) SetUserNames(names map[string]string) {
+func (m *Model) SetUserNames(names *usernames.Store) {
 	m.userNames = names
 	m.userNamesV++
 	m.InvalidateCache()
@@ -639,7 +640,7 @@ func (m *Model) SetCurrentUser(userID string) {
 	m.currentUserID = userID
 }
 
-// PatchUserName updates the in-memory userNames map (used for @mention
+// PatchUserName updates the user-name store (used for @mention
 // rendering) and overwrites the UserName field on the parent message
 // and every cached reply authored by userID. Always invalidates the
 // render cache after a map change so mentions of <@userID> in other
@@ -656,12 +657,12 @@ func (m *Model) PatchUserName(userID, displayName string) {
 		return
 	}
 	if m.userNames == nil {
-		m.userNames = map[string]string{}
+		m.userNames = usernames.NewStore()
 	}
-	if m.userNames[userID] == displayName {
+	if current, _ := m.userNames.Get(userID); current == displayName {
 		return
 	}
-	m.userNames[userID] = displayName
+	m.userNames.Set(userID, displayName)
 	// The render cache stores rows with their mentions already resolved
 	// (RenderSlackMarkdown consults userNames at render time), so any
 	// cached row that mentioned <@userID> is now stale. Mirror
@@ -1343,7 +1344,7 @@ func (m *Model) View(height, width int) string {
 	// lifecycle adds complexity; reply flushes and hit rects ARE captured
 	// in the per-reply loop below.
 	parentIsSelected := m.selected == parentSelected
-	parentContent, _, _ := m.renderThreadMessage(m.parent, width, m.userNames, m.channelNames, parentIsSelected)
+	parentContent, _, _ := m.renderThreadMessage(m.parent, width, m.userNames.Current(), m.channelNames, parentIsSelected)
 	m.parentEntry = viewEntry{
 		linesPlain:       messages.PlainLines(parentContent),
 		height:           lipgloss.Height(parentContent),
@@ -1459,7 +1460,7 @@ func (m *Model) View(height, width int) string {
 			// so the cache rebuilds whenever the highlighted index changes.
 			// This matches the messages-pane convention
 			// (internal/ui/messages/model.go:1050).
-			rendered, attachFlushes, reactHits := m.renderThreadMessage(reply, width, m.userNames, m.channelNames, i == m.selected)
+			rendered, attachFlushes, reactHits := m.renderThreadMessage(reply, width, m.userNames.Current(), m.channelNames, i == m.selected)
 			// Two filled variants — see internal/ui/messages/model.go for the
 			// rationale. Without per-variant fills, the trailing whitespace of
 			// every wrapped line shows the wrong bg and the tint stops at the

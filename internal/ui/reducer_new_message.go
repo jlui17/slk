@@ -106,7 +106,7 @@ func (a *App) deriveConversationName(channelType string, userIDs []string) strin
 	const previewLimit = 3
 	names := make([]string, 0, len(userIDs))
 	for _, id := range userIDs {
-		if name, ok := a.userNames[id]; ok && name != "" {
+		if name, ok := a.userNames.Get(id); ok && name != "" {
 			names = append(names, name)
 		} else {
 			names = append(names, id)

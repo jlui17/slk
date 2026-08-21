@@ -147,7 +147,7 @@ var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		} else {
 			delete(a.externalUsers, m.UserID)
 		}
-		if len(a.userNames) > 0 {
+		if a.userNames.Len() > 0 {
 			a.SetUserNames(a.userNames)
 		}
 		return nil, true

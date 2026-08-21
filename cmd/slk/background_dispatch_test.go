@@ -7,6 +7,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // An inactive workspace's thread events must reach the UI tagged with
@@ -30,7 +31,7 @@ func TestOnMessageInactiveWorkspaceDispatchesTagged(t *testing.T) {
 	h := &rtmEventHandler{
 		program:     sender,
 		workspaceID: "T2",
-		userNames:   map[string]string{"U1": "user one"},
+		userNames:   usernames.FromMap(map[string]string{"U1": "user one"}),
 		isActive:    func() bool { return false },
 	}
 	h.OnMessage("C1", "U1", "101.0", "a thread reply", "100.0", "", false, nil, slack.Blocks{}, nil, "", "")
@@ -53,7 +54,7 @@ func TestOnMessageInactiveTopLevelNotDispatched(t *testing.T) {
 	h := &rtmEventHandler{
 		program:     sender,
 		workspaceID: "T2",
-		userNames:   map[string]string{"U1": "user one"},
+		userNames:   usernames.FromMap(map[string]string{"U1": "user one"}),
 		isActive:    func() bool { return false },
 	}
 	h.OnMessage("C1", "U1", "101.0", "a top-level message", "", "", false, nil, slack.Blocks{}, nil, "", "")
