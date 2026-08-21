@@ -86,6 +86,12 @@ const (
 // finally lands on.
 const openThreadDebounceDelay = 200 * time.Millisecond
 
+// threadMarkDebounceDelay is how long scheduleThreadMark waits after a live
+// reply lands in the open thread panel before marking the thread read. Long
+// enough to coalesce an agent-thread reply burst into one mark, short enough
+// that the cursor advances before the user could plausibly navigate away.
+const threadMarkDebounceDelay = 500 * time.Millisecond
+
 // channelSearchDebounceDelay is how long the channel finder waits for
 // typing to stop before asking the server. ~300 ms is the figure the
 // Phase 2b design fixed on from the captures, where a four-second
@@ -270,6 +276,13 @@ type App struct {
 	// callers (activation, list reload, G jump) do NOT bump this — bumping there
 	// would needlessly invalidate any in-flight debounced fetch about to land.
 	pendingThreadFetchGen uint64
+
+	// pendingThreadMarkGen is bumped by every scheduleThreadMark call
+	// (one per live reply landing in the open thread panel). The
+	// threadMarkDebounceMsg handler only fires the subscriptions mark
+	// when its `gen` matches, so a burst of replies produces exactly
+	// one Mark call, carrying the newest reply's TS.
+	pendingThreadMarkGen uint64
 
 	// pendingChannelSearchGen is bumped by every channel-finder
 	// keystroke that changes the query, including the one that empties
@@ -2017,6 +2030,36 @@ func (a *App) scheduleThreadsDirty() tea.Cmd {
 	})
 }
 
+// scheduleThreadMark returns a tea.Cmd that fires a threadMarkDebounceMsg
+// for the open thread panel's (channelID, threadTS) after the mark-debounce
+// interval. Called once per live reply landing in the panel while the pane
+// is viewed; the generation bump means only the burst's last tick survives,
+// so a burst coalesces into a single subscriptions.thread.mark call.
+func (a *App) scheduleThreadMark(channelID, threadTS string) tea.Cmd {
+	a.pendingThreadMarkGen++
+	gen := a.pendingThreadMarkGen
+	return tea.Tick(threadMarkDebounceDelay, func(time.Time) tea.Msg {
+		return threadMarkDebounceMsg{channelID: channelID, threadTS: threadTS, gen: gen}
+	})
+}
+
+// latestRealReplyTS returns the newest reply TS in the open thread panel,
+// skipping optimistic "local:" placeholders whose Slack TS isn't known yet.
+// Returns "" when the panel holds no real replies — a mark is only ever
+// scheduled after a real reply rendered, so an empty panel means it was
+// cleared and is repopulating (close/reopen inside the debounce window);
+// marking then would use a stale TS and regress the cursor.
+func (a *App) latestRealReplyTS() string {
+	replies := a.threadPanel.Replies()
+	for i := len(replies) - 1; i >= 0; i-- {
+		ts := replies[i].TS
+		if ts != "" && !strings.HasPrefix(ts, "local:") {
+			return ts
+		}
+	}
+	return ""
+}
+
 // userNameFor returns the display name for a Slack user ID, falling back
 // to the raw ID when the names map has no entry. Returns empty string for
 // an empty userID.
@@ -3347,18 +3390,19 @@ func (a *App) applyChannelMark(channelID, ts string, unreadCount int) {
 // applyThreadMark updates local state for a thread-level read-state
 // change. read=false means the thread is now unread (move boundary +
 // flip threads-view row); read=true means the thread is now read
-// (clear boundary + clear threads-view row).
+// (clear threads-view row). A read mark does NOT clear the open panel's
+// "── new ──" boundary: marks fire while the user is watching the thread
+// (the open-path mark, the live-reply mark, or a mark echoed from another
+// client), and yanking the landmark mid-read would hide which replies
+// were new. The boundary clears on the next thread switch instead
+// (SetThread clears it on identity change).
 func (a *App) applyThreadMark(channelID, threadTS, ts string, read bool) {
 	debuglog.Cache("applyThreadMark: channel=%s thread_ts=%s ts=%s read=%v active=%s",
 		channelID, threadTS, ts, read, a.activeChannelID)
-	if a.threadVisible &&
+	if !read && a.threadVisible &&
 		a.threadPanel.ChannelID() == channelID &&
 		a.threadPanel.ThreadTS() == threadTS {
-		if read {
-			a.threadPanel.SetUnreadBoundary("")
-		} else {
-			a.threadPanel.SetUnreadBoundary(ts)
-		}
+		a.threadPanel.SetUnreadBoundary(ts)
 	}
 	if read {
 		a.markThreadReadLocally(channelID, threadTS)

@@ -2,7 +2,7 @@
 //
 // Thread-family reducer for App.Update (Phase 4h).
 //
-// Owns the nine Update arms that drive the thread panel, the
+// Owns the ten Update arms that drive the thread panel, the
 // threads-list view, and the thread-reply send path:
 //
 //   ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
@@ -10,6 +10,10 @@
 //   threadFetchDebounceMsg      - debounced j/k stop: fire the actual
 //                                 thread fetch (drops stale generations
 //                                 and post-navigation ticks).
+//   threadMarkDebounceMsg       - debounced live-reply burst end: mark
+//                                 the open thread read up to its newest
+//                                 reply (drops stale generations and
+//                                 post-navigation ticks).
 //   ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
 //                                 panel, mark the thread as read, and
 //                                 refresh the sidebar badge.
@@ -94,6 +98,48 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		batch = append(batch, func() tea.Msg { return threads.Fetch(chID, threadTS) })
 		return tea.Batch(batch...), true
+
+	case threadMarkDebounceMsg:
+		// Drop stale ticks: a later reply in the burst has scheduled
+		// a fresh mark and bumped the generation past this one.
+		if m.gen != a.pendingThreadMarkGen {
+			return nil, true
+		}
+		// Also drop if the user has navigated away: the panel closed
+		// or now shows a different thread. Whatever it shows next
+		// marks itself through its own open path.
+		if !(a.threadVisible &&
+			m.channelID == a.threadPanel.ChannelID() &&
+			m.threadTS == a.threadPanel.ThreadTS()) {
+			return nil, true
+		}
+		// Recheck viewedness at fire time: the schedule-time gate can't
+		// see a tab switch inside the debounce window, and the TS is
+		// resolved from the panel NOW — without this, a burst tail that
+		// arrived after the user tabbed away would be marked read.
+		if !a.PaneViewed() {
+			return nil, true
+		}
+		// Drop when the panel holds no real reply: it was cleared and
+		// is repopulating (close/reopen inside the debounce window),
+		// and the reopen's ThreadRepliesLoadedMsg owns the next mark.
+		latestTS := a.latestRealReplyTS()
+		if latestTS == "" {
+			return nil, true
+		}
+		// Mirror the open-path mark below (ThreadRepliesLoadedMsg):
+		// fire-and-forget server mark with the newest reply ts, plus
+		// the local read-state funnel so the UI reflects the change
+		// before the thread_marked echo lands.
+		a.markThreadReadLocally(m.channelID, m.threadTS)
+		threads := a.threads
+		chID := ids.ChannelID(m.channelID)
+		threadTS := ids.ThreadTS(m.threadTS)
+		ts := ids.MessageTS(latestTS)
+		return func() tea.Msg {
+			threads.Mark(chID, threadTS, ts)
+			return nil
+		}, true
 
 	case ThreadRepliesLoadedMsg:
 		if !(a.threadVisible && m.ThreadTS == a.threadPanel.ThreadTS()) {

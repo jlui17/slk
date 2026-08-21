@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -68,6 +69,9 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadPanel.SetUnreadBoundary("100.0")
 	a.threadVisible = true
+	a.threadsView.SetSummaries([]cache.ThreadSummary{
+		{ChannelID: "C1", ThreadTS: "100.0", Unread: true},
+	})
 
 	_, handled := reduceThreads(a, ThreadMarkedRemoteMsg{
 		TeamID: "T2", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true,
@@ -75,14 +79,24 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	if !handled {
 		t.Fatal("background-team ThreadMarkedRemoteMsg must still be handled (swallowed)")
 	}
-	if got := a.threadPanel.UnreadBoundaryTS(); got != "100.0" {
-		t.Fatalf("background-team mark cleared the panel boundary (boundary=%q)", got)
+	for _, s := range a.threadsView.Summaries() {
+		if s.ThreadTS == "100.0" && !s.Unread {
+			t.Fatal("background-team mark flipped the threads-view row")
+		}
 	}
 
 	_, _ = reduceThreads(a, ThreadMarkedRemoteMsg{
 		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true,
 	})
-	if got := a.threadPanel.UnreadBoundaryTS(); got != "" {
-		t.Fatalf("active-team mark must clear the panel boundary (boundary=%q)", got)
+	for _, s := range a.threadsView.Summaries() {
+		if s.ThreadTS == "100.0" && s.Unread {
+			t.Fatal("active-team mark must flip the threads-view row to read")
+		}
+	}
+	// A read mark never clears the open panel's "── new ──" boundary:
+	// the user is watching the thread, and the landmark showing which
+	// replies were new must survive until they switch threads.
+	if got := a.threadPanel.UnreadBoundaryTS(); got != "100.0" {
+		t.Fatalf("read mark cleared the open panel's boundary (boundary=%q)", got)
 	}
 }

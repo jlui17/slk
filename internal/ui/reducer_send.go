@@ -13,7 +13,9 @@
 //                              edit-echo update, self-send dedup
 //                              (recorded + early-arrival in-flight
 //                              guards), append-to-pane or
-//                              mark-channel-unread, and threads-list
+//                              mark-channel-unread, debounced read
+//                              mark for replies landing in the open
+//                              thread panel, and threads-list
 //                              dirty-bump for replies.
 //   SendMessageMsg           - user send: optimistic placeholder +
 //                              chat.postMessage call.
@@ -225,9 +227,10 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 }
 
 // reduceNewMessage handles NewMessageMsg. Extracted because the
-// arm is ~100 lines covering five decision branches (edit echo,
-// self-send dedup, early-arrival in-flight guard, active vs
-// inactive channel, threads-list dirty bump).
+// arm is ~100 lines covering six decision branches (edit echo,
+// self-send dedup, early-arrival in-flight guard, open-panel
+// reply routing + read mark, active vs inactive channel,
+// threads-list dirty bump).
 func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 	debuglog.Cache("NewMessageMsg: channel=%s ts=%s thread_ts=%s active=%s",
 		m.ChannelID, m.Message.TS, m.Message.ThreadTS, a.activeChannelID)
@@ -301,10 +304,19 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 	// activeChannelID — and live replies must still land.
 	// (Previously this lived inside the active-channel branch below,
 	// so those panels went stale until a reopen forced a refetch.)
+	var cmds []tea.Cmd
 	if a.threadVisible &&
 		m.ChannelID == a.threadPanel.ChannelID() &&
 		m.Message.ThreadTS == a.threadPanel.ThreadTS() {
 		a.threadPanel.AddReply(m.Message)
+		// The reply just rendered in the open panel AND the pane is on
+		// screen (inside herdr, its tab is the viewed one), so the user
+		// has seen it: schedule a debounced read mark. An unviewed pane
+		// renders the reply but leaves it unread — the tab's unseen
+		// indicator is telling the user something they haven't looked at.
+		if a.PaneViewed() {
+			cmds = append(cmds, a.scheduleThreadMark(m.ChannelID, m.Message.ThreadTS))
+		}
 	}
 	if m.ChannelID == a.activeChannelID {
 		// "active_channel_no_unread_bump": message arrived for the
@@ -347,10 +359,10 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 	// burst of replies coalesces into a single fetch.
 	if m.Message.ThreadTS != "" {
 		if c := a.scheduleThreadsDirty(); c != nil {
-			return c
+			cmds = append(cmds, c)
 		}
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 // reduceSendMessage handles SendMessageMsg. Extracted to keep the
