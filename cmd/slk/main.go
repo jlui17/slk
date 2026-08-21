@@ -988,7 +988,8 @@ func run(startupLink *slackurl.Permalink) error {
 		// out-of-order subprocess.
 		app.SetStatusReporter(sr.Enqueue)
 	}
-	if closeHerdr := wireHerdr(app, db, cfg.Herdr); closeHerdr != nil {
+	herdrReporter, closeHerdr := wireHerdr(app, db, cfg.Herdr)
+	if closeHerdr != nil {
 		defer closeHerdr()
 	}
 	if useWaylandClipboard {
@@ -2068,6 +2069,10 @@ func run(startupLink *slackurl.Permalink) error {
 	// a serialized pass-through for non-sixel frames (no marker present)
 	// and the sixel paint site for marked frames.
 	p = tea.NewProgram(app, tea.WithOutput(terminalOutput))
+
+	// The focus watcher dispatches into the program loop, so it can only
+	// start once `p` exists.
+	herdrReporter.WatchFocus(func(viewed bool) { p.Send(ui.HerdrTabViewMsg{Viewed: viewed}) })
 
 	// Now that `p` exists, re-install the ImageContext with a real
 	// SendMsg callback so the prefetcher can dispatch ImageReadyMsg

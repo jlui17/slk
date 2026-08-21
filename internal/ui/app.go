@@ -190,6 +190,13 @@ type App struct {
 
 	agentSidebar agentSidebar
 
+	// herdrTabViewed is the pane's viewed state from the herdr focus
+	// watcher; herdrTabViewKnown is false when nothing reports it (slk
+	// running outside herdr). Read through PaneViewed, never directly:
+	// the pair only means anything together.
+	herdrTabViewed    bool
+	herdrTabViewKnown bool
+
 	// paneStateRecorder persists the pane's open channel/thread for
 	// restore-on-relaunch; nil when the restore feature is disabled.
 	// lastPaneReport dedupes: setThreadPanel re-fires on every replies
@@ -1891,7 +1898,6 @@ func (a *App) ToggleThreadFullscreen() {
 
 func (a *App) CloseThread() {
 	a.clearSelections()
-	a.releaseAgentThread()
 	// Report only a real close: CloseThread is also called defensively
 	// on every channel switch, where activeChannelID still names the
 	// PREVIOUS channel (and, across a workspace switch, activeTeamID
@@ -1957,9 +1963,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 	// clear its unread flag in the threads-view list and the sidebar
 	// badge. This is presentation-only — it does not call Slack's
 	// conversations.mark or advance the parent channel's last_read_ts.
-	if a.threadsView.MarkSelectedRead() {
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-	}
+	a.markThreadReadLocally(sum.ChannelID, sum.ThreadTS)
 	threads := a.threads
 	chID, threadTS := sum.ChannelID, sum.ThreadTS
 	tChID := ids.ChannelID(chID)
@@ -2878,10 +2882,6 @@ func (a *App) View() tea.View {
 	frame := a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
 	if frame.ThreadAutoHidden {
 		a.threadVisible = false
-		// An effective close: nothing restores the thread when the
-		// terminal widens again, so the agent-sidebar entry goes with it
-		// like CloseThread's does.
-		a.releaseAgentThread()
 		if a.focusedPanel == PanelThread {
 			a.focusedPanel = PanelMessages
 		}
@@ -3361,14 +3361,25 @@ func (a *App) applyThreadMark(channelID, threadTS, ts string, read bool) {
 		}
 	}
 	if read {
-		if a.threadsView.MarkByThreadTSRead(channelID, threadTS) {
-			a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-		}
-	} else {
-		if a.threadsView.MarkByThreadTSUnread(channelID, threadTS) {
-			a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-		}
+		a.markThreadReadLocally(channelID, threadTS)
+		return
 	}
+	if a.threadsView.MarkByThreadTSUnread(channelID, threadTS) {
+		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+	}
+	a.markAgentThreadUnread(a.activeTeamID, channelID, threadTS, ts)
+}
+
+// markThreadReadLocally clears one thread's local unread state everywhere
+// it is shown: the threads-list row, the sidebar's threads badge, and the
+// agent-sidebar row. Every path that decides a thread has been read
+// funnels here so a new one can't update two of the three and leave the
+// herdr row claiming unread replies the user has already seen.
+func (a *App) markThreadReadLocally(channelID, threadTS string) {
+	if a.threadsView.MarkByThreadTSRead(channelID, threadTS) {
+		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+	}
+	a.markAgentThreadRead(a.activeTeamID, channelID, threadTS)
 }
 
 // beginDeleteOfSelected opens the confirmation prompt for deleting the

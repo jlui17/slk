@@ -227,6 +227,9 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return a.uploadToastCmd("Sent", 2*time.Second), true
 
 	case ConnectionStateMsg:
+		// Edge-triggered assistant status can't survive a reconnect on
+		// the tracked thread's workspace, so the turn latch goes with it.
+		a.dropAgentThreadTurnState(m.TeamID)
 		st := connectionState{
 			state:   statusbar.ConnectionState(m.State),
 			retryAt: m.RetryAt,

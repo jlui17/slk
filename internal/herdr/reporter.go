@@ -1,9 +1,10 @@
 // Package herdr talks to herdr's socket API: one fresh connection per
 // request — the server handles a single newline-delimited JSON request
 // per connection and silently discards pipelined extras — with one JSON
-// response line each. The agent-sidebar reporting (Report/Release/
+// response line each. The agent-sidebar reporting (Report/ReportUnread/
 // NameTab) reads responses best-effort; OpenTab parses results and
-// surfaces server errors.
+// surfaces server errors. WatchFocus is the one long-lived connection:
+// an events.subscribe stream (see focuswatch.go).
 package herdr
 
 import (
@@ -60,10 +61,19 @@ type Reporter struct {
 
 	wg sync.WaitGroup
 
+	// stop ends the focus watcher's reconnect loop; closed once by Close.
+	stop     chan struct{}
+	stopOnce sync.Once
+	// retryDelay paces the focus watcher's reconnects.
+	retryDelay time.Duration
+
 	mu sync.Mutex
-	// agent is the id from the last Report, carried into Release because
+	// agent is the id from the last report, carried into release because
 	// pane.release_agent requires it. Empty means no entry to release.
 	agent string
+	// watchConn is the focus watcher's live subscription connection,
+	// closed by Close to unblock its read.
+	watchConn net.Conn
 
 	// tabMu serializes NameTab's read-then-rename sequence, and is separate
 	// from mu so a Report on the UI goroutine never waits behind NameTab's
@@ -102,7 +112,11 @@ func NewReporterFromEnv() *Reporter {
 }
 
 func newReporter(network, addr, paneID, tabID string) *Reporter {
-	return &Reporter{network: network, addr: addr, paneID: paneID, tabID: tabID}
+	return &Reporter{
+		network: network, addr: addr, paneID: paneID, tabID: tabID,
+		stop:       make(chan struct{}),
+		retryDelay: watchRetryDelay,
+	}
 }
 
 type request struct {
@@ -183,9 +197,66 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 	)
 }
 
-// Release removes this pane's agent-sidebar entry. A no-op until the first
+// ReportUnread upserts the entry through a synthetic completion: a working
+// report immediately followed by idle carrying statusMessage. herdr's
+// unseen "done" indicator (the sidebar's blue dot) isn't settable over its
+// API; it flips only on a working→idle edge, and only when the pane's tab
+// isn't both the focused workspace's focused tab and fronted by a focused
+// terminal — so unread state is deliverable only as this pair, and only
+// while the user isn't already looking at the pane. Both requests ride one
+// send call so the idle can't overtake the working on the wire and get
+// dropped as a stale seq.
+func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.agent = agent
+	r.mu.Unlock()
+	workingSeq := nextSeq()
+	idleSeq := nextSeq()
+	metaSeq := nextSeq()
+	r.send(
+		request{
+			ID:     fmt.Sprintf("slk:%d", workingSeq),
+			Method: "pane.report_agent",
+			Params: reportAgentParams{
+				PaneID: r.paneID,
+				Source: source,
+				Agent:  agent,
+				State:  "working",
+				Seq:    workingSeq,
+			},
+		},
+		request{
+			ID:     fmt.Sprintf("slk:%d", idleSeq),
+			Method: "pane.report_agent",
+			Params: reportAgentParams{
+				PaneID:  r.paneID,
+				Source:  source,
+				Agent:   agent,
+				State:   "idle",
+				Message: statusMessage,
+				Seq:     idleSeq,
+			},
+		},
+		request{
+			ID:     fmt.Sprintf("slk:%d", metaSeq),
+			Method: "pane.report_metadata",
+			Params: reportMetadataParams{
+				PaneID:       r.paneID,
+				Source:       source,
+				DisplayAgent: displayName,
+				Title:        title,
+				Seq:          metaSeq,
+			},
+		},
+	)
+}
+
+// release removes this pane's agent-sidebar entry. A no-op until the first
 // Report, since no entry exists to remove.
-func (r *Reporter) Release() {
+func (r *Reporter) release() {
 	if r == nil {
 		return
 	}
@@ -217,6 +288,10 @@ type tabRenameParams struct {
 
 type paneGetParams struct {
 	PaneID string `json:"pane_id"`
+}
+
+type workspaceGetParams struct {
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // reportTokensParams writes only metadata tokens; display_agent and title
@@ -379,13 +454,19 @@ func isDefaultTabLabel(label string) bool {
 	return true
 }
 
-// Close releases the entry and waits up to timeout for in-flight sends to
-// finish; called once at process shutdown.
+// Close releases the entry, stops the focus watcher, and waits up to
+// timeout for in-flight sends to finish; called once at process shutdown.
 func (r *Reporter) Close(timeout time.Duration) {
 	if r == nil {
 		return
 	}
-	r.Release()
+	r.stopOnce.Do(func() { close(r.stop) })
+	r.mu.Lock()
+	if r.watchConn != nil {
+		r.watchConn.Close()
+	}
+	r.mu.Unlock()
+	r.release()
 	done := make(chan struct{})
 	go func() {
 		r.wg.Wait()

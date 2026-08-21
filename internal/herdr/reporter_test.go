@@ -321,7 +321,7 @@ func TestRelease(t *testing.T) {
 
 	r.Report("slack-claude", "Claude", "title", true, "")
 	waitLines(t, rec, 2)
-	r.Release()
+	r.release()
 	lines := waitLines(t, rec, 3)
 
 	method, params := decode(t, lines[2])
@@ -346,7 +346,7 @@ func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
-	r.Release()
+	r.release()
 	r.Close(time.Second)
 	if lines := rec.snapshot(); len(lines) != 0 {
 		t.Fatalf("expected no requests, got %v", lines)
@@ -356,7 +356,7 @@ func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 func TestNilReporter(t *testing.T) {
 	var r *Reporter
 	r.Report("a", "A", "t", true, "m")
-	r.Release()
+	r.release()
 	r.NameTab("x")
 	r.Close(time.Second)
 }
@@ -441,7 +441,7 @@ func TestCloseWaitsForInFlight(t *testing.T) {
 	r.Close(2 * time.Second)
 
 	// Close released and waited, so all three requests must already be
-	// recorded. The Report and Release sends run on concurrent goroutines
+	// recorded. The Report and release sends run on concurrent goroutines
 	// over separate connections, so only the set is deterministic.
 	lines := rec.snapshot()
 	if len(lines) != 3 {

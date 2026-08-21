@@ -11,15 +11,16 @@ import (
 
 // wireHerdr connects app's agent-thread reporting and the O
 // keybinding's tab opener to the herdr pane slk is running in, when
-// there is one. The returned close func releases the pane's sidebar
-// entry and must be deferred by the caller; it is nil when herdr is
-// absent or disabled.
-func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) func() {
+// there is one. The returned reporter is for wiring that must wait for
+// the tea program (the focus watcher's Send); the close func releases
+// the pane's sidebar entry and must be deferred by the caller. Both are
+// nil when herdr is absent or disabled.
+func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, func()) {
 	hr := herdr.NewReporterFromEnv()
 	if hr == nil || cfg.Disabled {
-		return nil
+		return nil, nil
 	}
-	app.SetAgentReporter(hr.Report, hr.Release, hr.NameTab, func(userID string) (string, bool, bool) {
+	app.SetAgentReporter(hr.Report, hr.ReportUnread, hr.NameTab, func(userID string) (string, bool, bool) {
 		// Straight to the DB: detection needs IsBot, which the
 		// in-memory name map doesn't carry.
 		u, err := db.GetUser(userID)
@@ -39,7 +40,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) func() {
 	}
 	// A crash skips this, leaving a stale sidebar entry until herdr's
 	// own pane detection reclaims the pane; only clean exits release.
-	return func() { hr.Close(time.Second) }
+	return hr, func() { hr.Close(time.Second) }
 }
 
 func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
@@ -47,6 +48,7 @@ func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, stat
 		return
 	}
 	h.program.Send(ui.AssistantStatusMsg{
+		TeamID:    h.workspaceID,
 		ChannelID: channelID,
 		ThreadTS:  threadTS,
 		BotUserID: botUserID,

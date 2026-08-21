@@ -54,7 +54,16 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ThreadMarkedRemoteMsg:
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
-			// Background workspace — see NewMessageMsg.TeamID.
+			// Background workspace — see NewMessageMsg.TeamID. The
+			// tracked agent thread is one of those thread-scoped
+			// consumers; for the active workspace it is reached
+			// through applyThreadMark's funnel instead, so serving it
+			// here too would report twice per mark.
+			if m.Read {
+				a.markAgentThreadRead(m.TeamID, m.ChannelID, m.ThreadTS)
+			} else {
+				a.markAgentThreadUnread(m.TeamID, m.ChannelID, m.ThreadTS, m.TS)
+			}
 			return nil, true
 		}
 		a.applyThreadMark(m.ChannelID, m.ThreadTS, m.TS, m.Read)
@@ -137,9 +146,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				return nil
 			}
 		}
-		if a.threadsView.MarkByThreadTSRead(channelID, m.ThreadTS) {
-			a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-		}
+		a.markThreadReadLocally(channelID, m.ThreadTS)
 		return cmd, true
 
 	case ThreadsViewActivatedMsg:
@@ -184,7 +191,12 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.threadsView.SetSummaries(m.Summaries)
 		a.threadsView.SetSubscriptionsAvailable(m.SubscriptionsAvailable)
 		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-		if a.view != ViewThreads {
+		// Re-open only what's already on screen. A background reload
+		// must not resurrect a panel the user closed: that reopen
+		// fetches and marks the thread read (here and on Slack) for
+		// replies nobody has looked at, silently clearing their unread
+		// state -- including the agent sidebar's.
+		if a.view != ViewThreads || !a.threadVisible {
 			return nil, true
 		}
 		// List reload is a single event; if the dedup short-circuits

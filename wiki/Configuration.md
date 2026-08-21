@@ -73,16 +73,33 @@ message_retention_days = 30
 max_db_size_mb = 500
 max_image_cache_mb = 200
 
-# When slk runs inside a herdr pane, it mirrors the open agent thread (a
-# thread whose root message @-mentions a bot, e.g. Claude) onto herdr's
-# agent sidebar: idle/working state, the bot's name, and a channel+snippet
-# title. It also names the surrounding herdr tab after the thread's root
-# message ("fix the ingest retries"; a task id anywhere in the message is
-# hoisted to the front, "[colony-562] fix the flow viewer") — but only over
-# a default tab label or
-# one slk set itself; a label you typed is never overwritten. This needs no
-# configuration — it activates from herdr's own pane environment
-# (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
+# When slk runs inside a herdr pane, it mirrors an agent thread (a thread
+# whose root message @-mentions a bot, e.g. Claude) onto herdr's agent
+# sidebar: idle/working state, the bot's name, and a channel+snippet title.
+# Opening one starts the mirroring, and it keeps going after you navigate
+# away, close the thread panel, or switch to another workspace — that is
+# where replies you haven't read arrive. Only opening a different agent
+# thread switches it.
+#
+# While Slack considers the thread unread, the row shows the unread reply
+# count and herdr's unseen "done" indicator, the same blue dot it shows for
+# an agent that finished while you were elsewhere. Reading the thread
+# clears the count. Two limits come from herdr owning that indicator: it
+# hides the dot while you are looking at the pane, and reading the thread
+# on another device clears the count but cannot clear a dot already shown —
+# focusing the tab does that.
+#
+# Running inside herdr also tells slk whether you are actually looking at
+# the pane (its tab being the focused space's active tab), which is what
+# read state keys off: a thread panel left open in a herdr tab you are not
+# viewing does not count as read.
+#
+# slk also names the surrounding herdr tab after the thread's root message
+# ("fix the ingest retries"; a task id anywhere in the message is hoisted
+# to the front, "[colony-562] fix the flow viewer") — but only over a
+# default tab label or one slk set itself; a label you typed is never
+# overwritten. This needs no configuration — it activates from herdr's own
+# pane environment (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 

@@ -118,6 +118,13 @@ type (
 		// tagged, for consumers that track threads across workspaces;
 		// the standard handling ignores background-team messages. ""
 		// is treated as the active workspace.
+		//
+		// A consumer hooked ahead of a reducer arm's background skip
+		// sees every workspace, and with that inherits every filter
+		// the arm applies after the skip — self-send dedup, edit
+		// echoes, whatever is added later. Nothing structural catches
+		// an omission: one such consumer already shipped counting the
+		// user's own replies as unread.
 		TeamID    string
 		ChannelID string
 		Message   messages.MessageItem

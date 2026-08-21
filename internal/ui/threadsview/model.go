@@ -398,30 +398,10 @@ func (m *Model) ClickAt(rowY int) bool {
 	return true
 }
 
-// MarkSelectedRead clears the local Unread flag on the currently selected
-// summary, if any. Returns true when a flag was actually flipped (so callers
-// can refresh dependent state, e.g. the sidebar's threads-row badge). This
-// is a presentation-only update: it does not touch Slack server state and
-// does not advance the thread_subscriptions row's last_read. The next
-// refresh from cache.ListSubscribedThreads will recompute Unread from the
-// persisted per-thread LastRead; a subsequent thread_marked WS echo (or
-// an explicit MarkThreadRead call) is what durably clears it.
-func (m *Model) MarkSelectedRead() bool {
-	if m.selected < 0 || m.selected >= len(m.summaries) {
-		return false
-	}
-	if !m.summaries[m.selected].Unread {
-		return false
-	}
-	m.summaries[m.selected].Unread = false
-	m.dirty()
-	return true
-}
-
 // MarkByThreadTSRead clears the local Unread flag on the summary matching
 // (channelID, threadTS), regardless of whether it is the currently selected
 // row. Returns true when a flag was actually flipped, so callers can refresh
-// dependent state (sidebar threads-row badge). Like MarkSelectedRead this is
+// dependent state (sidebar threads-row badge). This is
 // presentation-only and does not touch Slack server state.
 func (m *Model) MarkByThreadTSRead(channelID, threadTS string) bool {
 	if channelID == "" || threadTS == "" {

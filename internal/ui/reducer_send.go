@@ -7,6 +7,9 @@
 // lives in reducer_threads.go):
 //
 //   NewMessageMsg            - inbound WS event for any channel:
+//                              the tracked agent thread's unread hook
+//                              first (it serves every workspace, so it
+//                              runs ahead of the background skip), then
 //                              edit-echo update, self-send dedup
 //                              (recorded + early-arrival in-flight
 //                              guards), append-to-pane or
@@ -58,6 +61,10 @@ import (
 var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case NewMessageMsg:
+		// Ahead of the background skip: the tracked agent thread is
+		// exactly the thread-scoped consumer those messages are carried
+		// for, and it follows its own workspace, not the active one.
+		a.noteAgentThreadReply(m.TeamID, m.ChannelID, m.Message)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			// Background workspace — see NewMessageMsg.TeamID.
 			return nil, true
@@ -180,6 +187,11 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}, true
 
 	case WSMessageDeletedMsg:
+		// Ahead of the background skip, like the reply and read-mark
+		// hooks: a retracted reply stops counting toward the tracked
+		// thread's unread state wherever it was retracted, or the row
+		// keeps claiming a reply that no longer exists.
+		a.dropAgentThreadReply(m.TeamID, m.ChannelID, m.TS)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			// Background workspace — see NewMessageMsg.TeamID.
 			return nil, true
