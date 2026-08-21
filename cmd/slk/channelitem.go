@@ -31,7 +31,7 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		// flag, which we look up via the cache-seeded BotUserIDs set.
 		// Unknown peers default to "dm" and are reclassified later by
 		// the resolveUser path.
-		if wctx.BotUserIDs[ch.User] {
+		if isBot, _ := wctx.BotUserIDs.Get(ch.User); isBot {
 			chType = "app"
 		} else {
 			chType = "dm"

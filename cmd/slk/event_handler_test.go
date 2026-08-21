@@ -5,10 +5,11 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/sidebar"
-	"github.com/slack-go/slack"
 	"github.com/gammons/slk/internal/usernames"
+	"github.com/slack-go/slack"
 )
 
 // TestOnConversationOpened_AppendsAndSends verifies that a new mpdm event
@@ -17,7 +18,7 @@ import (
 // nil — the handler must guard all three.
 func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        map[string]bool{},
+		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 		Channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
@@ -62,7 +63,7 @@ func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 // overwrite and FinderItems dedupe are the only behaviors that remain.
 func TestOnConversationOpened_DedupesByID(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        map[string]bool{},
+		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
 		Channels: []sidebar.ChannelItem{
@@ -108,7 +109,7 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 // beyond the scope of this task.
 func TestOnConversationOpened_InactiveWorkspace_PersistsContext(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        map[string]bool{},
+		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 	}

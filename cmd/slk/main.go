@@ -31,6 +31,7 @@ import (
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/notify"
 	"github.com/gammons/slk/internal/service"
+	"github.com/gammons/slk/internal/sharedmap"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/slack/membership"
@@ -43,7 +44,6 @@ import (
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/usernames"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/presencemenu"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
@@ -53,6 +53,7 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/workspace"
+	"github.com/gammons/slk/internal/usernames"
 	versionpkg "github.com/gammons/slk/internal/version"
 	"github.com/gammons/slk/internal/wake"
 	"github.com/slack-go/slack"
@@ -137,10 +138,16 @@ type WorkspaceContext struct {
 	UserNamesByHandle map[string]string
 	// BotUserIDs is the set of user IDs known to be Slack apps or bots.
 	// Populated from the local cache on startup, from
-	// conversations.view's users array via applyBootUsers, and by any
-	// on-demand resolveUser calls. Used during channel construction to
-	// bucket app DMs into a separate "Apps" sidebar section.
-	BotUserIDs map[string]bool
+	// conversations.view's users array via applyBootUsers, and by the
+	// DM-name sweep as it classifies unresolved DMs. Used during channel
+	// construction to bucket app DMs into a separate "Apps" sidebar
+	// section.
+	//
+	// sharedmap.Map (not a plain map) because the sweep goroutine
+	// writes while the WS goroutine reads via OnConversationOpened →
+	// buildChannelItem, and a concurrent map read+write is a fatal
+	// runtime throw.
+	BotUserIDs *sharedmap.Map[string, bool]
 	// SectionStore holds the user's Slack-native sidebar sections for
 	// this workspace. Nil when use_slack_sections is disabled, the
 	// REST bootstrap failed, or this workspace hasn't connected yet.
@@ -185,17 +192,24 @@ type WorkspaceContext struct {
 	TeamName      string
 	UserID        string
 	UnresolvedDMs []UnresolvedDM
-	CustomEmoji   map[string]string // emoji name -> URL or "alias:target"
+	// customEmoji holds this workspace's emoji name -> URL (or
+	// "alias:target") map. Access it via CustomEmoji/SetCustomEmoji,
+	// never directly.
+	//
+	// atomic.Pointer (not a plain map) because the fallback fetch
+	// publishes from its own goroutine while workspace-switch cmd
+	// goroutines read.
+	//
+	// The stored map is published whole and never mutated afterwards,
+	// so readers need no further synchronization.
+	customEmoji atomic.Pointer[map[string]string]
 	// userGroups holds this workspace's usergroup ID -> handle map.
 	// Access it via UserGroups/SetUserGroups, never directly.
 	//
 	// atomic.Pointer (not a plain map) because the write happens on the
 	// background usergroups.list fetch goroutine while reads happen on
 	// the bubbletea Update/cmd goroutines (workspace switch, search) and
-	// on the RTM event loop (notification body stripping). This is where
-	// UserGroups differs from the CustomEmoji field it otherwise mirrors:
-	// CustomEmoji is only ever consumed through the tea message loop, so
-	// its single background write is never read cross-goroutine.
+	// on the RTM event loop (notification body stripping).
 	//
 	// The stored map is published once and never mutated afterwards, so
 	// readers need no further synchronization.
@@ -211,7 +225,14 @@ type WorkspaceContext struct {
 	// Populated once at connect from cache.GetChannelVisits and
 	// updated on every ChannelSelectedMsg via the visit recorder.
 	// Used to populate channelfinder.Item.LastVisited for sort.
-	LastVisitedByChannel map[string]int64
+	//
+	// sharedmap.Map (not a plain map) because the UI goroutine writes
+	// on every channel selection while the finder's search cmd
+	// goroutine iterates (topVisitedChannels) and the WS goroutine
+	// reads (OnConversationOpened) — a concurrent map iterate+write is
+	// a fatal runtime throw. Whole-map consumers take one Current()
+	// snapshot per operation.
+	LastVisitedByChannel *sharedmap.Map[string, int64]
 	// UserResolver dispatches background users.info lookups for
 	// unknown message authors. Set in connectWorkspace once the
 	// in-memory UserNames store and the *tea.Program are both available.
@@ -226,6 +247,23 @@ type WorkspaceContext struct {
 	// in connectWorkspace alongside UserResolver (it depends on the
 	// resolver to trigger external-user lookups for newly-seen IDs).
 	Membership *membership.Manager
+}
+
+// CustomEmoji returns this workspace's emoji name -> URL (or
+// "alias:target") map, or an empty map before any fetch has published
+// one. Safe to call from any goroutine; the result must be treated as
+// read-only.
+func (w *WorkspaceContext) CustomEmoji() map[string]string {
+	if m := w.customEmoji.Load(); m != nil {
+		return *m
+	}
+	return map[string]string{}
+}
+
+// SetCustomEmoji publishes an emoji map for this workspace. The caller
+// must not mutate the map afterwards.
+func (w *WorkspaceContext) SetCustomEmoji(emojis map[string]string) {
+	w.customEmoji.Store(&emojis)
 }
 
 // UserGroups returns this workspace's usergroup ID -> handle map, or an
@@ -1392,7 +1430,7 @@ func run(startupLink *slackurl.Permalink) error {
 				if wctx == nil {
 					return
 				}
-				wctx.LastVisitedByChannel[chIDStr] = time.Now().Unix()
+				wctx.LastVisitedByChannel.Set(chIDStr, time.Now().Unix())
 				teamID := wctx.TeamID
 				go func() {
 					if err := db.RecordChannelVisit(teamID, chIDStr); err != nil {
@@ -1442,7 +1480,7 @@ func run(startupLink *slackurl.Permalink) error {
 				if wctx == nil {
 					return nil
 				}
-				return searchChannelsRemote(ctx, wctx.Edge, wctx.LastVisitedByChannel, query)
+				return searchChannelsRemote(ctx, wctx.Edge, wctx.LastVisitedByChannel.Current(), query)
 			},
 			MembershipFetch: func(channelID ids.ChannelID) {
 				wctx := router.Active()
@@ -1972,7 +2010,7 @@ func run(startupLink *slackurl.Permalink) error {
 			UserNames:        wctx.UserNames,
 			ExternalUsers:    external,
 			UserID:           wctx.UserID,
-			CustomEmoji:      wctx.CustomEmoji,
+			CustomEmoji:      wctx.CustomEmoji(),
 			UserGroups:       wctx.UserGroups(),
 			SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 		}
@@ -2249,11 +2287,11 @@ func run(startupLink *slackurl.Permalink) error {
 				UserNames:        wctx.UserNames,
 				ExternalUsers:    external,
 				UserID:           wctx.UserID,
-				CustomEmoji:      wctx.CustomEmoji,  // from conversations.view, or filled by the goroutine below
-				UserGroups:       wctx.UserGroups(), // empty at this point; filled by the goroutine below
+				CustomEmoji:      wctx.CustomEmoji(), // from conversations.view, or filled by the goroutine below
+				UserGroups:       wctx.UserGroups(),  // empty at this point; filled by the goroutine below
 				SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 				InitialActive:    isInitial,
-				LastChannelID:    restoredChannelFor(paneRestore, wctx.TeamID, wctx.LastVisitedByChannel),
+				LastChannelID:    restoredChannelFor(paneRestore, wctx.TeamID, wctx.LastVisitedByChannel.Current()),
 			})
 
 			// Fetch workspace custom emojis in the background. When done,
@@ -2263,14 +2301,14 @@ func run(startupLink *slackurl.Permalink) error {
 			go func(teamID string) {
 				// Nothing to fetch when conversations.view already
 				// returned them, which is the normal path.
-				if len(wctx.CustomEmoji) > 0 {
+				if len(wctx.CustomEmoji()) > 0 {
 					return
 				}
 				emojis, err := wctx.Client.ListCustomEmoji(ctx)
 				if err != nil {
 					return
 				}
-				wctx.CustomEmoji = emojis
+				wctx.SetCustomEmoji(emojis)
 				p.Send(ui.CustomEmojisLoadedMsg{
 					TeamID:      teamID,
 					CustomEmoji: emojis,
@@ -2459,9 +2497,8 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		UserNames:            usernames.NewStore(),
 		AvatarURLs:           &sync.Map{},
 		UserNamesByHandle:    make(map[string]string),
-		BotUserIDs:           make(map[string]bool),
-		CustomEmoji:          make(map[string]string),
-		LastVisitedByChannel: make(map[string]int64),
+		BotUserIDs:           sharedmap.New[string, bool](),
+		LastVisitedByChannel: sharedmap.New[string, int64](),
 		ThreadSubsGate:       threadSubsGate{window: threadSubsSyncInterval},
 	}
 	wctx.SubscriptionsAvailable = true
@@ -2481,7 +2518,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			wctx.UserNamesByHandle[u.Name] = name
 		}
 		if u.IsBot {
-			wctx.BotUserIDs[u.ID] = true
+			wctx.BotUserIDs.Set(u.ID, true)
 		}
 		// Record the avatar URL for lazy fetch on first render.
 		//
@@ -2547,7 +2584,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	if visits, err := db.GetChannelVisits(client.TeamID()); err != nil {
 		log.Printf("warning: loading channel visits for %s: %v", token.TeamName, err)
 	} else {
-		wctx.LastVisitedByChannel = visits
+		wctx.LastVisitedByChannel = sharedmap.FromMap(visits)
 	}
 
 	// The boot sequence: client.userBoot, client.counts,
@@ -2570,7 +2607,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// so no intermediate commit leaves slk unable to boot. Until then
 	// slk does both, and the request tally goes UP.
 	res, err := bootstrap.Run(ctx, newBootstrapDeps(client, db, token.AccessToken,
-		restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel), wctx.EdgeHealth))
+		restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel.Current()), wctx.EdgeHealth))
 	if err != nil {
 		return nil, fmt.Errorf("bootstrapping %s: %w", token.TeamName, err)
 	}
@@ -2585,7 +2622,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// conversations.history fallback and when no channel was opened —
 	// the background fetch below still covers those.
 	if len(res.Emojis) > 0 {
-		wctx.CustomEmoji = res.Emojis
+		wctx.SetCustomEmoji(res.Emojis)
 	}
 	hydrateFirstSight(db, client.TeamID(), res)
 
@@ -2719,7 +2756,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			}
 		}
 		wctx.Channels = append(wctx.Channels, item)
-		finderItem.LastVisited = wctx.LastVisitedByChannel[ch.ID]
+		finderItem.LastVisited, _ = wctx.LastVisitedByChannel.Get(ch.ID)
 		wctx.FinderItems = append(wctx.FinderItems, finderItem)
 	}
 
@@ -3063,7 +3100,7 @@ func resolveDMNames(wctx *WorkspaceContext, db *cache.DB, avatarCache *avatar.Ca
 				// field on this endpoint, so none is invented; the
 				// per-user fallback below classifies the ids edge missed.
 				if u.IsBot {
-					wctx.BotUserIDs[dm.UserID] = true
+					wctx.BotUserIDs.Set(dm.UserID, true)
 				}
 				if send != nil {
 					send(ui.DMNameResolvedMsg{
@@ -3082,7 +3119,7 @@ func resolveDMNames(wctx *WorkspaceContext, db *cache.DB, avatarCache *avatar.Ca
 		}
 		resolved, isBot := resolveUser(wctx.Client, dm.UserID, wctx.UserNames, db, avatarCache)
 		if isBot {
-			wctx.BotUserIDs[dm.UserID] = true
+			wctx.BotUserIDs.Set(dm.UserID, true)
 		}
 		if resolved != dm.UserID && send != nil {
 			send(ui.DMNameResolvedMsg{
@@ -4792,7 +4829,7 @@ func (h *rtmEventHandler) OnConversationOpened(ch slack.Channel) {
 		// bootstrap (or a prior open) and carries no unread state to
 		// refresh, so re-appending would double-list the channel in
 		// Ctrl+T.
-		finderItem.LastVisited = h.wsCtx.LastVisitedByChannel[ch.ID]
+		finderItem.LastVisited, _ = h.wsCtx.LastVisitedByChannel.Get(ch.ID)
 		h.wsCtx.FinderItems = append(h.wsCtx.FinderItems, finderItem)
 	}
 

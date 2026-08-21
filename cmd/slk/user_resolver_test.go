@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/usernames"
@@ -464,7 +465,7 @@ func TestResolveDMNames(t *testing.T) {
 	wctx := &WorkspaceContext{
 		TeamID:       "T1",
 		UserNames:    usernames.NewStore(),
-		BotUserIDs:   map[string]bool{},
+		BotUserIDs:   sharedmap.New[string, bool](),
 		UserResolver: newUserResolver("T1", nil, db, nil, nil, batcher, nil),
 		UnresolvedDMs: []UnresolvedDM{
 			{ChannelID: "D_ALICE", UserID: "U_ALICE"},
@@ -500,7 +501,7 @@ func TestResolveDMNames(t *testing.T) {
 	if app == nil || app.DisplayName != "Some App" || !app.IsBot {
 		t.Errorf("D_APP got %+v; want a DMNameResolvedMsg naming Some App with IsBot true — that flag re-buckets the row into the Apps section", app)
 	}
-	if !wctx.BotUserIDs["U_APP"] {
+	if isBot, _ := wctx.BotUserIDs.Get("U_APP"); !isBot {
 		t.Error("U_APP was not recorded in BotUserIDs")
 	}
 	if n := len(batcher.calls()); n != 1 {
