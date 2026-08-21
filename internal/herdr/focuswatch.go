@@ -3,6 +3,7 @@ package herdr
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -44,6 +45,13 @@ func (l paneLocation) viewed() bool { return l.wsFocused && l.tabFocused }
 // so the unviewed edge is the cue to re-assert it; and slk treats
 // viewedness as the user having actually seen what the pane renders.
 //
+// onConnected (also on the watcher's goroutine, nil to skip) fires each
+// time the subscription is established, the initial connection included.
+// A reconnect means the server was restarting or unreachable, so any
+// report sent in the gap is gone; the signal lets the UI republish the
+// sidebar's current state instead of leaving it to the next organic
+// report.
+//
 // One limit is inherent: herdr also treats a focused terminal window as
 // part of being viewed, but publishes no event for terminal focus, so a
 // seen-wipe caused purely by the user returning to the terminal window
@@ -51,13 +59,13 @@ func (l paneLocation) viewed() bool { return l.wsFocused && l.tabFocused }
 //
 // Runs a persistent events.subscribe connection with reconnects until
 // Close, and is nil-safe.
-func (r *Reporter) WatchFocus(onViewChange func(viewed bool)) {
+func (r *Reporter) WatchFocus(onViewChange func(viewed bool), onConnected func()) {
 	if r == nil {
 		return
 	}
 	go func() {
 		for {
-			r.watchFocusOnce(onViewChange)
+			r.watchFocusOnce(onViewChange, onConnected)
 			select {
 			case <-r.stop:
 				return
@@ -71,13 +79,13 @@ func (r *Reporter) WatchFocus(onViewChange func(viewed bool)) {
 // where the pane currently sits and whether it is viewed, subscribe, then
 // fold the event stream into that viewed flag. Returns on any error, and
 // the caller reconnects.
-func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool)) {
+func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool), onConnected func()) {
 	// Resolved per connection rather than read from the launch
 	// environment: herdr can move a pane to another tab or workspace, and
 	// a stale tab id silently mistracks focus forever. Re-resolving also
 	// re-seeds viewed, so a focus change missed while disconnected can't
 	// leave the fold inverted.
-	loc, err := r.paneLocation()
+	loc, err := r.locate()
 	if err != nil {
 		debuglog.Notify("herdr: focus watch locate: %v", err)
 		return
@@ -113,6 +121,9 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool)) {
 		debuglog.Notify("herdr: focus watch subscribe: %v", err)
 		return
 	}
+	if onConnected != nil {
+		onConnected()
+	}
 	// The resolved state, before any event: a consumer that gates on
 	// viewedness needs it from the start, not from the first transition.
 	onViewChange(loc.viewed())
@@ -120,15 +131,11 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool)) {
 	for scanner.Scan() {
 		var ev struct {
 			Data struct {
-				Type        string `json:"type"`
-				TabID       string `json:"tab_id"`
-				WorkspaceID string `json:"workspace_id"`
-				PreviousID  string `json:"previous_pane_id"`
-				Pane        struct {
-					PaneID      string `json:"pane_id"`
-					TabID       string `json:"tab_id"`
-					WorkspaceID string `json:"workspace_id"`
-				} `json:"pane"`
+				Type        string   `json:"type"`
+				TabID       string   `json:"tab_id"`
+				WorkspaceID string   `json:"workspace_id"`
+				PreviousID  string   `json:"previous_pane_id"`
+				Pane        paneInfo `json:"pane"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
@@ -147,13 +154,23 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool)) {
 		case "workspace_focused":
 			loc.wsFocused = d.WorkspaceID == loc.workspaceID
 		case "pane_moved":
-			if d.PreviousID != r.paneID && d.Pane.PaneID != r.paneID {
+			// Matched by the durable terminal id first: a cross-workspace
+			// move assigns a new public pane id, so after one move the id
+			// comparisons alone would miss every later move. They stay as
+			// the fallback for an event without a terminal id. The terminal
+			// match must be positive — with no terminal id known, an empty
+			// event terminal id "matching" the empty tracked one would
+			// adopt every other pane's move.
+			id := r.identity()
+			if (id.TerminalID == "" || d.Pane.TerminalID != id.TerminalID) &&
+				d.PreviousID != id.PaneID && d.Pane.PaneID != id.PaneID {
 				continue
 			}
 			// The pane landed somewhere else: adopt the new coordinates
 			// and re-read whether that location is viewed, rather than
 			// folding further events against the tab it left.
-			moved, err := r.paneLocation()
+			r.adopt(d.Pane)
+			moved, err := r.locate()
 			if err != nil {
 				debuglog.Notify("herdr: focus watch relocate: %v", err)
 				return
@@ -168,41 +185,79 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool)) {
 	}
 }
 
-// paneLocation reads the pane's current tab and workspace, and whether
-// that tab is the focused workspace's active tab.
-func (r *Reporter) paneLocation() (paneLocation, error) {
-	var pane struct {
-		Result struct {
-			Pane struct {
-				TabID       string `json:"tab_id"`
-				WorkspaceID string `json:"workspace_id"`
-			} `json:"pane"`
-		} `json:"result"`
-	}
-	if err := r.call("pane.get", paneGetParams{PaneID: r.paneID}, &pane); err != nil {
+// locate reads the pane's current coordinates, adopts them as the
+// reporter's identity, and returns where the pane sits and whether that
+// tab is the focused workspace's active tab.
+func (r *Reporter) locate() (paneLocation, error) {
+	pane, err := r.fetchPane()
+	if err != nil {
 		return paneLocation{}, err
 	}
-	loc := paneLocation{
-		tabID:       pane.Result.Pane.TabID,
-		workspaceID: pane.Result.Pane.WorkspaceID,
+	if pane.TabID == "" || pane.WorkspaceID == "" {
+		return paneLocation{}, fmt.Errorf("pane %s has no tab or workspace", pane.PaneID)
 	}
-	if loc.tabID == "" || loc.workspaceID == "" {
-		return paneLocation{}, fmt.Errorf("pane %s has no tab or workspace", r.paneID)
+	r.adopt(pane)
+	loc := paneLocation{
+		tabID:       pane.TabID,
+		workspaceID: pane.WorkspaceID,
 	}
 	var ws struct {
-		Result struct {
-			Workspace struct {
-				Focused     bool   `json:"focused"`
-				ActiveTabID string `json:"active_tab_id"`
-			} `json:"workspace"`
-		} `json:"result"`
+		Workspace struct {
+			Focused     bool   `json:"focused"`
+			ActiveTabID string `json:"active_tab_id"`
+		} `json:"workspace"`
 	}
 	if err := r.call("workspace.get", workspaceGetParams{WorkspaceID: loc.workspaceID}, &ws); err != nil {
 		return paneLocation{}, err
 	}
-	loc.wsFocused = ws.Result.Workspace.Focused
-	loc.tabFocused = ws.Result.Workspace.ActiveTabID == loc.tabID
+	loc.wsFocused = ws.Workspace.Focused
+	loc.tabFocused = ws.Workspace.ActiveTabID == loc.tabID
 	return loc, nil
+}
+
+// fetchPane resolves the pane's current record by its tracked public id.
+// Within one herdr run a moved pane's old id keeps resolving (the server
+// aliases every previous id to the live pane), but the alias map is
+// in-memory only: a server restart wipes it, and `herdr update --handoff`
+// does so while keeping slk's process — and its now-stale id — alive.
+// pane_not_found with a known terminal id therefore falls back to
+// scanning pane.list for the terminal id, which is durable.
+func (r *Reporter) fetchPane() (paneInfo, error) {
+	id := r.identity()
+	pane, err := r.getPane(id.PaneID)
+	if err == nil {
+		return pane, nil
+	}
+	var srvErr serverError
+	if id.TerminalID != "" && errors.As(err, &srvErr) && srvErr.code == "pane_not_found" {
+		return r.findPaneByTerminal(id.TerminalID)
+	}
+	return paneInfo{}, err
+}
+
+func (r *Reporter) getPane(paneID string) (paneInfo, error) {
+	var parsed struct {
+		Pane paneInfo `json:"pane"`
+	}
+	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, &parsed); err != nil {
+		return paneInfo{}, err
+	}
+	return parsed.Pane, nil
+}
+
+func (r *Reporter) findPaneByTerminal(terminalID string) (paneInfo, error) {
+	var parsed struct {
+		Panes []paneInfo `json:"panes"`
+	}
+	if err := r.call("pane.list", struct{}{}, &parsed); err != nil {
+		return paneInfo{}, err
+	}
+	for _, pane := range parsed.Panes {
+		if pane.TerminalID == terminalID {
+			return pane, nil
+		}
+	}
+	return paneInfo{}, fmt.Errorf("no pane holds terminal %s", terminalID)
 }
 
 // subscribeFocus sends the subscription request and consumes the ack,
@@ -252,19 +307,12 @@ func (r *Reporter) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
 	return conn.SetReadDeadline(time.Time{})
 }
 
-// call sends one request and decodes its response into out.
+// call sends one request and decodes its result object into out (nil to
+// discard it); a server error response comes back as a serverError.
 func (r *Reporter) call(method string, params any, out any) error {
-	req, err := json.Marshal(request{
-		ID:     fmt.Sprintf("slk:%d", nextSeq()),
-		Method: method,
-		Params: params,
-	})
-	if err != nil {
+	result, err := r.roundTripTimeout(method, params, sendTimeout)
+	if err != nil || out == nil {
 		return err
 	}
-	resp, err := r.deliver(append(req, '\n'))
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(resp, out)
+	return json.Unmarshal(result, out)
 }

@@ -73,15 +73,22 @@ func requestSeq(t *testing.T, line string) int64 {
 }
 
 // focusServer is a fake herdr endpoint for the focus watcher: it answers
-// the pane.get / workspace.get location probes from state the test sets,
-// and streams focus events to whichever subscription connection is live.
+// the pane.get / pane.list / workspace.get location probes from state the
+// test sets, and streams focus events to whichever subscription
+// connection is live.
 type focusServer struct {
 	t *testing.T
 
 	mu          sync.Mutex
-	tabID       string
+	pane        paneInfo
 	activeTabID string
 	wsFocused   bool
+	// stale ids answer pane.get with pane_not_found, modeling a server
+	// restart that wiped the stale-id alias map.
+	stale map[string]bool
+	// foreign records answer pane.get for their own id, modeling other
+	// panes; every other id resolves to pane, herdr's alias semantics.
+	foreign map[string]paneInfo
 	// events belongs to the live subscription and is replaced on every
 	// new subscribe, so a dropped connection's reader can never consume
 	// an event meant for its successor.
@@ -104,7 +111,11 @@ func startFocusServer(t *testing.T, sock string) *focusServer {
 	}
 	t.Cleanup(func() { ln.Close() })
 	s := &focusServer{
-		t: t, tabID: "w1:t1", activeTabID: "w1:t1", wsFocused: true,
+		t:    t,
+		pane: paneInfo{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1", TerminalID: "term_a"},
+		activeTabID: "w1:t1", wsFocused: true,
+		stale:      map[string]bool{},
+		foreign:    map[string]paneInfo{},
 		subscribed: make(chan struct{}, 8),
 		done:       make(chan struct{}),
 	}
@@ -129,14 +140,37 @@ func (s *focusServer) serve(conn net.Conn) {
 	}
 	var req struct {
 		Method string `json:"method"`
+		Params struct {
+			PaneID string `json:"pane_id"`
+		} `json:"params"`
 	}
 	_ = json.Unmarshal(scanner.Bytes(), &req)
 	switch req.Method {
 	case "pane.get":
 		s.mu.Lock()
+		var resp []byte
+		if s.stale[req.Params.PaneID] {
+			resp, _ = json.Marshal(map[string]any{"id": "x", "error": map[string]any{
+				"code": "pane_not_found", "message": "pane " + req.Params.PaneID + " not found",
+			}})
+		} else if foreign, ok := s.foreign[req.Params.PaneID]; ok {
+			resp, _ = json.Marshal(map[string]any{"id": "x", "result": map[string]any{
+				"type": "pane_info",
+				"pane": foreign,
+			}})
+		} else {
+			resp, _ = json.Marshal(map[string]any{"id": "x", "result": map[string]any{
+				"type": "pane_info",
+				"pane": s.pane,
+			}})
+		}
+		s.mu.Unlock()
+		conn.Write(append(resp, '\n'))
+	case "pane.list":
+		s.mu.Lock()
 		resp, _ := json.Marshal(map[string]any{"id": "x", "result": map[string]any{
-			"type": "pane_info",
-			"pane": map[string]any{"tab_id": s.tabID, "workspace_id": "w1"},
+			"type":  "pane_list",
+			"panes": []paneInfo{s.pane},
 		}})
 		s.mu.Unlock()
 		conn.Write(append(resp, '\n'))
@@ -178,7 +212,23 @@ func (s *focusServer) serve(conn net.Conn) {
 func (s *focusServer) setLocation(tabID, activeTabID string, wsFocused bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tabID, s.activeTabID, s.wsFocused = tabID, activeTabID, wsFocused
+	s.pane.TabID, s.activeTabID, s.wsFocused = tabID, activeTabID, wsFocused
+}
+
+// setPane replaces the pane record the probes report, for tests that
+// move the pane; the terminal id stays, as it does across real moves.
+func (s *focusServer) setPane(paneID, tabID, workspaceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pane.PaneID, s.pane.TabID, s.pane.WorkspaceID = paneID, tabID, workspaceID
+}
+
+// markStale makes pane.get answer pane_not_found for id, modeling a
+// restarted server that no longer aliases a moved pane's old id.
+func (s *focusServer) markStale(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stale[id] = true
 }
 
 func (s *focusServer) send(ev map[string]any) {
@@ -218,7 +268,7 @@ func focusEvent(kind, tabID, workspaceID string) map[string]any {
 func focusWatcher(t *testing.T, r *Reporter) (view func(want bool, step string), quiet func(step string)) {
 	t.Helper()
 	views := make(chan bool, 8)
-	r.WatchFocus(func(viewed bool) { views <- viewed })
+	r.WatchFocus(func(viewed bool) { views <- viewed }, nil)
 	t.Cleanup(func() { r.Close(time.Second) })
 	view = func(want bool, step string) {
 		t.Helper()
@@ -327,8 +377,14 @@ func TestWatchFocusRejectsBadAckAndRetries(t *testing.T) {
 	r.retryDelay = 20 * time.Millisecond
 	// A line that isn't a subscription_started ack must be rejected, not
 	// taken for success: accepting it parks the watcher on a connection
-	// that will never deliver an event and never retries.
-	r.WatchFocus(func(bool) { t.Error("must not fire on a refused subscription") })
+	// that will never deliver an event and never retries. Acceptance is
+	// caught as a view report arriving before any retry subscribed; the
+	// report the retry's healthy connection sends is legitimate.
+	r.WatchFocus(func(bool) {
+		if s.subscribeCount() < 2 {
+			t.Error("must not fire on a refused subscription")
+		}
+	}, nil)
 	t.Cleanup(func() { r.Close(time.Second) })
 
 	s.waitSubscribed() // the retry, after the bad ack was rejected
@@ -337,8 +393,178 @@ func TestWatchFocusRejectsBadAckAndRetries(t *testing.T) {
 	}
 }
 
+// dropSubscription ends the live subscription connection, forcing the
+// watcher into its reconnect path.
+func (s *focusServer) dropSubscription() {
+	s.mu.Lock()
+	ch := s.events
+	s.events = nil
+	s.mu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+func moveEvent(prev string, p paneInfo) map[string]any {
+	return map[string]any{"event": "pane_moved", "data": map[string]any{
+		"type": "pane_moved", "previous_pane_id": prev, "pane": p,
+	}}
+}
+
+// waitIdentity polls until the reporter's tracked pane id becomes want.
+func waitIdentity(t *testing.T, r *Reporter, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if r.identity().PaneID == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	id := r.identity()
+	t.Fatalf("identity = %s/%s/%s, want pane %s", id.PaneID, id.TabID, id.WorkspaceID, want)
+}
+
+func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	// First cross-workspace move: the pane gets a new public id, into an
+	// unfocused workspace. The events carry no terminal id (an older
+	// herdr), so only the pane-id comparisons can match.
+	s.setPane("w2:p1", "w2:t1", "w2")
+	s.setLocation("w2:t1", "w2:t1", false)
+	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	view(false, "moved to an unfocused workspace")
+	waitIdentity(t, r, "w2:p1")
+
+	// Second move: its event names only ids from after the first move.
+	// Matching against the launch id would drop it here, freezing the
+	// watcher on w2 forever.
+	s.setPane("w3:p1", "w3:t1", "w3")
+	s.setLocation("w3:t1", "w3:t1", true)
+	s.send(moveEvent("w2:p1", paneInfo{PaneID: "w3:p1", TabID: "w3:t1", WorkspaceID: "w3"}))
+	view(true, "second move into the focused workspace")
+	waitIdentity(t, r, "w3:p1")
+	if id := r.identity(); id.TabID != "w3:t1" || id.WorkspaceID != "w3" {
+		t.Errorf("tab/workspace = %s/%s, want w3:t1/w3", id.TabID, id.WorkspaceID)
+	}
+}
+
+func TestWatchFocusMatchesMoveByTerminalID(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	// A move event whose pane ids both differ from the tracked one (the
+	// tracked id drifted, e.g. an earlier event was lost) still names the
+	// pane's terminal: that match must trigger the relocate.
+	s.setPane("w4:p2", "w4:t1", "w4")
+	s.setLocation("w4:t1", "w4:t1", false)
+	s.send(moveEvent("w9:p9", paneInfo{PaneID: "w4:p2", TabID: "w4:t1", WorkspaceID: "w4", TerminalID: "term_a"}))
+	view(false, "relocated on terminal id alone")
+	waitIdentity(t, r, "w4:p2")
+}
+
+func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	// An older herdr that reports no terminal ids at all: the tracked
+	// terminal id stays empty, and an empty event terminal id must not
+	// count as a match — that would adopt every other pane's move.
+	s.mu.Lock()
+	s.pane.TerminalID = ""
+	s.foreign["w9:p8"] = paneInfo{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}
+	s.mu.Unlock()
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	view, quiet := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	s.send(moveEvent("w9:p9", paneInfo{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}))
+	quiet("foreign pane's move")
+	if id := r.identity(); id.PaneID != "w1:p1" {
+		t.Fatalf("identity hijacked by a foreign move: %s", id.PaneID)
+	}
+
+	// The pane's own move still matches through the id fallback.
+	s.setPane("w2:p1", "w2:t1", "w2")
+	s.setLocation("w2:t1", "w2:t1", false)
+	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	view(false, "own move into an unfocused workspace")
+	waitIdentity(t, r, "w2:p1")
+}
+
+func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r.retryDelay = 20 * time.Millisecond
+	connects := make(chan struct{}, 8)
+	views := make(chan bool, 8)
+	r.WatchFocus(func(viewed bool) { views <- viewed }, func() { connects <- struct{}{} })
+	t.Cleanup(func() { r.Close(time.Second) })
+	waitSignal := func(step string) {
+		t.Helper()
+		select {
+		case <-connects:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: no connect signal", step)
+		}
+	}
+	s.waitSubscribed()
+	waitSignal("initial connect")
+	<-views // initial viewed state; the first pane.get learned term_a
+
+	// A herdr restart via `update --handoff`: slk's process (and this
+	// watcher) survive, the pane keeps living under a new id, and the
+	// old id no longer resolves — the alias map is in-memory only.
+	s.markStale("w1:p1")
+	s.setPane("w5:p2", "w5:t1", "w5")
+	s.setLocation("w5:t1", "w5:t1", true)
+	s.dropSubscription()
+
+	// The reconnect must fall back to pane.list by terminal id, adopt the
+	// new id, and resubscribe.
+	s.waitSubscribed()
+	waitSignal("reconnect")
+	waitIdentity(t, r, "w5:p2")
+}
+
+func TestReportsDuringMovesNoRace(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	// Reports race the watcher's identity adoption; run under -race this
+	// exercises the lock rather than merely asserting it exists.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 40; i++ {
+			r.Report("slack-claude", "Claude", "#eng fix retries", i%2 == 0, "")
+		}
+	}()
+	for i := 1; i <= 10; i++ {
+		pane := fmt.Sprintf("w2:p%d", i)
+		s.setPane(pane, "w2:t1", "w2")
+		s.send(moveEvent("w1:p1", paneInfo{PaneID: pane, TabID: "w2:t1", WorkspaceID: "w2", TerminalID: "term_a"}))
+	}
+	<-done
+}
+
 func TestWatchFocusNilSafe(t *testing.T) {
 	var r *Reporter
-	r.WatchFocus(func(bool) { t.Error("must not fire") })
+	r.WatchFocus(func(bool) { t.Error("must not fire") }, func() { t.Error("must not connect") })
 	time.Sleep(20 * time.Millisecond)
 }

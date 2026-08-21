@@ -53,11 +53,8 @@ func nextSeq() int64 {
 // herdr side by a seq captured at call time) and is safe on a nil
 // receiver, so callers outside a herdr pane need no guards.
 type Reporter struct {
-	network     string
-	addr        string
-	paneID      string
-	tabID       string
-	workspaceID string
+	network string
+	addr    string
 
 	wg sync.WaitGroup
 
@@ -68,6 +65,18 @@ type Reporter struct {
 	retryDelay time.Duration
 
 	mu sync.Mutex
+	// paneID, tabID, and workspaceID are the pane's current coordinates.
+	// They start as the launch env's values and go stale when herdr moves
+	// the pane (a cross-workspace move assigns a new public pane id); the
+	// focus watcher is their only writer, adopting what the server
+	// reports (see adopt). Every request reads them at build time.
+	paneID      string
+	tabID       string
+	workspaceID string
+	// terminalID is the pane's durable handle (term_…), stable across
+	// moves and server restarts where the public ids are not. Not in the
+	// launch env: empty until the watcher's first successful pane.get.
+	terminalID string
 	// agent is the id from the last report, carried into release because
 	// pane.release_agent requires it. Empty means no entry to release.
 	agent string
@@ -119,6 +128,47 @@ func newReporter(network, addr, paneID, tabID string) *Reporter {
 	}
 }
 
+// paneInfo is the slice of a server-reported pane record that identifies
+// the pane and places it.
+type paneInfo struct {
+	PaneID      string `json:"pane_id"`
+	TabID       string `json:"tab_id"`
+	WorkspaceID string `json:"workspace_id"`
+	TerminalID  string `json:"terminal_id"`
+}
+
+func (r *Reporter) identity() paneInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return paneInfo{
+		PaneID:      r.paneID,
+		TabID:       r.tabID,
+		WorkspaceID: r.workspaceID,
+		TerminalID:  r.terminalID,
+	}
+}
+
+// adopt records a server-reported pane record as the pane's current
+// coordinates, field-wise so a record with gaps (an older herdr omitting
+// terminal_id) can't blank what is already known. Called only from the
+// focus watcher's goroutine.
+func (r *Reporter) adopt(p paneInfo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p.PaneID != "" {
+		r.paneID = p.PaneID
+	}
+	if p.TabID != "" {
+		r.tabID = p.TabID
+	}
+	if p.WorkspaceID != "" {
+		r.workspaceID = p.WorkspaceID
+	}
+	if p.TerminalID != "" {
+		r.terminalID = p.TerminalID
+	}
+}
+
 type request struct {
 	ID     string `json:"id"`
 	Method string `json:"method"`
@@ -160,6 +210,7 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 	}
 	r.mu.Lock()
 	r.agent = agent
+	paneID := r.paneID
 	r.mu.Unlock()
 	state := "idle"
 	if working {
@@ -175,7 +226,7 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 			ID:     fmt.Sprintf("slk:%d", seq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID:  r.paneID,
+				PaneID:  paneID,
 				Source:  source,
 				Agent:   agent,
 				State:   state,
@@ -187,7 +238,7 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 			ID:     fmt.Sprintf("slk:%d", metaSeq),
 			Method: "pane.report_metadata",
 			Params: reportMetadataParams{
-				PaneID:       r.paneID,
+				PaneID:       paneID,
 				Source:       source,
 				DisplayAgent: displayName,
 				Title:        title,
@@ -212,6 +263,7 @@ func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string)
 	}
 	r.mu.Lock()
 	r.agent = agent
+	paneID := r.paneID
 	r.mu.Unlock()
 	workingSeq := nextSeq()
 	idleSeq := nextSeq()
@@ -221,7 +273,7 @@ func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string)
 			ID:     fmt.Sprintf("slk:%d", workingSeq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID: r.paneID,
+				PaneID: paneID,
 				Source: source,
 				Agent:  agent,
 				State:  "working",
@@ -232,7 +284,7 @@ func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string)
 			ID:     fmt.Sprintf("slk:%d", idleSeq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID:  r.paneID,
+				PaneID:  paneID,
 				Source:  source,
 				Agent:   agent,
 				State:   "idle",
@@ -244,7 +296,7 @@ func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string)
 			ID:     fmt.Sprintf("slk:%d", metaSeq),
 			Method: "pane.report_metadata",
 			Params: reportMetadataParams{
-				PaneID:       r.paneID,
+				PaneID:       paneID,
 				Source:       source,
 				DisplayAgent: displayName,
 				Title:        title,
@@ -262,6 +314,7 @@ func (r *Reporter) release() {
 	}
 	r.mu.Lock()
 	agent := r.agent
+	paneID := r.paneID
 	r.mu.Unlock()
 	if agent == "" {
 		return
@@ -273,7 +326,7 @@ func (r *Reporter) release() {
 	r.send(request{
 		ID:     fmt.Sprintf("slk:%d", seq),
 		Method: "pane.release_agent",
-		Params: releaseAgentParams{PaneID: r.paneID, Source: source, Agent: agent, Seq: seq},
+		Params: releaseAgentParams{PaneID: paneID, Source: source, Agent: agent, Seq: seq},
 	})
 }
 
@@ -308,13 +361,13 @@ type reportTokensParams struct {
 // the same pane.
 const tabLabelToken = "slk_tab_label"
 
-// NameTab renames the pane's herdr tab to label — but only over a label
-// herdr assigned by default (the tab's position digits) or one NameTab set
-// itself, tracked via a pane-metadata token; a label the user typed is
-// never overwritten. No-op without a tab id (HERDR_TAB_ID absent) and
-// nil-safe.
+// NameTab renames the pane's current herdr tab to label — but only over a
+// label herdr assigned by default (the tab's position digits) or one
+// NameTab set itself, tracked via a pane-metadata token; a label the user
+// typed is never overwritten. No-op without a tab id (HERDR_TAB_ID absent
+// and the focus watcher hasn't resolved one yet) and nil-safe.
 func (r *Reporter) NameTab(label string) {
-	if r == nil || r.tabID == "" || label == "" {
+	if r == nil || label == "" {
 		return
 	}
 	r.wg.Add(1)
@@ -322,7 +375,15 @@ func (r *Reporter) NameTab(label string) {
 		defer r.wg.Done()
 		r.tabMu.Lock()
 		defer r.tabMu.Unlock()
-		current, err := r.tabLabel()
+		// One identity snapshot for the whole read-then-rename sequence,
+		// so the reads and the rename target one tab. A move landing
+		// mid-sequence can still rename the tab the pane just left;
+		// accepted, the window is a few sequential socket round-trips.
+		id := r.identity()
+		if id.TabID == "" {
+			return
+		}
+		current, err := r.tabLabel(id.TabID)
 		if err != nil {
 			debuglog.Notify("herdr: tab.get: %v", err)
 			return
@@ -330,10 +391,10 @@ func (r *Reporter) NameTab(label string) {
 		if current == label {
 			// Already named, possibly by a previous slk run in this pane;
 			// claim it so later renames keep working.
-			r.recordTabLabel(label)
+			r.recordTabLabel(id.PaneID, label)
 			return
 		}
-		owned, err := r.ownsTabLabel(current)
+		owned, err := r.ownsTabLabel(id.PaneID, current)
 		if err != nil {
 			debuglog.Notify("herdr: pane.get: %v", err)
 			return
@@ -341,98 +402,53 @@ func (r *Reporter) NameTab(label string) {
 		if !owned && !isDefaultTabLabel(current) {
 			return
 		}
-		req, err := json.Marshal(request{
-			ID:     fmt.Sprintf("slk:%d", nextSeq()),
-			Method: "tab.rename",
-			Params: tabRenameParams{TabID: r.tabID, Label: label},
-		})
-		if err != nil {
-			debuglog.Notify("herdr: encode tab.rename: %v", err)
-			return
-		}
-		if _, err := r.deliver(append(req, '\n')); err != nil {
+		if err := r.call("tab.rename", tabRenameParams{TabID: id.TabID, Label: label}, nil); err != nil {
 			debuglog.Notify("herdr: tab.rename: %v", err)
 			return
 		}
-		r.recordTabLabel(label)
+		r.recordTabLabel(id.PaneID, label)
 	}()
 }
 
 // ownsTabLabel reports whether current is a label NameTab set: the pane's
 // ownership token matches it.
-func (r *Reporter) ownsTabLabel(current string) (bool, error) {
-	req, err := json.Marshal(request{
-		ID:     fmt.Sprintf("slk:%d", nextSeq()),
-		Method: "pane.get",
-		Params: paneGetParams{PaneID: r.paneID},
-	})
-	if err != nil {
-		return false, err
-	}
-	resp, err := r.deliver(append(req, '\n'))
-	if err != nil {
-		return false, err
-	}
+func (r *Reporter) ownsTabLabel(paneID, current string) (bool, error) {
 	var parsed struct {
-		Result struct {
-			Pane struct {
-				Tokens map[string]string `json:"tokens"`
-			} `json:"pane"`
-		} `json:"result"`
+		Pane struct {
+			Tokens map[string]string `json:"tokens"`
+		} `json:"pane"`
 	}
-	if err := json.Unmarshal(resp, &parsed); err != nil {
+	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, &parsed); err != nil {
 		return false, err
 	}
-	return parsed.Result.Pane.Tokens[tabLabelToken] == current, nil
+	return parsed.Pane.Tokens[tabLabelToken] == current, nil
 }
 
 // recordTabLabel stores the ownership token; failures only cost a future
 // rename, so they are logged and dropped.
-func (r *Reporter) recordTabLabel(label string) {
-	req, err := json.Marshal(request{
-		ID:     fmt.Sprintf("slk:%d", nextSeq()),
-		Method: "pane.report_metadata",
-		Params: reportTokensParams{
-			PaneID: r.paneID,
-			Source: source,
-			Tokens: map[string]string{tabLabelToken: label},
-			Seq:    nextSeq(),
-		},
-	})
+func (r *Reporter) recordTabLabel(paneID, label string) {
+	err := r.call("pane.report_metadata", reportTokensParams{
+		PaneID: paneID,
+		Source: source,
+		Tokens: map[string]string{tabLabelToken: label},
+		Seq:    nextSeq(),
+	}, nil)
 	if err != nil {
-		debuglog.Notify("herdr: encode token write: %v", err)
-		return
-	}
-	if _, err := r.deliver(append(req, '\n')); err != nil {
 		debuglog.Notify("herdr: token write: %v", err)
 	}
 }
 
 // tabLabel fetches the tab's current label via tab.get.
-func (r *Reporter) tabLabel() (string, error) {
-	req, err := json.Marshal(request{
-		ID:     fmt.Sprintf("slk:%d", time.Now().UnixNano()),
-		Method: "tab.get",
-		Params: tabGetParams{TabID: r.tabID},
-	})
-	if err != nil {
-		return "", err
-	}
-	resp, err := r.deliver(append(req, '\n'))
-	if err != nil {
-		return "", err
-	}
+func (r *Reporter) tabLabel(tabID string) (string, error) {
 	var parsed struct {
-		Result struct {
-			Tab struct {
-				Label string `json:"label"`
-			} `json:"tab"`
-		} `json:"result"`
+		Tab struct {
+			Label string `json:"label"`
+		} `json:"tab"`
 	}
-	if err := json.Unmarshal(resp, &parsed); err != nil {
+	if err := r.call("tab.get", tabGetParams{TabID: tabID}, &parsed); err != nil {
 		return "", err
 	}
-	return parsed.Result.Tab.Label, nil
+	return parsed.Tab.Label, nil
 }
 
 // isDefaultTabLabel reports whether label is a herdr-assigned default: an

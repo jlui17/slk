@@ -128,6 +128,17 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 						} `json:"params"`
 					}
 					_ = json.Unmarshal([]byte(line), &req)
+					if rec.methodSilent(req.Method) {
+						return
+					}
+					if msg := rec.methodError(req.Method); msg != "" {
+						resp, _ := json.Marshal(map[string]any{
+							"id":    "x",
+							"error": map[string]any{"code": "boom", "message": msg},
+						})
+						conn.Write(append(resp, '\n'))
+						return
+					}
 					switch req.Method {
 					case "tab.get":
 						resp, _ := json.Marshal(map[string]any{
@@ -156,17 +167,6 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 					default:
-						if rec.methodSilent(req.Method) {
-							break
-						}
-						if msg := rec.methodError(req.Method); msg != "" {
-							resp, _ := json.Marshal(map[string]any{
-								"id":    "x",
-								"error": map[string]any{"code": "boom", "message": msg},
-							})
-							conn.Write(append(resp, '\n'))
-							break
-						}
 						if req.Method == "tab.create" {
 							conn.Write([]byte(`{"id":"x","result":{"type":"tab_created","tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}` + "\n"))
 							break
@@ -207,6 +207,81 @@ func decode(t *testing.T, line string) (method string, params map[string]any) {
 		t.Errorf("request %q has empty id", line)
 	}
 	return req.Method, req.Params
+}
+
+func TestRequestsFollowAdoptedIdentity(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	// What the focus watcher does after a cross-workspace move: every
+	// request from here on must target the new coordinates, not the
+	// launch env's.
+	r.adopt(paneInfo{PaneID: "w2:p9", TabID: "w2:t9", WorkspaceID: "w2", TerminalID: "term_a"})
+
+	r.Report("slack-claude", "Claude", "#eng fix retries", true, "")
+	for _, line := range waitLines(t, rec, 2) {
+		method, params := decode(t, line)
+		if params["pane_id"] != "w2:p9" {
+			t.Errorf("%s pane_id = %v, want w2:p9", method, params["pane_id"])
+		}
+	}
+
+	// tab.get, pane.get, tab.rename, token write — all on the new tab
+	// and pane.
+	r.NameTab("fix retries")
+	for _, line := range waitLines(t, rec, 6)[2:] {
+		method, params := decode(t, line)
+		if id, has := params["tab_id"]; has && id != "w2:t9" {
+			t.Errorf("%s tab_id = %v, want w2:t9", method, id)
+		}
+		if id, has := params["pane_id"]; has && id != "w2:p9" {
+			t.Errorf("%s pane_id = %v, want w2:p9", method, id)
+		}
+	}
+
+	if err := r.OpenTab("slk", "slk", "https://example.test"); err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+	found := false
+	for _, line := range rec.snapshot() {
+		method, params := decode(t, line)
+		if method != "tab.create" {
+			continue
+		}
+		found = true
+		if params["workspace_id"] != "w2" {
+			t.Errorf("tab.create workspace_id = %v, want w2", params["workspace_id"])
+		}
+	}
+	if !found {
+		t.Error("OpenTab sent no tab.create")
+	}
+
+	before := len(rec.snapshot())
+	r.release()
+	method, params := decode(t, waitLines(t, rec, before+1)[before])
+	if method != "pane.release_agent" || params["pane_id"] != "w2:p9" {
+		t.Errorf("release: %s %v", method, params)
+	}
+}
+
+func TestNameTabAbortsOnServerError(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	rec.setMethodError("tab.get", "tab w1:t1 not found")
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+
+	// A tab.get error reply must abort the rename. Parsed as success it
+	// reads as an empty label, which counts as a herdr default and lets
+	// NameTab rename a tab it could not even read — exactly the state a
+	// pane move or server restart leaves behind.
+	r.NameTab("fix retries")
+	r.Close(time.Second)
+	for _, line := range rec.snapshot() {
+		if method, _ := decode(t, line); method == "tab.rename" {
+			t.Fatal("NameTab renamed despite tab.get failing")
+		}
+	}
 }
 
 func TestReport(t *testing.T) {

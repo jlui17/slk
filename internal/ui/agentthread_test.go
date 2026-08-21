@@ -412,6 +412,39 @@ func TestAgentThreadUnfocusReassertsUnread(t *testing.T) {
 	}
 }
 
+func TestHerdrConnectedRepublishesTrackedThread(t *testing.T) {
+	a, calls, unreads := newAgentTestApp()
+
+	// No tracked thread: nothing to republish.
+	if _, handled := reduceAgentThread(a, HerdrConnectedMsg{}); !handled {
+		t.Fatal("reducer must claim HerdrConnectedMsg")
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("republish with no tracked thread; got %+v", *calls)
+	}
+
+	// A reconnect means reports sent while herdr was away are gone; the
+	// tracked thread's current state must be restated.
+	openAgentThread(a, "<@UBOT> please fix the ingest retries")
+	*calls = nil
+	reduceAgentThread(a, HerdrConnectedMsg{})
+	if len(*calls) != 1 || (*calls)[0].agent != "slack-claude" || (*calls)[0].working {
+		t.Fatalf("reconnect must republish the tracked state; calls=%+v", *calls)
+	}
+
+	// Unread state rides the republished report's status text, never a
+	// synthetic completion: a reconnect must not light the unseen dot.
+	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
+	*calls, *unreads = nil, nil
+	reduceAgentThread(a, HerdrConnectedMsg{})
+	if len(*calls) != 1 || (*calls)[0].status != "1 unread reply" {
+		t.Fatalf("republish must carry the unread count; calls=%+v", *calls)
+	}
+	if len(*unreads) != 0 {
+		t.Fatalf("republish must never be a completion; got %+v", *unreads)
+	}
+}
+
 func TestAgentThreadReopenMarksRead(t *testing.T) {
 	a, calls, _ := newAgentTestApp()
 	openAgentThread(a, "<@UBOT> hi")

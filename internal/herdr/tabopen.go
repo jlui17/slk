@@ -57,14 +57,20 @@ type tabCloseParams struct {
 	TabID string `json:"tab_id"`
 }
 
-// CanOpenTab reports whether OpenTab has a target space: slk's pane env
-// included HERDR_WORKSPACE_ID.
+// CanOpenTab reports whether OpenTab has a target space: a workspace id
+// from the launch env, or one the focus watcher has adopted since. The
+// wiring gates on it once at startup — before the watcher first
+// resolves — so a pane whose env lacked HERDR_WORKSPACE_ID never gets
+// the opener installed even after a workspace id is adopted.
 func (r *Reporter) CanOpenTab() bool {
-	return r != nil && r.workspaceID != ""
+	if r == nil {
+		return false
+	}
+	return r.identity().WorkspaceID != ""
 }
 
-// OpenTab creates a focused tab in the pane's herdr space labeled label
-// and runs `<openCommand> '<rawURL>'` in the tab's root-pane shell.
+// OpenTab creates a focused tab in the pane's current herdr space labeled
+// label and runs `<openCommand> '<rawURL>'` in the tab's root-pane shell.
 // Blocking (several socket round-trips, waiting for the tab's shell to
 // paint its prompt); call it off the UI goroutine. Not tracked by
 // Close: quitting slk mid-open abandons the sequence, worst case
@@ -74,7 +80,7 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string) error {
 		return errors.New("no herdr workspace id")
 	}
 	created, err := r.roundTrip("tab.create", tabCreateParams{
-		WorkspaceID: r.workspaceID,
+		WorkspaceID: r.identity().WorkspaceID,
 		Label:       label,
 		Focus:       true,
 	})
@@ -128,13 +134,20 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string) error {
 // serverError is an error response from herdr — the request was
 // received and rejected — as opposed to a transport failure, where the
 // request's server-side effect is unknown.
-type serverError struct{ msg string }
+type serverError struct {
+	code string
+	msg  string
+}
 
 func (e serverError) Error() string { return e.msg }
 
 // roundTrip sends one request and returns the raw result object, or the
 // server's error as a Go error.
 func (r *Reporter) roundTrip(method string, params any) (json.RawMessage, error) {
+	return r.roundTripTimeout(method, params, openTabTimeout)
+}
+
+func (r *Reporter) roundTripTimeout(method string, params any, timeout time.Duration) (json.RawMessage, error) {
 	req, err := json.Marshal(request{
 		ID:     fmt.Sprintf("slk:%d", nextSeq()),
 		Method: method,
@@ -143,7 +156,7 @@ func (r *Reporter) roundTrip(method string, params any) (json.RawMessage, error)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := r.deliverTimeout(append(req, '\n'), openTabTimeout)
+	resp, err := r.deliverTimeout(append(req, '\n'), timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +166,7 @@ func (r *Reporter) roundTrip(method string, params any) (json.RawMessage, error)
 	var parsed struct {
 		Result json.RawMessage `json:"result"`
 		Error  *struct {
+			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
@@ -160,7 +174,7 @@ func (r *Reporter) roundTrip(method string, params any) (json.RawMessage, error)
 		return nil, err
 	}
 	if parsed.Error != nil {
-		return nil, serverError{msg: parsed.Error.Message}
+		return nil, serverError{code: parsed.Error.Code, msg: parsed.Error.Message}
 	}
 	return parsed.Result, nil
 }

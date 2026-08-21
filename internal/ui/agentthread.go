@@ -34,6 +34,13 @@ type AgentUnreadReportFunc func(agent, displayName, title, statusMessage string)
 // answer is the one that doesn't withhold what the user can see.
 type HerdrTabViewMsg struct{ Viewed bool }
 
+// HerdrConnectedMsg is dispatched each time the herdr focus watcher
+// establishes its event subscription, the initial connection included. A
+// reconnect means herdr was restarting or unreachable, so reports sent in
+// the gap are gone (they are fire-and-forget); the tracked agent thread
+// answers by republishing its current state.
+type HerdrConnectedMsg struct{}
+
 // PaneViewed reports whether the user can currently see what this pane
 // renders: inside herdr, whether its tab is the focused workspace's
 // active tab; outside herdr, always true, since nothing can say
@@ -538,6 +545,14 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// thread stayed unread; leaving it is the moment to re-assert.
 		if !m.Viewed && a.agentSidebar.thread.active && a.agentSidebar.unreadTotal() > 0 {
 			a.reportAgentThreadUnread()
+		}
+		return nil, true
+
+	case HerdrConnectedMsg:
+		// A plain state report, never a completion: restoring the row
+		// after a reconnect must not light the unseen indicator.
+		if a.agentSidebar.thread.active {
+			a.reportAgentThreadState()
 		}
 		return nil, true
 	}

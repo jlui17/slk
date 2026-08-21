@@ -2069,7 +2069,10 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// The focus watcher dispatches into the program loop, so it can only
 	// start once `p` exists.
-	herdrReporter.WatchFocus(func(viewed bool) { p.Send(ui.HerdrTabViewMsg{Viewed: viewed}) })
+	herdrReporter.WatchFocus(
+		func(viewed bool) { p.Send(ui.HerdrTabViewMsg{Viewed: viewed}) },
+		func() { p.Send(ui.HerdrConnectedMsg{}) },
+	)
 
 	// Now that `p` exists, re-install the ImageContext with a real
 	// SendMsg callback so the prefetcher can dispatch ImageReadyMsg
