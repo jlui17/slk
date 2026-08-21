@@ -1153,6 +1153,7 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 			item := linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
 			if pl, ok := slackurl.Parse(l.URL); ok {
 				item.Display = a.permalinkRowText(pl, item.InApp)
+				item.Detail = l.URL
 				if item.InApp {
 					previews = append(previews, a.fetchLinkPreview(a.linkPreviewGen, i, pl))
 				}

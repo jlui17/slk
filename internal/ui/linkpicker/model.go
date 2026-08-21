@@ -14,8 +14,9 @@ type Item struct {
 	// decoded permalink description, later the fetched message
 	// snippet). URL stays the open target either way.
 	Display string
-	// Detail is trailing muted info shown after the label (e.g. file
-	// size). Empty for link rows.
+	// Detail is trailing muted info: the file size for file rows, the
+	// raw URL for permalink rows still showing their decoded fallback
+	// (SetDisplay clears it once a preview fills the row).
 	Detail string
 	// InApp marks links that the router will navigate inside slk
 	// (active-workspace archive permalinks); rendered with a badge.
@@ -57,12 +58,15 @@ func (m *Model) Close() {
 }
 
 // SetDisplay replaces row index's Display text in place (async
-// preview fill). Out-of-range indexes are ignored.
+// preview fill) and drops its Detail: the preview distinguishes the
+// row, so the muted URL suffix has done its job. Out-of-range indexes
+// are ignored.
 func (m *Model) SetDisplay(index int, display string) {
 	if index < 0 || index >= len(m.items) {
 		return
 	}
 	m.items[index].Display = display
+	m.items[index].Detail = ""
 }
 
 // IsVisible reports whether the picker is showing.

@@ -44,6 +44,7 @@ func (m *Model) renderBox(termWidth int) string {
 		Render(m.title)
 
 	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
+	mutedStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
 
 	var rows []string
 	for i, it := range m.items {
@@ -57,9 +58,6 @@ func (m *Model) renderBox(termWidth int) string {
 		case it.URL != "" && it.URL != it.Label:
 			parts = append(parts, it.URL)
 		}
-		if it.Detail != "" {
-			parts = append(parts, it.Detail)
-		}
 		text := strings.Join(parts, "  ")
 		badge := ""
 		if it.InApp {
@@ -72,25 +70,33 @@ func (m *Model) renderBox(termWidth int) string {
 		if lipgloss.Width(text) > budget {
 			text = truncate.StringWithTail(text, uint(budget), "\u2026")
 		}
-		var row string
-		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
-			body := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(budget).
-				Render(text)
-			row = indicator + body + badgeStyle.Render(badge)
+		// Detail rides muted in whatever space the main text leaves;
+		// dropped entirely when the row is too tight for it to help.
+		detail := it.Detail
+		detailBudget := budget - lipgloss.Width(text) - 2
+		if detail != "" && detailBudget >= 4 {
+			if lipgloss.Width(detail) > detailBudget {
+				detail = truncate.StringWithTail(detail, uint(detailBudget), "\u2026")
+			}
 		} else {
-			body := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextPrimary).
-				Width(budget).
-				Render(text)
-			row = " " + body + badgeStyle.Render(badge)
+			detail = ""
 		}
-		rows = append(rows, row)
+		mainStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary)
+		indicator := " "
+		if i == m.selected {
+			mainStyle = mainStyle.Foreground(styles.Primary).Bold(true)
+			indicator = lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
+		}
+		row := indicator + mainStyle.Render(text)
+		used := lipgloss.Width(text)
+		if detail != "" {
+			row += mutedStyle.Render("  " + detail)
+			used += 2 + lipgloss.Width(detail)
+		}
+		if used < budget {
+			row += mainStyle.Render(strings.Repeat(" ", budget-used))
+		}
+		rows = append(rows, row+badgeStyle.Render(badge))
 	}
 
 	footer := lipgloss.NewStyle().
