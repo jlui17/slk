@@ -465,6 +465,10 @@ func (a *App) agentThreadTitle(channelID, flat string) string {
 // occurrence wins because task ids conventionally lead the message.
 var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
 
+// strayPunctRe matches punctuation left dangling between spaces once the
+// task id is lifted out of the middle of a sentence.
+var strayPunctRe = regexp.MustCompile(`\s+[:,;.\-]+(\s|$)`)
+
 // agentTabLabel derives a short tab name from the flattened root text with
 // the agent's own mention already stripped (the tab bar has no room for the
 // part every agent thread shares). A task id anywhere in the text is
@@ -478,8 +482,15 @@ func agentTabLabel(flat string) string {
 	}
 	const maxLabel = 30
 	if id := taskIDRe.FindString(label); id != "" {
-		rest := strings.Join(strings.Fields(strings.Replace(label, id, "", 1)), " ")
+		// Lifting the id out of mid-sentence strands the punctuation that
+		// surrounded it ("traffic for slk-373, the fix" would leave
+		// "traffic for , the fix"), so collapse the gap it left before
+		// trimming the head.
+		rest := strings.Replace(label, id, "", 1)
+		rest = strayPunctRe.ReplaceAllString(rest, " ")
+		rest = strings.Join(strings.Fields(rest), " ")
 		rest = strings.TrimLeft(rest, ":,;.- ")
+		rest = strings.TrimRight(rest, ":,;- ")
 		if rest == "" {
 			return "[" + id + "]"
 		}

@@ -135,6 +135,11 @@ func TestAgentTabLabelHoistsTaskID(t *testing.T) {
 		{"please babysit colony-71 until merge", "[colony-71] please babysit until merge"},
 		{"colony-562", "[colony-562]"},
 		{"fix the ingest retries", "fix the ingest retries"},
+		// Lifting the id out of mid-sentence must not strand the
+		// punctuation that surrounded it.
+		{"verification traffic for slk-373, the whole path", "[slk-373] verification traffic for the …"},
+		{"see colony-71 - then ship it", "[colony-71] see then ship it"},
+		{"ship colony-9.", "[colony-9] ship"},
 	}
 	for _, c := range cases {
 		if got := agentTabLabel(c.flat); got != c.want {
