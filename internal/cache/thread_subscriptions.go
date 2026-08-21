@@ -60,9 +60,8 @@ ON CONFLICT(workspace_id, channel_id, thread_ts) DO UPDATE SET
 // subscriptions.thread.getView) and the newest cached message in the
 // thread, parent row included. "" when the thread is entirely unknown.
 // Built from the same inputs as ListSubscribedThreads' Unread column,
-// with two divergences: this includes the parent row (the list's
-// cached-max subquery does not), and the list additionally suppresses
-// a self-authored newest reply.
+// with one divergence: the list additionally suppresses a self-authored
+// newest message.
 func (db *DB) ThreadNewestActivity(workspaceID, channelID, threadTS string) (string, error) {
 	const q = `
 SELECT
