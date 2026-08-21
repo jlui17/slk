@@ -1,8 +1,9 @@
-// Package herdr reports the currently open agent thread to herdr's
-// agent sidebar over herdr's socket API: one fresh connection per
+// Package herdr talks to herdr's socket API: one fresh connection per
 // request — the server handles a single newline-delimited JSON request
 // per connection and silently discards pipelined extras — with one JSON
-// response line each (read best-effort, contents ignored).
+// response line each. The agent-sidebar reporting (Report/Release/
+// NameTab) reads responses best-effort; OpenTab parses results and
+// surfaces server errors.
 package herdr
 
 import (
@@ -51,10 +52,11 @@ func nextSeq() int64 {
 // herdr side by a seq captured at call time) and is safe on a nil
 // receiver, so callers outside a herdr pane need no guards.
 type Reporter struct {
-	network string
-	addr    string
-	paneID  string
-	tabID   string
+	network     string
+	addr        string
+	paneID      string
+	tabID       string
+	workspaceID string
 
 	wg sync.WaitGroup
 
@@ -85,13 +87,18 @@ func NewReporterFromEnv() *Reporter {
 	// HERDR_TAB_ID is optional: without it NameTab is a no-op and the
 	// agent-sidebar reporting still works.
 	tabID := os.Getenv("HERDR_TAB_ID")
+	var r *Reporter
 	if addr := os.Getenv("SLK_HERDR_ADDR"); addr != "" {
-		return newReporter("tcp", addr, paneID, tabID)
+		r = newReporter("tcp", addr, paneID, tabID)
+	} else if path := os.Getenv("HERDR_SOCKET_PATH"); path != "" {
+		r = newReporter("unix", path, paneID, tabID)
+	} else {
+		return nil
 	}
-	if path := os.Getenv("HERDR_SOCKET_PATH"); path != "" {
-		return newReporter("unix", path, paneID, tabID)
-	}
-	return nil
+	// HERDR_WORKSPACE_ID is optional: without it OpenTab is unavailable
+	// (CanOpenTab false) and the sidebar reporting still works.
+	r.workspaceID = os.Getenv("HERDR_WORKSPACE_ID")
+	return r
 }
 
 func newReporter(network, addr, paneID, tabID string) *Reporter {
@@ -418,12 +425,18 @@ func (r *Reporter) send(reqs ...request) {
 // deliver sends one request line over a fresh connection and returns the
 // single response line (empty when the server closes without replying).
 func (r *Reporter) deliver(line []byte) ([]byte, error) {
-	conn, err := net.DialTimeout(r.network, r.addr, sendTimeout)
+	return r.deliverTimeout(line, sendTimeout)
+}
+
+// deliverTimeout is deliver with a caller-chosen dial+IO deadline, for
+// requests the server serves synchronously (OpenTab's round-trips).
+func (r *Reporter) deliverTimeout(line []byte, timeout time.Duration) ([]byte, error) {
+	conn, err := net.DialTimeout(r.network, r.addr, timeout)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(sendTimeout))
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(line); err != nil {
 		return nil, err
 	}

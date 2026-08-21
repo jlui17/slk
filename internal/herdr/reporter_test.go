@@ -11,10 +11,46 @@ import (
 )
 
 type recorder struct {
-	mu       sync.Mutex
-	lines    []string
-	tabLabel string
-	tokens   map[string]string
+	mu            sync.Mutex
+	lines         []string
+	tabLabel      string
+	tokens        map[string]string
+	methodErrors  map[string]string
+	silentMethods map[string]bool
+}
+
+// setMethodSilent makes the fake server close method's connection
+// without replying (a transport failure from the client's view).
+func (r *recorder) setMethodSilent(method string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.silentMethods == nil {
+		r.silentMethods = map[string]bool{}
+	}
+	r.silentMethods[method] = true
+}
+
+func (r *recorder) methodSilent(method string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.silentMethods[method]
+}
+
+// setMethodError makes the fake server answer method with an error
+// response carrying msg.
+func (r *recorder) setMethodError(method, msg string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.methodErrors == nil {
+		r.methodErrors = map[string]string{}
+	}
+	r.methodErrors[method] = msg
+}
+
+func (r *recorder) methodError(method string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.methodErrors[method]
 }
 
 func (r *recorder) add(line string) {
@@ -120,6 +156,21 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 					default:
+						if rec.methodSilent(req.Method) {
+							break
+						}
+						if msg := rec.methodError(req.Method); msg != "" {
+							resp, _ := json.Marshal(map[string]any{
+								"id":    "x",
+								"error": map[string]any{"code": "boom", "message": msg},
+							})
+							conn.Write(append(resp, '\n'))
+							break
+						}
+						if req.Method == "tab.create" {
+							conn.Write([]byte(`{"id":"x","result":{"type":"tab_created","tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}` + "\n"))
+							break
+						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 					}
 				}

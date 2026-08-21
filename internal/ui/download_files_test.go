@@ -147,7 +147,7 @@ func TestDownloadKey_FromThreadPanel(t *testing.T) {
 	}
 }
 
-// Images are excluded: they already have the preview flow (O/v).
+// Images are excluded: they already have the preview flow (v).
 func TestDownloadKey_SkipsImageAttachments(t *testing.T) {
 	app := NewApp()
 	app.focusedPanel = PanelMessages

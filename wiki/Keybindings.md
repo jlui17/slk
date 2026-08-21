@@ -36,7 +36,10 @@
 | `U` | Normal (message) | Mark selected message and everything newer as unread |
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
 | `Y` / `C` | Normal (message) | Copy message permalink |
-| `O` / `v` | Normal (message) | Open full-screen image preview |
+| `o` | Normal (message) | Open link in message (Slack permalinks for the active workspace navigate in-app; other links open in the browser; multiple links open a picker) |
+| `O` | Normal (message) | Open a Slack permalink from the message in a new herdr tab running a second slk; only slk-openable links are offered (requires running inside herdr; otherwise behaves exactly like `o`) |
+| `d` | Normal (message) | Download file attachment (multiple files open a picker) |
+| `v` | Normal (message) | Open full-screen image preview |
 | `Esc` / `q` | Preview | Close preview |
 | `Enter` | Preview | Open in system image viewer |
 | `h` / `←` | Preview | Previous image (when message has multiple) |

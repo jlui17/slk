@@ -26,13 +26,16 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			return func() tea.Msg { return DownloadFileMsg{Attachment: att} }
 		}
 		url := item.URL
-		return func() tea.Msg { return OpenLinkMsg{URL: url} }
+		inTab := a.pickerInTab
+		a.pickerInTab = false
+		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inTab} }
 	}
 	if !a.linkPicker.IsVisible() {
 		// esc/q closed the picker.
 		a.SetMode(ModeNormal)
 		a.pickerFiles = nil
 		a.pickerKind = ""
+		a.pickerInTab = false
 	}
 	return nil
 }

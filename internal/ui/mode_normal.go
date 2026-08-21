@@ -12,7 +12,8 @@
 //   - layout toggles: ctrl+b (sidebar), ctrl+] (thread), t (zoom thread over
 //     the messages region)
 //   - message ops: y (copy permalink), E (edit), D (delete),
-//     M (mark unread), O (open image preview)
+//     M (mark unread), v (open image preview), o (open link),
+//     O (open link in new herdr tab)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -276,7 +277,10 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.openImagePreviewOfSelected()
 
 	case key.Matches(msg, a.keys.OpenLink):
-		return a.openLinksOfSelected()
+		return a.openLinksOfSelected(false)
+
+	case key.Matches(msg, a.keys.OpenLinkTab):
+		return a.openLinksOfSelected(true)
 
 	case key.Matches(msg, a.keys.DownloadFile):
 		return a.downloadFilesOfSelected()

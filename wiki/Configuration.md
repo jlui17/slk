@@ -86,6 +86,12 @@ max_image_cache_mb = 200
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 
+# The O keybinding opens a Slack permalink in a new herdr tab running a
+# second slk instance. The tab's shell runs `<open_command> '<permalink>'`;
+# it is a host shell even when slk itself runs in a container (e.g. via
+# tools/run-docker.sh), so point this at the host-side launch command.
+open_command = "slk"   # default
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.

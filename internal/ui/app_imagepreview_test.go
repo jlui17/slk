@@ -58,11 +58,11 @@ func imageBearingMessage(t *testing.T) (channelID, ts, fileID string, msg messag
 	return
 }
 
-// TestOKey_DispatchesOpenImagePreviewMsg asserts that pressing `O` on
+// TestVKey_DispatchesOpenImagePreviewMsg asserts that pressing `v` on
 // a selected message with an image attachment dispatches an
 // OpenImagePreviewMsg carrying the message's channel, TS, and the
 // attachment index of the first image.
-func TestOKey_DispatchesOpenImagePreviewMsg(t *testing.T) {
+func TestVKey_DispatchesOpenImagePreviewMsg(t *testing.T) {
 	channelID, ts, _, msg := imageBearingMessage(t)
 
 	app := NewApp()
@@ -70,9 +70,9 @@ func TestOKey_DispatchesOpenImagePreviewMsg(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.messagepane.SetMessages([]messages.MessageItem{msg})
 
-	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'O', Text: "O"})
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if cmd == nil {
-		t.Fatal("expected non-nil cmd from O key")
+		t.Fatal("expected non-nil cmd from v key")
 	}
 	out := cmd()
 	op, ok := out.(messages.OpenImagePreviewMsg)
@@ -90,29 +90,29 @@ func TestOKey_DispatchesOpenImagePreviewMsg(t *testing.T) {
 	}
 }
 
-// TestOKey_NoImageAttachmentNoop asserts that pressing `O` on a
+// TestVKey_NoImageAttachmentNoop asserts that pressing `v` on a
 // selected message without any image attachment is a no-op (returns
 // nil) — the keybind only fires when there's something to preview.
-func TestOKey_NoImageAttachmentNoop(t *testing.T) {
+func TestVKey_NoImageAttachmentNoop(t *testing.T) {
 	app := NewApp()
 	app.activeChannelID = "C123"
 	app.focusedPanel = PanelMessages
 	app.messagepane.SetMessages([]messages.MessageItem{
 		{TS: "1.0", UserName: "alice", Text: "no images here"},
 	})
-	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'O', Text: "O"})
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if cmd != nil {
 		t.Errorf("expected nil cmd when selected message has no image attachment, got non-nil")
 	}
 }
 
-// TestOKey_NothingSelectedNoop asserts that `O` with no messages in
+// TestVKey_NothingSelectedNoop asserts that `v` with no messages in
 // the pane is a clean no-op.
-func TestOKey_NothingSelectedNoop(t *testing.T) {
+func TestVKey_NothingSelectedNoop(t *testing.T) {
 	app := NewApp()
 	app.activeChannelID = "C123"
 	app.focusedPanel = PanelMessages
-	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'O', Text: "O"})
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if cmd != nil {
 		t.Errorf("expected nil cmd when nothing selected, got non-nil")
 	}

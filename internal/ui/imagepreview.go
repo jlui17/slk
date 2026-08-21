@@ -121,7 +121,7 @@ func (p *imagePreviewController) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case messages.OpenImagePreviewMsg:
 		// Open the overlay IMMEDIATELY in a loading state so the
-		// user gets visual feedback that their click / O / v
+		// user gets visual feedback that their click / v keystroke
 		// registered. The actual image fetch happens asynchronously;
 		// previewLoadedMsg swaps the bytes in when ready. Without
 		// this fast path the UI felt hung on slow-fetching previews

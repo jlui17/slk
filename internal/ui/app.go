@@ -286,9 +286,12 @@ type App struct {
 
 	// pickerKind records what the linkpicker modal is choosing:
 	// "links" (Enter dispatches OpenLinkMsg) or "files" (Enter
-	// dispatches DownloadFileMsg from pickerFiles).
+	// dispatches DownloadFileMsg from pickerFiles). pickerInTab marks a
+	// links picker opened by the O keybinding: Enter then dispatches
+	// OpenLinkMsg with InHerdrTab set.
 	pickerKind  string
 	pickerFiles []messages.Attachment
+	pickerInTab bool
 
 	// Reaction picker
 	reactionPicker *reactionpicker.Model
@@ -358,6 +361,12 @@ type App struct {
 	// browserOpener launches a URL in the OS browser. Defaults to
 	// openURLCmd; tests inject fakes.
 	browserOpener func(url string) tea.Cmd
+
+	// herdrTabOpener opens a Slack permalink in a new herdr tab running
+	// a second slk instance (the O keybinding). Blocking; routeLink
+	// calls it inside a tea.Cmd. Nil outside a herdr pane, which makes
+	// O route exactly like o. See SetHerdrTabOpener.
+	herdrTabOpener func(url, label string) error
 
 	// navHistory owns the per-workspace ctrl+h / ctrl+k browser-style
 	// jump list. See internal/ui/navhistory.go. Lazy-initialized on
@@ -1074,12 +1083,13 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 	}
 }
 
-// openLinksOfSelected implements the `o` keybinding: collect the
-// links in the selected message (messages pane or thread panel).
+// openLinksOfSelected implements the `o` and `O` keybindings: collect
+// the links in the selected message (messages pane or thread panel).
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
 // open the link picker modal. All opens converge on OpenLinkMsg,
-// the single routing point in reducer_links.go.
-func (a *App) openLinksOfSelected() tea.Cmd {
+// the single routing point in reducer_links.go; inHerdrTab (the O
+// path) rides along as OpenLinkMsg.InHerdrTab.
+func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 	var text string
 	switch a.focusedPanel {
 	case PanelMessages:
@@ -1098,20 +1108,43 @@ func (a *App) openLinksOfSelected() tea.Cmd {
 		return nil
 	}
 	links := messages.ExtractLinks(text)
-	debuglog.General("openLinksOfSelected: %d links", len(links))
+	hadLinks := len(links) > 0
+	// When O will actually open a herdr tab, offer only the links it
+	// can, and say so in the picker title: a browser fallback under a
+	// title promising a tab is misleading. Outside herdr (no opener)
+	// O degrades to o, full link list included.
+	tabOpenerActive := inHerdrTab && a.herdrTabOpener != nil
+	if tabOpenerActive {
+		navigable := links[:0]
+		for _, l := range links {
+			if a.linkOpensInApp(l.URL) {
+				navigable = append(navigable, l)
+			}
+		}
+		links = navigable
+	}
+	debuglog.General("openLinksOfSelected: %d links (inHerdrTab=%v)", len(links), inHerdrTab)
 	switch len(links) {
 	case 0:
+		if hadLinks {
+			return func() tea.Msg { return ToastMsg{Text: "No slk-openable links in message"} }
+		}
 		return func() tea.Msg { return ToastMsg{Text: "No links in message"} }
 	case 1:
 		url := links[0].URL
-		return func() tea.Msg { return OpenLinkMsg{URL: url} }
+		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inHerdrTab} }
 	default:
 		items := make([]linkpicker.Item, len(links))
 		for i, l := range links {
 			items[i] = linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
 		}
+		title := "Open link"
+		if tabOpenerActive {
+			title = "Open link in herdr tab"
+		}
 		a.pickerKind = "links"
-		a.linkPicker.Open("Open link", items)
+		a.pickerInTab = inHerdrTab
+		a.linkPicker.Open(title, items)
 		a.SetMode(ModeLinkPicker)
 		return nil
 	}
@@ -1122,7 +1155,7 @@ func (a *App) openLinksOfSelected() tea.Cmd {
 // (messages pane or thread panel). 0 files -> toast; 1 file ->
 // dispatch DownloadFileMsg directly; 2+ -> open the picker modal in
 // "files" mode. Mirrors openLinksOfSelected. Images are excluded: they
-// already have the preview flow (O/v).
+// already have the preview flow (v).
 func (a *App) downloadFilesOfSelected() tea.Cmd {
 	var atts []messages.Attachment
 	switch a.focusedPanel {
@@ -2325,7 +2358,7 @@ func imageAttachmentIndices(atts []messages.Attachment) []int {
 // in the messages pane (channel) or thread panel, gated on the supplied
 // channel ID matching either pane's active channel. Returns ok=false if
 // nothing matches. Used by the preview-open path to resolve the
-// attachment metadata for a click / `O` keystroke.
+// attachment metadata for a click / `v` keystroke.
 func (a *App) findMessageInActiveChannel(channel, ts string) (messages.MessageItem, bool) {
 	if channel == a.activeChannelID {
 		for _, m := range a.messagepane.Messages() {

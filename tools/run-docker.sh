@@ -112,6 +112,7 @@ docker run --rm -it \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
   ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
+  ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \
   -e XDG_CACHE_HOME=/state/xdg/cache \

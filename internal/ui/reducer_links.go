@@ -9,6 +9,9 @@
 //     pendingLinkNav once the channel's messages are loaded (open the
 //     thread panel for thread_ts links and for targets that turn out
 //     to be thread parents, else select the target ts in-channel).
+//   - The same permalinks with InHerdrTab set (the O keybinding) go to
+//     a.herdrTabOpener instead when one is installed: a new herdr tab
+//     running a second slk instance on the link.
 //   - Everything else opens in the OS browser (a.browserOpener).
 //
 // Completion hooks live in reducer_channels.go (the ChannelSelectedMsg
@@ -60,16 +63,24 @@ func (a *App) SetStartupLink(channelID, messageTS, threadTS string) {
 	}
 }
 
+// SetHerdrTabOpener installs the callback that opens a permalink in a
+// new herdr tab (the O keybinding). Installed only when slk runs in a
+// herdr pane whose space is known; unset, O routes like o.
+func (a *App) SetHerdrTabOpener(open func(url, label string) error) {
+	a.herdrTabOpener = open
+}
+
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	m, ok := msg.(OpenLinkMsg)
 	if !ok {
 		return nil, false
 	}
-	return a.routeLink(m.URL), true
+	return a.routeLink(m.URL, m.InHerdrTab), true
 }
 
-// routeLink decides between in-app navigation and the browser.
-func (a *App) routeLink(rawURL string) tea.Cmd {
+// routeLink decides between in-app navigation, a new herdr tab, and
+// the browser.
+func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
 		debuglog.General("routeLink: not a permalink, browser: %s", rawURL)
@@ -84,6 +95,17 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 	if !found {
 		debuglog.General("routeLink: channel %s not found, browser: %s", pl.ChannelID, rawURL)
 		return a.browserOpener(rawURL)
+	}
+	if inHerdrTab && a.herdrTabOpener != nil {
+		opener, label := a.herdrTabOpener, name
+		debuglog.General("routeLink: herdr tab nav channel=%s label=%s", pl.ChannelID, name)
+		return func() tea.Msg {
+			if err := opener(rawURL, label); err != nil {
+				debuglog.Notify("herdr: open tab: %v", err)
+				return ToastMsg{Text: "Failed to open herdr tab"}
+			}
+			return nil
+		}
 	}
 	a.pendingLinkNav = &pendingLinkNav{
 		channelID:        string(pl.ChannelID),

@@ -471,9 +471,17 @@ type MessageDeletedMsg struct {
 // routing point for all link opens (issue #62): the reduceLinks
 // reducer either navigates in-app (Slack archive permalinks for the
 // active workspace) or launches the OS browser. Dispatched by the
-// `o` keybinding (directly for single-link messages) and by the link
-// picker modal.
-type OpenLinkMsg struct{ URL string }
+// `o` and `O` keybindings (directly for single-link messages) and by
+// the link picker modal. InHerdrTab (the O path) asks for the in-app
+// navigation to happen in a new herdr tab running a second slk
+// instance instead; without a herdr tab opener installed it routes
+// exactly like `o`. With an opener, O offers only slk-openable links
+// (openLinksOfSelected filters the rest), so the browser fallback
+// below is defense in depth on this path, not a normal route.
+type OpenLinkMsg struct {
+	URL        string
+	InHerdrTab bool
+}
 
 // DownloadFileMsg requests download + OS-open of a file attachment.
 // Dispatched by the `d` keybinding (directly for single-file messages)

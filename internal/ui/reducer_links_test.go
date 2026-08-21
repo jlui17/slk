@@ -120,6 +120,76 @@ func TestOpenLink_ActiveChannel_SelectsMessage(t *testing.T) {
 	}
 }
 
+func TestOpenLinkInTab_SpawnsHerdrTab(t *testing.T) {
+	app, opened := linkTestApp(t)
+	var gotURL, gotLabel string
+	app.SetHerdrTabOpener(func(url, label string) error {
+		gotURL, gotLabel = url, label
+		return nil
+	})
+	url := "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"
+	_, cmd := app.Update(OpenLinkMsg{URL: url, InHerdrTab: true})
+	drainCmd(cmd)
+	if gotURL != url || gotLabel != "general" {
+		t.Errorf("opener got (%q, %q), want (%q, \"general\")", gotURL, gotLabel, url)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav armed: %+v, want in-place nav skipped", app.pendingLinkNav)
+	}
+	if *opened != "" {
+		t.Errorf("browser opened %q", *opened)
+	}
+}
+
+// InHerdrTab without an opener installed (slk outside a herdr pane)
+// degrades to the plain o route: in-place navigation.
+func TestOpenLinkInTab_NoOpener_RoutesInPlace(t *testing.T) {
+	app, opened := linkTestApp(t)
+	app.activeChannelID = "CELSEWHERE"
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdrTab: true})
+	drainCmd(cmd)
+	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "1779284733.270139" {
+		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
+	}
+	if *opened != "" {
+		t.Errorf("browser opened %q", *opened)
+	}
+}
+
+// Links that o would send to the browser go to the browser under O
+// too; the opener only ever receives in-app-navigable permalinks.
+func TestOpenLinkInTab_NonSlackURL_OpensBrowser(t *testing.T) {
+	app, opened := linkTestApp(t)
+	openerCalled := false
+	app.SetHerdrTabOpener(func(url, label string) error {
+		openerCalled = true
+		return nil
+	})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://github.com/foo/bar", InHerdrTab: true})
+	drainCmd(cmd)
+	if *opened != "https://github.com/foo/bar" {
+		t.Errorf("browser opened %q", *opened)
+	}
+	if openerCalled {
+		t.Error("herdr tab opener called for a non-navigable link")
+	}
+}
+
+func TestOpenLinkInTab_OpenerError_Toasts(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.SetHerdrTabOpener(func(url, label string) error {
+		return errors.New("boom")
+	})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdrTab: true})
+	msgs := drainCmd(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("msgs = %#v, want one ToastMsg", msgs)
+	}
+	if _, ok := msgs[0].(ToastMsg); !ok {
+		t.Errorf("got %#v, want ToastMsg", msgs[0])
+	}
+}
+
 // Pressing o in an open thread panel on a permalink to a channel-level
 // message of the SAME channel must land somewhere visible: the select
 // happens in the messages pane, so the thread panel closes and focus

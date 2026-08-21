@@ -41,6 +41,7 @@ type KeyMap struct {
 	CopyPermalink       key.Binding
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
+	OpenLinkTab         key.Binding
 	DownloadFile        key.Binding
 	MarkUnread          key.Binding
 	NextUnread          key.Binding
@@ -102,8 +103,9 @@ func DefaultKeyMap() KeyMap {
 		Edit:            key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit message")),
 		Delete:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
-		OpenPreview:     key.NewBinding(key.WithKeys("O", "v"), key.WithHelp("O/v", "open image preview")),
+		OpenPreview:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
+		OpenLinkTab:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open link in new herdr tab (inside herdr)")),
 		DownloadFile:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download file in message")),
 		MarkUnread:      key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "mark unread")),
 		NextUnread:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),

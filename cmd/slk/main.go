@@ -942,7 +942,7 @@ func run(startupLink *slackurl.Permalink) error {
 		// out-of-order subprocess.
 		app.SetStatusReporter(sr.Enqueue)
 	}
-	if closeHerdr := wireHerdr(app, db, cfg.Herdr.Disabled); closeHerdr != nil {
+	if closeHerdr := wireHerdr(app, db, cfg.Herdr); closeHerdr != nil {
 		defer closeHerdr()
 	}
 	if useWaylandClipboard {
