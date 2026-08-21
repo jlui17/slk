@@ -92,6 +92,14 @@ disabled = false   # set true to opt out of agent-sidebar reporting
 # tools/run-docker.sh), so point this at the host-side launch command.
 open_command = "slk"   # default
 
+# Relaunching slk reopens the workspace, channel, and thread that were open
+# when it last ran (state is saved as you navigate, so a hard kill loses
+# nothing). Inside herdr the state is kept per pane, so each pane restores
+# its own view; outside herdr all instances share one slot. A permalink
+# argument (slk <link>) overrides the restore for that launch.
+[restore]
+disabled = false   # set true to always start at the most-recently-visited channel
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.

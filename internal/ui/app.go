@@ -190,6 +190,13 @@ type App struct {
 
 	agentSidebar agentSidebar
 
+	// paneStateRecorder persists the pane's open channel/thread for
+	// restore-on-relaunch; nil when the restore feature is disabled.
+	// lastPaneReport dedupes: setThreadPanel re-fires on every replies
+	// reload of the same thread.
+	paneStateRecorder PaneStateRecorder
+	lastPaneReport    paneReport
+
 	// clipboardAvailable is set from the native clipboard reader's startup
 	// result. It gates Ctrl+V smart-paste only; OSC 52 writes do not depend on
 	// native clipboard initialization.
@@ -1813,6 +1820,14 @@ func (a *App) ToggleThreadFullscreen() {
 func (a *App) CloseThread() {
 	a.clearSelections()
 	a.releaseAgentThread()
+	// Report only a real close: CloseThread is also called defensively
+	// on every channel switch, where activeChannelID still names the
+	// PREVIOUS channel (and, across a workspace switch, activeTeamID
+	// already names the new workspace) — a no-op close reporting that
+	// pair would record a channel under a workspace it isn't in.
+	if a.threadVisible {
+		a.reportPaneState(a.activeChannelID, "")
+	}
 	a.threadVisible = false
 	a.threadFullscreen = false
 	a.statusbar.SetInThread(false)

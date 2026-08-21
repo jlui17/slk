@@ -879,6 +879,21 @@ func run(startupLink *slackurl.Permalink) error {
 	}
 	defer db.Close()
 
+	// Pane-state restore: this pane's persisted open state (workspace,
+	// channel, thread) is read once here and replayed at startup; the
+	// writer records every subsequent change. Both sides are off when
+	// [restore] disabled is set.
+	var paneWriter *paneStateWriter
+	var paneRestore *cache.PaneState
+	if !cfg.Restore.Disabled {
+		paneWriter = newPaneStateWriter(db, paneStateKey())
+		if st, ok, stErr := db.GetPaneState(paneStateKey()); stErr != nil {
+			log.Printf("warning: loading pane state: %v", stErr)
+		} else if ok {
+			paneRestore = &st
+		}
+	}
+
 	// Every instance running against this data dir sees the same
 	// messages, so they all notify unless one is elected to. First one
 	// to emit wins the lock and keeps it until it exits.
@@ -1298,6 +1313,16 @@ func run(startupLink *slackurl.Permalink) error {
 	// vars BEFORE the `go func()` so they are not affected by a
 	// concurrent router.Set during the goroutine's lifetime.
 	wireCallbacks := func(router *workspaceRouter) {
+		if paneWriter != nil {
+			app.SetPaneStateRecorder(func(teamID, channelID, threadTS string) {
+				paneWriter.Record(cache.PaneState{
+					WorkspaceID: teamID,
+					ChannelID:   channelID,
+					ThreadTS:    threadTS,
+				})
+			})
+		}
+
 		app.SetReadStateReader(func() map[string]cache.ReadState {
 			wctx := router.Active()
 			if wctx == nil {
@@ -1908,8 +1933,11 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// A command-line permalink overrides default_workspace: the link's
 	// workspace must claim the initial active slot for the startup
-	// navigation queued below to run.
+	// navigation queued below to run. It also overrides the pane-state
+	// restore for this launch; the link becomes the recorded state the
+	// moment it opens.
 	if startupLink != nil {
+		paneRestore = nil
 		linkTeamID := ""
 		for _, t := range tokens {
 			if t.Domain == startupLink.Subdomain {
@@ -1922,6 +1950,39 @@ func run(startupLink *slackurl.Permalink) error {
 		}
 		defaultTeamID = linkTeamID
 		app.SetStartupLink(string(startupLink.ChannelID), string(startupLink.MessageTS), string(startupLink.ThreadTS))
+	}
+
+	// Pane-state restore claims the initial active slot the same way a
+	// permalink does. A recorded thread rides the permalink startup-nav
+	// path (channel select, thread panel, off-buffer backfill, missing
+	// channel degrading to a toast); a channel-only state flows through
+	// WorkspaceReadyMsg.LastChannelID via restoredChannelFor below.
+	//
+	// paneForcedTeam remembers that defaultTeamID came from auto-recorded
+	// state rather than the user's default_workspace config: if that
+	// workspace then fails to connect, still-pending workspaces fall back
+	// to first-to-connect-wins (see the connect-failure path) instead of
+	// leaving slk with no active workspace at all.
+	paneForcedTeam := ""
+	var paneForcedFailed atomic.Bool
+	if paneRestore != nil {
+		found := false
+		for _, t := range tokens {
+			if t.TeamID == paneRestore.WorkspaceID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Printf("Warning: pane state names workspace %q but no token is configured for it; ignoring", paneRestore.WorkspaceID)
+			paneRestore = nil
+		} else {
+			defaultTeamID = paneRestore.WorkspaceID
+			paneForcedTeam = paneRestore.WorkspaceID
+			if paneRestore.ThreadTS != "" {
+				app.SetStartupLink(paneRestore.ChannelID, paneRestore.ThreadTS, paneRestore.ThreadTS)
+			}
+		}
 	}
 
 	// firstReady gates the "first workspace to connect wins" logic when
@@ -1966,7 +2027,7 @@ func run(startupLink *slackurl.Permalink) error {
 	// Results are sent to the TUI via p.Send()
 	for _, ot := range orderedTokens {
 		go func(tok slackclient.Token) {
-			wctx, err := connectWorkspace(ctx, tok, db, cfg, avatarCache, p, configPath)
+			wctx, err := connectWorkspace(ctx, tok, db, cfg, avatarCache, p, configPath, paneRestore)
 			if err != nil {
 				// Log it. WorkspaceFailedMsg carries only the team
 				// name, so without this the reason never reaches the
@@ -1981,6 +2042,16 @@ func run(startupLink *slackurl.Permalink) error {
 				// nothing at all.
 				log.Printf("workspace %s failed to connect: %v", tok.TeamName, err)
 				debuglog.General("workspace %s failed to connect: %v", tok.TeamName, err)
+				// A pane-state-forced default that fails to connect must
+				// not strand slk with no active workspace: flip the flag
+				// so still-pending workspaces claim via firstReady below.
+				// Workspaces that already passed the claim check stay
+				// unclaimed — closing that window would need re-activating
+				// a connected workspace from here. A user-configured
+				// default_workspace keeps its strict behavior.
+				if tok.TeamID == paneForcedTeam {
+					paneForcedFailed.Store(true)
+				}
 				p.Send(ui.WorkspaceFailedMsg{TeamName: tok.TeamName})
 				return
 			}
@@ -1994,7 +2065,7 @@ func run(startupLink *slackurl.Permalink) error {
 			// workspace claims active. Otherwise the first to connect
 			// claims it.
 			isInitial := false
-			if defaultTeamID != "" {
+			if defaultTeamID != "" && !paneForcedFailed.Load() {
 				if wctx.TeamID == defaultTeamID {
 					isInitial = true
 					router.Set(wctx)
@@ -2093,7 +2164,7 @@ func run(startupLink *slackurl.Permalink) error {
 				UserGroups:       wctx.UserGroups(), // empty at this point; filled by the goroutine below
 				SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 				InitialActive:    isInitial,
-				LastChannelID:    mostRecentlyVisitedChannel(wctx.LastVisitedByChannel),
+				LastChannelID:    restoredChannelFor(paneRestore, wctx.TeamID, wctx.LastVisitedByChannel),
 			})
 
 			// Fetch workspace custom emojis in the background. When done,
@@ -2164,6 +2235,13 @@ func run(startupLink *slackurl.Permalink) error {
 	}).Run(wakeCtx)
 
 	_, err = p.Run()
+
+	// Flush the last pane-state write; a state change in the final
+	// moments before quit (closing a thread, say) must not be lost to
+	// the coalescing writer.
+	if paneWriter != nil {
+		paneWriter.Close()
+	}
 
 	// Dump the API request tally before anything else at shutdown.
 	//
@@ -2241,7 +2319,7 @@ func slugifyHandle(name string) string {
 // lost refresh and a stale build timestamp.
 const shouldReloadTimeout = 15 * time.Second
 
-func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB, cfg config.Config, avatarCache *avatar.Cache, p *tea.Program, configPath string) (*WorkspaceContext, error) {
+func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB, cfg config.Config, avatarCache *avatar.Cache, p *tea.Program, configPath string, paneRestore *cache.PaneState) (*WorkspaceContext, error) {
 	client := slackclient.NewClient(token.AccessToken, token.Cookie)
 
 	// Seed the build timestamp from the last run so the very first
@@ -2389,7 +2467,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// cache against edgeapi. See internal/bootstrap.
 	//
 	// This runs AFTER the channel-visits load because
-	// mostRecentlyVisitedChannel reads wctx.LastVisitedByChannel,
+	// restoredChannelFor reads wctx.LastVisitedByChannel,
 	// which that load fills. It is the same expression the UI is
 	// handed as WorkspaceReadyMsg.LastChannelID, so the channel
 	// bootstrap opens is the channel the sidebar restores rather than
@@ -2403,7 +2481,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// so no intermediate commit leaves slk unable to boot. Until then
 	// slk does both, and the request tally goes UP.
 	res, err := bootstrap.Run(ctx, newBootstrapDeps(client, db, token.AccessToken,
-		mostRecentlyVisitedChannel(wctx.LastVisitedByChannel), wctx.EdgeHealth))
+		restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel), wctx.EdgeHealth))
 	if err != nil {
 		return nil, fmt.Errorf("bootstrapping %s: %w", token.TeamName, err)
 	}
@@ -3832,6 +3910,26 @@ func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 // mostRecentlyVisitedChannel returns the channel ID with the latest
 // last-visited timestamp, or "" when there are no recorded visits (e.g.
 // the first run). Drives last-channel restoration on startup.
+// paneChannelFor returns the pane-state channel when it belongs to
+// teamID, else "". The pane state wins over the global channel-visit
+// restore only for its own workspace.
+func paneChannelFor(pane *cache.PaneState, teamID string) string {
+	if pane != nil && pane.WorkspaceID == teamID {
+		return pane.ChannelID
+	}
+	return ""
+}
+
+// restoredChannelFor picks the channel a workspace restores at boot:
+// the pane state's channel for the pane's own workspace, the global
+// most-recently-visited channel everywhere else.
+func restoredChannelFor(pane *cache.PaneState, teamID string, visits map[string]int64) string {
+	if ch := paneChannelFor(pane, teamID); ch != "" {
+		return ch
+	}
+	return mostRecentlyVisitedChannel(visits)
+}
+
 func mostRecentlyVisitedChannel(visits map[string]int64) string {
 	var bestID string
 	var bestTS int64

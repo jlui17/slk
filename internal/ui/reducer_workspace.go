@@ -231,9 +231,11 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		a.workspaceRail.SelectByID(m.TeamID)
 		if len(m.Channels) > 0 {
-			// Restore the last-visited channel across restarts (persisted in
-			// channel_visits). Falls back to the first sidebar entry when
-			// there's no recorded visit or the channel no longer exists.
+			// Restore the persisted channel across restarts (the pane's
+			// own last-open channel, else the most-recently-visited one;
+			// main.go picks which rides in as LastChannelID). Falls back
+			// to the first sidebar entry when there's no recorded visit
+			// or the channel no longer exists.
 			target := m.Channels[0]
 			if m.LastChannelID != "" {
 				for _, ch := range m.Channels {
@@ -244,11 +246,12 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 				}
 			}
 			id, name, chType := target.ID, target.Name, target.Type
-			// A command-line permalink (slk <link>) overrides the
-			// last-visited restore: promote it to pendingLinkNav so the
-			// completion hooks in reducer_channels.go select the target
-			// message / open the thread panel, exactly as an in-app
-			// link click would.
+			// A queued startup navigation (a command-line permalink, or
+			// a pane-state thread being restored) overrides the channel
+			// restore: promote it to pendingLinkNav so the completion
+			// hooks in reducer_channels.go select the target message /
+			// open the thread panel, exactly as an in-app link click
+			// would.
 			if nav := a.startupLinkNav; nav != nil {
 				a.startupLinkNav = nil
 				if n, t, found := lookupChannelIn(nav.channelID, m.Channels, m.FinderItems); found {

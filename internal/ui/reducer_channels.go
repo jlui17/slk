@@ -386,6 +386,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	// Persist the visit (SQLite write + WorkspaceContext map update)
 	// asynchronously via main.go's recorder closure.
 	a.channels.RecordVisit(ids.ChannelID(m.ID))
+	a.reportPaneState(m.ID, "")
 	if !m.FromHistory {
 		a.navHistory.Push(a.activeTeamID, m.ID)
 	}

@@ -20,6 +20,7 @@ type Config struct {
 	Cache         CacheConfig                  `toml:"cache"`
 	Sidebar       Sidebar                      `toml:"sidebar"`
 	Herdr         Herdr                        `toml:"herdr"`
+	Restore       Restore                      `toml:"restore"`
 	Sections      map[string]SectionDef        `toml:"sections"`
 	Theme         Theme                        `toml:"theme"`
 	Workspaces    map[string]Workspace         `toml:"workspaces"`

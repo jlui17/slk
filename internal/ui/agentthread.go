@@ -81,11 +81,12 @@ func (a *App) SetAgentReporter(report AgentReportFunc, release AgentReleaseFunc,
 }
 
 // setThreadPanel is the single path that changes the thread panel's content;
-// agent-thread detection rides on it so no present or future open path can
-// skip it.
+// agent-thread detection and pane-state recording ride on it so no present or
+// future open path can skip them.
 func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	a.threadPanel.SetThread(parent, replies, channelID, threadTS)
 	a.updateAgentThread(parent, channelID, threadTS)
+	a.reportPaneState(channelID, threadTS)
 }
 
 // updateAgentThread re-evaluates agent-thread detection against the thread
