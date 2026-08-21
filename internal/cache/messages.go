@@ -124,6 +124,18 @@ func (db *DB) DeleteMessage(channelID, ts string) error {
 		debuglog.Cache("DeleteMessage: channel=%s ts=%s ERR=%v", channelID, ts, err)
 		return fmt.Errorf("deleting message: %w", err)
 	}
+	// A deleted message can't stay a thread's newest-activity watermark:
+	// with latest_reply pointing at it, a read-to-end at the surviving
+	// newest reply computes as unread until the next getView reconcile.
+	// Clear the watermark to unknown; unread computations fall back to
+	// the surviving cached messages.
+	if _, err := db.conn.Exec(
+		`UPDATE thread_subscriptions SET latest_reply = '' WHERE channel_id = ? AND latest_reply = ?`,
+		channelID, ts,
+	); err != nil {
+		debuglog.Cache("DeleteMessage: retract latest_reply %s/%s ERR=%v", channelID, ts, err)
+		return fmt.Errorf("retracting latest_reply: %w", err)
+	}
 	debuglog.Cache("DeleteMessage: channel=%s ts=%s", channelID, ts)
 	return nil
 }
