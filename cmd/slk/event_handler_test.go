@@ -241,9 +241,10 @@ func TestOnThreadMarked_UpsertsSubscription(t *testing.T) {
 		isActive:    func() bool { return true },
 	}
 
-	// read=false means the thread is now unread, which corresponds to
-	// active=true in thread_subscriptions.
-	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", false)
+	// The payload's active flag is subscription state and persists
+	// verbatim: subscribed=true keeps the row active regardless of
+	// what the mark means for read state.
+	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
 
 	got, err := db.ListActiveThreadSubscriptions("T1")
 	if err != nil {
@@ -257,11 +258,11 @@ func TestOnThreadMarked_UpsertsSubscription(t *testing.T) {
 		t.Fatalf("subscription row mismatch: %+v", got[0])
 	}
 
-	// Marking read flips the row to inactive (tombstone-style).
-	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
+	// subscribed=false tombstones the row.
+	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", false)
 	got, _ = db.ListActiveThreadSubscriptions("T1")
 	if len(got) != 0 {
-		t.Fatalf("expected 0 active after read=true, got %d", len(got))
+		t.Fatalf("expected 0 active after subscribed=false, got %d", len(got))
 	}
 }
 
@@ -328,8 +329,7 @@ func TestOnThreadMarked_PersistsOnInactiveWorkspace(t *testing.T) {
 		// persist the DB row.
 	}
 
-	// read=false → thread is now unread → row should be active=true.
-	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", false)
+	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
 
 	got, err := db.ListActiveThreadSubscriptions("T1")
 	if err != nil {

@@ -72,8 +72,8 @@ type channelMarkRecord struct {
 }
 
 type threadMarkRecord struct {
-	channelID, threadTS, ts string
-	read                    bool
+	channelID, threadTS, lastRead string
+	subscribed                    bool
 }
 
 type threadSubChangeRecord struct {
@@ -119,8 +119,8 @@ func (m *mockEventHandler) OnChannelMarked(channelID, ts string, unreadCount int
 	m.channelMarks = append(m.channelMarks, channelMarkRecord{channelID, ts, unreadCount})
 }
 
-func (m *mockEventHandler) OnThreadMarked(channelID, threadTS, ts string, read bool) {
-	m.threadMarks = append(m.threadMarks, threadMarkRecord{channelID, threadTS, ts, read})
+func (m *mockEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, subscribed bool) {
+	m.threadMarks = append(m.threadMarks, threadMarkRecord{channelID, threadTS, lastRead, subscribed})
 }
 
 func (m *mockEventHandler) OnThreadSubscriptionChanged(channelID, threadTS, lastRead string, active bool) {
@@ -512,24 +512,39 @@ func TestDispatch_ChannelMarked_MalformedJSON_NoCall(t *testing.T) {
 	}
 }
 
-func TestDispatch_ThreadMarked_Unread_CallsHandler(t *testing.T) {
+func TestDispatch_ThreadMarked_PassesSubscribedVerbatim(t *testing.T) {
+	// The `active` flag is subscription state, not read state — a
+	// previous version inverted it into a fabricated `read` bool,
+	// asserted here against an invented payload, and shipped every
+	// remote thread read as unread. The dispatch must hand the flag up
+	// untouched; read-vs-unread is the receiver's call (it needs the
+	// thread's newest-activity ts, which this layer doesn't have).
+	//
+	// Fixture is a wire capture: a second Slack client reading a
+	// 3-reply thread to its end (last_read == the newest reply's ts),
+	// observed 2026-08-21 on a live slk WS connection. active=true on
+	// a fully-read thread is the exact frame the inverted code
+	// misclassified.
 	handler := &mockEventHandler{}
-	data := []byte(`{"type":"thread_marked","subscription":{"channel":"C1","thread_ts":"1700000000.000100","last_read":"1700000000.000200","active":true}}`)
+	data := []byte(`{"type":"thread_marked","subscription":{"type":"thread","channel":"C0BS6HBB3R6","thread_ts":"1787352842.910909","date_create":1787352862,"active":true,"last_read":"1787352903.834189"},"event_ts":"1787353529.072900"}`)
 	dispatchWebSocketEvent(data, handler)
 
 	if len(handler.threadMarks) != 1 {
 		t.Fatalf("expected 1 threadMark, got %d", len(handler.threadMarks))
 	}
 	got := handler.threadMarks[0]
-	if got.channelID != "C1" || got.threadTS != "1700000000.000100" || got.ts != "1700000000.000200" {
+	if got.channelID != "C0BS6HBB3R6" || got.threadTS != "1787352842.910909" || got.lastRead != "1787352903.834189" {
 		t.Errorf("unexpected: %+v", got)
 	}
-	if got.read {
-		t.Error("expected read=false (active=true means unread)")
+	if !got.subscribed {
+		t.Error("expected subscribed=true passed through verbatim")
 	}
 }
 
-func TestDispatch_ThreadMarked_Read_CallsHandler(t *testing.T) {
+func TestDispatch_ThreadMarked_Unsubscribed_PassesFalse(t *testing.T) {
+	// Invented payload: every live capture carried active=true (marks
+	// on an unsubscribed thread weren't reproduced), so this only pins
+	// JSON field pass-through, not a wire behavior.
 	handler := &mockEventHandler{}
 	data := []byte(`{"type":"thread_marked","subscription":{"channel":"C1","thread_ts":"P1","last_read":"R5","active":false}}`)
 	dispatchWebSocketEvent(data, handler)
@@ -537,8 +552,8 @@ func TestDispatch_ThreadMarked_Read_CallsHandler(t *testing.T) {
 	if len(handler.threadMarks) != 1 {
 		t.Fatalf("expected 1 threadMark, got %d", len(handler.threadMarks))
 	}
-	if !handler.threadMarks[0].read {
-		t.Error("expected read=true (active=false means read)")
+	if handler.threadMarks[0].subscribed {
+		t.Error("expected subscribed=false passed through verbatim")
 	}
 }
 

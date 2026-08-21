@@ -4656,36 +4656,66 @@ func (h *rtmEventHandler) OnChannelMarked(channelID, ts string, unreadCount int)
 	})
 }
 
-func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, ts string, read bool) {
+func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, subscribed bool) {
 	// Persist subscription state regardless of active-workspace state.
 	// Mirrors OnChannelMarked / OnMessage: durable cache must reflect
 	// every WS event, otherwise switching to an inactive workspace
 	// would surface stale read state and (worse) miss newly-unread
-	// threads until the next reconnect-driven reconcile. active =
-	// !read per the dispatch in internal/slack/events.go: WS `active`
-	// means "subscribed for unread updates", which corresponds to
-	// active=1 in our table.
-	if h.db != nil {
-		if err := h.db.UpsertThreadSubscription(h.workspaceID, channelID, threadTS, ts, !read); err != nil {
-			debuglog.Cache("OnThreadMarked: UpsertThreadSubscription %s/%s: %v",
-				channelID, threadTS, err)
-		}
+	// threads until the next reconnect-driven reconcile.
+	if h.db == nil {
+		return
+	}
+	if err := h.db.UpsertThreadSubscription(h.workspaceID, channelID, threadTS, lastRead, subscribed); err != nil {
+		debuglog.Cache("OnThreadMarked: UpsertThreadSubscription %s/%s: %v",
+			channelID, threadTS, err)
 	}
 
+	if h.program == nil {
+		return
+	}
+	// The payload's flag is subscription state, not read state; read
+	// vs unread comes from lining last_read up against the newest
+	// activity the cache knows for the thread.
+	newest, err := h.db.ThreadNewestActivity(h.workspaceID, channelID, threadTS)
+	if err != nil {
+		debuglog.Cache("OnThreadMarked: ThreadNewestActivity %s/%s: %v",
+			channelID, threadTS, err)
+		return
+	}
+	read, known := threadMarkReadState(lastRead, newest)
+	if !known {
+		debuglog.WS("thread_marked %s/%s: last_read=%s vs newest=%s undecidable; persisted only",
+			channelID, threadTS, lastRead, newest)
+		return
+	}
 	// Dispatched for every workspace, tagged (contract:
 	// ui.NewMessageMsg.TeamID); the threads-view/sidebar handling
 	// ignores background-team marks and picks up fresh state on the
 	// next switch via threadsListFetcher.
-	if h.program == nil {
-		return
-	}
 	h.program.Send(ui.ThreadMarkedRemoteMsg{
 		TeamID:    h.workspaceID,
 		ChannelID: channelID,
 		ThreadTS:  threadTS,
-		TS:        ts,
+		TS:        lastRead,
 		Read:      read,
 	})
+}
+
+// threadMarkReadState decides what a thread_marked watermark means for
+// read state. Equality means caught up: a genuine mark-as-unread sets
+// last_read strictly before the message being marked, so last_read can
+// only reach the newest activity by reading to the end. A watermark past
+// everything known (or nothing known at all) is undecidable — the local
+// newest-activity view is stale by definition, and a read-to-end cannot
+// be told apart from a mark-unread at an uncached reply, which is a
+// deliberate user signal that must not be guessed away. Callers persist
+// the facts and skip the UI dispatch; the next getView reconcile settles
+// it. String comparison is valid: Slack ts are fixed-width secs.micros.
+func threadMarkReadState(lastRead, newestActivity string) (read, known bool) {
+	if newestActivity == "" || lastRead > newestActivity {
+		return false, false
+	}
+	return lastRead == newestActivity, true
 }
 
 // OnThreadSubscriptionChanged persists a subscribe/unsubscribe event

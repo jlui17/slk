@@ -55,6 +55,33 @@ ON CONFLICT(workspace_id, channel_id, thread_ts) DO UPDATE SET
 	return nil
 }
 
+// ThreadNewestActivity returns the ts of the newest known activity in a
+// thread: the max of the subscription row's latest_reply watermark (from
+// subscriptions.thread.getView) and the newest cached message in the
+// thread, parent row included. "" when the thread is entirely unknown.
+// Built from the same inputs as ListSubscribedThreads' Unread column,
+// with two divergences: this includes the parent row (the list's
+// cached-max subquery does not), and the list additionally suppresses
+// a self-authored newest reply.
+func (db *DB) ThreadNewestActivity(workspaceID, channelID, threadTS string) (string, error) {
+	const q = `
+SELECT
+    COALESCE((SELECT latest_reply FROM thread_subscriptions
+              WHERE workspace_id = ? AND channel_id = ? AND thread_ts = ?), ''),
+    COALESCE((SELECT MAX(ts) FROM messages
+              WHERE channel_id = ? AND (thread_ts = ? OR ts = ?) AND is_deleted = 0), '')
+`
+	var latestReply, cachedMaxTS string
+	if err := db.conn.QueryRow(q, workspaceID, channelID, threadTS,
+		channelID, threadTS, threadTS).Scan(&latestReply, &cachedMaxTS); err != nil {
+		return "", fmt.Errorf("querying thread newest activity: %w", err)
+	}
+	if cachedMaxTS > latestReply {
+		return cachedMaxTS, nil
+	}
+	return latestReply, nil
+}
+
 // DeleteThreadSubscription removes a thread_subscriptions row outright
 // (not a tombstone). Used by tests; production callers prefer
 // UpsertThreadSubscription with active=false to preserve LastRead.

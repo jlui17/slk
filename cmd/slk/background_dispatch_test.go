@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/slack-go/slack"
 
+	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/usernames"
 )
@@ -87,8 +88,23 @@ func TestOnMessageDeletedInactiveWorkspaceDispatchesTagged(t *testing.T) {
 }
 
 func TestOnThreadMarkedInactiveWorkspaceDispatchesTagged(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.UpsertWorkspace(cache.Workspace{ID: "T2", Name: "T2"}); err != nil {
+		t.Fatalf("UpsertWorkspace: %v", err)
+	}
+	// Seed the thread so the read decision is derivable: parent + one
+	// reply, with the mark landing at the reply (read to the end).
+	for _, m := range []cache.Message{
+		{TS: "100.0", ChannelID: "C1", WorkspaceID: "T2", UserID: "U1", Text: "parent"},
+		{TS: "101.0", ChannelID: "C1", WorkspaceID: "T2", UserID: "U2", Text: "reply", ThreadTS: "100.0"},
+	} {
+		if err := db.UpsertMessage(m); err != nil {
+			t.Fatalf("UpsertMessage: %v", err)
+		}
+	}
 	sender := &captureSender{}
 	h := &rtmEventHandler{
+		db:          db,
 		program:     sender,
 		workspaceID: "T2",
 		isActive:    func() bool { return false },
