@@ -19,3 +19,11 @@ rule can cover — the symptom is `signal: killed` / exit 137). Never invoke
 - Running the slk TUI itself: `tools/run-docker.sh`.
 
 Details: `docs/developing-on-santa-hosts.md`.
+
+## Never run `go fmt` across the tree
+
+`tools/go.sh` runs go 1.26 in docker, whose gofmt reflows doc comments that
+older toolchains wrote — `go fmt ./...` rewrites ~35 files it has no other
+reason to touch. This fork tracks `upstream/main`, so reformatting files we
+don't own buys nothing and conflicts with every future upstream merge. If
+`go fmt` touches a file you didn't edit, revert it.
