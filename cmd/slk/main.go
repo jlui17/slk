@@ -214,12 +214,16 @@ type WorkspaceContext struct {
 	// The stored map is published once and never mutated afterwards, so
 	// readers need no further synchronization.
 	userGroups atomic.Pointer[map[string]string]
-	// Self presence and DND state for this workspace. Populated on connect
-	// and updated by manual_presence_change / dnd_updated WS events plus
-	// optimistic writes from the presence menu.
-	Presence   string    // "active" or "away"; "" until first fetch
-	DNDEnabled bool      // true if either snooze or admin-DND is active
-	DNDEndTS   time.Time // unified end timestamp; zero if not in DND
+	// selfStatus owns this workspace's self presence/DND triple.
+	//
+	// A store (not plain fields) because the per-connect bootstrap
+	// goroutine writes while the WS read goroutine's self-presence/DND
+	// handlers read-modify-send the same triple, and OnMessage's
+	// notification suppression reads the DND pair — a torn read of the
+	// string or time.Time is crash-capable or silently wrong. Bootstrap
+	// writes are token-guarded so a stale bootstrap can never overwrite
+	// fresher WS-event state; rules on selfStatusStore.
+	selfStatus selfStatusStore
 	// LastVisitedByChannel maps channelID -> unix-second timestamp of
 	// the user's most recent visit to that channel in this workspace.
 	// Populated once at connect from cache.GetChannelVisits and
@@ -3983,10 +3987,16 @@ func xdgCache() string {
 // state from Slack, populates the WorkspaceContext, and sends an initial
 // StatusChangeMsg. Also subscribes to presence_change events for the self
 // user and every DM peer so external state changes arrive over the WS.
-func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender) {
+func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender, tok bootstrapToken) {
 	if wctx == nil || wctx.Client == nil {
 		return
 	}
+
+	// Bound the goroutine's life: it is unjoined, and its writes are
+	// already token-vetoed once stale, so the timeout only stops a hung
+	// REST call from holding a connection slot indefinitely.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
 	// Subscribe to presence for our own user plus every 1:1 DM peer so the
 	// sidebar can show who is online. presence_sub REPLACES the prior
@@ -3998,45 +4008,58 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	// the subscription is connection-scoped.
 	subscribeWorkspacePresence(wctx)
 
-	// Initial presence fetch
-	if p, err := wctx.Client.GetUserPresence(ctx, wctx.UserID); err == nil && p != nil {
-		wctx.Presence = p.Presence
+	presence, err := wctx.Client.GetUserPresence(ctx, wctx.UserID)
+	if err != nil {
+		presence = nil
+	}
+	dnd, err := wctx.Client.GetDNDInfo(ctx, wctx.UserID)
+	if err != nil {
+		dnd = nil
+	}
+	applyBootstrappedStatus(wctx, program, tok, presence, dnd)
+}
+
+// applyBootstrappedStatus is bootstrapPresenceAndDND's write half. A nil
+// presence or dnd means that fetch failed and its group is left alone.
+// The StatusChangeMsg always carries the store's current winner, so it
+// is correct even when every apply was vetoed.
+func applyBootstrappedStatus(wctx *WorkspaceContext, program teaSender, tok bootstrapToken, presence *slack.UserPresence, dnd *slack.DNDStatus) {
+	if presence != nil {
+		wctx.selfStatus.ApplyBootstrapPresence(tok, presence.Presence)
 	}
 
-	// Initial DND fetch.
-	//
 	// Slack's dnd_enabled flag means "the user has a DND schedule
 	// configured", NOT "currently in DND". The user is currently in DND
 	// only when (a) a manual snooze is active, or (b) the current time
 	// falls inside the next scheduled window. The same rule lives in
 	// internal/slack/events.go's computeDNDState for the WS event path.
-	if st, err := wctx.Client.GetDNDInfo(ctx, wctx.UserID); err == nil && st != nil {
+	if dnd != nil {
 		now := time.Now().Unix()
 		var isDND bool
 		var endUnix int64
 		switch {
-		case st.SnoozeEnabled && int64(st.SnoozeEndTime) > now:
+		case dnd.SnoozeEnabled && int64(dnd.SnoozeEndTime) > now:
 			isDND = true
-			endUnix = int64(st.SnoozeEndTime)
-		case st.Enabled && int64(st.NextStartTimestamp) > 0 &&
-			int64(st.NextStartTimestamp) <= now && now < int64(st.NextEndTimestamp):
+			endUnix = int64(dnd.SnoozeEndTime)
+		case dnd.Enabled && int64(dnd.NextStartTimestamp) > 0 &&
+			int64(dnd.NextStartTimestamp) <= now && now < int64(dnd.NextEndTimestamp):
 			isDND = true
-			endUnix = int64(st.NextEndTimestamp)
+			endUnix = int64(dnd.NextEndTimestamp)
 		}
-		wctx.DNDEnabled = isDND
+		var endTS time.Time
 		if endUnix > 0 {
-			wctx.DNDEndTS = time.Unix(endUnix, 0)
-		} else {
-			wctx.DNDEndTS = time.Time{}
+			endTS = time.Unix(endUnix, 0)
 		}
+		wctx.selfStatus.ApplyBootstrapDND(tok, isDND, endTS)
 	}
 
 	if program != nil {
+		st := wctx.selfStatus.Snapshot()
 		program.Send(ui.StatusChangeMsg{
 			TeamID:     wctx.TeamID,
-			Presence:   wctx.Presence,
-			DNDEnabled: wctx.DNDEnabled,
-			DNDEndTS:   wctx.DNDEndTS,
+			Presence:   st.Presence,
+			DNDEnabled: st.DNDEnabled,
+			DNDEndTS:   st.DNDEndTS,
 		})
 	}
 }
@@ -4240,6 +4263,11 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		if h.activeChannelID != nil {
 			activeChID = h.activeChannelID()
 		}
+		var isDND bool
+		if h.wsCtx != nil {
+			st := h.wsCtx.selfStatus.Snapshot()
+			isDND = st.DNDEnabled && (st.DNDEndTS.IsZero() || time.Now().Before(st.DNDEndTS))
+		}
 		ctx := notify.NotifyContext{
 			CurrentUserID:   h.currentUserID,
 			ActiveChannelID: activeChID,
@@ -4247,7 +4275,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			OnMention:       h.notifyCfg.OnMention,
 			OnDM:            h.notifyCfg.OnDM,
 			OnKeyword:       h.notifyCfg.OnKeyword,
-			IsDND:           h.wsCtx != nil && h.wsCtx.DNDEnabled && (h.wsCtx.DNDEndTS.IsZero() || time.Now().Before(h.wsCtx.DNDEndTS)),
+			IsDND:           isDND,
 			IsMuted:         h.wsCtx != nil && h.wsCtx.MuteStore != nil && h.wsCtx.MuteStore.IsMuted(channelID),
 		}
 		chType := h.channelTypes[channelID]
@@ -4500,7 +4528,8 @@ func (h *rtmEventHandler) OnConnect() {
 	h.connected = true
 	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
 	if h.wsCtx != nil {
-		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program)
+		tok := h.wsCtx.selfStatus.BeginBootstrap()
+		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program, tok)
 	}
 	// Refresh Slack-native section state on reconnect. MaybeRebootstrap
 	// is debounced to once per 30s (Task 6) so a rapid flap doesn't
@@ -4626,15 +4655,15 @@ func (h *rtmEventHandler) OnSelfPresenceChange(presence string) {
 		return
 	}
 	// Slack uses "active"/"away" in events; store verbatim.
-	h.wsCtx.Presence = presence
+	st := h.wsCtx.selfStatus.SetPresence(presence)
 	if h.program == nil {
 		return
 	}
 	h.program.Send(ui.StatusChangeMsg{
 		TeamID:     h.workspaceID,
-		Presence:   presence,
-		DNDEnabled: h.wsCtx.DNDEnabled,
-		DNDEndTS:   h.wsCtx.DNDEndTS,
+		Presence:   st.Presence,
+		DNDEnabled: st.DNDEnabled,
+		DNDEndTS:   st.DNDEndTS,
 	})
 }
 
@@ -4642,20 +4671,19 @@ func (h *rtmEventHandler) OnDNDChange(enabled bool, endUnix int64) {
 	if h.wsCtx == nil {
 		return
 	}
-	h.wsCtx.DNDEnabled = enabled
+	var endTS time.Time
 	if endUnix > 0 {
-		h.wsCtx.DNDEndTS = time.Unix(endUnix, 0)
-	} else {
-		h.wsCtx.DNDEndTS = time.Time{}
+		endTS = time.Unix(endUnix, 0)
 	}
+	st := h.wsCtx.selfStatus.SetDND(enabled, endTS)
 	if h.program == nil {
 		return
 	}
 	h.program.Send(ui.StatusChangeMsg{
 		TeamID:     h.workspaceID,
-		Presence:   h.wsCtx.Presence,
-		DNDEnabled: h.wsCtx.DNDEnabled,
-		DNDEndTS:   h.wsCtx.DNDEndTS,
+		Presence:   st.Presence,
+		DNDEnabled: st.DNDEnabled,
+		DNDEndTS:   st.DNDEndTS,
 	})
 }
 

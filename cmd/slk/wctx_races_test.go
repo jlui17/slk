@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/sharedmap"
@@ -118,5 +119,54 @@ func TestCustomEmojiConcurrentFetchAndSwitchRead(t *testing.T) {
 		}
 		m := wctx.CustomEmoji()
 		_ = m["wave"]
+	}
+}
+
+// The bootstrap goroutine's write shape (bootstrapPresenceAndDND's write
+// half, the real applyBootstrappedStatus) against the WS read goroutine's
+// handlers (OnSelfPresenceChange, OnDNDChange), which read-modify-send the
+// same triple. Before the selfStatus store this was an unsynchronized
+// mixed-size race: a torn Presence string or DNDEndTS is crash-capable or
+// silently wrong.
+func TestSelfStatusConcurrentBootstrapApplyAndWSEvents(t *testing.T) {
+	wctx := &WorkspaceContext{TeamID: "T1", UserID: "U1"}
+	h := &rtmEventHandler{program: &captureSender{}, workspaceID: "T1", wsCtx: wctx}
+	snoozeEnd := time.Now().Add(time.Hour)
+	dnd := &slack.DNDStatus{
+		SnoozeInfo: slack.SnoozeInfo{SnoozeEnabled: true, SnoozeEndTime: int(snoozeEnd.Unix())},
+	}
+	snoozeEndTS := time.Unix(snoozeEnd.Unix(), 0)
+	// checkPair asserts the snapshot's DND pair came from ONE write:
+	// bootstrap writes (true, snoozeEndTS), OnDNDChange writes (false,
+	// zero) — any other combination is a mixed-generation read.
+	checkPair := func(st selfStatus) {
+		t.Helper()
+		if st.DNDEnabled && !st.DNDEndTS.Equal(snoozeEndTS) {
+			t.Fatalf("mixed DND pair: enabled with end %v, want %v", st.DNDEndTS, snoozeEndTS)
+		}
+		if !st.DNDEnabled && !st.DNDEndTS.IsZero() {
+			t.Fatalf("mixed DND pair: disabled with non-zero end %v", st.DNDEndTS)
+		}
+	}
+	const n = 500
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < n; i++ {
+			tok := wctx.selfStatus.BeginBootstrap()
+			applyBootstrappedStatus(wctx, h.program, tok,
+				&slack.UserPresence{Presence: "active"}, dnd)
+		}
+	}()
+	for {
+		select {
+		case <-done:
+			checkPair(wctx.selfStatus.Snapshot())
+			return
+		default:
+		}
+		h.OnSelfPresenceChange("away")
+		h.OnDNDChange(false, 0)
+		checkPair(wctx.selfStatus.Snapshot())
 	}
 }
