@@ -178,7 +178,7 @@ func (c *Cache) preloadInner(userID, avatarURL string) {
 	//   - kitty: bounded square decode — rationale at kittyAvatarDecodeSize.
 	target := image.Pt(AvatarCols, AvatarRows*2)
 	if c.useKitty {
-		target = kittyAvatarTarget()
+		target = kittyAvatarTarget(avatarURL)
 	}
 	res, err := c.fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
 		Key:    "avatar-" + userID,
