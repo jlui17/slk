@@ -500,6 +500,10 @@ type App struct {
 	// publication.
 	forceSixelRepaint bool
 
+	// sixelMemo lets an unchanged frame reuse its published frame ID
+	// (fork; see sixelpaint_fork.go).
+	sixelMemo sixelFrameMemo
+
 	// Compositor memo (Stage A perf). bubbletea v2 calls View() after
 	// EVERY message -- every keystroke, key-repeat, mouse-motion, and
 	// tick -- synchronously in the event loop (tea.go render-on-update).
@@ -2951,9 +2955,8 @@ func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlace
 //   - sets the real window title for non-sixel protocols;
 //   - publishes an empty frame when no sixel surface is visible, so old
 //     pixels erase;
-//   - attaches each placement's guard from the complete screen string;
-//   - publishes the frame with the themed erase background and the
-//     pending resize force, then clears the force flag;
+//   - attaches guards and publishes via publishSixelFrame (fork), which
+//     reuses the previous frame's ID when nothing sixel-relevant changed;
 //   - marks the title with the frame ID so FrameOutput can correlate
 //     the exact flushed Bubble Tea frame.
 //
@@ -2964,16 +2967,7 @@ func (a *App) finalizeSixelView(v tea.View, placements []imgpkg.SixelPlacement) 
 		v.WindowTitle = a.windowTitle
 		return v
 	}
-	for i := range placements {
-		placements[i].Guard = frameGuard(v.Content, placements[i].Row-1, placements[i].Rows)
-	}
-	id := a.sixelFrames.Publish(imgpkg.SixelFrame{
-		Placements: placements,
-		EraseSGR:   messages.BgANSI(),
-		Force:      a.forceSixelRepaint,
-	})
-	a.forceSixelRepaint = false
-	v.WindowTitle = imgpkg.FrameTitle(a.windowTitle, id)
+	v.WindowTitle = imgpkg.FrameTitle(a.windowTitle, a.publishSixelFrame(v.Content, placements))
 	return v
 }
 
