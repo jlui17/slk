@@ -59,6 +59,17 @@ there and resolve them knowing what the fork wants:
   Upstreaming candidate: it fixes an upstream bug.
 - `internal/slack/auth.go` — atomic token save.
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
+- `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:
+  sized-variant URL rewrite and a bounded kitty decode target.
+- `cmd/slk/reconnect_sync.go` (+ its test) — the shared-DB
+  `MarkChannelsStale` call replaced by the per-instance watermark hook
+  (`sendCacheWatermark`); the test pinning the old staling deleted.
+- `cmd/slk/thread_subscriptions.go` — `sync` call routed through the
+  cross-instance sweep-claim hook (`syncIfUnclaimed`).
+- `internal/ui/reducer_channels.go` — tier-1 freshness additionally
+  requires `syncedAfterWatermark`.
+- `internal/ui/sixelpaint_test.go` — one assertion updated for the
+  sixel frame memo (a post-force identical frame reuses its ID).
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into
