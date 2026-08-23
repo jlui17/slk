@@ -362,7 +362,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 	id, fresh := k.registry.Lookup(key, target)
 
 	// Resize the source to the exact pixel dims we'll claim (cells × cellPx).
-	cw, ch := cellPixels() // measured via TIOCGWINSZ; 8x16 only as fallback
+	cw, ch := sixelCellPixels() // measured via TIOCGWINSZ; 8x16 only as fallback
 	pxW := target.X * cw
 	pxH := target.Y * ch
 	resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))

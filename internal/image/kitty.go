@@ -1,12 +1,9 @@
 package image
 
 import (
-	"bytes"
-	"compress/zlib"
 	"encoding/base64"
 	"fmt"
 	"image"
-	imgpng "image/png"
 	"io"
 	"os"
 	"strings"
@@ -16,20 +13,6 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	"golang.org/x/image/draw"
 )
-
-// kittyUploadRGBA switches every kitty transmit from PNG (f=100) to
-// zlib-compressed raw RGBA (f=32,o=z). Set once at startup, before any
-// rendering goroutine runs (same publication contract as cellPxW/H),
-// when the terminal's graphics implementation rejects PNG but acks raw
-// pixels — libghostty-vt embedders without a wired PNG decoder, e.g.
-// herdr (probed via ProbeKittyGraphics / ProbeKittyRGBA).
-var kittyUploadRGBA atomic.Bool
-
-// SetKittyUploadRGBA switches kitty uploads to raw RGBA encoding.
-func SetKittyUploadRGBA() {
-	kittyUploadRGBA.Store(true)
-	debuglog.ImgRender("kitty uploads: raw RGBA (terminal rejects PNG)")
-}
 
 // kittyDiacritics is the 297-entry table from kitty's rowcolumn-diacritics.txt.
 // Index i -> rune used to encode row-or-column index i in unicode-placeholder mode.
@@ -158,15 +141,6 @@ type placeholderKey struct {
 	cellsY int
 }
 
-// payloadKey scopes the payload memo. The raster is resampled to
-// cells × cell-pixel-size, so the same (id, target) encodes a
-// different payload once the terminal reports a different cell size.
-type payloadKey struct {
-	placeholderKey
-	cellPxW int
-	cellPxH int
-}
-
 // NewKittyRenderer constructs a kitty renderer backed by the given registry.
 func NewKittyRenderer(reg *Registry) *KittyRenderer {
 	return &KittyRenderer{
@@ -245,7 +219,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// OnFlush so the terminal eventually receives them (idempotent
 		// from kitty's perspective: re-transmitting the same image id
 		// just re-asserts the binding).
-		cw, ch := cellPixels()
+		cw, ch := sixelCellPixels()
 		// pxW/pxH size the encoded raster AND fill the raw-RGBA upload
 		// header's s=,v= keys; one computation for both, because raw
 		// RGBA carries no embedded dimensions to catch a mismatch and
@@ -310,36 +284,6 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		}
 	}
 	return r
-}
-
-// kittyPayload is a memoized upload: the base64 bytes plus the pixel
-// format they were encoded in, so the emit header can never disagree
-// with the encoding.
-type kittyPayload struct {
-	b64  string
-	rgba bool
-}
-
-// encodeKittyPayload encodes the resized raster: PNG by default,
-// zlib-compressed raw RGBA when rgba is set. The raw path serializes
-// img.Pix directly — img is always freshly allocated by image.NewRGBA
-// at (0,0), so Pix is contiguous with no stride padding.
-func encodeKittyPayload(img *image.RGBA, rgba bool) ([]byte, error) {
-	var buf bytes.Buffer
-	if rgba {
-		zw := zlib.NewWriter(&buf)
-		if _, err := zw.Write(img.Pix); err != nil {
-			return nil, err
-		}
-		if err := zw.Close(); err != nil {
-			return nil, err
-		}
-		return buf.Bytes(), nil
-	}
-	if err := imgpng.Encode(&buf, img); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // emitKittyUpload writes the kitty graphics protocol APC sequence to
