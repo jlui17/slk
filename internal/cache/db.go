@@ -161,20 +161,6 @@ func (db *DB) migrate() error {
 		PRIMARY KEY (workspace_id, channel_id)
 	);
 
-	CREATE TABLE IF NOT EXISTS pane_state (
-		pane_key TEXT PRIMARY KEY,
-		workspace_id TEXT NOT NULL,
-		channel_id TEXT NOT NULL,
-		thread_ts TEXT NOT NULL DEFAULT '',
-		updated_at INTEGER NOT NULL DEFAULT 0
-	);
-
-	CREATE TABLE IF NOT EXISTS herdr_pane_ids (
-		pane_key TEXT PRIMARY KEY,
-		current_pane_id TEXT NOT NULL,
-		updated_at INTEGER NOT NULL DEFAULT 0
-	);
-
 	CREATE TABLE IF NOT EXISTS thread_subscriptions (
 		workspace_id TEXT NOT NULL,
 		channel_id   TEXT NOT NULL,
@@ -213,6 +199,9 @@ func (db *DB) migrate() error {
 	`
 
 	if _, err := db.conn.Exec(schema); err != nil {
+		return err
+	}
+	if err := db.migrateFork(); err != nil {
 		return err
 	}
 

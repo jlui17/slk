@@ -52,12 +52,6 @@ func NewStatusReporter(command string) *StatusReporter {
 	return r
 }
 
-// SetLeader makes Report defer to l, so several slk instances don't all
-// drive the same external surface. Unset, every instance reports.
-func (r *StatusReporter) SetLeader(l *Leader) {
-	r.leader = l
-}
-
 // Enqueue hands the worker a new unread state and returns immediately, so it
 // is safe to call from the UI goroutine. A still-pending state is replaced
 // rather than queued behind. Nil-safe (no-op).

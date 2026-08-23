@@ -26,13 +26,6 @@ func New(enabled bool, command string) *Notifier {
 	return &Notifier{enabled: enabled, command: command}
 }
 
-// SetLeader makes Notify defer to l, so only one of several slk
-// instances notifies for a given message. Unset, every instance
-// notifies.
-func (n *Notifier) SetLeader(l *Leader) {
-	n.leader = l
-}
-
 // Notify delivers a notification with the given title and body. It returns nil
 // when notifications are disabled, and when another slk instance leads (see
 // Leader). If a notify_command is configured it runs in place of the built-in

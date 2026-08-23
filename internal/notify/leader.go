@@ -49,3 +49,16 @@ func (l *Leader) IsLeader() bool {
 	l.held = held
 	return held
 }
+
+// SetLeader makes Notify defer to l, so only one of several slk
+// instances notifies for a given message. Unset, every instance
+// notifies.
+func (n *Notifier) SetLeader(l *Leader) {
+	n.leader = l
+}
+
+// SetLeader makes Report defer to l, so several slk instances don't all
+// drive the same external surface. Unset, every instance reports.
+func (r *StatusReporter) SetLeader(l *Leader) {
+	r.leader = l
+}
