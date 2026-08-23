@@ -218,8 +218,10 @@ func ensureWorkspaceThreadSubs(ctx context.Context, wctx *WorkspaceContext, db *
 // user opens the Threads view is fine — the view renders from cache
 // and refreshes via onDone's ThreadsListDirtyMsg.
 //
-// onDone fires only on success — telling the view to re-read a cache
-// that a failed fetch did not change would be a wasted round trip.
+// onDone fires on success and on a sweep skipped behind a sibling
+// instance's claim (the sibling wrote into the same shared cache), but
+// never on failure — telling the view to re-read a cache a failed
+// fetch did not change would be a wasted round trip.
 func ensureThreadSubscriptions(ctx context.Context, gate *threadSubsGate, s *threadSubscriptionSync, onDone func()) {
 	first, ok := gate.tryStart(time.Now())
 	if !ok {
