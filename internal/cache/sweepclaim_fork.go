@@ -24,3 +24,15 @@ func (db *DB) TryClaimThreadSweep(workspaceID string, now time.Time, window time
 	}
 	return n == 1, nil
 }
+
+// ReleaseThreadSweepClaim clears a claim this caller took at claimedAt
+// so a failed sweep doesn't block every sibling for the window.
+// Compare-and-clear on the claimant's own stamp: a sibling's newer
+// claim is left standing.
+func (db *DB) ReleaseThreadSweepClaim(workspaceID string, claimedAt time.Time) error {
+	_, err := db.conn.Exec(`
+		DELETE FROM thread_sweep_claims
+		WHERE workspace_id = ? AND claimed_at = ?`,
+		workspaceID, claimedAt.Unix())
+	return err
+}

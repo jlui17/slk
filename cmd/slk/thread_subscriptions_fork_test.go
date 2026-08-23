@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -24,6 +25,25 @@ func TestThreadSweep_SkipsWhenSiblingClaimedRecently(t *testing.T) {
 	}
 	if fake.calls != 0 {
 		t.Fatalf("ListThreadSubscriptions called %d times behind a sibling's fresh claim; want 0", fake.calls)
+	}
+}
+
+// A transient getView failure must not burn the fleet-wide claim for
+// the whole window: reconnect/wake is exactly when errors are likely,
+// and pre-election every instance retried on its own gate.
+func TestThreadSweep_FailedSweepReleasesTheClaim(t *testing.T) {
+	db := newTestDB(t)
+	failing := &fakeSubscriptions{err: errors.New("network kaboom")}
+	if err := newSubscriptionSync(db, failing, nil).syncIfUnclaimed(context.Background(), 30*time.Minute); err == nil {
+		t.Fatal("failed sweep reported success")
+	}
+
+	sibling := &fakeSubscriptions{}
+	if err := newSubscriptionSync(db, sibling, nil).syncIfUnclaimed(context.Background(), 30*time.Minute); err != nil {
+		t.Fatalf("sibling syncIfUnclaimed: %v", err)
+	}
+	if sibling.calls != 1 {
+		t.Fatalf("sibling swept %d times after our failure; want 1 — the failed claim must be released", sibling.calls)
 	}
 }
 
