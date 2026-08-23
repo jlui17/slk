@@ -1,5 +1,17 @@
 # slk
 
+## Fork layout: fork code lives in fork-only files
+
+This repo is a fork of gammons/slk that tracks `upstream/main`. Fork-added
+declarations (funcs, methods, types, tests) never land in upstream files:
+put them in a sibling `<base>_fork.go` / `<base>_fork_test.go`, or a
+descriptively named file for a whole feature. Upstream files carry only what
+can't move — hook lines, struct/interface members, switch arms, in-place
+behavior changes — and prefer a one-line hook into a fork-file helper over
+an inline block. `tools/fork-footprint.sh` shows the current churn on
+upstream-owned files; don't grow it where a fork-only file would do. Merge
+runbook and the list of intentionally diverged files: `docs/fork.md`.
+
 ## Branch workflow
 
 Squash-merge every feature branch into main (`git merge --squash <branch>`,
