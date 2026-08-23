@@ -61,6 +61,8 @@ there and resolve them knowing what the fork wants:
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
 - `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:
   sized-variant URL rewrite and a bounded kitty decode target.
+- `internal/cache/users.go` — `UpsertUser` no longer updates `presence`
+  on conflict; `UpdatePresence` is the column's only writer.
 - `cmd/slk/reconnect_sync.go` (+ its test) — the shared-DB
   `MarkChannelsStale` call replaced by the per-instance watermark hook
   (`sendCacheWatermark`); the test pinning the old staling deleted.
