@@ -29,7 +29,6 @@ func (db *DB) UpsertUser(u User) error {
 			name=excluded.name,
 			display_name=excluded.display_name,
 			avatar_url=excluded.avatar_url,
-			presence=excluded.presence,
 			is_bot=excluded.is_bot,
 			is_external=excluded.is_external,
 			updated_at=excluded.updated_at
