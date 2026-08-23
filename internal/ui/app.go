@@ -198,6 +198,8 @@ type App struct {
 	herdrTabViewed    bool
 	herdrTabViewKnown bool
 
+	lastView viewMemo
+
 	// paneStateRecorder persists the pane's open channel/thread for
 	// restore-on-relaunch; nil when the restore feature is disabled.
 	// lastPaneReport dedupes: setThreadPanel re-fires on every replies
@@ -2793,6 +2795,9 @@ func (a *App) View() tea.View {
 	if v, handled := a.renderEarlyFallback(); handled {
 		return a.finalizeSixelView(v, nil)
 	}
+	if v, ok := a.unviewedLastView(); ok {
+		return v
+	}
 
 	// Perf instrumentation: wall-clock the main View() path so we can
 	// correlate user-visible latency (i / arrow keys / thread open-close)
@@ -2900,7 +2905,7 @@ func (a *App) View() tea.View {
 			int(a.focusedPanel), int(a.view), a.mode.String(),
 			a.threadVisible, a.sidebarVisible, previewActive)
 	}
-	return a.finalizeSixelView(v, a.collectSixelPlacements(frame))
+	return a.rememberLastView(a.finalizeSixelView(v, a.collectSixelPlacements(frame)))
 }
 
 // collectSixelPlacements gathers the desired sixel placements for the
