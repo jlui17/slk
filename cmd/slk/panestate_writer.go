@@ -86,3 +86,23 @@ func (w *paneStateWriter) flush() {
 		log.Printf("warning: recording pane state: %v", err)
 	}
 }
+
+// paneChannelFor returns the pane-state channel when it belongs to
+// teamID, else "". The pane state wins over the global channel-visit
+// restore only for its own workspace.
+func paneChannelFor(pane *cache.PaneState, teamID string) string {
+	if pane != nil && pane.WorkspaceID == teamID {
+		return pane.ChannelID
+	}
+	return ""
+}
+
+// restoredChannelFor picks the channel a workspace restores at boot:
+// the pane state's channel for the pane's own workspace, the global
+// most-recently-visited channel everywhere else.
+func restoredChannelFor(pane *cache.PaneState, teamID string, visits map[string]int64) string {
+	if ch := paneChannelFor(pane, teamID); ch != "" {
+		return ch
+	}
+	return mostRecentlyVisitedChannel(visits)
+}

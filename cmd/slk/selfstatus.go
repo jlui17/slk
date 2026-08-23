@@ -4,6 +4,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gammons/slk/internal/ui"
+	"github.com/slack-go/slack"
 )
 
 // selfStatus is one workspace's self presence/DND state as an immutable
@@ -118,4 +121,49 @@ func (s *selfStatusStore) ApplyBootstrapDND(tok bootstrapToken, enabled bool, en
 	next.DNDEndTS = endTS
 	s.current.Store(&next)
 	return true
+}
+
+// applyBootstrappedStatus is bootstrapPresenceAndDND's write half. A nil
+// presence or dnd means that fetch failed and its group is left alone.
+// The StatusChangeMsg always carries the store's current winner, so it
+// is correct even when every apply was vetoed.
+func applyBootstrappedStatus(wctx *WorkspaceContext, program teaSender, tok bootstrapToken, presence *slack.UserPresence, dnd *slack.DNDStatus) {
+	if presence != nil {
+		wctx.selfStatus.ApplyBootstrapPresence(tok, presence.Presence)
+	}
+
+	// Slack's dnd_enabled flag means "the user has a DND schedule
+	// configured", NOT "currently in DND". The user is currently in DND
+	// only when (a) a manual snooze is active, or (b) the current time
+	// falls inside the next scheduled window. The same rule lives in
+	// internal/slack/events.go's computeDNDState for the WS event path.
+	if dnd != nil {
+		now := time.Now().Unix()
+		var isDND bool
+		var endUnix int64
+		switch {
+		case dnd.SnoozeEnabled && int64(dnd.SnoozeEndTime) > now:
+			isDND = true
+			endUnix = int64(dnd.SnoozeEndTime)
+		case dnd.Enabled && int64(dnd.NextStartTimestamp) > 0 &&
+			int64(dnd.NextStartTimestamp) <= now && now < int64(dnd.NextEndTimestamp):
+			isDND = true
+			endUnix = int64(dnd.NextEndTimestamp)
+		}
+		var endTS time.Time
+		if endUnix > 0 {
+			endTS = time.Unix(endUnix, 0)
+		}
+		wctx.selfStatus.ApplyBootstrapDND(tok, isDND, endTS)
+	}
+
+	if program != nil {
+		st := wctx.selfStatus.Snapshot()
+		program.Send(ui.StatusChangeMsg{
+			TeamID:     wctx.TeamID,
+			Presence:   st.Presence,
+			DNDEnabled: st.DNDEnabled,
+			DNDEndTS:   st.DNDEndTS,
+		})
+	}
 }

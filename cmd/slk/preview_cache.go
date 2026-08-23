@@ -3,6 +3,8 @@ package main
 import (
 	"sync"
 	"time"
+
+	"github.com/gammons/slk/internal/cache"
 )
 
 const previewCacheTTL = 5 * time.Minute
@@ -50,4 +52,20 @@ func (c *previewCache) Put(channelID, ts, userID, text string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[previewCacheKey(channelID, ts)] = previewCacheEntry{userID: userID, text: text, storedAt: c.now()}
+}
+
+// cachedMessagePreview is the Preview seam's cache tier: the target
+// message's sender and raw text when the cache holds it. A tombstone
+// (soft-deleted row; GetMessage is the one cache read without an
+// is_deleted filter) counts as found with no text, so the network
+// tier isn't asked to resurrect a message we know is gone.
+func cachedMessagePreview(db *cache.DB, channelID, ts string) (userID, text string, found bool) {
+	m, err := db.GetMessage(channelID, ts)
+	if err != nil {
+		return "", "", false
+	}
+	if m.IsDeleted {
+		return "", "", true
+	}
+	return m.UserID, m.Text, true
 }

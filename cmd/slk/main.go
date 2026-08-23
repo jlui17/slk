@@ -253,23 +253,6 @@ type WorkspaceContext struct {
 	Membership *membership.Manager
 }
 
-// CustomEmoji returns this workspace's emoji name -> URL (or
-// "alias:target") map, or an empty map before any fetch has published
-// one. Safe to call from any goroutine; the result must be treated as
-// read-only.
-func (w *WorkspaceContext) CustomEmoji() map[string]string {
-	if m := w.customEmoji.Load(); m != nil {
-		return *m
-	}
-	return map[string]string{}
-}
-
-// SetCustomEmoji publishes an emoji map for this workspace. The caller
-// must not mutate the map afterwards.
-func (w *WorkspaceContext) SetCustomEmoji(emojis map[string]string) {
-	w.customEmoji.Store(&emojis)
-}
-
 // UserGroups returns this workspace's usergroup ID -> handle map, or an
 // empty map before usergroups.list has returned. Safe to call from any
 // goroutine; the result must be treated as read-only.
@@ -284,17 +267,6 @@ func (w *WorkspaceContext) UserGroups() map[string]string {
 // workspace. The caller must not mutate the map afterwards.
 func (w *WorkspaceContext) SetUserGroups(groups map[string]string) {
 	w.userGroups.Store(&groups)
-}
-
-// ForceReconnect bounces this workspace's websocket immediately AND
-// resets the reconnect catch-up dedupe gate so the catch-up pass runs
-// on the resulting OnConnect. Always use this over ConnMgr.Reconnect()
-// directly: a bare Reconnect inside the gate's dedupe window silently
-// skips the catch-up (debug-log only), leaving offline-gap messages
-// unbackfilled.
-func (w *WorkspaceContext) ForceReconnect() {
-	w.RTMHandler.backfillGate.reset()
-	w.ConnMgr.Reconnect()
 }
 
 // workspaceRouter holds the program-wide "active workspace" pointer.
@@ -322,23 +294,6 @@ func (r *workspaceRouter) ByID(teamID string) *WorkspaceContext {
 	r.allMu.RLock()
 	defer r.allMu.RUnlock()
 	return r.all[teamID]
-}
-
-func (r *workspaceRouter) Add(wctx *WorkspaceContext) {
-	r.allMu.Lock()
-	defer r.allMu.Unlock()
-	r.all[wctx.TeamID] = wctx
-}
-
-// All returns a snapshot of every connected workspace.
-func (r *workspaceRouter) All() []*WorkspaceContext {
-	r.allMu.RLock()
-	defer r.allMu.RUnlock()
-	out := make([]*WorkspaceContext, 0, len(r.all))
-	for _, wctx := range r.all {
-		out = append(out, wctx)
-	}
-	return out
 }
 
 // userResolverConcurrency caps how many users.info round trips the
@@ -2974,40 +2929,6 @@ func resolveUserCached(userID string, userNames *usernames.Store, db *cache.DB) 
 	return name, ok
 }
 
-// userNameFill batches one fetch/load pass's memoizations so the store
-// publishes once per pass (one copy-on-write) instead of once per
-// author.
-type userNameFill struct {
-	names   *usernames.Store
-	pending map[string]string
-}
-
-func newUserNameFill(names *usernames.Store) *userNameFill {
-	return &userNameFill{names: names, pending: map[string]string{}}
-}
-
-// lookup is lookupUserCached with this pass's pending fills consulted
-// first and DB hits (only) memoized into them — store hits need no
-// republish, and apply's Fill keeps a pending name from overwriting a
-// fresher live-resolved one.
-func (f *userNameFill) lookup(userID string, db *cache.DB) (string, bool) {
-	if name, ok := f.pending[userID]; ok && name != "" {
-		return name, true
-	}
-	if name, ok := f.names.Get(userID); ok && name != "" {
-		return name, true
-	}
-	name, ok := lookupUserCached(userID, f.names, db)
-	if ok {
-		f.pending[userID] = name
-	}
-	return name, ok
-}
-
-func (f *userNameFill) apply() {
-	f.names.Fill(f.pending)
-}
-
 // resolveUser ensures we have the display name and avatar for a user.
 // If the user is unknown, fetches their profile from Slack on demand.
 // Returns the resolved display name (or the userID as a fallback) and a
@@ -3929,22 +3850,6 @@ func formatSearchTimestamp(ts, timeFormat string, now time.Time) string {
 	}
 }
 
-// cachedMessagePreview is the Preview seam's cache tier: the target
-// message's sender and raw text when the cache holds it. A tombstone
-// (soft-deleted row; GetMessage is the one cache read without an
-// is_deleted filter) counts as found with no text, so the network
-// tier isn't asked to resurrect a message we know is gone.
-func cachedMessagePreview(db *cache.DB, channelID, ts string) (userID, text string, found bool) {
-	m, err := db.GetMessage(channelID, ts)
-	if err != nil {
-		return "", "", false
-	}
-	if m.IsDeleted {
-		return "", "", true
-	}
-	return m.UserID, m.Text, true
-}
-
 func formatTimestamp(ts, format string) string {
 	// Slack ts is like "1700000001.000000" -- split on "." and parse the seconds
 	parts := strings.SplitN(ts, ".", 2)
@@ -4019,51 +3924,6 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	applyBootstrappedStatus(wctx, program, tok, presence, dnd)
 }
 
-// applyBootstrappedStatus is bootstrapPresenceAndDND's write half. A nil
-// presence or dnd means that fetch failed and its group is left alone.
-// The StatusChangeMsg always carries the store's current winner, so it
-// is correct even when every apply was vetoed.
-func applyBootstrappedStatus(wctx *WorkspaceContext, program teaSender, tok bootstrapToken, presence *slack.UserPresence, dnd *slack.DNDStatus) {
-	if presence != nil {
-		wctx.selfStatus.ApplyBootstrapPresence(tok, presence.Presence)
-	}
-
-	// Slack's dnd_enabled flag means "the user has a DND schedule
-	// configured", NOT "currently in DND". The user is currently in DND
-	// only when (a) a manual snooze is active, or (b) the current time
-	// falls inside the next scheduled window. The same rule lives in
-	// internal/slack/events.go's computeDNDState for the WS event path.
-	if dnd != nil {
-		now := time.Now().Unix()
-		var isDND bool
-		var endUnix int64
-		switch {
-		case dnd.SnoozeEnabled && int64(dnd.SnoozeEndTime) > now:
-			isDND = true
-			endUnix = int64(dnd.SnoozeEndTime)
-		case dnd.Enabled && int64(dnd.NextStartTimestamp) > 0 &&
-			int64(dnd.NextStartTimestamp) <= now && now < int64(dnd.NextEndTimestamp):
-			isDND = true
-			endUnix = int64(dnd.NextEndTimestamp)
-		}
-		var endTS time.Time
-		if endUnix > 0 {
-			endTS = time.Unix(endUnix, 0)
-		}
-		wctx.selfStatus.ApplyBootstrapDND(tok, isDND, endTS)
-	}
-
-	if program != nil {
-		st := wctx.selfStatus.Snapshot()
-		program.Send(ui.StatusChangeMsg{
-			TeamID:     wctx.TeamID,
-			Presence:   st.Presence,
-			DNDEnabled: st.DNDEnabled,
-			DNDEndTS:   st.DNDEndTS,
-		})
-	}
-}
-
 // subscribeWorkspacePresence subscribes over the WebSocket to presence
 // updates for the authenticated user plus every 1:1 DM peer, so the
 // sidebar can show who is online. Slack's presence_sub REPLACES the prior
@@ -4119,26 +3979,6 @@ func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 // mostRecentlyVisitedChannel returns the channel ID with the latest
 // last-visited timestamp, or "" when there are no recorded visits (e.g.
 // the first run). Drives last-channel restoration on startup.
-// paneChannelFor returns the pane-state channel when it belongs to
-// teamID, else "". The pane state wins over the global channel-visit
-// restore only for its own workspace.
-func paneChannelFor(pane *cache.PaneState, teamID string) string {
-	if pane != nil && pane.WorkspaceID == teamID {
-		return pane.ChannelID
-	}
-	return ""
-}
-
-// restoredChannelFor picks the channel a workspace restores at boot:
-// the pane state's channel for the pane's own workspace, the global
-// most-recently-visited channel everywhere else.
-func restoredChannelFor(pane *cache.PaneState, teamID string, visits map[string]int64) string {
-	if ch := paneChannelFor(pane, teamID); ch != "" {
-		return ch
-	}
-	return mostRecentlyVisitedChannel(visits)
-}
-
 func mostRecentlyVisitedChannel(visits map[string]int64) string {
 	var bestID string
 	var bestTS int64
@@ -4767,23 +4607,6 @@ func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, s
 		TS:        lastRead,
 		Read:      read,
 	})
-}
-
-// threadMarkReadState decides what a thread_marked watermark means for
-// read state. Equality means caught up: a genuine mark-as-unread sets
-// last_read strictly before the message being marked, so last_read can
-// only reach the newest activity by reading to the end. A watermark past
-// everything known (or nothing known at all) is undecidable — the local
-// newest-activity view is stale by definition, and a read-to-end cannot
-// be told apart from a mark-unread at an uncached reply, which is a
-// deliberate user signal that must not be guessed away. Callers persist
-// the facts and skip the UI dispatch; the next getView reconcile settles
-// it. String comparison is valid: Slack ts are fixed-width secs.micros.
-func threadMarkReadState(lastRead, newestActivity string) (read, known bool) {
-	if newestActivity == "" || lastRead > newestActivity {
-		return false, false
-	}
-	return lastRead == newestActivity, true
 }
 
 // OnThreadSubscriptionChanged persists a subscribe/unsubscribe event
