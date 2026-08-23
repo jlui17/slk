@@ -9,9 +9,12 @@ import (
 )
 
 // paneStateKey identifies this pane's persisted state across restarts.
-// herdr keeps pane IDs stable across server restarts, so a restarted
-// pane reads the state its previous incarnation wrote; outside herdr
-// every instance shares one slot.
+// The key is the launch env's pane id: constant for the shell's
+// lifetime, and herdr re-exports an un-moved pane's public id across
+// server restarts, so a restarted pane reads the state its previous
+// incarnation wrote. A cross-workspace move re-keys the pane's future
+// incarnations (the old row is orphaned and state starts fresh);
+// outside herdr every instance shares one slot.
 func paneStateKey() string {
 	if id := os.Getenv("HERDR_PANE_ID"); id != "" {
 		return id

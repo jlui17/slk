@@ -86,6 +86,10 @@ type focusServer struct {
 	// stale ids answer pane.get with pane_not_found, modeling a server
 	// restart that wiped the stale-id alias map.
 	stale map[string]bool
+	// strictGet makes pane.get resolve only the pane's exact current id
+	// (and foreign entries), modeling a freshly restarted server with no
+	// aliases at all — the state a cold-start recovery probes.
+	strictGet bool
 	// foreign records answer pane.get for their own id, modeling other
 	// panes; every other id resolves to pane, herdr's alias semantics.
 	foreign map[string]paneInfo
@@ -149,7 +153,8 @@ func (s *focusServer) serve(conn net.Conn) {
 	case "pane.get":
 		s.mu.Lock()
 		var resp []byte
-		if s.stale[req.Params.PaneID] {
+		if s.stale[req.Params.PaneID] ||
+			(s.strictGet && req.Params.PaneID != s.pane.PaneID) {
 			resp, _ = json.Marshal(map[string]any{"id": "x", "error": map[string]any{
 				"code": "pane_not_found", "message": "pane " + req.Params.PaneID + " not found",
 			}})
@@ -523,9 +528,11 @@ func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
 	waitSignal("initial connect")
 	<-views // initial viewed state; the first pane.get learned term_a
 
-	// A herdr restart via `update --handoff`: slk's process (and this
-	// watcher) survive, the pane keeps living under a new id, and the
-	// old id no longer resolves — the alias map is in-memory only.
+	// The tracked id stops resolving while the pane's terminal id stays
+	// current — a state no known herdr sequence produces (see fetchPane:
+	// aliases cover stale ids within a run, restarts re-mint terminal
+	// ids). This pins the fallback kept for the day that belief fails;
+	// the real restart recovery is TestWatchFocusBootstrapsFromCachedPaneID.
 	s.markStale("w1:p1")
 	s.setPane("w5:p2", "w5:t1", "w5")
 	s.setLocation("w5:t1", "w5:t1", true)
@@ -536,6 +543,113 @@ func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
 	s.waitSubscribed()
 	waitSignal("reconnect")
 	waitIdentity(t, r, "w5:p2")
+}
+
+func TestWatchFocusBootstrapsFromCachedPaneID(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	// A cold start in the wedged pane: the launch env still says w1:p1
+	// (the pane moved workspaces, then a restart wiped every alias),
+	// no terminal id has ever been learned in this process, and the pane
+	// answers only to its exact current id, w5:p2 — strictGet, so a
+	// probe with any other id (the launch id, an empty string, a field
+	// mixup) fails like it would against the real restarted server.
+	// Without the cached id the first locate can never succeed and the
+	// watcher never subscribes.
+	s.mu.Lock()
+	s.strictGet = true
+	s.mu.Unlock()
+	s.setPane("w5:p2", "w5:t1", "w5")
+	s.setLocation("w5:t1", "w5:t1", true)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r.SetPaneIDCache(func() (string, bool) { return "w5:p2", true }, func(string) error { return nil })
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "bootstrapped from the cached id")
+	waitIdentity(t, r, "w5:p2")
+}
+
+func TestWatchFocusRetriesFailedPaneIDSave(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r.retryDelay = 20 * time.Millisecond
+	// The saver runs only on the watcher's goroutine, so the plain bool
+	// is race-free. First write fails, as a busy cache DB's would.
+	failedOnce := false
+	saves := make(chan string, 8)
+	r.SetPaneIDCache(nil, func(paneID string) error {
+		if !failedOnce {
+			failedOnce = true
+			return fmt.Errorf("database is locked")
+		}
+		saves <- paneID
+		return nil
+	})
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	// A failed save must not count as saved: the next resolve (here a
+	// reconnect landing on the same id) retries it.
+	s.dropSubscription()
+	s.waitSubscribed()
+	select {
+	case got := <-saves:
+		if got != "w1:p1" {
+			t.Fatalf("retried save = %q, want %q", got, "w1:p1")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("failed save was never retried")
+	}
+}
+
+func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r.retryDelay = 20 * time.Millisecond
+	saves := make(chan string, 8)
+	r.SetPaneIDCache(nil, func(paneID string) error {
+		saves <- paneID
+		return nil
+	})
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(true, "initial state")
+
+	waitSave := func(want, step string) {
+		t.Helper()
+		select {
+		case got := <-saves:
+			if got != want {
+				t.Fatalf("%s: saved %q, want %q", step, got, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: nothing saved", step)
+		}
+	}
+	// The first resolve persists even without a move: the row always
+	// holds the last id the pane answered to, replacing whatever a
+	// previous run left under this key. (A value equal to the launch id
+	// is never read back — fetchPane skips it — so the write's job here
+	// is scrubbing, not recovery.)
+	waitSave("w1:p1", "initial resolve")
+
+	s.setPane("w2:p1", "w2:t1", "w2")
+	s.setLocation("w2:t1", "w2:t1", true)
+	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	waitSave("w2:p1", "after the move")
+
+	// A reconnect that resolves the same id must not rewrite the store.
+	s.dropSubscription()
+	s.waitSubscribed()
+	waitIdentity(t, r, "w2:p1")
+	select {
+	case got := <-saves:
+		t.Fatalf("reconnect without a move re-saved %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
 }
 
 func TestReportsDuringMovesNoRace(t *testing.T) {
@@ -565,6 +679,7 @@ func TestReportsDuringMovesNoRace(t *testing.T) {
 
 func TestWatchFocusNilSafe(t *testing.T) {
 	var r *Reporter
+	r.SetPaneIDCache(func() (string, bool) { return "", false }, func(string) error { return nil })
 	r.WatchFocus(func(bool) { t.Error("must not fire") }, func() { t.Error("must not connect") })
 	time.Sleep(20 * time.Millisecond)
 }

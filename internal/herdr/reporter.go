@@ -64,6 +64,16 @@ type Reporter struct {
 	// retryDelay paces the focus watcher's reconnects.
 	retryDelay time.Duration
 
+	// loadPaneID and savePaneID bridge the pane's resolved public id to
+	// a store that outlives the process; both are set once via
+	// SetPaneIDCache before WatchFocus and used only on the watcher's
+	// goroutine (fetchPane, adopt).
+	loadPaneID func() (string, bool)
+	savePaneID func(paneID string) error
+	// savedPaneID is the last id savePaneID accepted, gating rewrites;
+	// watcher goroutine only.
+	savedPaneID string
+
 	mu sync.Mutex
 	// paneID, tabID, and workspaceID are the pane's current coordinates.
 	// They start as the launch env's values and go stale when herdr moves
@@ -73,8 +83,9 @@ type Reporter struct {
 	paneID      string
 	tabID       string
 	workspaceID string
-	// terminalID is the pane's durable handle (term_…), stable across
-	// moves and server restarts where the public ids are not. Not in the
+	// terminalID is the pane's stable handle within one server run
+	// (term_…): it survives moves, but a server restart or handoff
+	// re-mints every terminal id (herdr persists none). Not in the
 	// launch env: empty until the watcher's first successful pane.get.
 	terminalID string
 	// agent is the id from the last report, carried into release because
@@ -167,6 +178,39 @@ func (r *Reporter) adopt(p paneInfo) {
 	if p.TerminalID != "" {
 		r.terminalID = p.TerminalID
 	}
+}
+
+// persistPaneID hands a public id to the pane-id cache, skipping ids
+// already stored and re-arming after a failed write so the next resolve
+// retries it. Called only from the focus watcher's goroutine, and only
+// with ids a pane.get response vouched for (locate) — never straight
+// from a pane_moved event, so one malformed event can't overwrite the
+// last good row.
+func (r *Reporter) persistPaneID(paneID string) {
+	if r.savePaneID == nil || paneID == "" || paneID == r.savedPaneID {
+		return
+	}
+	if err := r.savePaneID(paneID); err != nil {
+		debuglog.Notify("herdr: pane id cache write: %v", err)
+		return
+	}
+	r.savedPaneID = paneID
+}
+
+// SetPaneIDCache connects the reporter to a store of the pane's
+// last-resolved public id that outlives the process: save is called
+// whenever a resolve lands a new id (a returned error is logged and the
+// id retried on the next resolve), and load is the cold-start fallback
+// for a launch-env pane id the server no longer resolves (the pane
+// moved, then a restart or handoff wiped the alias map — herdr persists
+// public pane ids and nothing else a pane could be found by). Must be
+// called before WatchFocus; nil-safe.
+func (r *Reporter) SetPaneIDCache(load func() (string, bool), save func(paneID string) error) {
+	if r == nil {
+		return
+	}
+	r.loadPaneID = load
+	r.savePaneID = save
 }
 
 type request struct {
@@ -471,7 +515,8 @@ func isDefaultTabLabel(label string) bool {
 }
 
 // Close releases the entry, stops the focus watcher, and waits up to
-// timeout for in-flight sends to finish; called once at process shutdown.
+// timeout for in-flight sends and the watcher to finish; called once at
+// process shutdown.
 func (r *Reporter) Close(timeout time.Duration) {
 	if r == nil {
 		return

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"time"
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/herdr"
 	"github.com/gammons/slk/internal/ui"
 )
@@ -20,6 +22,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	if hr == nil || cfg.Disabled {
 		return nil, nil
 	}
+	hr.SetPaneIDCache(herdrPaneIDStore(db, os.Getenv("HERDR_PANE_ID")))
 	app.SetAgentReporter(hr.Report, hr.ReportUnread, hr.NameTab, func(userID string) (string, bool, bool) {
 		// Straight to the DB: detection needs IsBot, which the
 		// in-memory name map doesn't carry.
@@ -41,6 +44,28 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	// A crash skips this, leaving a stale sidebar entry until herdr's
 	// own pane detection reclaims the pane; only clean exits release.
 	return hr, func() { hr.Close(time.Second) }
+}
+
+// herdrPaneIDStore returns the reporter's pane-id cache hooks over the
+// DB, keyed by the launch env's pane id (non-empty whenever the
+// reporter is): what the store remembers is where that id's pane ended
+// up.
+func herdrPaneIDStore(db *cache.DB, paneKey string) (load func() (string, bool), save func(string) error) {
+	load = func() (string, bool) {
+		id, ok, err := db.GetHerdrPaneID(paneKey)
+		if err != nil {
+			// A read error looks identical to a cold cache from the
+			// recovery path; the log line is the only way to tell a row
+			// existed but could not be read.
+			debuglog.Notify("herdr: pane id cache read: %v", err)
+			return "", false
+		}
+		return id, ok
+	}
+	save = func(paneID string) error {
+		return db.RecordHerdrPaneID(paneKey, paneID)
+	}
+	return load, save
 }
 
 func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {

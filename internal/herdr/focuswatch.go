@@ -63,7 +63,11 @@ func (r *Reporter) WatchFocus(onViewChange func(viewed bool), onConnected func()
 	if r == nil {
 		return
 	}
+	// In r.wg so Close waits for the watcher: it writes to the pane-id
+	// cache, whose DB the caller closes after Close returns.
+	r.wg.Add(1)
 	go func() {
+		defer r.wg.Done()
 		for {
 			r.watchFocusOnce(onViewChange, onConnected)
 			select {
@@ -154,7 +158,8 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool), onConnected fu
 		case "workspace_focused":
 			loc.wsFocused = d.WorkspaceID == loc.workspaceID
 		case "pane_moved":
-			// Matched by the durable terminal id first: a cross-workspace
+			// Matched by the terminal id first (stable within a server
+			// run, which is as long as an event stream lives): a cross-workspace
 			// move assigns a new public pane id, so after one move the id
 			// comparisons alone would miss every later move. They stay as
 			// the fallback for an event without a terminal id. The terminal
@@ -197,6 +202,7 @@ func (r *Reporter) locate() (paneLocation, error) {
 		return paneLocation{}, fmt.Errorf("pane %s has no tab or workspace", pane.PaneID)
 	}
 	r.adopt(pane)
+	r.persistPaneID(pane.PaneID)
 	loc := paneLocation{
 		tabID:       pane.TabID,
 		workspaceID: pane.WorkspaceID,
@@ -215,13 +221,20 @@ func (r *Reporter) locate() (paneLocation, error) {
 	return loc, nil
 }
 
-// fetchPane resolves the pane's current record by its tracked public id.
-// Within one herdr run a moved pane's old id keeps resolving (the server
-// aliases every previous id to the live pane), but the alias map is
-// in-memory only: a server restart wipes it, and `herdr update --handoff`
-// does so while keeping slk's process — and its now-stale id — alive.
-// pane_not_found with a known terminal id therefore falls back to
-// scanning pane.list for the terminal id, which is durable.
+// fetchPane resolves the pane's current record by its tracked public id,
+// falling back on pane_not_found. The recovery that fires in practice is
+// the cached id: public pane ids are the only pane handle herdr persists
+// across a restart, so a cold start whose launch-env id predates a
+// cross-workspace move (`herdr update --handoff` keeps the shell and its
+// stale HERDR_PANE_ID alive while wiping the in-memory alias map)
+// resolves only through the id a previous run remembered. The pane.list
+// scan by terminal id is functional only mid-run (a restart re-mints
+// every terminal id) and has no known trigger there either: the alias
+// map resolves every stale id until restart, so pane.get shouldn't fail
+// mid-run at all. It stays because that "shouldn't" is an unverified
+// belief about alias semantics and an idle fallback costs nothing;
+// confirming in herdr's source that pane.get cannot fail mid-run is
+// what would make the scan deletable.
 func (r *Reporter) fetchPane() (paneInfo, error) {
 	id := r.identity()
 	pane, err := r.getPane(id.PaneID)
@@ -229,8 +242,23 @@ func (r *Reporter) fetchPane() (paneInfo, error) {
 		return pane, nil
 	}
 	var srvErr serverError
-	if id.TerminalID != "" && errors.As(err, &srvErr) && srvErr.code == "pane_not_found" {
-		return r.findPaneByTerminal(id.TerminalID)
+	if errors.As(err, &srvErr) && srvErr.code == "pane_not_found" {
+		if id.TerminalID != "" {
+			pane, scanErr := r.findPaneByTerminal(id.TerminalID)
+			if scanErr == nil {
+				return pane, nil
+			}
+			debuglog.Notify("herdr: terminal scan for %s: %v", id.TerminalID, scanErr)
+		}
+		if r.loadPaneID != nil {
+			if cached, ok := r.loadPaneID(); ok && cached != id.PaneID {
+				pane, cacheErr := r.getPane(cached)
+				if cacheErr == nil {
+					return pane, nil
+				}
+				debuglog.Notify("herdr: cached pane id %s: %v", cached, cacheErr)
+			}
+		}
 	}
 	return paneInfo{}, err
 }
