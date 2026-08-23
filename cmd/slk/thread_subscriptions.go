@@ -237,7 +237,7 @@ func ensureThreadSubscriptions(ctx context.Context, gate *threadSubsGate, s *thr
 				}
 			}
 		}
-		if err := s.sync(ctx); err != nil {
+		if err := s.syncIfUnclaimed(ctx, gate.window); err != nil {
 			return
 		}
 		if onDone != nil {
