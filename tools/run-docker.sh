@@ -31,7 +31,7 @@ if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -ne
   docker run --rm -v "$repo":/src -w /src \
     -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
     -e GOFLAGS=-buildvcs=false \
-    "$image" go build -o bin/slk-linux ./cmd/slk
+    "$image" go build -ldflags="-s -w" -trimpath -o bin/slk-linux ./cmd/slk
 fi
 
 # The container has no host timezone, so timestamps render as UTC unless the
@@ -113,6 +113,12 @@ docker run --rm -it \
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
   ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
   ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
+  # Soft heap ceiling: image-decode bursts on a warm cache measured a
+  # 974MB RSS peak per instance from GC lazily returning pages; the
+  # limit trades brief GC pressure during those bursts for a bounded
+  # footprint when many instances run at once. Wrong if a legitimately
+  # live heap approaches it (sustained GC thrash) — raise it then.
+  -e GOMEMLIMIT=400MiB \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \
   -e XDG_CACHE_HOME=/state/xdg/cache \
