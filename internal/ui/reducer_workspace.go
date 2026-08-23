@@ -60,28 +60,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/styles"
 )
-
-// lookupChannelIn resolves channelID against the workspace data carried
-// on WorkspaceReadyMsg, in ChannelService.Lookup's scan order (sidebar
-// items, then finder items): the msg is the exact snapshot this arm is
-// applying, so the result can't diverge from what gets rendered.
-func lookupChannelIn(channelID string, channels []sidebar.ChannelItem, finder []channelfinder.Item) (name, chType string, ok bool) {
-	for _, ch := range channels {
-		if ch.ID == channelID {
-			return ch.Name, ch.Type, true
-		}
-	}
-	for _, it := range finder {
-		if it.ID == channelID {
-			return it.Name, it.Type, true
-		}
-	}
-	return "", "", false
-}
 
 var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {

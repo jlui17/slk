@@ -360,13 +360,6 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 	return m.fns.Permalink(ctx, channelID, ts)
 }
 
-func (m messageAdapter) Preview(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
-	if m.fns.Preview == nil {
-		return "", "", nil
-	}
-	return m.fns.Preview(ctx, channelID, ts, threadTS)
-}
-
 // ChannelService is the App's interface to the Slack channels API,
 // the local SQLite channel cache, and per-channel session bookkeeping
 // (visit timestamps, navigation-history lookups, membership fetches).

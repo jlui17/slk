@@ -48,10 +48,6 @@ func cmdOnlyWindow(a *App, _ []string) tea.Cmd {
 	return nil
 }
 
-// cmdReload forces every workspace's websocket to reconnect — the
-// :command alias of the ctrl+r manual reload.
-func cmdReload(a *App, _ []string) tea.Cmd { return a.reloadConnections() }
-
 // cmdWorkspaceFinder opens the workspace finder overlay —
 // the :command replacement for the finder's old ctrl+w binding.
 func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {

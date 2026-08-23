@@ -94,26 +94,11 @@ type ReactionRemoveFunc func(channelID ids.ChannelID, messageTS ids.MessageTS, e
 // PermalinkFetchFunc is called to fetch the Slack permalink for a message.
 // For thread replies, pass the reply's ts; Slack returns a thread-aware URL.
 type PermalinkFetchFunc func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS) (string, error)
-
-// MessagePreviewFetchFunc resolves the sender ID and raw mrkdwn text
-// of the message a Slack permalink points at, for the link picker's
-// preview rows. Cache-first: the local message cache, then the API on
-// a miss. threadTS is the permalink's thread_ts ("" for channel-level
-// links); the network path needs it because conversations.history
-// never returns thread replies. ("", "", nil) means the message
-// couldn't be resolved; callers keep their fallback row.
-type MessagePreviewFetchFunc func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (userID, text string, err error)
 type FrecentLoadFunc func(limit int) []reactionpicker.EmojiEntry
 type FrecentRecordFunc func(emoji string)
 
 // TypingSendFunc is called to broadcast a typing indicator.
 type TypingSendFunc func(channelID string)
-
-// ReloadFunc forces every workspace's websocket to reconnect now (the
-// manual reload, slk's cmd+r analog): pending backoff waits are
-// skipped and the reconnect catch-up dedupe gates are reset so the
-// catch-up pass runs even right after a natural reconnect.
-type ReloadFunc func()
 
 // JoinChannelFunc is called to join a public channel by ID. Returns a tea.Msg
 // describing the result (typically ChannelJoinedMsg or ChannelJoinFailedMsg).
