@@ -232,34 +232,6 @@ func TestReconnect_RefreshesReadStateFromCounts(t *testing.T) {
 	}
 }
 
-func TestReconnect_MarksEveryOtherChannelStale(t *testing.T) {
-	// The other half of O(1): the channels that are NOT refreshed must
-	// end up looking stale, or the deletion silently becomes "slk
-	// never catches those channels up at all".
-	db := newTestDB(t)
-	ids := seedWorkspaceChannels(t, db, 3)
-
-	fc := &fakeCounts{}
-	r := &reconnectSync{
-		client: fc, db: db, workspaceID: "T1", program: &captureSender{},
-		activeChannel:  func() string { return ids[1] },
-		refreshChannel: func(context.Context, string) {},
-	}
-	if err := r.run(context.Background()); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if got := db.GetChannelSyncedAt(ids[0]); got != 0 {
-		t.Errorf("%s synced_at = %d; want 0 so its next open refetches", ids[0], got)
-	}
-	if got := db.GetChannelSyncedAt(ids[2]); got != 0 {
-		t.Errorf("%s synced_at = %d; want 0", ids[2], got)
-	}
-	if got := db.GetChannelSyncedAt(ids[1]); got == 0 {
-		t.Errorf("%s synced_at = 0; the active channel was just refreshed and staling it makes the very next render refetch what it already has", ids[1])
-	}
-}
-
 func TestReconnect_CountsFailureStillRefreshesTheActiveChannel(t *testing.T) {
 	// Unread badges are cosmetic; the messages on screen are not. A
 	// ratelimited client.counts must not cost the user their catch-up.

@@ -59,7 +59,8 @@ type teaSender interface {
 // size:
 //
 //  1. client.counts — one request, unread state for everything.
-//  2. Mark every other channel stale, so it revalidates when opened.
+//  2. Watermark this instance's cache freshness, so every channel
+//     revalidates when opened (ui.CacheStaleBeforeMsg).
 //  3. Refresh the channel actually on screen, through the same path a
 //     channel switch uses.
 //
@@ -89,9 +90,8 @@ type reconnectSync struct {
 //
 // Every step is best-effort: a workspace that comes back with stale
 // badges is better than one that returns an error nobody surfaces.
-// The error return is reserved for the cache write that would leave
-// staleness unrecorded, since that is the one failure a later open
-// cannot compensate for.
+// The error return is vestigial (every step is now infallible or
+// swallowed) and kept so the upstream call sites don't churn.
 func (r *reconnectSync) run(ctx context.Context) error {
 	start := time.Now()
 	active := ""
@@ -102,14 +102,9 @@ func (r *reconnectSync) run(ctx context.Context) error {
 	r.refreshUnreadState()
 
 	// Everything not refreshed below is marked stale rather than
-	// fetched. synced_at = 0 is the same value the cache reports for a
-	// channel it has never seen, so the UI's freshness tiers already
-	// know what to do with it: render the cache immediately, then
-	// refetch. The work moves to the moment a channel is looked at,
+	// fetched. The work moves to the moment a channel is looked at,
 	// where it is one request the user is waiting for.
-	if err := r.db.MarkChannelsStale(r.workspaceID, active); err != nil {
-		return err
-	}
+	r.sendCacheWatermark()
 
 	if active != "" && r.refreshChannel != nil {
 		r.refreshChannel(ctx, active)

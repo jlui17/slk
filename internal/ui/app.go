@@ -200,6 +200,8 @@ type App struct {
 
 	lastView viewMemo
 
+	cacheStaleBefore map[string]time.Time
+
 	// paneStateRecorder persists the pane's open channel/thread for
 	// restore-on-relaunch; nil when the restore feature is disabled.
 	// lastPaneReport dedupes: setThreadPanel re-fires on every replies
@@ -692,6 +694,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceIO,
 		reduceMouse,
 		reduceAgentThread,
+		reduceCacheWatermark,
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)

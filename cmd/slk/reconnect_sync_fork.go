@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	"github.com/gammons/slk/internal/ui"
+)
 
 // reset clears the gate so the next tryStart succeeds regardless of
 // when the last pass ran. Used by the manual reload, where explicit
@@ -20,4 +24,16 @@ func (g *dedupeGate) reset() {
 func (w *WorkspaceContext) ForceReconnect() {
 	w.RTMHandler.backfillGate.reset()
 	w.ConnMgr.Reconnect()
+}
+
+// sendCacheWatermark tells this instance's UI that everything the
+// workspace cached before now needs revalidation on next open. See
+// ui.CacheStaleBeforeMsg for why this replaced MarkChannelsStale: the
+// cache.db is shared across instances, and zeroing synced_at there
+// forced every sibling into a refetch storm on one instance's flap.
+func (r *reconnectSync) sendCacheWatermark() {
+	if r.program == nil {
+		return
+	}
+	r.program.Send(ui.CacheStaleBeforeMsg{WorkspaceID: r.workspaceID, Before: time.Now()})
 }

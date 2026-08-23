@@ -426,7 +426,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	}
 
 	switch {
-	case syncedAt > 0 && age < cacheFreshThreshold:
+	case syncedAt > 0 && age < cacheFreshThreshold && a.syncedAfterWatermark(syncedAt):
 		// Tier 1: provably fresh (cache was just synced). Render
 		// whatever we have (cached can legitimately be empty here
 		// -- e.g., a channel verified empty within the last 30s).
