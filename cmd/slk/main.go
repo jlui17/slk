@@ -4002,6 +4002,8 @@ type rtmEventHandler struct {
 	connected   bool
 	isActive    func() bool
 
+	presenceDedupe presenceDedupe
+
 	// Notifications
 	notifier        *notify.Notifier
 	notifyCfg       config.Notifications
@@ -4338,6 +4340,9 @@ func (h *rtmEventHandler) OnReactionRemoved(channelID, ts, userID, emojiName str
 }
 
 func (h *rtmEventHandler) OnPresenceChange(userID, presence string) {
+	if !h.presenceDedupe.Changed(userID, presence) {
+		return
+	}
 	_ = h.db.UpdatePresence(userID, presence)
 	if h.program == nil {
 		return
