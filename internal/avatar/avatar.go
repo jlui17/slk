@@ -170,18 +170,15 @@ func (c *Cache) preloadInner(userID, avatarURL string) {
 	if avatarURL == "" {
 		return
 	}
+	avatarURL = sizedAvatarURL(avatarURL)
 	// Source size differs by protocol:
 	//   - half-block: (AvatarCols, AvatarRows*2) gives the renderer
 	//     exactly the pixel grid it samples, matching the original
 	//     pre-kitty pipeline byte-for-byte (parity test relies on this).
-	//   - kitty: skip the fetcher's downscale (Target = zero point) so
-	//     the renderer's own pixel-target resize starts from the highest
-	//     available source resolution. With a 32×32 source (Slack's
-	//     image_32) and kitty's internal target of ~32×32, this is
-	//     effectively identity scaling — sharp pixels.
+	//   - kitty: bounded square decode — rationale at kittyAvatarDecodeSize.
 	target := image.Pt(AvatarCols, AvatarRows*2)
 	if c.useKitty {
-		target = image.Point{}
+		target = kittyAvatarTarget()
 	}
 	res, err := c.fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
 		Key:    "avatar-" + userID,
