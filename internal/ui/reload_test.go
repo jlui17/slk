@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/statusbar"
 )
 
@@ -33,6 +34,39 @@ func TestExecuteCommand_ReloadRunsReloader(t *testing.T) {
 	_ = executeCommand(a, "reload")
 	if called != 1 {
 		t.Fatalf("reloader called %d times, want 1", called)
+	}
+}
+
+// TestReload_RefetchesOpenThreadPanel pins the reload → thread-panel
+// repair path: a reply swallowed by a websocket gap never reaches an
+// open panel any other way (channel backfill can't see thread replies,
+// and the panel never re-reads the cache), so ctrl+r must refetch it.
+func TestReload_RefetchesOpenThreadPanel(t *testing.T) {
+	a := NewApp()
+	a.SetReloader(func() {})
+	openThreadPanel(a, "C_THREAD", "100.0")
+	var fetched []string
+	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetched = append(fetched, string(channelID)+"/"+string(threadTS))
+		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS)}
+	})
+
+	cmd := a.refetchOpenThreadCmd()
+	if cmd == nil {
+		t.Fatal("expected a refetch cmd while a thread panel is open")
+	}
+	if msg, ok := cmd().(ThreadRepliesLoadedMsg); !ok || msg.ThreadTS != "100.0" {
+		t.Fatalf("refetch cmd returned %#v, want ThreadRepliesLoadedMsg for 100.0", msg)
+	}
+	if len(fetched) != 1 || fetched[0] != "C_THREAD/100.0" {
+		t.Fatalf("fetched = %v, want [C_THREAD/100.0]", fetched)
+	}
+}
+
+func TestReload_NoThreadOpenSkipsRefetch(t *testing.T) {
+	a := NewApp()
+	if cmd := a.refetchOpenThreadCmd(); cmd != nil {
+		t.Fatal("no thread open: refetchOpenThreadCmd must be nil")
 	}
 }
 

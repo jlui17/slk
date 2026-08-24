@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/debuglog"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -131,7 +132,28 @@ func (a *App) reloadConnections() tea.Cmd {
 		return nil
 	}
 	a.reloader()
-	return toastWithClear(a, "Reloading connections…", 2*time.Second)
+	cmds := []tea.Cmd{toastWithClear(a, "Reloading connections…", 2*time.Second)}
+	if refetch := a.refetchOpenThreadCmd(); refetch != nil {
+		cmds = append(cmds, refetch)
+	}
+	return tea.Batch(cmds...)
+}
+
+// refetchOpenThreadCmd returns a cmd that refetches the open thread
+// panel's replies from Slack, or nil when no thread is open. Reload
+// needs this because a thread reply swallowed by a websocket gap is
+// unrecoverable by reconnect catch-up alone: the channel-level backfill
+// reads conversations.history, which never returns thread replies, and
+// the thread catch-up writes only to the cache, which an open panel
+// never re-reads.
+func (a *App) refetchOpenThreadCmd() tea.Cmd {
+	if !a.threadVisible || a.threadPanel.ThreadTS() == "" {
+		return nil
+	}
+	threads := a.threads
+	chID := ids.ChannelID(a.threadPanel.ChannelID())
+	threadTS := ids.ThreadTS(a.threadPanel.ThreadTS())
+	return func() tea.Msg { return threads.Fetch(chID, threadTS) }
 }
 
 // markThreadReadLocally clears one thread's local unread state everywhere
