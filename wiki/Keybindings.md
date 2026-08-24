@@ -45,7 +45,7 @@
 | `h` / `←` | Preview | Previous image (when message has multiple) |
 | `l` / `→` | Preview | Next image (when message has multiple) |
 | Click | Any (on image) | Open full-screen preview |
-| `Ctrl+r` / `:reload` | Normal | Reload: force every workspace's websocket to reconnect and catch up (the Slack app's `Cmd+R` analog) |
+| `Ctrl+r` / `:reload` | Normal | Reload: force every workspace's websocket to reconnect and catch up, and refetch the open thread panel (the Slack app's `Cmd+R` analog) |
 | `Ctrl+y` | Any | Switch theme |
 | `Ctrl+s` | Any | Set status (Active / Away / DND snooze) |
 | `q` | Normal | Quit (with confirmation) |

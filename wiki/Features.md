@@ -89,7 +89,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Browser-cookie auth (`xoxc` + `d`) — works as any user, no Slack App required
 - Direct connection to Slack's internal browser WebSocket protocol
 - Auto-reconnect with exponential backoff (1s → 30s)
-- Manual reload (`Ctrl+r` / `:reload`) — force every workspace's websocket to reconnect and catch up
+- Manual reload (`Ctrl+r` / `:reload`) — force every workspace's websocket to reconnect and catch up, and refetch the open thread panel
 - Connection indicator in the status bar for the active workspace, with a countdown while a reconnect is pending
 
 ## Customization
