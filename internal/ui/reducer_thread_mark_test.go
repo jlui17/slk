@@ -247,6 +247,72 @@ func TestMarkTickDroppedWhenPaneUnviewedAtFire(t *testing.T) {
 	}
 }
 
+// Replies that arrive while the pane sits in a background herdr tab render
+// unmarked (the unviewed gate above). Focusing the tab is what puts them on
+// screen, so the refocus is the read event: it must schedule the same
+// debounced mark a live reply gets. Regression: without it the thread
+// stayed unread on Slack forever, and every tab switch away re-asserted
+// the unread to herdr's agent sidebar.
+func TestTabRefocusSchedulesMarkForOpenThread(t *testing.T) {
+	a := NewApp()
+	calls := setMarkRecorder(a)
+	openThreadPanel(a, "C1", "100.0")
+
+	a.Update(HerdrTabViewMsg{Viewed: false})
+	_ = reduceNewMessage(a, liveReply("101.0"))
+	if a.pendingThreadMarkGen != 0 {
+		t.Fatal("test setup broke: unviewed reply must not schedule a mark")
+	}
+
+	a.Update(HerdrTabViewMsg{Viewed: true})
+	if a.pendingThreadMarkGen == 0 {
+		t.Fatal("refocusing the tab over an open thread panel must schedule a mark")
+	}
+	fireMarkTick(a, a.pendingThreadMarkGen)
+
+	want := markCall{channelID: "C1", threadTS: "100.0", ts: "101.0"}
+	if len(*calls) != 1 || (*calls)[0] != want {
+		t.Fatalf("want exactly one Mark%+v; got %+v", want, *calls)
+	}
+}
+
+// A quick flick through the tab must not mark: the refocus schedules, but
+// the fire-time viewedness recheck sees the user already gone.
+func TestTabRefocusMarkDroppedWhenUserFlicksAway(t *testing.T) {
+	a := NewApp()
+	calls := setMarkRecorder(a)
+	openThreadPanel(a, "C1", "100.0")
+
+	a.Update(HerdrTabViewMsg{Viewed: false})
+	_ = reduceNewMessage(a, liveReply("101.0"))
+	a.Update(HerdrTabViewMsg{Viewed: true})
+	a.Update(HerdrTabViewMsg{Viewed: false})
+	fireMarkTick(a, a.pendingThreadMarkGen)
+
+	if len(*calls) != 0 {
+		t.Fatalf("tick firing after the user flicked away must not mark; got %+v", *calls)
+	}
+}
+
+func TestTabRefocusSchedulesNoMarkWithoutOpenThread(t *testing.T) {
+	a := NewApp()
+	setMarkRecorder(a)
+
+	a.Update(HerdrTabViewMsg{Viewed: false})
+	a.Update(HerdrTabViewMsg{Viewed: true})
+	if a.pendingThreadMarkGen != 0 {
+		t.Fatal("refocus with no thread panel open must not schedule a mark")
+	}
+
+	openThreadPanel(a, "C1", "100.0")
+	a.threadVisible = false
+	a.Update(HerdrTabViewMsg{Viewed: false})
+	a.Update(HerdrTabViewMsg{Viewed: true})
+	if a.pendingThreadMarkGen != 0 {
+		t.Fatal("refocus with the panel hidden must not schedule a mark")
+	}
+}
+
 func TestNoMarkScheduledWhenPanelHidden(t *testing.T) {
 	a := NewApp()
 	openThreadPanel(a, "C1", "100.0")
