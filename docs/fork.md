@@ -70,6 +70,10 @@ there and resolve them knowing what the fork wants:
   cross-instance sweep-claim hook (`syncIfUnclaimed`).
 - `internal/ui/reducer_channels.go` — tier-1 freshness additionally
   requires `syncedAfterWatermark`.
+- `internal/ui/mode_insert.go` (+ its test in `app_test.go`) — the
+  Ctrl+U clear-compose intercept removed so Ctrl+U (kitty's
+  cmd+backspace) falls through to the textarea's delete-before-cursor;
+  the fork's expectation is pinned in `mode_insert_fork_test.go`.
 - `internal/ui/sixelpaint_test.go` — one assertion updated for the
   sixel frame memo (a post-force identical frame reuses its ID).
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent

@@ -2300,26 +2300,7 @@ func TestPasteMsg_ClipboardUnavailable_FallsThroughToTextarea(t *testing.T) {
 	}
 }
 
-// --- insert-mode shortcuts: Ctrl+U clear, Up/Down boundary jump ---
-
-func TestHandleInsertMode_CtrlU_ClearsCompose(t *testing.T) {
-	app := NewApp()
-	app.activeChannelID = "C1"
-	app.focusedPanel = PanelMessages
-	app.SetMode(ModeInsert)
-	_ = app.compose.Focus()
-	app.compose.SetValue("draft text")
-	app.compose.AddAttachment(compose.PendingAttachment{Filename: "a.png", Size: 1})
-
-	app.handleInsertMode(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-
-	if app.compose.Value() != "" {
-		t.Errorf("expected compose cleared, got %q", app.compose.Value())
-	}
-	if len(app.compose.Attachments()) != 0 {
-		t.Errorf("expected attachments cleared, got %d", len(app.compose.Attachments()))
-	}
-}
+// --- insert-mode shortcuts: Up/Down boundary jump ---
 
 func TestHandleInsertMode_Up_OnFirstLine_JumpsToStart(t *testing.T) {
 	app := NewApp()

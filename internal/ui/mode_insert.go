@@ -15,8 +15,6 @@
 //                                   first, else exit insert mode.
 //   - Ctrl+V                     -> smartPaste (clipboard image /
 //                                   file path / verbatim text).
-//   - Ctrl+U                     -> clear compose (text +
-//                                   attachments + uploading flag).
 //   - Up / Down on first/last line -> jump to start/end of textarea.
 //   - Plain Enter                -> send (or commit edit, or upload-
 //                                   then-send if attachments present).
@@ -117,16 +115,11 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// Insert-mode shortcuts that operate on the active compose:
-	//   Ctrl+U  -> clear compose (text + attachments + uploading flag)
 	//   Up      -> if cursor on first line, jump to start of textarea
 	//   Down    -> if cursor on last line,  jump to end of textarea
 	target := &a.compose
 	if a.focusedPanel == PanelThread && a.threadVisible {
 		target = &a.threadCompose
-	}
-	if code == 'u' && mod == tea.ModCtrl {
-		target.Reset()
-		return nil
 	}
 	// If a compose-overlay picker (emoji / @mention / #channel)
 	// is active, let it own Up/Down so users can navigate the
