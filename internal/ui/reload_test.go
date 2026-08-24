@@ -70,6 +70,52 @@ func TestReload_NoThreadOpenSkipsRefetch(t *testing.T) {
 	}
 }
 
+// TestReconnect_RefetchesOpenThreadPanel pins the automatic variant of
+// the reload repair: a workspace's connection state transitioning back
+// to Connected refetches the open thread panel, so replies swallowed
+// by the websocket gap appear without the user pressing ctrl+r.
+func TestReconnect_RefetchesOpenThreadPanel(t *testing.T) {
+	a := NewApp()
+	a.activeTeamID = "T1"
+	openThreadPanel(a, "C_THREAD", "100.0")
+	var fetched []string
+	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetched = append(fetched, string(channelID)+"/"+string(threadTS))
+		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS)}
+	})
+	connMsg := func(teamID string, state statusbar.ConnectionState) tea.Cmd {
+		cmd, _ := reduceIO(a, ConnectionStateMsg{TeamID: teamID, State: int(state)})
+		return cmd
+	}
+
+	// First connect: no prior state cached, so no refetch (boot's own
+	// thread-open path fetches; this must not double it).
+	drainBatch(connMsg("T1", statusbar.StateConnected))
+	if len(fetched) != 0 {
+		t.Fatalf("first connect fetched %v, want none", fetched)
+	}
+
+	// Drop then reconnect: exactly one refetch of the panel's thread.
+	drainBatch(connMsg("T1", statusbar.StateDisconnected))
+	drainBatch(connMsg("T1", statusbar.StateConnected))
+	if len(fetched) != 1 || fetched[0] != "C_THREAD/100.0" {
+		t.Fatalf("reconnect fetched %v, want [C_THREAD/100.0]", fetched)
+	}
+
+	// Repeated Connected without a drop: no refetch.
+	drainBatch(connMsg("T1", statusbar.StateConnected))
+	if len(fetched) != 1 {
+		t.Fatalf("repeated Connected fetched %v, want no new fetch", fetched)
+	}
+
+	// A background workspace's reconnect must not refetch the panel.
+	drainBatch(connMsg("T2", statusbar.StateDisconnected))
+	drainBatch(connMsg("T2", statusbar.StateConnected))
+	if len(fetched) != 1 {
+		t.Fatalf("background reconnect fetched %v, want no new fetch", fetched)
+	}
+}
+
 func TestReload_NoReloaderIsNoop(t *testing.T) {
 	a := NewApp()
 	if cmd := handleNormalMode(a, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}); cmd != nil {

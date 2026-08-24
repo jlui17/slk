@@ -179,6 +179,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			retryAt: m.RetryAt,
 			attempt: m.Attempt,
 		}
+		refetch := a.threadRefetchOnReconnect(m.TeamID, st.state)
 		if m.TeamID != "" {
 			a.connStates[m.TeamID] = st
 			if m.TeamID != a.activeTeamID {
@@ -187,7 +188,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				return nil, true
 			}
 		}
-		return a.applyConnState(st), true
+		return tea.Batch(a.applyConnState(st), refetch), true
 
 	case statusbar.ReconnectTickMsg:
 		if !a.statusbar.TickReconnect() {

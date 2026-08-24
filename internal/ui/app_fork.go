@@ -11,6 +11,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/statusbar"
 )
 
 // threadMarkDebounceDelay is how long scheduleThreadMark waits after a live
@@ -154,6 +155,24 @@ func (a *App) refetchOpenThreadCmd() tea.Cmd {
 	chID := ids.ChannelID(a.threadPanel.ChannelID())
 	threadTS := ids.ThreadTS(a.threadPanel.ThreadTS())
 	return func() tea.Msg { return threads.Fetch(chID, threadTS) }
+}
+
+// threadRefetchOnReconnect returns the open-thread refetch cmd when a
+// workspace's connection state transitions back to Connected, or nil.
+// Must run before the caller stores the new state in connStates: the
+// transition is detected against the previously cached state. A first
+// connect (no cached entry) doesn't refetch — the boot thread-open
+// path fetches on its own — and only the active workspace qualifies,
+// since the thread panel shows a thread of the active workspace.
+func (a *App) threadRefetchOnReconnect(teamID string, newState statusbar.ConnectionState) tea.Cmd {
+	if newState != statusbar.StateConnected || teamID == "" || teamID != a.activeTeamID {
+		return nil
+	}
+	prev, ok := a.connStates[teamID]
+	if !ok || prev.state == statusbar.StateConnected {
+		return nil
+	}
+	return a.refetchOpenThreadCmd()
 }
 
 // markThreadReadLocally clears one thread's local unread state everywhere
