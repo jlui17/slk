@@ -96,6 +96,11 @@ type Client struct {
 	// against a local server, the same way apiBaseURL is.
 	wsBaseURL string
 
+	// wsDialer, when non-nil, replaces the dialer StartWebSocket
+	// builds. Set via WithWSDialer (testing_fork.go) so tests can
+	// redirect the socket to a local server at the dial.
+	wsDialer *websocket.Dialer
+
 	// teamURL is the raw workspace URL from auth.test's response
 	// (e.g. "https://truelist-workspace.slack.com/"). Used to derive
 	// the workspace subdomain for in-app permalink routing.
@@ -412,8 +417,7 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 		c.teamID,
 	)
 
-	jar := newCookieJar(c.cookie)
-	dialer := &websocket.Dialer{Jar: jar}
+	dialer := c.wsDialerOrDefault()
 
 	conn, _, err := dialer.Dial(wsURL, wsUpgradeHeaders())
 	if err != nil {
