@@ -115,18 +115,22 @@ func TestLLMLabelUnusableResultDropped(t *testing.T) {
 }
 
 func TestSanitizeModelLabel(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"fix ingest retries", "fix ingest retries"},
-		{"  \"Fix ingest retries\"  ", "Fix ingest retries"},
-		{"fix retries\nsecond line", "fix retries"},
-		{"colony-562: fix the flow viewer", "fix the flow viewer"},
-		{"a very long label that keeps going well past the cap", "a very long label that keeps …"},
-		{"\"colony-562\"", ""},
-		{"   ", ""},
+	cases := []struct{ in, taskID, want string }{
+		{"fix ingest retries", "", "fix ingest retries"},
+		{"  \"Fix ingest retries\"  ", "", "Fix ingest retries"},
+		{"fix retries\nsecond line", "", "fix retries"},
+		{"colony-562: fix the flow viewer", "colony-562", "fix the flow viewer"},
+		{"a very long label that keeps going well past the cap", "", "a very long label that keeps …"},
+		{"\"colony-562\"", "colony-562", ""},
+		{"   ", "", ""},
+		// Only the id hoisted at request time is stripped: hyphen-digit
+		// technical terms the model wrote survive.
+		{"fix utf-8 truncation", "", "fix utf-8 truncation"},
+		{"migrate hashing to sha-256", "colony-562", "migrate hashing to sha-256"},
 	}
 	for _, c := range cases {
-		if got := sanitizeModelLabel(c.in); got != c.want {
-			t.Errorf("sanitizeModelLabel(%q) = %q, want %q", c.in, got, c.want)
+		if got := sanitizeModelLabel(c.in, c.taskID); got != c.want {
+			t.Errorf("sanitizeModelLabel(%q, %q) = %q, want %q", c.in, c.taskID, got, c.want)
 		}
 	}
 }

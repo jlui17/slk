@@ -59,17 +59,22 @@ func (a *App) maybeRequestAgentTabLabel(flat string) {
 }
 
 // sanitizeModelLabel normalizes a model completion into tab-label shape:
-// first line only, surrounding quotes and echoed task ids removed,
-// whitespace collapsed, truncated like the deterministic label. Empty
-// means unusable — the caller keeps the label already on the tab.
-func sanitizeModelLabel(raw string) string {
+// first line only, surrounding quotes and an echo of taskID (the id
+// hoisted at request time) removed, whitespace collapsed, truncated like
+// the deterministic label. Only that known id is stripped — a taskIDRe
+// sweep would also eat hyphen-digit terms the model wrote ("utf-8",
+// "sha-256"). Empty means unusable — the caller keeps the label already
+// on the tab.
+func sanitizeModelLabel(raw, taskID string) string {
 	s := raw
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
 	s = strings.TrimSpace(s)
 	s = strings.Trim(s, "\"'`“”‘’")
-	s = taskIDRe.ReplaceAllString(s, "")
+	if taskID != "" {
+		s = strings.Replace(s, taskID, "", 1)
+	}
 	s = strayPunctRe.ReplaceAllString(s, " ")
 	s = strings.Join(strings.Fields(s), " ")
 	s = strings.TrimLeft(s, ":,;.- ")
@@ -90,7 +95,7 @@ var reduceAgentTabLabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) 
 		m.ChannelID != t.channelID || m.ThreadTS != t.threadTS {
 		return nil, true
 	}
-	label := sanitizeModelLabel(m.Label)
+	label := sanitizeModelLabel(m.Label, a.agentSidebar.llmLabel.taskID)
 	if label == "" {
 		return nil, true
 	}
