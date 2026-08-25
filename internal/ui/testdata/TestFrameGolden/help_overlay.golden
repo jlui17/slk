@@ -1,0 +1,28 @@
+      ╭─────────────╭──────────────────────────────────────────────────────────╮━━━━━━━━━━━━━━━━━┓  
+      │  ⚑ Threads  │                                                          │                 ┃  
+      │             │ Keybindings                                              │                 ┃  
+      │  ▾ Direct Me│ Press / to search                                        │                 ┃  
+      │  ○ alice    │                                                          │                 ┃  
+      │             │ ▌r                add reaction                         █ │                 ┃  
+      │  ▾ Channels │  esc              back                                 █ │                 ┃  
+      │ ▌# general  │  G                bottom                               █ │                 ┃  
+      │  # incidents│  ctrl+w o / :only close other windows                  █ │                 ┃  
+      │             │  q                close thread view                    █ │                 ┃  
+      │             │  ctrl+w q / :q    close window                         │ │                 ┃  
+      │             │  :                command mode                         │ │                 ┃  
+      │             │  Y/C              copy permalink                       │ │                 ┃  
+      │             │  ctrl+w w         cycle windows                        │ │                 ┃  
+      │             │  D                delete message                       │ │                 ┃  
+      │             │  j/down           down                                 │ │                 ┃  
+      │             │  d                download file in message             │ │                 ┃  
+      │             │  E                edit message                         │ │                 ┃  
+      │             │  ctrl+w h/j/k/l   focus window in direction            │ │                 ┃  
+      │             │  ctrl+d           half page down                       │ │                 ┃  
+      │             │  ctrl+u           half page up                         │ │                 ┃  
+      │             │  i                insert mode                          │ │                 ┃  
+      │             │  h/left           left                                 │ │                 ┃  
+      │             │                                                          │                 ┃  
+      │             │ / search   esc/q close                                   │                 ┃  
+      │             │                                                          │                 ┃  
+      ╰─────────────╰──────────────────────────────────────────────────────────╯━━━━━━━━━━━━━━━━━┛  
+        HELP    #general                           ? for keybindings                     ● Connectin

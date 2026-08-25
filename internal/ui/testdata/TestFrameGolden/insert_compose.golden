@@ -1,0 +1,28 @@
+      ╭────────────────────────────╮  ╭──────────────────────────────────────────────────────────╮        
+      │  ⚑ Threads                 │  │ # general                                                │        
+      │                            │  │  ⠋ Loading older messages...                             │        
+      │  ▾ Direct Messages         │  │▌alice  10:00 AM                                          │        
+      │  ○ alice                   │  │▌deploy went out clean                                    │        
+      │                            │  │                                                          │        
+      │  ▾ Channels                │  │▌bob  11:00 AM                                            │        
+      │ ▌# general                 │  │▌confirming, dashboards look flat                         │        
+      │  # incidents               │  │                                                          │        
+      │                            │  │                       ── Today ──                        │        
+      │                            │  │▌alice  9:00 AM                                           │        
+      │                            │  │▌retry queue is draining again                            │        
+      │                            │  │                                                          │        
+      │                            │  │▌bob  11:00 AM                                            │        
+      │                            │  │▌nice — closing the incident                              │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │                                                          │        
+      │                            │  │▌                                                         │        
+      │                            │  │▌ drafting a reply                                        │        
+      │                            │  │▌                                                         │        
+      ╰────────────────────────────╯  ╰──────────────────────────────────────────────────────────╯        
+        INSERT    #general                          ? for keybindings                    ● Connecting     
