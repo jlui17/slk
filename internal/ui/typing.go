@@ -54,6 +54,7 @@ type typingTracker struct {
 	// enabled is the global feature switch (cfg.Animations.TypingIndicators).
 	// When false, Add is a no-op and renderTypingLine returns "".
 	enabled bool
+	nowFn   clock
 }
 
 func newTypingTracker() *typingTracker {
@@ -84,7 +85,7 @@ func (t *typingTracker) Add(channelID, userID string) {
 	if t.users[channelID] == nil {
 		t.users[channelID] = make(map[string]time.Time)
 	}
-	t.users[channelID][userID] = time.Now().Add(typingExpiry)
+	t.users[channelID][userID] = t.now().Add(typingExpiry)
 }
 
 // Expire removes any per-user entries whose expiresAt has passed,
@@ -93,7 +94,7 @@ func (t *typingTracker) Add(channelID, userID string) {
 // another TypingExpiredMsg tick); false otherwise, and tickerOn is
 // flipped to false so a future Add can start a new chain.
 func (t *typingTracker) Expire() bool {
-	now := time.Now()
+	now := t.now()
 	for ch, users := range t.users {
 		for uid, expires := range users {
 			if now.After(expires) {
@@ -117,7 +118,7 @@ func (t *typingTracker) Users(channelID string) []string {
 	if len(users) == 0 {
 		return nil
 	}
-	now := time.Now()
+	now := t.now()
 	var result []string
 	for uid, expires := range users {
 		if now.Before(expires) {
@@ -172,7 +173,7 @@ func (b *typingBroadcaster) CanSend() bool {
 	if !b.tracker.Enabled() {
 		return false
 	}
-	return time.Since(b.lastSent) >= typingThrottle
+	return b.tracker.now().Sub(b.lastSent) >= typingThrottle
 }
 
 // MaybeSend dispatches a typing event for channelID via the configured
@@ -184,7 +185,7 @@ func (b *typingBroadcaster) MaybeSend(channelID string) bool {
 	if b.sendFn == nil || !b.CanSend() {
 		return false
 	}
-	b.lastSent = time.Now()
+	b.lastSent = b.tracker.now()
 	fn := b.sendFn
 	go fn(channelID)
 	return true

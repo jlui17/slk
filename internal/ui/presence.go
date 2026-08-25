@@ -35,6 +35,7 @@ type presenceController struct {
 	byTeam      map[string]workspaceStatus
 	dndTickerOn bool
 	customBuf   string
+	nowFn       clock
 }
 
 func newPresenceController() *presenceController {
@@ -92,7 +93,7 @@ func (p *presenceController) Apply(teamID string, action presencemenu.Action, sn
 		st.Presence = "away"
 	case presencemenu.ActionSnooze:
 		st.DNDEnabled = true
-		st.DNDEndTS = time.Now().Add(time.Duration(snoozeMinutes) * time.Minute)
+		st.DNDEndTS = p.now().Add(time.Duration(snoozeMinutes) * time.Minute)
 	case presencemenu.ActionEndDND:
 		st.DNDEnabled = false
 		st.DNDEndTS = time.Time{}
@@ -177,7 +178,7 @@ func (p *presenceController) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// once until ClearTicker is called, guarding against parallel
 		// tick chains accumulating when multiple StatusChangeMsgs
 		// arrive in rapid succession.
-		if !(st.DNDEnabled && !st.DNDEndTS.IsZero() && time.Now().Before(st.DNDEndTS) && p.ClaimTicker()) {
+		if !(st.DNDEnabled && !st.DNDEndTS.IsZero() && p.now().Before(st.DNDEndTS) && p.ClaimTicker()) {
 			return nil, true
 		}
 		return tea.Tick(time.Minute, func(time.Time) tea.Msg {
@@ -192,7 +193,7 @@ func (p *presenceController) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			p.ClearTicker()
 			return nil, true
 		}
-		if dndEnabled && !dndEnd.IsZero() && !time.Now().Before(dndEnd) {
+		if dndEnabled && !dndEnd.IsZero() && !p.now().Before(dndEnd) {
 			// DND expired locally — flip the cached flag so the
 			// statusbar segment falls back to presence, and stop
 			// the chain.

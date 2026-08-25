@@ -61,6 +61,8 @@ type selfSendDedup struct {
 	// placeholder for the authoritative Slack-assigned TS once the
 	// chat.postMessage HTTP response arrives.
 	localTSCounter uint64
+
+	nowFn clock
 }
 
 func newSelfSendDedup() *selfSendDedup {
@@ -80,7 +82,7 @@ func (d *selfSendDedup) MarkInFlight(channelID string) {
 	if channelID == "" {
 		return
 	}
-	d.lastSendByChannel[channelID] = time.Now()
+	d.lastSendByChannel[channelID] = d.now()
 }
 
 // InFlight reports whether the user submitted an slk-originated send
@@ -92,7 +94,7 @@ func (d *selfSendDedup) InFlight(channelID string) bool {
 	if !ok {
 		return false
 	}
-	return time.Since(t) < selfSendWindow
+	return d.now().Sub(t) < selfSendWindow
 }
 
 // RecordSent marks a message TS as one the user just posted from this
@@ -103,11 +105,11 @@ func (d *selfSendDedup) RecordSent(ts string) {
 	if ts == "" {
 		return
 	}
-	d.sentTSes[ts] = time.Now()
+	d.sentTSes[ts] = d.now()
 	// Opportunistic cleanup: drop entries older than 5 minutes. WS
 	// echoes arrive within seconds; anything older is stale.
 	if len(d.sentTSes) > 64 {
-		cutoff := time.Now().Add(-5 * time.Minute)
+		cutoff := d.now().Add(-5 * time.Minute)
 		for k, v := range d.sentTSes {
 			if v.Before(cutoff) {
 				delete(d.sentTSes, k)

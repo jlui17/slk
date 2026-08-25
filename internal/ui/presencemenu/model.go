@@ -49,6 +49,7 @@ type Model struct {
 	workspaceName string
 	currentPres   string // "active" / "away" / ""
 	dndActive     bool
+	nowFn         func() time.Time
 }
 
 // New creates a new presence menu.
@@ -65,8 +66,9 @@ func (m *Model) OpenWith(workspaceName, presence string, dndEnabled bool, dndEnd
 	m.selected = 0
 	m.workspaceName = workspaceName
 	m.currentPres = presence
-	m.dndActive = dndEnabled && (dndEnd.IsZero() || time.Now().Before(dndEnd))
-	m.items = buildItems(presence, m.dndActive)
+	now := m.now()
+	m.dndActive = dndEnabled && (dndEnd.IsZero() || now.Before(dndEnd))
+	m.items = buildItems(presence, m.dndActive, now)
 	m.filter()
 }
 
@@ -86,7 +88,7 @@ func (m Model) hasEndDNDItem() bool {
 // width measurement and the terminal's actual cell width agree. Mixed
 // emoji width — particularly the moon — caused the modal's right
 // border to not draw correctly in some terminals.
-func buildItems(presence string, dndActive bool) []item {
+func buildItems(presence string, dndActive bool, now time.Time) []item {
 	rows := []item{
 		{label: "Active", action: ActionSetActive, current: presence == "active" && !dndActive},
 		{label: "Away", action: ActionSetAway, current: presence == "away" && !dndActive},
@@ -96,7 +98,7 @@ func buildItems(presence string, dndActive bool) []item {
 		{label: "Snooze for 4 hours", action: ActionSnooze, minutes: 240},
 		{label: "Snooze for 8 hours", action: ActionSnooze, minutes: 480},
 		{label: "Snooze for 24 hours", action: ActionSnooze, minutes: 1440},
-		{label: "Snooze until tomorrow morning", action: ActionSnooze, minutes: minutesUntilTomorrowMorning(time.Now())},
+		{label: "Snooze until tomorrow morning", action: ActionSnooze, minutes: minutesUntilTomorrowMorning(now)},
 		{label: "Snooze custom...", action: ActionCustomSnooze},
 	}
 	if dndActive {

@@ -460,6 +460,7 @@ type App struct {
 	// that arrived via the normal HTTP-response / WS-echo paths.
 	// Falls back to time.Now().Format("3:04 PM") when unset.
 	nowTimestampFormatter func() string
+	nowFn                 clock
 
 	// bootstrap owns the multi-workspace startup overlay (loading flag,
 	// per-workspace status entries, initial-active claim guard, and the
@@ -2660,7 +2661,7 @@ func (a *App) nowFormatted() string {
 	if a.nowTimestampFormatter != nil {
 		return a.nowTimestampFormatter()
 	}
-	return time.Now().Format("3:04 PM")
+	return a.now().Format("3:04 PM")
 }
 
 // ActiveChannelID returns the ID of the currently viewed channel.

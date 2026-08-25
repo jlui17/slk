@@ -3501,7 +3501,7 @@ func FormatDateSeparator(dateStr string) string {
 	if err != nil {
 		return dateStr
 	}
-	now := time.Now()
+	now := nowFn()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	diff := today.Sub(d).Hours() / 24
 
