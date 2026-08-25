@@ -485,8 +485,9 @@ var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
 // task id is lifted out of the middle of a sentence.
 var strayPunctRe = regexp.MustCompile(`\s+[:,;.\-]+(\s|$)`)
 
-// maxTabLabel caps every tab label this package produces, deterministic
-// and model-generated alike.
+// maxTabLabel caps the label snippet on both the deterministic and model
+// paths; a "[colony-562] " task-id prefix rides on top, so a full label
+// can exceed it.
 const maxTabLabel = 30
 
 // agentTabLabel derives a short tab name from the flattened root text with
