@@ -16,6 +16,12 @@ func (db *DB) migrateFork() error {
 		updated_at INTEGER NOT NULL DEFAULT 0
 	);
 
+	CREATE TABLE IF NOT EXISTS herdr_tab_labels (
+		pane_key TEXT PRIMARY KEY,
+		label TEXT NOT NULL,
+		updated_at INTEGER NOT NULL DEFAULT 0
+	);
+
 	CREATE TABLE IF NOT EXISTS thread_sweep_claims (
 		workspace_id TEXT PRIMARY KEY,
 		claimed_at INTEGER NOT NULL DEFAULT 0

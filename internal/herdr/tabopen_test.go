@@ -26,7 +26,7 @@ func TestOpenTab(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines := waitLines(t, rec, 3)
+	lines := waitLines(t, rec, 4)
 	method, params := decode(t, lines[0])
 	if method != "tab.create" {
 		t.Fatalf("first method = %q, want tab.create", method)
@@ -35,17 +35,30 @@ func TestOpenTab(t *testing.T) {
 		t.Errorf("tab.create params = %v", params)
 	}
 
+	// The label just written on the new tab is claimed for its root pane,
+	// so the slk instance about to boot there may refine it.
 	method, params = decode(t, lines[1])
+	if method != "pane.report_metadata" {
+		t.Fatalf("second method = %q, want pane.report_metadata", method)
+	}
+	if params["pane_id"] != "w1:p9" {
+		t.Errorf("claim pane_id = %v, want the created tab's root pane", params["pane_id"])
+	}
+	if got := rec.getTokens()[tabLabelToken]; got != "#general" {
+		t.Errorf("claimed label token = %q, want %q", got, "#general")
+	}
+
+	method, params = decode(t, lines[2])
 	if method != "pane.wait_for_output" {
-		t.Fatalf("second method = %q, want pane.wait_for_output", method)
+		t.Fatalf("third method = %q, want pane.wait_for_output", method)
 	}
 	if params["pane_id"] != "w1:p9" {
 		t.Errorf("wait_for_output pane_id = %v, want the created tab's root pane", params["pane_id"])
 	}
 
-	method, params = decode(t, lines[2])
+	method, params = decode(t, lines[3])
 	if method != "pane.send_input" {
-		t.Fatalf("third method = %q, want pane.send_input", method)
+		t.Fatalf("fourth method = %q, want pane.send_input", method)
 	}
 	if params["pane_id"] != "w1:p9" {
 		t.Errorf("send_input pane_id = %v, want the created tab's root pane", params["pane_id"])
@@ -71,9 +84,9 @@ func TestOpenTab_WaitError_StillSends(t *testing.T) {
 	if err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139"); err != nil {
 		t.Fatal(err)
 	}
-	lines := waitLines(t, rec, 3)
-	if method, _ := decode(t, lines[2]); method != "pane.send_input" {
-		t.Errorf("third method = %q, want pane.send_input", method)
+	lines := waitLines(t, rec, 4)
+	if method, _ := decode(t, lines[3]); method != "pane.send_input" {
+		t.Errorf("fourth method = %q, want pane.send_input", method)
 	}
 }
 
@@ -100,8 +113,8 @@ func TestOpenTab_SendInputError_ClosesTab(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "pane gone") {
 		t.Fatalf("err = %v, want the send_input message", err)
 	}
-	lines := waitLines(t, rec, 4)
-	method, params := decode(t, lines[3])
+	lines := waitLines(t, rec, 5)
+	method, params := decode(t, lines[4])
 	if method != "tab.close" || params["tab_id"] != "w1:t9" {
 		t.Errorf("last request = %s %v, want tab.close of the created tab", method, params)
 	}

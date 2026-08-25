@@ -101,6 +101,10 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string) error {
 	if parsed.RootPane.PaneID == "" {
 		return errors.New("tab.create: no root pane in response")
 	}
+	// Claim the label just written on the new tab for its root pane, so
+	// the slk instance about to boot there may refine it (NameTab treats
+	// an unowned label as user-typed and never renames over it).
+	r.recordTabLabel(parsed.RootPane.PaneID, label)
 	// Send only once the shell is reading input: wait for its first
 	// visible output (the prompt). Any wait failure — the method absent
 	// on an older herdr, or a shell quiet past the timeout — degrades

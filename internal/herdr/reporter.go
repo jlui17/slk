@@ -70,6 +70,15 @@ type Reporter struct {
 	// goroutine (fetchPane, adopt).
 	loadPaneID func() (string, bool)
 	savePaneID func(paneID string) error
+	// loadTabLabel and saveTabLabel bridge the last label NameTab set to
+	// a store that outlives the process AND the herdr server: herdr
+	// persists tab labels across its restarts but wipes pane-metadata
+	// tokens, so without this record a restored label (a model-generated
+	// one especially, which no rerun reproduces) reads as user-typed and
+	// locks the tab out of renames. Set once via SetTabLabelCache before
+	// the first NameTab; used only under tabMu.
+	loadTabLabel func() (string, bool)
+	saveTabLabel func(label string) error
 	// savedPaneID is the last id savePaneID accepted, gating rewrites;
 	// watcher goroutine only.
 	savedPaneID string
@@ -211,6 +220,19 @@ func (r *Reporter) SetPaneIDCache(load func() (string, bool), save func(paneID s
 	}
 	r.loadPaneID = load
 	r.savePaneID = save
+}
+
+// SetTabLabelCache connects the reporter to a store of the last tab label
+// NameTab set for this pane: save is called on every label NameTab sets or
+// claims, and load backs the re-claim of a label whose herdr-side
+// ownership token a herdr restart wiped (herdr persists tab labels, not
+// pane metadata). Must be called before the first NameTab; nil-safe.
+func (r *Reporter) SetTabLabelCache(load func() (string, bool), save func(label string) error) {
+	if r == nil {
+		return
+	}
+	r.loadTabLabel = load
+	r.saveTabLabel = save
 }
 
 type request struct {
@@ -436,6 +458,7 @@ func (r *Reporter) NameTab(label string) {
 			// Already named, possibly by a previous slk run in this pane;
 			// claim it so later renames keep working.
 			r.recordTabLabel(id.PaneID, label)
+			r.saveTabLabelCache(label)
 			return
 		}
 		owned, err := r.ownsTabLabel(id.PaneID, current)
@@ -443,7 +466,7 @@ func (r *Reporter) NameTab(label string) {
 			debuglog.Notify("herdr: pane.get: %v", err)
 			return
 		}
-		if !owned && !isDefaultTabLabel(current) {
+		if !owned && !isDefaultTabLabel(current) && !r.cachedTabLabel(current) {
 			return
 		}
 		if err := r.call("tab.rename", tabRenameParams{TabID: id.TabID, Label: label}, nil); err != nil {
@@ -451,6 +474,7 @@ func (r *Reporter) NameTab(label string) {
 			return
 		}
 		r.recordTabLabel(id.PaneID, label)
+		r.saveTabLabelCache(label)
 	}()
 }
 
@@ -468,8 +492,33 @@ func (r *Reporter) ownsTabLabel(paneID, current string) (bool, error) {
 	return parsed.Pane.Tokens[tabLabelToken] == current, nil
 }
 
+// cachedTabLabel reports whether current is the label the cache says a
+// previous slk run set for this pane — the recovery for a herdr restart
+// having wiped the ownership token while keeping the label.
+func (r *Reporter) cachedTabLabel(current string) bool {
+	if r.loadTabLabel == nil {
+		return false
+	}
+	last, ok := r.loadTabLabel()
+	return ok && last == current
+}
+
+// saveTabLabelCache mirrors a label NameTab set into the durable cache;
+// failures only cost a post-restart re-claim, so they are logged and
+// dropped.
+func (r *Reporter) saveTabLabelCache(label string) {
+	if r.saveTabLabel == nil {
+		return
+	}
+	if err := r.saveTabLabel(label); err != nil {
+		debuglog.Notify("herdr: tab label cache write: %v", err)
+	}
+}
+
 // recordTabLabel stores the ownership token; failures only cost a future
-// rename, so they are logged and dropped.
+// rename, so they are logged and dropped. Token only, deliberately: OpenTab
+// calls this for a pane it created, whose label must not enter this
+// process's own label cache.
 func (r *Reporter) recordTabLabel(paneID, label string) {
 	err := r.call("pane.report_metadata", reportTokensParams{
 		PaneID: paneID,

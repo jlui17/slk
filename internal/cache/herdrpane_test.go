@@ -62,3 +62,27 @@ func TestHerdrPaneIDKeyIsolation(t *testing.T) {
 		t.Errorf("unknown key: want ok=false err=nil, got ok=%v err=%v", ok, err)
 	}
 }
+
+func TestHerdrTabLabelRoundtripAndOverwrite(t *testing.T) {
+	db := newPaneStateTestDB(t)
+
+	if _, ok, err := db.GetHerdrTabLabel("w1:p1"); err != nil || ok {
+		t.Fatalf("empty table: want ok=false err=nil, got ok=%v err=%v", ok, err)
+	}
+
+	if err := db.RecordHerdrTabLabel("w1:p1", "fix retries"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := db.GetHerdrTabLabel("w1:p1")
+	if err != nil || !ok || got != "fix retries" {
+		t.Fatalf("GetHerdrTabLabel: got %q ok=%v err=%v", got, ok, err)
+	}
+
+	if err := db.RecordHerdrTabLabel("w1:p1", "[colony-562] fix flow viewer"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err = db.GetHerdrTabLabel("w1:p1")
+	if err != nil || !ok || got != "[colony-562] fix flow viewer" {
+		t.Fatalf("after overwrite: got %q ok=%v err=%v", got, ok, err)
+	}
+}

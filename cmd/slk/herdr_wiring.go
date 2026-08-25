@@ -23,6 +23,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 		return nil, nil
 	}
 	hr.SetPaneIDCache(herdrPaneIDStore(db, os.Getenv("HERDR_PANE_ID")))
+	hr.SetTabLabelCache(herdrTabLabelStore(db, os.Getenv("HERDR_PANE_ID")))
 	app.SetAgentReporter(hr.Report, hr.ReportUnread, hr.NameTab, func(userID string) (string, bool, bool) {
 		// Straight to the DB: detection needs IsBot, which the
 		// in-memory name map doesn't carry.
@@ -64,6 +65,23 @@ func herdrPaneIDStore(db *cache.DB, paneKey string) (load func() (string, bool),
 	}
 	save = func(paneID string) error {
 		return db.RecordHerdrPaneID(paneKey, paneID)
+	}
+	return load, save
+}
+
+// herdrTabLabelStore returns the reporter's tab-label cache hooks over the
+// DB, keyed like the pane-id store by the launch env's pane id.
+func herdrTabLabelStore(db *cache.DB, paneKey string) (load func() (string, bool), save func(string) error) {
+	load = func() (string, bool) {
+		label, ok, err := db.GetHerdrTabLabel(paneKey)
+		if err != nil {
+			debuglog.Notify("herdr: tab label cache read: %v", err)
+			return "", false
+		}
+		return label, ok
+	}
+	save = func(label string) error {
+		return db.RecordHerdrTabLabel(paneKey, label)
 	}
 	return load, save
 }

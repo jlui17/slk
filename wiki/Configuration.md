@@ -98,9 +98,13 @@ max_image_cache_mb = 200
 # ("fix the ingest retries"; a task id anywhere in the message is hoisted
 # to the front, "[colony-562] fix the flow viewer") — but only over a
 # default tab label or one slk set itself; a label you typed is never
-# overwritten. All of the above needs no configuration — it activates from
-# herdr's own pane environment (HERDR_ENV / HERDR_PANE_ID) and is inert
-# everywhere else.
+# overwritten. Labels slk set stay renameable everywhere they occur: the
+# channel-name label the O keybinding gives a new tab counts (the opener
+# claims it for the slk instance it spawns), and ownership survives herdr
+# restarts (slk keeps its own record of the labels it set, since herdr
+# keeps labels but forgets pane metadata on restart). All of the above
+# needs no configuration — it activates from herdr's own pane environment
+# (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
 #
 # Optionally, tab_name_model refines that label with a model-generated one:
 # the named Anthropic model reads the thread's root message and writes a
