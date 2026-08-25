@@ -107,6 +107,8 @@ func (a *App) absolutePreviewSixelPlacement(p imgpkg.SixelPaint) (imgpkg.SixelPl
 // image, so the painter must repaint even though the placement is
 // otherwise identical. Hashing a handful of lines per frame is cheap
 // next to re-emitting 60KB of sixel.
+//
+//nolint:unused // superseded by attachSixelGuards (sixelpaint_fork.go); kept unmodified to stay mergeable with upstream
 func frameGuard(screen string, top, rows int) string {
 	if screen == "" {
 		return ""
