@@ -42,12 +42,32 @@ Run it in two panes and both instances share the volume on the docker VM's
 kernel, so cross-process file locking behaves exactly as it does natively.
 Reset the sandbox with `docker volume rm slk-test-state`.
 
+### Headless use
+
+Without a host tty (agent shells, CI) the script drops to `docker run -t`:
+the app still gets a pty, stdin stays detached, so `--version`,
+`--list-workspaces`, `--dump-sections` and bounded TUI runs work
+non-interactively. `SLK_LOG_DIR=<host dir>` makes that dir the container
+cwd so `slk-debug.log` outlives the `--rm` container, and
+`SLK_TIMEOUT=<secs>` wraps slk in `timeout -s INT` — SIGINT quits tea
+cleanly, which is what makes slk write its shutdown API request tally.
+
+`tools/smoke.sh [secs]` composes all of that into the standing end-to-end
+check: boot every workspace against real Slack in the agent sandbox for a
+bounded window, then assert clean shutdown (exactly one tally), zero
+connect failures, and zero reconnect catch-up passes, printing the
+per-endpoint request tally for eyeballing. It keeps the debug log on
+failure. Near-read-only: boot sends one `conversations.mark` for the
+restored channel, nothing else.
+
 ### Agent isolation
 
 Agent sessions (Claude Code shells export `CLAUDECODE`; `SLK_ROLE=agent|user`
 overrides) get a parallel sandbox that can't disturb an interactive one:
 their own state volume (`slk-agent-state`, reset with
-`docker volume rm slk-agent-state`), their own binary
+`docker volume rm slk-agent-state`, seeded from the user sandbox's config
+and tokens when `slk-test-state` exists so agent runs see the state the
+user's working session has), their own binary
 (`bin/slk-linux-agent`), and containers named `slk-agent-*`. The separate
 binary matters: a rebuild writes the file a running container executes over
 the bind mount, which can crash it, so agent builds never touch

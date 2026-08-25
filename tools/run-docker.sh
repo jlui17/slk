@@ -28,16 +28,33 @@ case "$role" in
   *) echo "SLK_ROLE must be 'agent' or 'user', got '$role'" >&2; exit 1 ;;
 esac
 
+# The agent sandbox seeds from the user sandbox when one exists (config and
+# tokens only, never cache.db) so agent runs exercise the exact state the
+# user's working session has; a fresh machine falls back to the host files.
+# (${arr[@]+"${arr[@]}"} below: macOS ships bash 3.2, where expanding an
+# empty array under set -u dies with "unbound variable".)
+seed_vol=()
+if [ "$role" = agent ] && docker volume inspect slk-test-state >/dev/null 2>&1; then
+  seed_vol=(-v slk-test-state:/seed-vol:ro)
+fi
+
 docker volume create "$state_vol" >/dev/null
 docker run --rm \
   -v "$state_vol":/state \
+  ${seed_vol[@]+"${seed_vol[@]}"} \
   -v "$HOME/.config/slk":/seed/config:ro \
   -v "$HOME/.local/share/slk/tokens":/seed/tokens:ro \
   "$image" sh -c '
+    set -e
     [ -e /state/.seeded ] && exit 0
     mkdir -p /state/xdg/config/slk /state/xdg/data/slk/tokens /state/xdg/cache
-    cp /seed/config/config.toml /state/xdg/config/slk/
-    cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
+    if [ -f /seed-vol/xdg/config/slk/config.toml ]; then
+      cp /seed-vol/xdg/config/slk/config.toml /state/xdg/config/slk/
+      cp /seed-vol/xdg/data/slk/tokens/*.json /state/xdg/data/slk/tokens/
+    else
+      cp /seed/config/config.toml /state/xdg/config/slk/
+      cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
+    fi
     touch /state/.seeded'
 
 bin="$repo/bin/$bin_name"
@@ -117,16 +134,34 @@ fi
 # -w /src puts slk-debug.log (written to cwd under SLK_DEBUG) in the
 # host checkout instead of dying with the --rm container. No exec: the EXIT
 # trap must run to stop the spool watcher and the bridge.
+#
+# Headless hooks (tools/smoke.sh composes all three):
+#   no host tty  -> -t only: the app still gets a pty, stdin stays detached
+#   SLK_LOG_DIR  -> host dir mounted as the container cwd, so slk-debug.log
+#                   survives the --rm container somewhere other than /src
+#   SLK_TIMEOUT  -> wraps slk in `timeout -s INT <secs>` for a bounded run
+#                   that still shuts down cleanly (INT -> tea quit -> tally)
+tty_args=(-it)
+[ -t 0 ] || tty_args=(-t)
+workdir=/src
+log_mount=()
+if [ -n "${SLK_LOG_DIR:-}" ]; then
+  workdir=/log
+  log_mount=(-v "$SLK_LOG_DIR":/log)
+fi
+cmd=(/src/bin/"$bin_name")
+[ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout -s INT "$SLK_TIMEOUT" "${cmd[@]}")
 # GOMEMLIMIT: image-decode bursts on a warm cache measured a 974MB RSS
 # peak per instance from GC lazily returning pages; the soft ceiling
 # trades brief GC pressure during those bursts for a bounded footprint
 # when many instances run at once. Wrong if a legitimately live heap
 # approaches it (sustained GC thrash) — raise it then.
-docker run --rm -it \
+docker run --rm "${tty_args[@]}" \
   --name "slk-${role}-$$" \
   --label "slk.role=${role}" \
   -v "$repo":/src \
-  -w /src \
+  -w "$workdir" \
+  ${log_mount[@]+"${log_mount[@]}"} \
   -v "$state_vol":/state \
   -v "$spool":/host-open \
   -e BROWSER=/src/tools/spool-open \
@@ -146,4 +181,4 @@ docker run --rm -it \
   ${KITTY_WINDOW_ID:+-e KITTY_WINDOW_ID="$KITTY_WINDOW_ID"} \
   ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"} \
   ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"} \
-  "$image" /src/bin/slk-linux "$@"
+  "$image" "${cmd[@]}" "$@"
