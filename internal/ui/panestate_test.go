@@ -4,25 +4,22 @@ import (
 	"reflect"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
 func newPaneStateTestApp(t *testing.T) (*App, *[]paneReport) {
 	t.Helper()
-	a := NewApp()
-	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
 	var got []paneReport
-	a.SetPaneStateRecorder(func(teamID, channelID, threadTS string) {
-		got = append(got, paneReport{teamID, channelID, threadTS})
-	})
-	_, _ = a.Update(WorkspaceReadyMsg{
-		TeamID:        "T1",
-		InitialActive: true,
-		Channels:      []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
-	})
+	a := newHarnessApp(t,
+		withSize(200, 60),
+		withApp(func(a *App) {
+			a.SetPaneStateRecorder(func(teamID, channelID, threadTS string) {
+				got = append(got, paneReport{teamID, channelID, threadTS})
+			})
+		}),
+		withWorkspace("T1", sidebar.ChannelItem{ID: "C1", Name: "general", Type: "channel"}),
+	)
 	return a, &got
 }
 

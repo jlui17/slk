@@ -13,8 +13,8 @@ type labelGenCall struct {
 	root      string
 }
 
-func newLLMLabelTestApp() (*App, *[]labelGenCall, *[]string) {
-	a, _, _, tabNames := newAgentTestAppWithTab()
+func newLLMLabelTestApp(t *testing.T) (*App, *[]labelGenCall, *[]string) {
+	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	gens := &[]labelGenCall{}
 	a.SetAgentTabLabeler(func(teamID, channelID, threadTS, root string) {
 		*gens = append(*gens, labelGenCall{teamID, channelID, threadTS, root})
@@ -23,7 +23,7 @@ func newLLMLabelTestApp() (*App, *[]labelGenCall, *[]string) {
 }
 
 func TestLLMLabelRequestedOncePerThread(t *testing.T) {
-	a, gens, _ := newLLMLabelTestApp()
+	a, gens, _ := newLLMLabelTestApp(t)
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the ingest retries", UserID: "UHUMAN"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadVisible = true
@@ -48,7 +48,7 @@ func TestLLMLabelRequestedOncePerThread(t *testing.T) {
 }
 
 func TestLLMLabelDeferredUntilRootTextArrives(t *testing.T) {
-	a, gens, _ := newLLMLabelTestApp()
+	a, gens, _ := newLLMLabelTestApp(t)
 	// A permalink-opened thread tracks with an empty root; the text
 	// backfills through a same-thread refresh.
 	parent := messages.MessageItem{TS: "100.0", Text: "", UserID: "UBOT"}
@@ -64,7 +64,7 @@ func TestLLMLabelDeferredUntilRootTextArrives(t *testing.T) {
 }
 
 func TestLLMLabelResetOnThreadSwitch(t *testing.T) {
-	a, gens, _ := newLLMLabelTestApp()
+	a, gens, _ := newLLMLabelTestApp(t)
 	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix retries", UserID: "UHUMAN"}, "C1", "100.0")
 	a.updateAgentThread(messages.MessageItem{TS: "200.0", Text: "<@UBOT> ship the viewer", UserID: "UHUMAN"}, "C1", "200.0")
 	if len(*gens) != 2 || (*gens)[1].threadTS != "200.0" {
@@ -73,7 +73,7 @@ func TestLLMLabelResetOnThreadSwitch(t *testing.T) {
 }
 
 func TestLLMLabelResultRenamesTab(t *testing.T) {
-	a, _, tabNames := newLLMLabelTestApp()
+	a, _, tabNames := newLLMLabelTestApp(t)
 	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> colony-562 fix the flow viewer", UserID: "UHUMAN"}, "C1", "100.0")
 	before := len(*tabNames)
 
@@ -91,7 +91,7 @@ func TestLLMLabelResultRenamesTab(t *testing.T) {
 }
 
 func TestLLMLabelStaleResultDropped(t *testing.T) {
-	a, _, tabNames := newLLMLabelTestApp()
+	a, _, tabNames := newLLMLabelTestApp(t)
 	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix retries", UserID: "UHUMAN"}, "C1", "100.0")
 	a.updateAgentThread(messages.MessageItem{TS: "200.0", Text: "<@UBOT> ship the viewer", UserID: "UHUMAN"}, "C1", "200.0")
 	before := len(*tabNames)
@@ -103,7 +103,7 @@ func TestLLMLabelStaleResultDropped(t *testing.T) {
 }
 
 func TestLLMLabelUnusableResultDropped(t *testing.T) {
-	a, _, tabNames := newLLMLabelTestApp()
+	a, _, tabNames := newLLMLabelTestApp(t)
 	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> colony-562", UserID: "UHUMAN"}, "C1", "100.0")
 	before := len(*tabNames)
 

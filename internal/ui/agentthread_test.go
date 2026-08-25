@@ -30,40 +30,43 @@ type agentUnreadCall struct {
 // newAgentTestApp wires an App with recording agent callbacks and a fixed
 // user cache: UBOT is a bot ("Claude"), UHUMAN is not, everything else is
 // uncached.
-func newAgentTestApp() (*App, *[]agentReportCall, *[]agentUnreadCall) {
-	a, calls, unreads, _ := newAgentTestAppWithTab()
+func newAgentTestApp(t *testing.T) (*App, *[]agentReportCall, *[]agentUnreadCall) {
+	t.Helper()
+	a, calls, unreads, _ := newAgentTestAppWithTab(t)
 	return a, calls, unreads
 }
 
-func newAgentTestAppWithTab() (*App, *[]agentReportCall, *[]agentUnreadCall, *[]string) {
-	a := NewApp()
+func newAgentTestAppWithTab(t *testing.T) (*App, *[]agentReportCall, *[]agentUnreadCall, *[]string) {
+	t.Helper()
 	calls := &[]agentReportCall{}
 	unreads := &[]agentUnreadCall{}
 	tabNames := &[]string{}
-	a.SetAgentReporter(
-		func(agent, displayName, title string, working bool, statusMessage string) {
-			*calls = append(*calls, agentReportCall{agent, displayName, title, working, statusMessage})
-		},
-		func(agent, displayName, title, statusMessage string) {
-			*unreads = append(*unreads, agentUnreadCall{agent, displayName, title, statusMessage})
-		},
-		func(label string) { *tabNames = append(*tabNames, label) },
-		func(userID string) (string, bool, bool) {
-			switch userID {
-			case "UBOT":
-				return "Claude", true, true
-			case "UHUMAN":
-				return "justin", false, true
-			}
-			return "", false, false
-		},
-	)
-	a.channelNames = map[string]string{"C1": "z-claude-dreams"}
-	a.currentUserID = "USELF"
-	// A real workspace id, so tracking captures one and the workspace
-	// comparison every hook makes is actually exercised rather than
-	// passing on two empty strings.
-	a.activeTeamID = "T1"
+	a := newHarnessApp(t, withApp(func(a *App) {
+		a.SetAgentReporter(
+			func(agent, displayName, title string, working bool, statusMessage string) {
+				*calls = append(*calls, agentReportCall{agent, displayName, title, working, statusMessage})
+			},
+			func(agent, displayName, title, statusMessage string) {
+				*unreads = append(*unreads, agentUnreadCall{agent, displayName, title, statusMessage})
+			},
+			func(label string) { *tabNames = append(*tabNames, label) },
+			func(userID string) (string, bool, bool) {
+				switch userID {
+				case "UBOT":
+					return "Claude", true, true
+				case "UHUMAN":
+					return "justin", false, true
+				}
+				return "", false, false
+			},
+		)
+		a.channelNames = map[string]string{"C1": "z-claude-dreams"}
+		a.currentUserID = "USELF"
+		// A real workspace id, so tracking captures one and the workspace
+		// comparison every hook makes is actually exercised rather than
+		// passing on two empty strings.
+		a.activeTeamID = "T1"
+	}))
 	return a, calls, unreads, tabNames
 }
 
@@ -75,7 +78,7 @@ func openAgentThread(a *App, text string) {
 }
 
 func TestAgentThreadDetectedFromBotMention(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> please fix the ingest retries")
 
 	if len(*calls) != 1 {
@@ -91,7 +94,7 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 }
 
 func TestAgentThreadDetectedFromBotAuthor(t *testing.T) {
-	a, calls, _, tabNames := newAgentTestAppWithTab()
+	a, calls, _, tabNames := newAgentTestAppWithTab(t)
 	parent := messages.MessageItem{TS: "100.0", Text: "kicking off the ingest retry fix", UserID: "UBOT"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadVisible = true
@@ -113,7 +116,7 @@ func TestAgentThreadDetectedFromBotAuthor(t *testing.T) {
 }
 
 func TestAgentThreadNamesTab(t *testing.T) {
-	a, _, _, tabNames := newAgentTestAppWithTab()
+	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	openAgentThread(a, "<@UBOT> please fix the ingest retries in colony")
 
 	if len(*tabNames) != 1 {
@@ -150,7 +153,7 @@ func TestAgentTabLabelHoistsTaskID(t *testing.T) {
 }
 
 func TestAgentTabNameIndependentOfNameSources(t *testing.T) {
-	a, _, _, tabNames := newAgentTestAppWithTab()
+	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	// The in-memory name map and the user cache disagree on the bot's
 	// name; the tab label must not carry a mangled fragment of either.
 	a.userNames = usernames.FromMap(map[string]string{"UBOT": "Claude Tag"})
@@ -162,7 +165,7 @@ func TestAgentTabNameIndependentOfNameSources(t *testing.T) {
 }
 
 func TestAgentThreadTitleFlattensMrkdwn(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> look at <#C1> &amp; <https://x.test|the link>")
 
 	if len(*calls) != 1 {
@@ -174,7 +177,7 @@ func TestAgentThreadTitleFlattensMrkdwn(t *testing.T) {
 }
 
 func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	root := messages.MessageItem{TS: "100.0", Text: "<@UBOT> hello", UserID: "UHUMAN", ThreadTS: "100.0"}
 	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
 		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem {
@@ -201,7 +204,7 @@ func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 }
 
 func TestAgentThreadTrackingSurvivesAutoHide(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 
 	// Narrow enough that layout.Compute cannot fit the thread pane, so
@@ -219,7 +222,7 @@ func TestAgentThreadTrackingSurvivesAutoHide(t *testing.T) {
 }
 
 func TestAgentThreadReplyReloadDoesNotStompWorkingState(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	*calls = nil
@@ -233,7 +236,7 @@ func TestAgentThreadReplyReloadDoesNotStompWorkingState(t *testing.T) {
 }
 
 func TestAgentThreadIgnoresHumanAndUncachedMentions(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UHUMAN> and <@USTRANGER> chatting")
 
 	if len(*calls) != 0 {
@@ -242,7 +245,7 @@ func TestAgentThreadIgnoresHumanAndUncachedMentions(t *testing.T) {
 }
 
 func TestAgentThreadTrackingIsSticky(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*calls = nil
 
@@ -258,7 +261,7 @@ func TestAgentThreadTrackingIsSticky(t *testing.T) {
 }
 
 func TestAgentThreadReplacedByNewAgentThread(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "done"})
 	*calls = nil
@@ -279,7 +282,7 @@ func TestAgentThreadReplacedByNewAgentThread(t *testing.T) {
 }
 
 func TestAgentThreadStatusTransitions(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*calls = nil
 
@@ -308,7 +311,7 @@ func TestAgentThreadStatusTransitions(t *testing.T) {
 }
 
 func TestAgentThreadUnreadReplies(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 
 	reply := func(ts, user string) messages.MessageItem {
@@ -338,7 +341,7 @@ func TestAgentThreadUnreadReplies(t *testing.T) {
 }
 
 func TestAgentThreadReadClearsUnread(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
 	*calls = nil
@@ -374,7 +377,7 @@ func TestAgentThreadReadClearsUnread(t *testing.T) {
 }
 
 func TestAgentThreadUnreadDeferredWhileWorking(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	*calls = nil
@@ -393,7 +396,7 @@ func TestAgentThreadUnreadDeferredWhileWorking(t *testing.T) {
 }
 
 func TestAgentThreadUnfocusReassertsUnread(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 
 	// Read thread: unfocus reports nothing.
@@ -413,7 +416,7 @@ func TestAgentThreadUnfocusReassertsUnread(t *testing.T) {
 }
 
 func TestHerdrConnectedRepublishesTrackedThread(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 
 	// No tracked thread: nothing to republish.
 	if _, handled := reduceAgentThread(a, HerdrConnectedMsg{}); !handled {
@@ -446,7 +449,7 @@ func TestHerdrConnectedRepublishesTrackedThread(t *testing.T) {
 }
 
 func TestAgentThreadReopenMarksRead(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
 	*calls = nil
@@ -460,7 +463,7 @@ func TestAgentThreadReopenMarksRead(t *testing.T) {
 }
 
 func TestAgentThreadDerivedFieldDriftKeepsState(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
@@ -492,7 +495,7 @@ func TestAgentThreadDerivedFieldDriftKeepsState(t *testing.T) {
 }
 
 func TestAgentThreadSelfReplyFilterIsPerWorkspace(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 
 	// A real workspace switch: both the active workspace and the current
@@ -513,7 +516,7 @@ func TestAgentThreadSelfReplyFilterIsPerWorkspace(t *testing.T) {
 	}
 }
 func TestAgentThreadTurnStateDroppedOnConnectionChange(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	*calls = nil
@@ -539,7 +542,7 @@ func TestAgentThreadTurnStateDroppedOnConnectionChange(t *testing.T) {
 }
 
 func TestAgentThreadTurnDropPublishesPendingUnread(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
@@ -556,7 +559,7 @@ func TestAgentThreadTurnDropPublishesPendingUnread(t *testing.T) {
 }
 
 func TestAgentThreadTurnLatchIgnoresOtherWorkspaces(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reduceAgentThread(a, AssistantStatusMsg{ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
@@ -578,7 +581,7 @@ func TestAgentThreadTurnLatchIgnoresOtherWorkspaces(t *testing.T) {
 }
 
 func TestAgentThreadBackgroundListReloadKeepsUnread(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	var fetched int
 	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
@@ -615,7 +618,7 @@ func TestAgentThreadBackgroundListReloadKeepsUnread(t *testing.T) {
 }
 
 func TestAgentThreadOpenClearsUnreadWhenFetchFails(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
 	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
@@ -645,7 +648,7 @@ func TestAgentThreadOpenClearsUnreadWhenFetchFails(t *testing.T) {
 }
 
 func TestAgentThreadTracksItsOwnWorkspaceInBackground(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*unreads = nil
 
@@ -677,7 +680,7 @@ func TestAgentThreadTracksItsOwnWorkspaceInBackground(t *testing.T) {
 }
 
 func TestAgentThreadIgnoresOtherWorkspacesSameChannelID(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*unreads = nil
 
@@ -695,7 +698,7 @@ func TestAgentThreadIgnoresOtherWorkspacesSameChannelID(t *testing.T) {
 }
 
 func TestAgentThreadOwnReplyNeverCountsAsUnread(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*unreads = nil
 	a.activeTeamID = "T2"
@@ -723,7 +726,7 @@ func TestAgentThreadOwnReplyNeverCountsAsUnread(t *testing.T) {
 }
 
 func TestAgentThreadAssistantStatusIsWorkspaceScoped(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	*calls = nil
 
@@ -755,7 +758,7 @@ func TestAgentThreadAssistantStatusIsWorkspaceScoped(t *testing.T) {
 }
 
 func TestAgentThreadRemoteMarkReportsOnce(t *testing.T) {
-	a, calls, _ := newAgentTestApp()
+	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("T1", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
 	*calls = nil
@@ -777,7 +780,7 @@ func TestAgentThreadRemoteMarkReportsOnce(t *testing.T) {
 }
 
 func TestAgentThreadDeletedReplyStopsCounting(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	reply := func(ts string) messages.MessageItem {
 		return messages.MessageItem{TS: ts, ThreadTS: "100.0", UserID: "UBOT", Text: "x"}
@@ -818,7 +821,7 @@ func TestAgentThreadDeletedReplyStopsCounting(t *testing.T) {
 }
 
 func TestAgentThreadDeletionFromBackgroundWorkspace(t *testing.T) {
-	a, _, unreads := newAgentTestApp()
+	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("T1", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
 	*unreads = nil
@@ -842,7 +845,7 @@ func TestAgentThreadDeletionFromBackgroundWorkspace(t *testing.T) {
 }
 
 func TestPaneViewedDefaultsToVisibleWithoutHerdr(t *testing.T) {
-	a, _, _ := newAgentTestApp()
+	a, _, _ := newAgentTestApp(t)
 
 	// Outside herdr nothing reports viewedness, and the honest default
 	// is that the user can see the pane: a reader that gates on this

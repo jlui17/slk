@@ -13,25 +13,22 @@ import (
 // tunable synced_at and counts background fetches.
 func newWatermarkTestApp(t *testing.T, syncedAt *int64, fetches *int) *App {
 	t.Helper()
-	a := NewApp()
-	a.width = 120
-	a.height = 30
-	a.activeTeamID = "T1"
-	a.SetChannelService(NewChannelService(ChannelServiceFuncs{
-		ReadCache: func(ids.ChannelID) []messages.MessageItem {
-			return []messages.MessageItem{{TS: "1.0", UserName: "alice", UserID: "U1", Text: "hi", Timestamp: "1:00 PM"}}
-		},
-		SyncedAt: func(ids.ChannelID) int64 { return *syncedAt },
-		Fetch:    func(ids.ChannelID, string) tea.Msg { *fetches++; return nil },
-		MarkRead: func(ids.ChannelID, ids.MessageTS) tea.Msg { return nil },
+	return newHarnessApp(t, withApp(func(a *App) {
+		a.activeTeamID = "T1"
+		a.SetChannelService(NewChannelService(ChannelServiceFuncs{
+			ReadCache: func(ids.ChannelID) []messages.MessageItem {
+				return []messages.MessageItem{{TS: "1.0", UserName: "alice", UserID: "U1", Text: "hi", Timestamp: "1:00 PM"}}
+			},
+			SyncedAt: func(ids.ChannelID) int64 { return *syncedAt },
+			Fetch:    func(ids.ChannelID, string) tea.Msg { *fetches++; return nil },
+			MarkRead: func(ids.ChannelID, ids.MessageTS) tea.Msg { return nil },
+		}))
 	}))
-	_ = a.View()
-	return a
 }
 
 func selectChannel(a *App, id string) {
 	_, cmd := a.Update(ChannelSelectedMsg{ID: id, Name: "general", Type: "channel"})
-	_ = drainBatch(cmd)
+	_ = drainCmds(cmd)
 }
 
 func TestChannelOpen_WatermarkDemotesProvablyFreshCache(t *testing.T) {

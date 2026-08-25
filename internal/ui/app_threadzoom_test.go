@@ -17,13 +17,12 @@ import (
 // zoomTestApp builds an App with a thread open, wide enough that the
 // side-by-side layout clears both pane minimums (a narrower terminal
 // auto-hides the thread instead).
-func zoomTestApp() *App {
-	a := NewApp()
-	a.width = 200
-	a.height = 50
-	a.sidebarVisible = true
-	a.threadVisible = true
-	return a
+func zoomTestApp(t *testing.T) *App {
+	t.Helper()
+	return newHarnessApp(t,
+		withSize(200, 50),
+		withApp(func(a *App) { a.threadVisible = true }),
+	)
 }
 
 // zoomFrame recomputes the layout the way App.View does.
@@ -32,7 +31,7 @@ func zoomFrame(a *App) panelLayoutFrame {
 }
 
 func TestZoomLayoutThreadSpansMessagesArea(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	side := zoomFrame(a)
 	msgArea := side.MsgWidth + side.MsgBorder + side.ThreadWidth + side.ThreadBorder
 
@@ -53,7 +52,7 @@ func TestZoomLayoutThreadSpansMessagesArea(t *testing.T) {
 }
 
 func TestZoomLayoutCollapsesMessagesBand(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	side := zoomFrame(a)
 	msgArea := side.MsgWidth + side.MsgBorder + side.ThreadWidth + side.ThreadBorder
 	sidebarEnd := a.layout.SidebarEnd()
@@ -70,7 +69,7 @@ func TestZoomLayoutCollapsesMessagesBand(t *testing.T) {
 }
 
 func TestZoomPanelAtRoutesMessagesColumnsToThread(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	_ = zoomFrame(a)
 	x := a.layout.SidebarEnd() + 5
 	if panel, _, _, _ := a.panelAt(x, 5); panel != PanelMessages {
@@ -93,7 +92,7 @@ func TestZoomPanelAtRoutesMessagesColumnsToThread(t *testing.T) {
 }
 
 func TestZoomLayoutBypassesAutoHide(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	a.sidebarVisible = false
 	a.width = 70 // 35% of the area lands under the 30-col thread minimum
 
@@ -112,7 +111,7 @@ func TestZoomLayoutBypassesAutoHide(t *testing.T) {
 }
 
 func TestZoomKeyTogglesAndPullsFocusOffMessages(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	a.focusedPanel = PanelMessages
 	z := tea.KeyPressMsg{Code: 't', Text: "t"}
 
@@ -131,7 +130,7 @@ func TestZoomKeyTogglesAndPullsFocusOffMessages(t *testing.T) {
 }
 
 func TestZoomKeyNoOpWithoutThread(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	a.threadVisible = false
 	a.focusedPanel = PanelMessages
 
@@ -157,7 +156,7 @@ func TestZoomResetsOnEveryCloseThreadPath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := zoomTestApp()
+			a := zoomTestApp(t)
 			a.threadFullscreen = true
 			a.focusedPanel = PanelThread
 
@@ -174,7 +173,7 @@ func TestZoomResetsOnEveryCloseThreadPath(t *testing.T) {
 }
 
 func TestZoomFocusCycleSkipsMessages(t *testing.T) {
-	a := zoomTestApp()
+	a := zoomTestApp(t)
 	a.threadFullscreen = true
 	a.focusedPanel = PanelThread
 
@@ -205,12 +204,14 @@ func TestZoomFocusCycleSkipsMessages(t *testing.T) {
 // focus invariant is enforced.
 func zoomedFocusApp(t *testing.T) *App {
 	t.Helper()
-	a := NewApp()
-	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
-	a.sidebarVisible = true
-	a.threadVisible = true
-	a.threadFullscreen = true
-	a.focusedPanel = PanelThread
+	a := newHarnessApp(t,
+		withSize(200, 50),
+		withApp(func(a *App) {
+			a.threadVisible = true
+			a.threadFullscreen = true
+			a.focusedPanel = PanelThread
+		}),
+	)
 	a.FocusNext()
 	if a.focusedPanel != PanelSidebar {
 		t.Fatalf("precondition: Tab while zoomed should land on the sidebar, got %v", a.focusedPanel)

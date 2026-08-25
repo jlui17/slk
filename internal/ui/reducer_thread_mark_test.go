@@ -182,7 +182,7 @@ func TestLiveReplyMarkFlipsThreadsViewRowAndBadge(t *testing.T) {
 // read state — a direct threads-view flip would leave the herdr row
 // claiming an unread reply the mark just declared read.
 func TestMarkTickClearsTrackedAgentThreadRow(t *testing.T) {
-	a, calls, unreads := newAgentTestApp()
+	a, calls, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 
 	_, _ = reduceSend(a, NewMessageMsg{
