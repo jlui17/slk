@@ -501,21 +501,31 @@ func agentTabLabel(flat string) string {
 		label = flat
 	}
 	if id := taskIDRe.FindString(label); id != "" {
-		// Lifting the id out of mid-sentence strands the punctuation that
-		// surrounded it ("traffic for slk-373, the fix" would leave
-		// "traffic for , the fix"), so collapse the gap it left before
-		// trimming the head.
-		rest := strings.Replace(label, id, "", 1)
-		rest = strayPunctRe.ReplaceAllString(rest, " ")
-		rest = strings.Join(strings.Fields(rest), " ")
-		rest = strings.TrimLeft(rest, ":,;.- ")
-		rest = strings.TrimRight(rest, ":,;- ")
-		if rest == "" {
-			return "[" + id + "]"
-		}
-		return "[" + id + "] " + truncate.StringWithTail(rest, maxTabLabel, "…")
+		return withTaskID(id, normalizeTabSnippet(strings.Replace(label, id, "", 1)))
 	}
 	return truncate.StringWithTail(label, maxTabLabel, "…")
+}
+
+// normalizeTabSnippet collapses the gap a removed task id leaves (lifting
+// "slk-373" out of "traffic for slk-373, the fix" would strand "traffic
+// for , the fix"), trims dangling punctuation, and truncates to
+// maxTabLabel. Shared by the deterministic and model label paths so their
+// rendering can't drift.
+func normalizeTabSnippet(s string) string {
+	s = strayPunctRe.ReplaceAllString(s, " ")
+	s = strings.Join(strings.Fields(s), " ")
+	s = strings.TrimLeft(s, ":,;.- ")
+	s = strings.TrimRight(s, ":,;- ")
+	return truncate.StringWithTail(s, maxTabLabel, "…")
+}
+
+// withTaskID renders the "[id] snippet" tab-label shape, "[id]" alone when
+// the snippet is empty.
+func withTaskID(id, snippet string) string {
+	if snippet == "" {
+		return "[" + id + "]"
+	}
+	return "[" + id + "] " + snippet
 }
 
 // agentSidebarID derives the sidebar's internal agent id from a bot display

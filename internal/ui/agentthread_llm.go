@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/muesli/reflow/truncate"
 )
 
 // AgentTabLabelFunc requests a model-generated tab label for the tracked
@@ -75,11 +74,7 @@ func sanitizeModelLabel(raw, taskID string) string {
 	if taskID != "" {
 		s = strings.Replace(s, taskID, "", 1)
 	}
-	s = strayPunctRe.ReplaceAllString(s, " ")
-	s = strings.Join(strings.Fields(s), " ")
-	s = strings.TrimLeft(s, ":,;.- ")
-	s = strings.TrimRight(s, ":,;- ")
-	return truncate.StringWithTail(s, maxTabLabel, "…")
+	return normalizeTabSnippet(s)
 }
 
 // reduceAgentTabLabel lands a model-generated label on the tab, unless the
@@ -100,7 +95,7 @@ var reduceAgentTabLabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) 
 		return nil, true
 	}
 	if id := a.agentSidebar.llmLabel.taskID; id != "" {
-		label = "[" + id + "] " + label
+		label = withTaskID(id, label)
 	}
 	a.agentSidebar.nameTab(label)
 	return nil, true
