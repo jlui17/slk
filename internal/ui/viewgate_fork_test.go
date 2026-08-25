@@ -40,6 +40,32 @@ func TestView_UnviewedPaneRerendersOnResize(t *testing.T) {
 	}
 }
 
+func TestView_UnviewedPaneAnimatesBootstrapOverlay(t *testing.T) {
+	a := newTestAppWithMessages(t)
+	_, _ = a.Update(HerdrTabViewMsg{Viewed: false})
+	a.SetLoadingWorkspaces([]string{"acme"})
+	v1 := a.View()
+
+	_, _ = a.Update(SpinnerTickMsg{})
+	v2 := a.View()
+	if v2.Content == v1.Content {
+		t.Fatalf("unviewed View() froze the bootstrap overlay; want a fresh render with the advanced spinner frame")
+	}
+}
+
+func TestView_UnviewedPaneShowsBootstrapDismissal(t *testing.T) {
+	a := newTestAppWithMessages(t)
+	_, _ = a.Update(HerdrTabViewMsg{Viewed: false})
+	a.SetLoadingWorkspaces([]string{"acme"})
+	overlay := a.View()
+
+	a.bootstrap.MarkReady("acme")
+	v := a.View()
+	if v.Content == overlay.Content {
+		t.Fatalf("unviewed View() after overlay dismissal served the stale loading screen; want the real UI")
+	}
+}
+
 func TestView_OutsideHerdrViewIsNeverGated(t *testing.T) {
 	a := newTestAppWithMessages(t)
 	v1 := a.View()
