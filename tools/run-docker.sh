@@ -115,6 +115,7 @@ docker run --rm -it \
   -e BROWSER=/src/tools/spool-open \
   ${tz:+-e TZ="$tz"} \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
+  ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
   ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
   ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \

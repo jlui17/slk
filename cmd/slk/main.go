@@ -2070,6 +2070,9 @@ func run(startupLink *slackurl.Permalink) error {
 		func(viewed bool) { p.Send(ui.HerdrTabViewMsg{Viewed: viewed}) },
 		func() { p.Send(ui.HerdrConnectedMsg{}) },
 	)
+	if herdrReporter != nil {
+		wireAgentTabLabeler(app, cfg.Herdr, p.Send)
+	}
 
 	// Now that `p` exists, re-install the ImageContext with a real
 	// SendMsg callback so the prefetcher can dispatch ImageReadyMsg

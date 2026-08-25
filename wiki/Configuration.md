@@ -98,10 +98,22 @@ max_image_cache_mb = 200
 # ("fix the ingest retries"; a task id anywhere in the message is hoisted
 # to the front, "[colony-562] fix the flow viewer") — but only over a
 # default tab label or one slk set itself; a label you typed is never
-# overwritten. This needs no configuration — it activates from herdr's own
-# pane environment (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
+# overwritten. All of the above needs no configuration — it activates from
+# herdr's own pane environment (HERDR_ENV / HERDR_PANE_ID) and is inert
+# everywhere else.
+#
+# Optionally, tab_name_model refines that label with a model-generated one:
+# the named Anthropic model reads the thread's root message and writes a
+# short task name, which replaces the truncated snippet a moment after the
+# deterministic rename ("[colony-562] fix flow viewer rendering" instead of
+# "[colony-562] the flow viewer renders sta…").
+# The task-id prefix and the never-overwrite-your-labels rule still apply,
+# and any failure (no key, timeout) leaves the deterministic label in
+# place. Costs one small API call per opened agent thread; needs
+# ANTHROPIC_API_KEY in slk's environment.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
+tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)
 
 # The O keybinding opens a Slack permalink in a new herdr tab running a
 # second slk instance. The tab's shell runs `<open_command> '<permalink>'`;

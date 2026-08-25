@@ -694,6 +694,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceIO,
 		reduceMouse,
 		reduceAgentThread,
+		reduceAgentTabLabel,
 		reduceCacheWatermark,
 	); handled {
 		if cmd != nil {

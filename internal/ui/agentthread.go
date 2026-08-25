@@ -90,6 +90,11 @@ type agentSidebar struct {
 	userInfo     UserInfoFunc
 	thread       agentThreadState
 
+	// labelGen and llmLabel drive the model-generated tab-label
+	// refinement; see agentthread_llm.go.
+	labelGen AgentTabLabelFunc
+	llmLabel llmLabelState
+
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread; while true, unread
 	// changes ride the next turn-end report instead of publishing a
@@ -215,6 +220,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		cur.agentName, cur.title = next.agentName, next.title
 		a.agentSidebar.thread = cur
 		a.reportAgentThreadState()
+		a.maybeRequestAgentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID)))
 		return
 	}
 	// herdr keys one sidebar entry per pane, so reporting a different agent
@@ -225,15 +231,18 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil
+	a.agentSidebar.llmLabel = llmLabelState{}
 	// The initial state is idle: ai_assistant_status is edge-triggered, so
 	// a turn already in progress isn't visible until its next event.
 	a.agentSidebar.report(agentSidebarID(name), name, next.title, false, "")
+	// The mention is dropped from the raw text, not trimmed from the
+	// flattened string: trimming by rendered name breaks when the
+	// in-memory name map and the user cache disagree on the bot's name.
+	stripped := a.flattenRootText(stripMention(parent.Text, botUserID))
 	if a.agentSidebar.nameTab != nil {
-		// The mention is dropped from the raw text, not trimmed from the
-		// flattened string: trimming by rendered name breaks when the
-		// in-memory name map and the user cache disagree on the bot's name.
-		a.agentSidebar.nameTab(agentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID))))
+		a.agentSidebar.nameTab(agentTabLabel(stripped))
 	}
+	a.maybeRequestAgentTabLabel(stripped)
 }
 
 // stripMention removes every <@userID> mention (bare or labeled) from raw
@@ -476,6 +485,10 @@ var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
 // task id is lifted out of the middle of a sentence.
 var strayPunctRe = regexp.MustCompile(`\s+[:,;.\-]+(\s|$)`)
 
+// maxTabLabel caps every tab label this package produces, deterministic
+// and model-generated alike.
+const maxTabLabel = 30
+
 // agentTabLabel derives a short tab name from the flattened root text with
 // the agent's own mention already stripped (the tab bar has no room for the
 // part every agent thread shares). A task id anywhere in the text is
@@ -487,7 +500,6 @@ func agentTabLabel(flat string) string {
 	if label == "" {
 		label = flat
 	}
-	const maxLabel = 30
 	if id := taskIDRe.FindString(label); id != "" {
 		// Lifting the id out of mid-sentence strands the punctuation that
 		// surrounded it ("traffic for slk-373, the fix" would leave
@@ -501,9 +513,9 @@ func agentTabLabel(flat string) string {
 		if rest == "" {
 			return "[" + id + "]"
 		}
-		return "[" + id + "] " + truncate.StringWithTail(rest, maxLabel, "…")
+		return "[" + id + "] " + truncate.StringWithTail(rest, maxTabLabel, "…")
 	}
-	return truncate.StringWithTail(label, maxLabel, "…")
+	return truncate.StringWithTail(label, maxTabLabel, "…")
 }
 
 // agentSidebarID derives the sidebar's internal agent id from a bot display
