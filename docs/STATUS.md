@@ -1,6 +1,6 @@
 # slk Implementation Status
 
-Last updated: 2026-05-03
+Last updated: 2026-08-25
 
 ## What's Working
 
@@ -159,10 +159,22 @@ slk/
 
 ## Stats
 
-- 31 source files, 24 test files
-- ~9,300 lines of Go
-- 14 test packages, all tests passing
+- 299 source files, 341 test files
+- ~147,000 lines of Go
+- 59 test packages, all tests passing
 - Single binary, no runtime dependencies beyond the terminal
+
+## Verification tooling
+
+- `tools/go.sh test ./...` — full suite (docker on Santa hosts)
+- `make lint` — golangci-lint at CI's pinned version
+- `tools/smoke.sh` — bounded real boot in the agent docker sandbox,
+  asserting clean shutdown and printing the per-endpoint request tally
+- Frame goldens (`internal/ui/testdata/TestFrameGolden/`) — full-screen
+  App.View() snapshots; regenerate with `-update`
+- `internal/slacktest` — credential-free fake Slack (HTTP + WebSocket)
+  behind the `NewTestClient` seams
+- `docs/agent-tui-driving.md` — driving the live TUI from an agent
 
 ## Key Design Decisions
 
