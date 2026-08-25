@@ -2,20 +2,35 @@
 # Run this checkout's slk inside docker with the TUI attached to the current
 # terminal — for Santa-lockdown hosts that kill locally built binaries.
 #
-# Config and cached tokens are seeded ONCE from the host into the
-# slk-test-state volume (never the live cache.db: copying a WAL database
-# mid-write can tear it, and slk rebuilds the cache from the API). Every pane
-# that runs this script shares that volume, and the containers share the
+# Config and cached tokens are seeded ONCE from the host into the role's
+# state volume (never the live cache.db: copying a WAL database mid-write can
+# tear it, and slk rebuilds the cache from the API). Every pane that runs this
+# script in the same role shares that volume, and the containers share the
 # docker VM's kernel, so cross-process flocks are exercised for real.
-# Reseed with: docker volume rm slk-test-state
+# Reseed with: docker volume rm slk-test-state (or slk-agent-state)
+#
+# Agent sessions (CLAUDECODE set, or SLK_ROLE=agent) run fully isolated from
+# interactive use: their own state volume, their own binary, and containers
+# named/labeled by role. The separate binary is load-bearing, not tidiness:
+# a rebuild writes the file a live container is executing over the bind
+# mount, which can crash it — so an agent build must never touch the file a
+# user session runs. Cleanup must only ever match label slk.role=agent.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 image=slk-go:1.26
 
-docker volume create slk-test-state >/dev/null
+role=${SLK_ROLE:-${CLAUDECODE:+agent}}
+role=${role:-user}
+case "$role" in
+  agent) state_vol=slk-agent-state; bin_name=slk-linux-agent ;;
+  user)  state_vol=slk-test-state;  bin_name=slk-linux ;;
+  *) echo "SLK_ROLE must be 'agent' or 'user', got '$role'" >&2; exit 1 ;;
+esac
+
+docker volume create "$state_vol" >/dev/null
 docker run --rm \
-  -v slk-test-state:/state \
+  -v "$state_vol":/state \
   -v "$HOME/.config/slk":/seed/config:ro \
   -v "$HOME/.local/share/slk/tokens":/seed/tokens:ro \
   "$image" sh -c '
@@ -25,13 +40,13 @@ docker run --rm \
     cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
     touch /state/.seeded'
 
-bin="$repo/bin/slk-linux"
+bin="$repo/bin/$bin_name"
 if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]; then
-  echo "building linux slk..." >&2
+  echo "building linux slk ($bin_name)..." >&2
   docker run --rm -v "$repo":/src -w /src \
     -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
     -e GOFLAGS=-buildvcs=false \
-    "$image" go build -ldflags="-s -w" -trimpath -o bin/slk-linux ./cmd/slk
+    "$image" go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
 fi
 
 # The container has no host timezone, so timestamps render as UTC unless the
@@ -108,9 +123,11 @@ fi
 # when many instances run at once. Wrong if a legitimately live heap
 # approaches it (sustained GC thrash) — raise it then.
 docker run --rm -it \
+  --name "slk-${role}-$$" \
+  --label "slk.role=${role}" \
   -v "$repo":/src \
   -w /src \
-  -v slk-test-state:/state \
+  -v "$state_vol":/state \
   -v "$spool":/host-open \
   -e BROWSER=/src/tools/spool-open \
   ${tz:+-e TZ="$tz"} \

@@ -35,8 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends libx11-dev \
 EOF
 fi
 
+# Role label mirrors run-docker.sh: agent-session containers are
+# discriminable from interactive ones, so nothing cleaning up agent work can
+# match a user's container.
+role=${SLK_ROLE:-${CLAUDECODE:+agent}}
+role=${role:-user}
+
 docker_args=(
   --rm
+  --label "slk.role=${role}"
   # Keep stdin attached so `go run` programs that read it work under the
   # wrapper too.
   -i

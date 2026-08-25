@@ -30,6 +30,14 @@ rule can cover — the symptom is `signal: killed` / exit 137). Never invoke
   execs native go elsewhere).
 - Running the slk TUI itself: `tools/run-docker.sh`.
 
+Agent sessions are auto-isolated from the user's live slk: `run-docker.sh`
+detects `CLAUDECODE` and uses its own state volume (`slk-agent-state`),
+its own binary (`bin/slk-linux-agent`), and `slk-agent-*` container names
+with a `slk.role=agent` label. Never build to `bin/slk-linux` and never
+kill/stop/rm any docker container or volume that isn't one this session
+created and isn't labeled `slk.role=agent` — the user's live session runs
+from the same image and checkout.
+
 Details: `docs/developing-on-santa-hosts.md`.
 
 ## Never run `go fmt` across the tree

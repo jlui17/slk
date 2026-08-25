@@ -42,6 +42,19 @@ Run it in two panes and both instances share the volume on the docker VM's
 kernel, so cross-process file locking behaves exactly as it does natively.
 Reset the sandbox with `docker volume rm slk-test-state`.
 
+### Agent isolation
+
+Agent sessions (Claude Code shells export `CLAUDECODE`; `SLK_ROLE=agent|user`
+overrides) get a parallel sandbox that can't disturb an interactive one:
+their own state volume (`slk-agent-state`, reset with
+`docker volume rm slk-agent-state`), their own binary
+(`bin/slk-linux-agent`), and containers named `slk-agent-*`. The separate
+binary matters: a rebuild writes the file a running container executes over
+the bind mount, which can crash it, so agent builds never touch
+`bin/slk-linux`. Both scripts also label their containers `slk.role=agent`
+or `slk.role=user` — agent-side cleanup kills only containers it started (by
+recorded name), and must never touch anything not labeled `slk.role=agent`.
+
 Link opening (`o`) works through a bridge: the container has no browser, so
 slk honors `$BROWSER`, which the script points at `tools/spool-open` — it
 drops the URL into a `/tmp` spool directory that a host-side watcher in the
