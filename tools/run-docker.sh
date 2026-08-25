@@ -156,6 +156,7 @@ cmd=(/src/bin/"$bin_name")
 # trades brief GC pressure during those bursts for a bounded footprint
 # when many instances run at once. Wrong if a legitimately live heap
 # approaches it (sustained GC thrash) — raise it then.
+echo "container: slk-${role}-$$" >&2
 docker run --rm "${tty_args[@]}" \
   --name "slk-${role}-$$" \
   --label "slk.role=${role}" \
