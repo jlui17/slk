@@ -9,8 +9,8 @@ import (
 )
 
 // TestLabelLive hits the real Anthropic API; set SLK_TABLABEL_LIVE=1 (and
-// ANTHROPIC_API_KEY) to run it. On Santa hosts the docker container tools/
-// go.sh runs tests in needs both variables passed through.
+// ANTHROPIC_API_KEY) to run it. tools/go.sh forwards both into the docker
+// container it runs tests in on Santa hosts.
 func TestLabelLive(t *testing.T) {
 	if os.Getenv("SLK_TABLABEL_LIVE") == "" {
 		t.Skip("set SLK_TABLABEL_LIVE=1 to hit the real API")

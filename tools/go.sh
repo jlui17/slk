@@ -61,5 +61,13 @@ for var in GOOS GOARCH CGO_ENABLED; do
   fi
 done
 
+# The tablabel live test (internal/tablabel/live_test.go) is env-gated;
+# without these it silently skips inside the container.
+for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY; do
+  if [[ -n "${!var:-}" ]]; then
+    docker_args+=(-e "$var=${!var}")
+  fi
+done
+
 echo "Santa host — running go in docker (${image})" >&2
 exec docker run "${docker_args[@]}" "$image" go "$@"
