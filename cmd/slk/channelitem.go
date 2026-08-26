@@ -109,6 +109,10 @@ func upsertChannelInDB(db *cache.DB, ch slack.Channel, chType string, teamID str
 		Name:        ch.Name,
 		Type:        chType,
 		Topic:       ch.Topic.Value,
-		IsMember:    ch.IsMember,
+		// Membership is implied by both call sites (the boot's
+		// joined-conversation list; channel_joined-family WS events),
+		// and their wire payloads ship is_member false — trusting the
+		// field zeroes every row a boot touches.
+		IsMember: true,
 	})
 }
