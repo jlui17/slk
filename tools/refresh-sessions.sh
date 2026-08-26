@@ -11,8 +11,8 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 # Discover user slk panes: the pane's foreground holds run-docker.sh's
 # docker run carrying the slk.role=user label, and the container name rides
 # in the same argv. Parsing stays in python and prints only pane id +
-# container name — the argv also carries credentials (-e ANTHROPIC_API_KEY)
-# and must never be echoed.
+# container name, so an env value a future run-docker.sh change interpolates
+# into argv can't leak into transcripts.
 panes=()
 containers=()
 while IFS=$'\t' read -r pane container; do

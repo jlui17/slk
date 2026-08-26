@@ -44,10 +44,11 @@ edge case can be handled without rediscovering it.
 - **`wait-output` timeout on the first pane**: the build is failing. Read
   the pane (`herdr pane read <pane_id> --source visible`) for the compile
   error; don't rerun until it builds.
-- **Never print a discovered pane's process argv.** run-docker.sh passes
-  `-e ANTHROPIC_API_KEY=<value>` inline, so full argv contains the key; the
-  script confines argv parsing to python and prints only pane ids and
-  container names. Debugging by dumping `herdr pane process-info` leaks it
-  into the transcript.
+- **Never print a discovered pane's process argv.** run-docker.sh forwards
+  `ANTHROPIC_API_KEY` by name only (`-e ANTHROPIC_API_KEY`, docker reads
+  the value from its own environment) precisely so argv stays
+  secret-free; the script still confines argv parsing to python and prints
+  only pane ids and container names, so a regression to inline
+  interpolation can't leak into a transcript via `herdr pane process-info`.
 - Agent-role sessions (`slk-agent-*`) are out of scope by construction:
   discovery matches the `slk.role=user` label in the pane's argv.
