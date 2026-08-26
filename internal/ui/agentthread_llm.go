@@ -53,7 +53,7 @@ func (a *App) maybeRequestAgentTabLabel(flat string) {
 		return
 	}
 	t := a.agentSidebar.thread
-	a.agentSidebar.llmLabel = llmLabelState{requested: true, taskID: taskIDRe.FindString(flat)}
+	a.agentSidebar.llmLabel = llmLabelState{requested: true, taskID: hoistTaskID(flat)}
 	a.agentSidebar.labelGen(t.teamID, t.channelID, t.threadTS, flat)
 }
 

@@ -143,7 +143,16 @@ func TestAgentTabLabelHoistsTaskID(t *testing.T) {
 		// punctuation that surrounded it.
 		{"verification traffic for slk-373, the whole path", "[slk-373] verification traffic for the …"},
 		{"see colony-71 - then ship it", "[colony-71] see then ship it"},
-		{"ship colony-9.", "[colony-9] ship"},
+		// Single-digit numbers are org names (colony-2), not task ids;
+		// possessive and bare uses must not hoist.
+		{"ship colony-9.", "ship colony-9."},
+		{"affects colony-2's twin, since colony-1 doesn't capture it", "affects colony-2's twin, sinc…"},
+		// A "#1164"-style ref hoists when no tracker id is present; a
+		// tracker id wins when both appear.
+		{"Review thread for #1164, the verify fix", "[#1164] Review thread for the verify …"},
+		{"colony-1105 follow-up to #1164", "[colony-1105] follow-up to #1164"},
+		// Small "#N" ordinals in prose are not refs.
+		{"retry attempt #1 failed", "retry attempt #1 failed"},
 	}
 	for _, c := range cases {
 		if got := agentTabLabel(c.flat); got != c.want {

@@ -476,10 +476,27 @@ func (a *App) agentThreadTitle(channelID, flat string) string {
 }
 
 // taskIDRe matches tracker-style task ids ("colony-562", "TAIGA-41"). Two+
-// letters before the dash keeps single-letter false positives out; short
-// hyphenated terms with digits ("sha-256") can still match, and the first
-// occurrence wins because task ids conventionally lead the message.
-var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d+\b`)
+// letters before the dash keeps single-letter false positives out; two+
+// digits after it keep org names ("colony-2's twin") from reading as ids,
+// at the cost of never hoisting a genuine single-digit id. Short hyphenated
+// terms with digits ("sha-256") can still match, and the first occurrence
+// wins because task ids conventionally lead the message.
+var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d{2,}\b`)
+
+// prRefRe matches "#1164"-style PR/issue refs, the id a review-thread root
+// carries when it has no tracker task id. Two+ digits so prose ordinals
+// ("attempt #1") don't read as refs.
+var prRefRe = regexp.MustCompile(`#\d{2,}\b`)
+
+// hoistTaskID picks the id a tab label hoists to its "[id]" prefix: the
+// first tracker task id, else the first PR/issue ref. Empty when the text
+// carries neither.
+func hoistTaskID(flat string) string {
+	if id := taskIDRe.FindString(flat); id != "" {
+		return id
+	}
+	return prRefRe.FindString(flat)
+}
 
 // strayPunctRe matches punctuation left dangling between spaces once the
 // task id is lifted out of the middle of a sentence.
@@ -492,8 +509,8 @@ const maxTabLabel = 30
 
 // agentTabLabel derives a short tab name from the flattened root text with
 // the agent's own mention already stripped (the tab bar has no room for the
-// part every agent thread shares). A task id anywhere in the text is
-// hoisted to a leading "[colony-562] " prefix, matching the
+// part every agent thread shares). A task id or PR ref anywhere in the text
+// is hoisted to a leading "[colony-562] " / "[#1164] " prefix, matching the
 // workspace-labeling convention, and removed from the snippet so it doesn't
 // appear twice.
 func agentTabLabel(flat string) string {
@@ -501,7 +518,7 @@ func agentTabLabel(flat string) string {
 	if label == "" {
 		label = flat
 	}
-	if id := taskIDRe.FindString(label); id != "" {
+	if id := hoistTaskID(label); id != "" {
 		return withTaskID(id, normalizeTabSnippet(strings.Replace(label, id, "", 1)))
 	}
 	return truncate.StringWithTail(label, maxTabLabel, "…")

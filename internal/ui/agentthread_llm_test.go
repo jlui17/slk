@@ -90,6 +90,16 @@ func TestLLMLabelResultRenamesTab(t *testing.T) {
 	}
 }
 
+func TestLLMLabelResultKeepsPRRef(t *testing.T) {
+	a, _, tabNames := newLLMLabelTestApp(t)
+	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> Review thread for #1164, the verify fix", UserID: "UHUMAN"}, "C1", "100.0")
+
+	reduceAgentTabLabel(a, AgentTabLabelMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Label: "Fix loki replay verify count"})
+	if want := "[#1164] Fix loki replay verify count"; (*tabNames)[len(*tabNames)-1] != want {
+		t.Errorf("label = %q, want %q", (*tabNames)[len(*tabNames)-1], want)
+	}
+}
+
 func TestLLMLabelStaleResultDropped(t *testing.T) {
 	a, _, tabNames := newLLMLabelTestApp(t)
 	a.updateAgentThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix retries", UserID: "UHUMAN"}, "C1", "100.0")
@@ -127,6 +137,7 @@ func TestSanitizeModelLabel(t *testing.T) {
 		// technical terms the model wrote survive.
 		{"fix utf-8 truncation", "", "fix utf-8 truncation"},
 		{"migrate hashing to sha-256", "colony-562", "migrate hashing to sha-256"},
+		{"PR #1164 verify fix", "#1164", "PR verify fix"},
 	}
 	for _, c := range cases {
 		if got := sanitizeModelLabel(c.in, c.taskID); got != c.want {
