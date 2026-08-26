@@ -70,7 +70,7 @@ type fakeCounts struct {
 	err     error
 }
 
-func (f *fakeCounts) GetUnreadCounts() ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error) {
+func (f *fakeCounts) GetUnreadCounts(ctx context.Context) ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, "client.counts")
 	f.mu.Unlock()

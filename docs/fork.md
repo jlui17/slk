@@ -57,6 +57,12 @@ there and resolve them knowing what the fork wants:
 - `internal/slack/events.go` — `OnThreadMarked` passes the subscription's
   `active` flag through instead of inverting it into a bogus `read` bool.
   Upstreaming candidate: it fixes an upstream bug.
+- `internal/slack/client.go` — boot-path calls made cancellable in
+  place: SlackAPI's `AuthTest`/`GetConversationsForUser` swapped for
+  their `Context` variants, `GetUnreadCounts` takes a ctx, and the
+  inline 429 retry sleeps route through `rateLimitWait`
+  (ratelimit_fork.go); plus WebSocket conn-pointer locking under
+  `wsMu` and the test-injectable `wsDialer` field.
 - `internal/slack/auth.go` — atomic token save.
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
 - `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:

@@ -168,7 +168,7 @@ func (m *mockSlackAPI) SearchMessagesContext(ctx context.Context, query string, 
 	return &slack.SearchMessages{}, nil
 }
 
-func (m *mockSlackAPI) GetConversationsForUser(params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
+func (m *mockSlackAPI) GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
 	return nil, "", nil
 }
 
@@ -224,7 +224,7 @@ func (m *mockSlackAPI) RemoveReaction(name string, item slack.ItemRef) error {
 	return nil
 }
 
-func (m *mockSlackAPI) AuthTest() (*slack.AuthTestResponse, error) {
+func (m *mockSlackAPI) AuthTestContext(ctx context.Context) (*slack.AuthTestResponse, error) {
 	if m.authTestFn != nil {
 		return m.authTestFn()
 	}
@@ -995,7 +995,7 @@ func TestGetUnreadCounts_UsesAPIBaseURL(t *testing.T) {
 		cookie:     "d-cookie",
 		apiBaseURL: srv.URL + "/api/",
 	}
-	if _, _, err := c.GetUnreadCounts(); err != nil {
+	if _, _, err := c.GetUnreadCounts(context.Background()); err != nil {
 		t.Fatalf("GetUnreadCounts: %v", err)
 	}
 	if gotPath != "/api/client.counts" {
@@ -1145,7 +1145,7 @@ func TestHandRolledEndpoints_FormBodyTokenNoBearer(t *testing.T) {
 			name:     "GetUnreadCounts",
 			respBody: `{"ok":true,"channels":[],"mpims":[],"ims":[],"threads":{"has_unreads":false}}`,
 			call: func(t *testing.T, c *Client) {
-				if _, _, err := c.GetUnreadCounts(); err != nil {
+				if _, _, err := c.GetUnreadCounts(context.Background()); err != nil {
 					t.Fatalf("GetUnreadCounts: %v", err)
 				}
 			},
@@ -2108,7 +2108,7 @@ func TestNewClient_UsesBrowserTransport(t *testing.T) {
 	}
 
 	// Sanity check: a real call goes through and reaches the server.
-	if _, err := c.api.AuthTest(); err != nil {
+	if _, err := c.api.AuthTestContext(context.Background()); err != nil {
 		t.Fatalf("AuthTest: %v", err)
 	}
 	if gotHeaders == nil {
@@ -3009,7 +3009,7 @@ func TestHandRolledEndpoints_RouteThroughSharedClient(t *testing.T) {
 			name:     "GetUnreadCounts",
 			respBody: `{"ok":true,"channels":[],"mpims":[],"ims":[],"threads":{"has_unreads":false}}`,
 			call: func(t *testing.T, c *Client) {
-				if _, _, err := c.GetUnreadCounts(); err != nil {
+				if _, _, err := c.GetUnreadCounts(context.Background()); err != nil {
 					t.Fatalf("GetUnreadCounts: %v", err)
 				}
 			},

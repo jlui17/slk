@@ -87,17 +87,10 @@ func (a viewAdapter) ConversationsView(ctx context.Context, channelID string) (*
 }
 
 // countsAdapter satisfies bootstrap.CountsFetcher.
-//
-// ctx is accepted and discarded, because GetUnreadCounts takes none —
-// it builds its request with http.NewRequest, not
-// http.NewRequestWithContext. The interface keeps the parameter so that
-// giving GetUnreadCounts a ctx later is a change to one line here
-// rather than a change to bootstrap's interface, and so that this
-// adapter does not have to pretend cancellation works when it does not.
 type countsAdapter struct{ c *slackclient.Client }
 
-func (a countsAdapter) Counts(_ context.Context) (bootstrap.Counts, error) {
-	unreads, threads, err := a.c.GetUnreadCounts()
+func (a countsAdapter) Counts(ctx context.Context) (bootstrap.Counts, error) {
+	unreads, threads, err := a.c.GetUnreadCounts(ctx)
 	if err != nil {
 		// Zero value, not a partially-filled one: bootstrap treats a
 		// counts failure as non-fatal and logs it, and handing back

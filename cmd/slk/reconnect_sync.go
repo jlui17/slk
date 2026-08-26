@@ -34,7 +34,7 @@ import (
 type reconnectClient interface {
 	// GetUnreadCounts is client.counts: one request that returns
 	// unread state for every conversation in the workspace.
-	GetUnreadCounts() ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error)
+	GetUnreadCounts(ctx context.Context) ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error)
 }
 
 // teaSender is the subset of *tea.Program the reconnect path uses to
@@ -99,7 +99,7 @@ func (r *reconnectSync) run(ctx context.Context) error {
 		active = r.activeChannel()
 	}
 
-	r.refreshUnreadState()
+	r.refreshUnreadState(ctx)
 
 	// Everything not refreshed below is marked stale rather than
 	// fetched. The work moves to the moment a channel is looked at,
@@ -120,8 +120,8 @@ func (r *reconnectSync) run(ctx context.Context) error {
 //
 // Failure is logged and swallowed: unread badges are cosmetic next to
 // the messages themselves, and the next boot refreshes them anyway.
-func (r *reconnectSync) refreshUnreadState() {
-	unreads, _, err := r.client.GetUnreadCounts()
+func (r *reconnectSync) refreshUnreadState(ctx context.Context) {
+	unreads, _, err := r.client.GetUnreadCounts(ctx)
 	if err != nil {
 		debuglog.Backfill("team=%s reconnect-sync counts err=%v (unread badges stay stale)", r.workspaceID, err)
 		return

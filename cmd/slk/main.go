@@ -2399,22 +2399,31 @@ func slugifyHandle(name string) string {
 }
 
 // shouldReloadTimeout bounds the background _x_version_ts refresh.
-// Matches slackclient.MintToken's 15s — the only other bounded Slack
-// HTTP call in slk — rather than inventing a second number for the
-// same job. Nothing waits on this refresh, so a generous bound costs
-// nothing, while a tight one would turn a merely slow proxy into a
-// lost refresh and a stale build timestamp.
+// Matches slackclient.MintToken's 15s and bootCallTimeout rather than
+// inventing another number for the same job. Nothing waits on this
+// refresh, so a generous bound costs nothing, while a tight one would
+// turn a merely slow proxy into a lost refresh and a stale build
+// timestamp.
 const shouldReloadTimeout = 15 * time.Second
 
 func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB, cfg config.Config, avatarCache *avatar.Cache, p *tea.Program, configPath string, paneRestore *cache.PaneState) (*WorkspaceContext, error) {
 	client := slackclient.NewClient(token.AccessToken, token.Cookie)
+
+	// Surface 429 retry sleeps: without this a rate-limited paginated
+	// call (users.conversations above all) reads as a silent freeze.
+	client.SetRateLimitNotify(func(wait time.Duration) {
+		p.Send(ui.ToastMsg{Text: fmt.Sprintf("Slack rate-limited; retrying in %s", wait.Round(time.Second))})
+	})
 
 	// Seed the build timestamp from the last run so the very first
 	// request of this session already carries a current _x_version_ts
 	// instead of the compiled-in fallback.
 	seedVersionTS(client.Envelope(), cfg, token.TeamID)
 
-	if err := client.Connect(ctx); err != nil {
+	cctx, ccancel := bootCtx(ctx)
+	err := client.Connect(cctx)
+	ccancel()
+	if err != nil {
 		return nil, fmt.Errorf("connecting %s: %w", token.TeamName, err)
 	}
 
@@ -2584,19 +2593,23 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	bootWG.Add(2)
 	go func() {
 		defer bootWG.Done()
-		res, bootErr = bootstrap.Run(ctx, newBootstrapDeps(client, db, token.AccessToken,
-			restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel.Current()), wctx.EdgeHealth))
+		res, bootErr = bootstrap.Run(ctx, boundBootstrapDeps(newBootstrapDeps(client, db, token.AccessToken,
+			restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel.Current()), wctx.EdgeHealth), bootCallTimeout))
 	}()
 	go func() {
 		defer bootWG.Done()
-		channels, channelsErr = client.GetChannels(ctx)
+		gctx, gcancel := bootCtx(ctx)
+		defer gcancel()
+		channels, channelsErr = client.GetChannels(gctx)
 	}()
 	if useSlackSections {
 		bootWG.Add(1)
 		go func() {
 			defer bootWG.Done()
 			sectionStore = service.NewSectionStore()
-			sectionStoreErr = sectionStore.Bootstrap(ctx, client)
+			sctx, scancel := bootCtx(ctx)
+			defer scancel()
+			sectionStoreErr = sectionStore.Bootstrap(sctx, client)
 		}()
 	}
 	bootWG.Wait()

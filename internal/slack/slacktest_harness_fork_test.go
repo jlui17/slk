@@ -77,7 +77,7 @@ func TestSlacktestHarness_BootAndEventsWithNoCredentials(t *testing.T) {
 
 	// A per-test Handle override beats the default corpus.
 	s.Handle("/api/client.counts", `{"ok":true,"channels":[{"id":"`+slacktest.ChannelID+`","has_unreads":true,"mention_count":7,"last_read":"1700000001.000100"}],"threads":{"has_unreads":true,"unread_count":3,"mention_count":1}}`)
-	unreads, threads, err := c.GetUnreadCounts()
+	unreads, threads, err := c.GetUnreadCounts(context.Background())
 	if err != nil {
 		t.Fatalf("GetUnreadCounts: %v", err)
 	}

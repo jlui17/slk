@@ -24,7 +24,7 @@ import (
 // SlackAPI defines the subset of the Slack API we use.
 // This interface enables mocking in tests.
 type SlackAPI interface {
-	GetConversationsForUser(params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error)
+	GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error)
 	GetConversationHistory(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 	GetConversationReplies(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error)
 	SearchMessagesContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, error)
@@ -44,7 +44,7 @@ type SlackAPI interface {
 	AddReaction(name string, item slack.ItemRef) error
 	RemoveReaction(name string, item slack.ItemRef) error
 	GetPermalinkContext(ctx context.Context, params *slack.PermalinkParameters) (string, error)
-	AuthTest() (*slack.AuthTestResponse, error)
+	AuthTestContext(ctx context.Context) (*slack.AuthTestResponse, error)
 	JoinConversation(channelID string) (*slack.Channel, string, []string, error)
 	SetUserPresenceContext(ctx context.Context, presence string) error
 	GetUserPresenceContext(ctx context.Context, user string) (*slack.UserPresence, error)
@@ -100,6 +100,10 @@ type Client struct {
 	// builds. Set via WithWSDialer (testing_fork.go) so tests can
 	// redirect the socket to a local server at the dial.
 	wsDialer *websocket.Dialer
+
+	// rateLimitNotify, when non-nil, observes every 429 retry sleep.
+	// Set via SetRateLimitNotify -- see ratelimit_fork.go.
+	rateLimitNotify func(wait time.Duration)
 
 	// teamURL is the raw workspace URL from auth.test's response
 	// (e.g. "https://truelist-workspace.slack.com/"). Used to derive
@@ -295,7 +299,7 @@ func (c *Client) WsDone() <-chan struct{} {
 // slack-go calls also target the workspace host. If a test injected a
 // mock api directly, leave it alone.
 func (c *Client) Connect(ctx context.Context) error {
-	resp, err := c.api.AuthTest()
+	resp, err := c.api.AuthTestContext(ctx)
 	if err != nil {
 		return fmt.Errorf("auth test failed: %w", err)
 	}
@@ -527,18 +531,14 @@ func (c *Client) GetChannels(ctx context.Context) ([]slack.Channel, error) {
 			ExcludeArchived: true,
 		}
 
-		channels, nextCursor, err := c.api.GetConversationsForUser(params)
+		channels, nextCursor, err := c.api.GetConversationsForUserContext(ctx, params)
 		if err != nil {
 			// Handle rate limits gracefully
 			if rlErr, ok := err.(*slack.RateLimitedError); ok {
-				wait := rlErr.RetryAfter
-				if wait == 0 {
-					wait = 30 * time.Second
-				}
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
-				case <-time.After(wait):
+				case <-time.After(c.rateLimitWait(rlErr)):
 				}
 				continue // retry same page
 			}
@@ -559,7 +559,7 @@ func (c *Client) GetChannels(ctx context.Context) ([]slack.Channel, error) {
 // GetUsersInConversation returns all user IDs that are members of the
 // given conversation (channel, DM, group DM, or shared channel). Paginates
 // 1000 IDs per page. On 429 responses, sleeps the server-advised RetryAfter
-// (defaulting to 30s if zero) and retries the same page; honors ctx
+// (see rateLimitWait) and retries the same page; honors ctx
 // cancellation both between iterations and during the rate-limit sleep.
 // Mirrors the paginate-until-empty-cursor loop structure.
 func (c *Client) GetUsersInConversation(ctx context.Context, channelID string) ([]string, error) {
@@ -582,14 +582,10 @@ func (c *Client) GetUsersInConversation(ctx context.Context, channelID string) (
 		users, next, err := c.api.GetUsersInConversationContext(ctx, params)
 		if err != nil {
 			if rlErr, ok := err.(*slack.RateLimitedError); ok {
-				wait := rlErr.RetryAfter
-				if wait == 0 {
-					wait = 30 * time.Second
-				}
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
-				case <-time.After(wait):
+				case <-time.After(c.rateLimitWait(rlErr)):
 				}
 				continue
 			}
@@ -805,14 +801,10 @@ func (c *Client) GetHistorySince(ctx context.Context, channelID, oldest string, 
 		if err != nil {
 			// Rate-limit retry mirrors GetChannels' pattern.
 			if rlErr, ok := err.(*slack.RateLimitedError); ok {
-				wait := rlErr.RetryAfter
-				if wait == 0 {
-					wait = 30 * time.Second
-				}
 				select {
 				case <-ctx.Done():
 					return HistorySinceResult{Messages: all, Capped: true}, ctx.Err()
-				case <-time.After(wait):
+				case <-time.After(c.rateLimitWait(rlErr)):
 				}
 				continue
 			}
@@ -963,10 +955,10 @@ type ThreadsAggregate struct {
 // workspace; the threads block in client.counts is the only place
 // Slack tells us whether per-thread unreads exist without us having to
 // hit subscriptions.thread.* directly.
-func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
+func (c *Client) GetUnreadCounts(ctx context.Context) ([]UnreadInfo, ThreadsAggregate, error) {
 	reqURL := c.apiBaseURL + "client.counts"
 	form := url.Values{"token": {c.token}}
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, ThreadsAggregate{}, fmt.Errorf("creating request: %w", err)
 	}
