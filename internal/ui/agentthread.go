@@ -96,10 +96,16 @@ type agentSidebar struct {
 	llmLabel llmLabelState
 
 	// working mirrors the assistant's turn state from the last
-	// AssistantStatusMsg for the tracked thread; while true, unread
-	// changes ride the next turn-end report instead of publishing a
-	// completion that would stomp the live working state.
+	// AssistantStatusMsg for the tracked thread. It is one leg of
+	// effectiveWorking (the other is the content-derived signal from
+	// lastMsg — see agentworking.go); while the effective state is
+	// working, unread changes ride the next idle report instead of
+	// publishing a completion that would stomp the live working state.
 	working bool
+	// lastMsg backs the derived working signal: the tracked thread's
+	// newest message, maintained by the noteAgentThread* hooks and the
+	// panel snapshot (agentworking.go).
+	lastMsg agentLastMsg
 	// statusText is the working state's transient message ("is
 	// thinking…"), kept so a display refresh can republish the row
 	// without blanking it.
@@ -171,6 +177,7 @@ func (a *App) SetAgentReporter(report AgentReportFunc, reportUnread AgentUnreadR
 func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	a.threadPanel.SetThread(parent, replies, channelID, threadTS)
 	a.updateAgentThread(parent, channelID, threadTS)
+	a.snapshotAgentThreadLast(parent, replies, channelID, threadTS)
 	a.reportPaneState(channelID, threadTS)
 }
 
@@ -228,12 +235,15 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// threads needs no cross-agent release.
 	a.agentSidebar.thread = next
 	a.agentSidebar.working = false
+	a.agentSidebar.lastMsg = agentLastMsg{}
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil
 	a.agentSidebar.llmLabel = llmLabelState{}
-	// The initial state is idle: ai_assistant_status is edge-triggered, so
-	// a turn already in progress isn't visible until its next event.
+	// The initial report is idle: ai_assistant_status is edge-triggered,
+	// so a turn already in progress isn't visible until its next event.
+	// The panel snapshot that follows on the open path re-derives the
+	// content-based state immediately (snapshotAgentThreadLast).
 	a.agentSidebar.report(agentSidebarID(name), name, next.title, false, "")
 	// The mention is dropped from the raw text, not trimmed from the
 	// flattened string: trimming by rendered name breaks when the
@@ -292,7 +302,7 @@ func (a *App) markAgentThreadRead(teamID, channelID, threadTS string) {
 	// herdr's seen flag untouched, so a dot herdr is showing can
 	// only be cleared by focusing the tab — but the row's status
 	// text stops claiming unread immediately.
-	if !a.agentSidebar.working && a.agentSidebar.report != nil {
+	if !a.agentSidebar.effectiveWorking() && a.agentSidebar.report != nil {
 		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, false, "")
 	}
 }
@@ -320,7 +330,7 @@ func (a *App) dropAgentThreadReply(teamID, channelID, ts string) {
 		a.reportAgentThreadUnread()
 		return
 	}
-	if !a.agentSidebar.working && a.agentSidebar.report != nil {
+	if !a.agentSidebar.effectiveWorking() && a.agentSidebar.report != nil {
 		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, false, "")
 	}
 }
@@ -353,6 +363,12 @@ func (a *App) dropAgentThreadTurnState(teamID string) {
 	}
 	a.agentSidebar.working = false
 	a.agentSidebar.statusText = ""
+	if a.agentSidebar.effectiveWorking() {
+		// The derived signal still says working: republish so the row
+		// stops showing the dead turn's status text, with no edge.
+		a.reportAgentThreadState()
+		return
+	}
 	if a.agentSidebar.unreadTotal() > 0 {
 		a.reportAgentThreadUnread()
 	}
@@ -367,22 +383,25 @@ func (a *App) reportAgentThreadState() {
 		return
 	}
 	t := a.agentSidebar.thread
-	status := a.agentSidebar.statusText
-	if !a.agentSidebar.working {
-		status = ""
-		if a.agentSidebar.unreadTotal() > 0 {
-			status = unreadStatusMessage(a.agentSidebar.unreadTotal())
-		}
+	eff := a.agentSidebar.effectiveWorking()
+	// The transient status text belongs to the live WS turn alone; a
+	// derived-only working state shows none.
+	status := ""
+	if a.agentSidebar.working {
+		status = a.agentSidebar.statusText
 	}
-	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, a.agentSidebar.working, status)
+	if !eff && a.agentSidebar.unreadTotal() > 0 {
+		status = unreadStatusMessage(a.agentSidebar.unreadTotal())
+	}
+	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, status)
 }
 
 // reportAgentThreadUnread publishes the tracked thread's unread state as a
-// synthetic completion. Deferred while the assistant is mid-turn — the
-// count rides the turn-end report instead, and the turn end is itself the
-// completion edge herdr needs.
+// synthetic completion. Deferred while the agent reads as working (a live
+// WS turn or the derived signal) — the count rides the working→idle report
+// instead, and that edge is itself the completion herdr needs.
 func (a *App) reportAgentThreadUnread() {
-	if a.agentSidebar.reportUnread == nil || a.agentSidebar.working {
+	if a.agentSidebar.reportUnread == nil || a.agentSidebar.effectiveWorking() {
 		return
 	}
 	t := a.agentSidebar.thread
@@ -570,13 +589,17 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		working := m.Status != ""
 		a.agentSidebar.working = working
 		a.agentSidebar.statusText = m.Status
+		eff := a.agentSidebar.effectiveWorking()
 		status := m.Status
-		if !working && a.agentSidebar.unreadTotal() > 0 {
-			// The turn-end idle report is itself the completion edge, so
-			// unread state deferred during the turn lands here.
+		if !eff && a.agentSidebar.unreadTotal() > 0 {
+			// The working→idle report is itself the completion edge, so
+			// unread state deferred during the run lands here. A turn
+			// end while the derived signal still says working publishes
+			// working instead, and the completion waits for the derived
+			// flip (publishAgentThreadDerived).
 			status = unreadStatusMessage(a.agentSidebar.unreadTotal())
 		}
-		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, working, status)
+		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, status)
 		return nil, true
 
 	case HerdrTabViewMsg:

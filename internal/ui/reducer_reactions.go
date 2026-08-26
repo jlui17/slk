@@ -32,6 +32,14 @@ import (
 var reduceReactions reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ReactionAddedMsg:
+		// Ahead of the background skip, like the tracked agent thread's
+		// hooks in reduceSend: the agent's ack follows the thread's own
+		// workspace, not the active one.
+		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, false)
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			// Background workspace — see NewMessageMsg.TeamID.
+			return nil, true
+		}
 		// Apply every reaction event, including echoes of our own.
 		// updateReactionOnMessage is idempotent per (emoji, userID), so
 		// our optimistic update and the WS echo that follows it collapse
@@ -42,6 +50,10 @@ var reduceReactions reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case ReactionRemovedMsg:
+		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, true)
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			return nil, true
+		}
 		a.updateReactionOnMessage(m.ChannelID, m.MessageTS, m.Emoji, m.UserID, true)
 		return nil, true
 

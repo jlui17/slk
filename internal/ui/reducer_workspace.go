@@ -105,6 +105,10 @@ var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case UserResolvedMsg:
+		// Ahead of the background skip: the tracked agent thread
+		// follows its own workspace, and a bot_message author it
+		// provisionally read as human is corrected here.
+		a.noteAgentThreadUserResolved(m.TeamID, m.UserID, m.IsBot)
 		if m.TeamID != a.activeTeamID {
 			return nil, true
 		}
@@ -113,9 +117,8 @@ var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.threadPanel.PatchUserName(m.UserID, m.DisplayName)
 		// IsBot affects DM channel-type classification, but that's
-		// orchestrated by DMNameResolvedMsg; this handler is only
-		// the in-history name patch. IsBot is carried for forward
-		// compatibility but not consumed here.
+		// orchestrated by DMNameResolvedMsg; this handler patches
+		// in-history names and feeds the agent-thread hook above.
 		return nil, true
 
 	case UserExternalMsg:

@@ -81,6 +81,12 @@ max_image_cache_mb = 200
 # where replies you haven't read arrive. Only opening a different agent
 # thread switches it.
 #
+# The working state combines two signals: the assistant's live composing
+# status ("is thinking…"), and the thread's content — the row reads as
+# working while the newest message is a human's the bot hasn't reacted to
+# (any emoji counts as its ack), or a bot todo-list post (the ones ending
+# with a "todos as of HH:MM UTC" stamp).
+#
 # While Slack considers the thread unread, the row shows the unread reply
 # count and herdr's unseen "done" indicator, the same blue dot it shows for
 # an agent that finished while you were elsewhere. Reading the thread

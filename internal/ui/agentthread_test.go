@@ -205,10 +205,15 @@ func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	}
 
 	// The fetch lands, the reducer backfills the real parent from cache,
-	// and detection re-runs against it.
+	// and detection re-runs against it. The backfilled root is the
+	// user's unanswered message, so the last-message snapshot follows
+	// the initial idle report with a derived working one.
 	reduceThreads(a, ThreadRepliesLoadedMsg{ThreadTS: "100.0", Replies: []messages.MessageItem{}})
-	if len(*calls) != 1 || (*calls)[0].agent != "slack-claude" {
+	if len(*calls) == 0 || (*calls)[0].agent != "slack-claude" {
 		t.Fatalf("backfill must re-run detection; calls=%+v", *calls)
+	}
+	if last := (*calls)[len(*calls)-1]; !last.working {
+		t.Fatalf("unanswered root must derive working after backfill; calls=%+v", *calls)
 	}
 }
 

@@ -67,6 +67,7 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// exactly the thread-scoped consumer those messages are carried
 		// for, and it follows its own workspace, not the active one.
 		a.noteAgentThreadReply(m.TeamID, m.ChannelID, m.Message)
+		a.noteAgentThreadActivity(m.TeamID, m.ChannelID, m.Message)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			// Background workspace — see NewMessageMsg.TeamID.
 			return nil, true
@@ -194,6 +195,7 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// thread's unread state wherever it was retracted, or the row
 		// keeps claiming a reply that no longer exists.
 		a.dropAgentThreadReply(m.TeamID, m.ChannelID, m.TS)
+		a.noteAgentThreadDeleted(m.TeamID, m.ChannelID, m.TS)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			// Background workspace — see NewMessageMsg.TeamID.
 			return nil, true

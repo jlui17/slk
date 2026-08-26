@@ -4353,11 +4353,11 @@ func (h *rtmEventHandler) OnReactionAdded(channelID, ts, userID, emojiName strin
 		}
 	}
 
-	if h.isActive != nil && !h.isActive() {
-		return
-	}
-
+	// Dispatched for every workspace, tagged like NewMessageMsg: the
+	// reducer skips background-team pane updates itself, and the tracked
+	// agent thread's ack hook runs ahead of that skip.
 	h.program.Send(ui.ReactionAddedMsg{
+		TeamID:    h.workspaceID,
 		ChannelID: channelID,
 		MessageTS: ts,
 		UserID:    userID,
@@ -4387,11 +4387,8 @@ func (h *rtmEventHandler) OnReactionRemoved(channelID, ts, userID, emojiName str
 		}
 	}
 
-	if h.isActive != nil && !h.isActive() {
-		return
-	}
-
 	h.program.Send(ui.ReactionRemovedMsg{
+		TeamID:    h.workspaceID,
 		ChannelID: channelID,
 		MessageTS: ts,
 		UserID:    userID,

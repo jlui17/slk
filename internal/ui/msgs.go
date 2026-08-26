@@ -197,12 +197,20 @@ type (
 		Attempt int
 	}
 	ReactionAddedMsg struct {
+		// TeamID tags the workspace the event arrived in, "" meaning
+		// the active one — the background-dispatch contract of
+		// NewMessageMsg.TeamID, carried here for the tracked agent
+		// thread's ack detection; the standard handling ignores
+		// background-team reactions.
+		TeamID    string
 		ChannelID string
 		MessageTS string
 		UserID    string
 		Emoji     string
 	}
 	ReactionRemovedMsg struct {
+		// TeamID: see ReactionAddedMsg.TeamID.
+		TeamID    string
 		ChannelID string
 		MessageTS string
 		UserID    string
