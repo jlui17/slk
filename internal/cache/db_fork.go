@@ -26,6 +26,9 @@ func (db *DB) migrateFork() error {
 		workspace_id TEXT PRIMARY KEY,
 		claimed_at INTEGER NOT NULL DEFAULT 0
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_users_workspace_name
+		ON users(workspace_id, display_name, name);
 	`
 	_, err := db.conn.Exec(schema)
 	return err

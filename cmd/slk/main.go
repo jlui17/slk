@@ -3150,12 +3150,13 @@ func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string,
 func convertAndCacheHistory(client *slackclient.Client, channelID string, history []slack.Message, db *cache.DB, userNames *usernames.Store, tsFormat string, router *workspaceRouter) []messages.MessageItem {
 	var msgItems []messages.MessageItem
 	fill := newUserNameFill(userNames)
+	batch := make([]cache.Message, 0, len(history))
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("convertAndCacheHistory: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
 		authorID, userName := messageAuthor(m, fill, db, router)
-		db.UpsertMessage(cache.Message{
+		batch = append(batch, cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
 			WorkspaceID: client.TeamID(),
@@ -3202,6 +3203,7 @@ func convertAndCacheHistory(client *slackclient.Client, channelID string, histor
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+	db.UpsertMessages(batch)
 
 	fill.apply()
 
@@ -3588,12 +3590,13 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 
 	fill := newUserNameFill(userNames)
 	msgItems := make([]messages.MessageItem, 0, len(history))
+	batch := make([]cache.Message, 0, len(history))
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchChannelMessages: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
 		authorID, userName := messageAuthor(m, fill, db, router)
-		db.UpsertMessage(cache.Message{
+		batch = append(batch, cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
 			WorkspaceID: client.TeamID(),
@@ -3640,6 +3643,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+	db.UpsertMessages(batch)
 
 	fill.apply()
 
@@ -3674,12 +3678,13 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 
 	fill := newUserNameFill(userNames)
 	msgItems := make([]messages.MessageItem, 0, len(history))
+	batch := make([]cache.Message, 0, len(history))
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchThreadReplies: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
 			channelID, m.Timestamp, m.SubType, m.ReplyCount, len(m.Files))
 		authorID, userName := messageAuthor(m, fill, db, router)
-		db.UpsertMessage(cache.Message{
+		batch = append(batch, cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   channelID,
 			WorkspaceID: client.TeamID(),
@@ -3726,6 +3731,7 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
 		})
 	}
+	db.UpsertMessages(batch)
 
 	fill.apply()
 

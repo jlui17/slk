@@ -34,7 +34,13 @@ type DB struct {
 //     per-connection is harmless and keeps it visible in the DSN
 //     alongside busy_timeout.
 //   - foreign_keys(ON): mirrors the previous one-shot PRAGMA exec.
-const dsnPragmas = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)"
+//   - synchronous(NORMAL): WAL defaults to FULL, an fsync per commit,
+//     which the bootstrap's per-message upserts multiply into
+//     thousands of fsyncs. NORMAL fsyncs only at WAL checkpoints; the
+//     worst case on power loss is losing the last commits, which for
+//     a cache rebuilt from Slack means a slightly staler cache. Would
+//     be wrong if this database ever held data Slack can't re-serve.
+const dsnPragmas = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)"
 
 // appendPragmas returns dsn with the per-connection pragmas spliced
 // into its query string. Handles plain paths, ":memory:", and
