@@ -20,9 +20,8 @@ var (
 	// RE2 doesn't support lookahead/lookbehind, and the correct
 	// "intra-word `_` is literal" rule needs to know what's on either
 	// side of the delimiter. See renderItalics below.
-	boldRe          = regexp.MustCompile(`\*([^*\n]+)\*`)
-	strikethroughRe = regexp.MustCompile(`~([^~\n]+)~`)
-	inlineCodeRe    = regexp.MustCompile("`([^`\n]+)`")
+	boldRe       = regexp.MustCompile(`\*([^*\n]+)\*`)
+	inlineCodeRe = regexp.MustCompile("`([^`\n]+)`")
 	codeBlockRe     = regexp.MustCompile("(?s)```(.+?)```")
 
 	// Slack link patterns: <url|label> or <url>.
@@ -713,9 +712,9 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// visible output.
 	text = renderItalics(text)
 
-	// Strikethrough
-	text = strikethroughRe.ReplaceAllStringFunc(text, func(match string) string {
-		inner := strikethroughRe.FindStringSubmatch(match)[1]
+	// Strikethrough — boundary-aware scan (strike_fork.go) so prose
+	// tildes ("~45%") don't pair up into crossed-out runs.
+	text = replaceStrikethroughs(text, func(inner string) string {
 		return strikethroughStyle().Render(inner)
 	})
 
@@ -936,7 +935,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 func slackMrkdwnToCommonMarkInline(text string, userNames map[string]string, channelNames map[string]string, userGroups map[string]string) string {
 	text = boldRe.ReplaceAllString(text, "**$1**")
 
-	text = strikethroughRe.ReplaceAllString(text, "~~$1~~")
+	text = replaceStrikethroughs(text, func(inner string) string { return "~~" + inner + "~~" })
 
 	text = linkWithLabelRe.ReplaceAllStringFunc(text, func(match string) string {
 		parts := linkWithLabelRe.FindStringSubmatch(match)
