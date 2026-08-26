@@ -333,7 +333,8 @@ type Deps struct {
 	// considers last-viewed", which is what the capture did.
 	OpenChannelID string
 
-	// Log is optional; nil discards.
+	// Log is optional; nil discards. It may be called concurrently:
+	// the phases after userBoot overlap (see overlapPhases).
 	Log func(format string, args ...any)
 }
 
@@ -409,42 +410,13 @@ func Run(ctx context.Context, deps Deps) (*Result, error) {
 		LegacyMutedRaw:   bootRes.Prefs.MutedChannels,
 	}
 
-	// Unread state. Non-fatal: badges are cosmetic and a workspace
-	// that boots without them beats one that does not boot.
-	if counts, err := deps.Counts.Counts(ctx); err != nil {
-		logf("bootstrap: counts: %v (continuing without unread state)", err)
-	} else {
-		out.Counts = counts
-		out.CountsOK = true
+	// Everything after userBoot — counts, the channel open, and the
+	// cache revalidation — runs overlapped; the surviving ordering
+	// constraint (users/info after the channel open) is enforced and
+	// documented in overlapPhases (bootstrap_fork.go).
+	if err := overlapPhases(ctx, deps, out, logf); err != nil {
+		return nil, err
 	}
-
-	// The first channel. Counts comes first because it is what tells
-	// the UI this channel has unreads, and the history that lands
-	// below is what gets rendered against that state.
-	if deps.OpenChannelID != "" {
-		if err := checkOpenChannelDeps(deps); err != nil {
-			return nil, err
-		}
-		// Set from what was ASKED for, before the call, so that no
-		// path can report a channel other than the one requested.
-		out.OpenedChannelID = deps.OpenChannelID
-		if err := openChannel(ctx, deps, out, logf); err != nil {
-			// Non-fatal: both paths to the channel failed, and the
-			// cost of that is one empty message pane. Failing the
-			// boot instead would cost the whole workspace — see Run's
-			// "What is fatal". Messages stays empty and
-			// OpenedChannelID stays what was asked for, so the caller
-			// opens the right conversation with no scrollback rather
-			// than silently reopening a different one.
-			logf("bootstrap: opening %s: %v (continuing with an empty channel)", deps.OpenChannelID, err)
-		}
-	}
-
-	// Last, and it has to be last: the users this revalidates are the
-	// ones conversations.view just returned, so running it any earlier
-	// would scope the request to the open DMs alone and leave every
-	// author in the opened channel stale. See revalidate.
-	revalidate(ctx, deps, out, logf)
 
 	return out, nil
 }

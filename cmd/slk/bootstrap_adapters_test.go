@@ -450,7 +450,7 @@ func TestStoreAdapter_UsesTheOneArgumentMessageVersions(t *testing.T) {
 // wiring mistake nothing else catches.
 //
 // bootstrap.Run returns an error for a nil Boot, Counts, View, History
-// or Store. It does NOT for a nil Revalidate: revalidate() logs one
+// or Store. It does NOT for a nil Revalidate: overlapPhases logs one
 // debug line and returns, on the documented grounds that a stale cache
 // still renders. So an omitted Revalidate here produces a workspace
 // that boots, looks right, and has the entire conditional-revalidation

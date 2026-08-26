@@ -38,7 +38,7 @@ import (
 // connectWorkspace so that TestBootstrapDeps_PopulatesEveryDependency
 // can assert every field is populated. That test is not decoration.
 // bootstrap.Run errors on a nil Boot, Counts, View, History or Store,
-// but a nil Revalidate or Store is LOG-AND-SKIP inside revalidate() —
+// but a nil Revalidate or Store is LOG-AND-SKIP inside overlapPhases —
 // so forgetting Revalidate in this literal produces a workspace that
 // boots normally, emits one debug line, and silently never revalidates
 // anything. That is the entire conditional-revalidation phase turned
@@ -478,7 +478,7 @@ func bootConversations(res *bootstrap.Result) []slack.Channel {
 // written here get version 0, because UpsertChannel/UpsertUser do not
 // write the version column and userBoot's `updated` stamp is not
 // verified to share edgeapi's version space. bootstrap's revalidation
-// ran BEFORE this — Run does it last, internally — so on a cold cache
+// ran BEFORE this — it happens inside Run — so on a cold cache
 // its writes found no rows and the next boot re-requests those records
 // in full. The records themselves are complete either way: userBoot
 // carries every column channels/info would have filled.

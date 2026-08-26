@@ -10,62 +10,6 @@ import (
 	"github.com/gammons/slk/internal/slack/edge"
 )
 
-// revalidate refreshes the cache against edgeapi instead of
-// enumerating it.
-//
-// This is the function that replaces slk's ~50-page users.list sweep.
-// The official client issues zero users.list and zero
-// conversations.list calls across all 8 captures; it sends
-// {id: version} for what it holds and gets back only what moved. A
-// fully current cache costs one ~290-byte response per batch.
-//
-// The id sets are deliberately SCOPED rather than "everything cached":
-//
-//   - channels: userBoot's channels + ims, i.e. what the sidebar will
-//     actually render.
-//   - users: the authors conversations.view returned, plus open-DM
-//     counterparties.
-//
-// Everything else is left stale and revalidated when first needed. A
-// fixed batch size over an unbounded id set emits a long run of
-// identically-sized requests — 125 consecutive exactly-80s on a
-// 10k-user workspace — which is a cleaner distributional signature
-// than the client's own ragged 1-80 spread. Scoping is the fix; jitter
-// would be inventing a shape no capture shows.
-//
-// Errors are non-fatal. A stale cache renders; a workspace that failed
-// to boot does not.
-func revalidate(ctx context.Context, deps Deps, out *Result, logf func(string, ...any)) {
-	// Nil dependencies are logged and skipped rather than returned as
-	// errors, which is the opposite of what Run does for Boot, Counts,
-	// View, History and Store-when-opening-a-channel.
-	//
-	// The rule is the same in both places — a wiring bug must not
-	// panic — but the consequence differs. A missing Viewer means no
-	// channel opens; a missing Revalidator means the cache stays as
-	// stale as it already was, which is exactly the outcome of a
-	// revalidation request that fails, and that outcome is documented
-	// non-fatal. Refusing to boot over it would be strictly worse than
-	// the failure it is reporting. The log line is the only signal, so
-	// it says what was lost.
-	if deps.Revalidate == nil {
-		logf("bootstrap: revalidation skipped: Deps.Revalidate is nil; the cache will render stale")
-		return
-	}
-	if deps.Store == nil {
-		logf("bootstrap: revalidation skipped: Deps.Store is nil; the cache will render stale")
-		return
-	}
-
-	// Two independent steps, not one early-returning sequence: a
-	// failed channels/info says nothing about users/info, and losing
-	// the user pass to it would send slk back to resolving every
-	// author one users.info call at a time — the fan-out this phase
-	// exists to delete.
-	revalidateChannels(ctx, deps, out, logf)
-	revalidateUsers(ctx, deps, out, logf)
-}
-
 // revalidateChannels conditionally refreshes the conversations the
 // sidebar will render: userBoot's channels plus its ims, and nothing
 // else in the cache.

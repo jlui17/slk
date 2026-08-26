@@ -550,10 +550,15 @@ func TestRun_CallsUserBootThenCounts(t *testing.T) {
 	}
 	// Order matters: counts is keyed by the conversations userBoot
 	// returns, so calling it first would ask about channels we have
-	// not learned about yet.
-	want := []string{callUserBoot, callCounts}
+	// not learned about yet. Everything after userBoot is overlapped
+	// (see overlapPhases), so only "userBoot strictly first" is
+	// pinned, not a full serial sequence.
+	want := []string{callUserBoot}
 	if !prefixEqual(f.calls, want) {
 		t.Errorf("call sequence = %v; want it to start %v", f.calls, want)
+	}
+	if !f.called(callCounts) {
+		t.Errorf("counts was never called (sequence: %v)", f.calls)
 	}
 	if res == nil {
 		t.Fatal("Run returned a nil Result with a nil error")
@@ -1199,40 +1204,6 @@ func TestRun_NoOpenChannelSkipsBothCalls(t *testing.T) {
 	}
 	if res.OpenedChannelID != "" {
 		t.Errorf("OpenedChannelID = %q; want empty — nothing was opened", res.OpenedChannelID)
-	}
-}
-
-func TestRun_OpensTheChannelAfterCounts(t *testing.T) {
-	// counts is what tells the UI this channel has unreads, and the
-	// history that lands next is what it renders against. Opening
-	// first would paint the channel before its badge state exists.
-	//
-	// The two revalidation calls trail every sequence here, and their
-	// position is asserted rather than tolerated: the user set they
-	// send is the opened channel's authors, so revalidating before the
-	// open would scope users/info to the DM counterparties alone. See
-	// TestRevalidate_RunsAfterTheChannelIsOpened, which pins the
-	// consequence rather than the order.
-	for _, tc := range []struct {
-		name    string
-		prepare func(*fakeDeps)
-		want    []string
-	}{
-		{"view honoured", func(f *fakeDeps) { f.viewChannelID = "C_WANT" }, []string{callUserBoot, callCounts, callView, callChannelsInfo, callChannelsInfo, callUsersInfo}},
-		{"fallback", func(f *fakeDeps) { f.viewChannelID = "C_LASTVIEWED" }, []string{callUserBoot, callCounts, callView, callHistory, callChannelsInfo, callChannelsInfo, callUsersInfo}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeDeps()
-			f.deps.OpenChannelID = "C_WANT"
-			tc.prepare(f)
-
-			if _, err := Run(context.Background(), f.Deps()); err != nil {
-				t.Fatalf("Run: %v", err)
-			}
-			if !reflect.DeepEqual(f.calls, tc.want) {
-				t.Errorf("call sequence = %v; want %v", f.calls, tc.want)
-			}
-		})
 	}
 }
 

@@ -82,7 +82,32 @@ there and resolve them knowing what the fork wants:
   fork helpers (`retractLatestReply`, `migrateFork`).
 - `internal/image/probe.go`, `kitty.go`, `cellmetrics.go` — probe result
   shape, cell-size-keyed payload memo, measured cell metrics.
+- `internal/bootstrap/*` — `Run`'s post-userBoot chain routed through the
+  `overlapPhases` hook (`bootstrap_fork.go`); the `revalidate` entry point
+  deleted, its nil-guards moved into the hook; the two serial-order tests
+  in `bootstrap_test.go` relaxed or deleted. See "Overlapped boot" below.
 - `internal/notify/*` — leader gate on notifications.
 - `internal/config/config.go` — two fork struct fields (`Herdr`, `Restore`).
 - Docs (`README.md`, `wiki/*`, `docs/STATUS.md`, `docs/superpowers/*`) —
   fork features documented in place; markdown conflicts, resolve by hand.
+
+## Overlapped boot, unchanged call pattern
+
+The boot sequence exists to mimic the official web client's call
+pattern, because deviating from it is what got slk's Enterprise Grid
+users signed out for "data scraping" (see `internal/bootstrap`'s
+package comment). The fork overlaps that chain's independent legs
+without changing what is called: inside `bootstrap.Run`,
+client.counts, the channel open, and the channels/info revalidation
+run concurrently, with users/info still trailing the open; in
+`connectWorkspace`, `bootstrap.Run`, the section-store bootstrap, and
+users.conversations run concurrently. Every request, parameter, and
+call count is identical to the serial chain — only timing changes,
+and boot drops from ~9 sequential round trips to ~4.
+
+The deliberate risk: request *concurrency* is a timing signature no
+capture has been audited for, so Grid heuristics could in principle
+score it. If a workspace gets flagged, the revert is one commit: the
+overlap squash-merged to main as a single feature commit (`git log -S
+overlapPhases` finds it), and reverting it restores the fully serial
+chain — nothing else depends on the timing.
