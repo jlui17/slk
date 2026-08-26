@@ -1179,6 +1179,11 @@ func run(startupLink *slackurl.Permalink) error {
 	// invocation time so they always see the current workspace.
 	router := newWorkspaceRouter()
 
+	// Cache-first boot paint + the cache-only read fallbacks used by
+	// closures below while no workspace has connected yet. See
+	// cachefirst_fork.go.
+	cacheFirst := newCacheFirstLoader(db, cfg, tsFormat, router)
+
 	// Manual reload (ctrl+r / :reload): bounce every workspace's
 	// websocket now, catch-up guaranteed — explicit user intent
 	// outranks flap protection.
@@ -1363,7 +1368,7 @@ func run(startupLink *slackurl.Permalink) error {
 		app.SetReadStateReader(func() map[string]cache.ReadState {
 			wctx := router.Active()
 			if wctx == nil {
-				return nil
+				return cacheFirst.readState()
 			}
 			state, err := db.GetWorkspaceReadState(wctx.TeamID)
 			if err != nil {
@@ -1422,7 +1427,7 @@ func run(startupLink *slackurl.Permalink) error {
 			ReadCache: func(channelID ids.ChannelID) []messages.MessageItem {
 				wctx := router.Active()
 				if wctx == nil {
-					return nil
+					return cacheFirst.readCache(string(channelID))
 				}
 				return loadCachedMessages(db, wctx.Client.UserID(), string(channelID), wctx.UserNames, tsFormat, router)
 			},
@@ -2099,6 +2104,10 @@ func run(startupLink *slackurl.Permalink) error {
 		p.Send(messages.AvatarReadyMsg{UserID: userID})
 	})
 
+	// Cache-first paint: one provisional WorkspaceCachedMsg from
+	// sqlite before any network call. See cachefirst_fork.go.
+	go cacheFirst.SendCachedWorkspace(orderedTokens, defaultTeamID, paneRestore, p.Send)
+
 	// Launch workspace connections in background goroutines
 	// Results are sent to the TUI via p.Send()
 	for _, ot := range orderedTokens {
@@ -2630,6 +2639,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.SetCustomEmoji(res.Emojis)
 	}
 	hydrateFirstSight(db, client.TeamID(), res)
+	persistBootstrapHistory(db, client.TeamID(), res)
 
 	// Slack-native section store, fetched above when enabled.
 	// Best-effort: failure is logged, the field stays nil, and the

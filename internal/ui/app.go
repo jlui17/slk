@@ -163,6 +163,11 @@ type App struct {
 	// Current context
 	activeChannelID string
 	activeTeamID    string // workspace whose data is currently loaded into the side panels
+	// provisionalTeamID/Name: cache-first boot state — see cachefirst_fork.go.
+	provisionalTeamID   string
+	provisionalTeamName string
+	// readStateReader: App-side copy for applyCachedLastRead (cachefirst_fork.go).
+	readStateReader func() map[string]cache.ReadState
 
 	// windowTitle is the cached terminal-window-title string, recomputed
 	// by notifyReadStateChanged on every read-state mutation and read by
@@ -691,6 +696,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceFiles,
 		reduceSearch,
 		reduceWorkspace,
+		reduceWorkspaceCached,
 		reduceNewMessagePicker,
 		reduceIO,
 		reduceMouse,
@@ -2140,6 +2146,7 @@ func (a *App) SetThreadService(s ThreadService) {
 // readers) will call at render time to fetch per-channel read state.
 // Must be set before the first render for unread dots to appear.
 func (a *App) SetReadStateReader(f func() map[string]cache.ReadState) {
+	a.readStateReader = f
 	a.sidebar.SetReadStateReader(f)
 }
 

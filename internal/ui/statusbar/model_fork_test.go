@@ -52,3 +52,44 @@ func TestTickReconnect(t *testing.T) {
 		t.Fatal("TickReconnect must report false after a connect")
 	}
 }
+
+func TestSyncPill(t *testing.T) {
+	m := New()
+	if strings.Contains(m.View(120), "cached · syncing") {
+		t.Fatal("pill must be hidden when nothing is in flight")
+	}
+
+	// Workspace bootstrap in flight over cached content.
+	m.SetBootSyncing(true)
+	if !strings.Contains(m.View(120), "cached · syncing") {
+		t.Fatal("pill must show while the workspace bootstrap is in flight")
+	}
+	m.SetBootSyncing(false)
+	if strings.Contains(m.View(120), "cached · syncing") {
+		t.Fatal("pill must clear when the bootstrap finishes")
+	}
+
+	// Active channel's tier-2 background verify fetch.
+	m.SetSyncing(true)
+	if !strings.Contains(m.View(120), "cached · syncing") {
+		t.Fatal("pill must show while a background verify fetch is in flight")
+	}
+	m.SetSyncing(false)
+	if strings.Contains(m.View(120), "cached · syncing") {
+		t.Fatal("pill must clear when the verify fetch lands")
+	}
+}
+
+func TestSetBootSyncingDirtiesVersion(t *testing.T) {
+	m := New()
+	v := m.Version()
+	m.SetBootSyncing(true)
+	if m.Version() == v {
+		t.Fatal("SetBootSyncing(true) must dirty the bar")
+	}
+	v = m.Version()
+	m.SetBootSyncing(true)
+	if m.Version() != v {
+		t.Fatal("repeated SetBootSyncing(true) must not dirty the bar")
+	}
+}

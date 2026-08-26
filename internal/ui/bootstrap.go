@@ -199,6 +199,7 @@ func (b *workspaceBootstrap) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case WorkspaceFailedMsg:
 		b.MarkFailed(m.TeamName)
+		a.clearProvisionalOnFailed(m.TeamName)
 		return nil, true
 	}
 	return nil, false

@@ -37,6 +37,7 @@ type Model struct {
 	dndEnabled  bool
 	dndEndTS    time.Time // zero if not in DND
 	syncing     bool      // true while a background cache-verify fetch is in flight
+	bootSyncing bool      // fork: workspace bootstrap in flight over cached content; see model_fork.go
 	helpHint    string    // muted text rendered in the gap area; empty disables
 	commandLine string    // "" == inactive; otherwise the :prompt shown in place of channel/workspace
 	search      string    // search segment ("/query  3/17" indicator / live prompt); "" hides
@@ -262,6 +263,10 @@ func (m Model) View(width int) string {
 				Background(styles.SurfaceDark).
 				Bold(true).
 				Render(m.toast))
+	}
+
+	if pill := m.syncPill(); pill != "" {
+		rightParts = append(rightParts, pill)
 	}
 
 	// Presence + DND segment (hidden when presence is "" and not in DND)

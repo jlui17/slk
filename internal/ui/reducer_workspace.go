@@ -211,7 +211,9 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		batch = append(batch, a.applyActiveConnState())
 		a.workspaceRail.SelectByID(m.TeamID)
-		if len(m.Channels) > 0 {
+		if cmd, ok := a.reconcileProvisionalSelection(m); ok {
+			batch = append(batch, cmd)
+		} else if len(m.Channels) > 0 {
 			// Restore the persisted channel across restarts (the pane's
 			// own last-open channel, else the most-recently-visited one;
 			// main.go picks which rides in as LastChannelID). Falls back

@@ -3,7 +3,32 @@ package statusbar
 import (
 	"fmt"
 	"time"
+
+	"charm.land/lipgloss/v2"
+
+	"github.com/gammons/slk/internal/ui/styles"
 )
+
+// SetBootSyncing marks everything on screen for the active workspace as
+// cache-served while its network bootstrap is still in flight. Distinct
+// from SetSyncing, which covers one channel's background verify fetch;
+// the right-side "cached · syncing" pill shows while either is set.
+func (m *Model) SetBootSyncing(v bool) {
+	if m.bootSyncing != v {
+		m.bootSyncing = v
+		m.dirty()
+	}
+}
+
+func (m Model) syncPill() string {
+	if !m.syncing && !m.bootSyncing {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Foreground(styles.TextMuted).
+		Background(styles.SurfaceDark).
+		Render("◌ cached · syncing")
+}
 
 // SetReconnectWait switches the connection segment to the reconnect
 // countdown. retryAt is the redial deadline; attempt is the 1-based
