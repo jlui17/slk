@@ -28,38 +28,52 @@ case "$role" in
   *) echo "SLK_ROLE must be 'agent' or 'user', got '$role'" >&2; exit 1 ;;
 esac
 
-# The agent sandbox seeds from the user sandbox when one exists (config and
-# tokens only, never cache.db) so agent runs exercise the exact state the
-# user's working session has; a fresh machine falls back to the host files.
-# (${arr[@]+"${arr[@]}"} below: macOS ships bash 3.2, where expanding an
-# empty array under set -u dies with "unbound variable".)
-seed_vol=()
-if [ "$role" = agent ] && docker volume inspect slk-test-state >/dev/null 2>&1; then
-  seed_vol=(-v slk-test-state:/seed-vol:ro)
+# The seeder container costs ~0.5-1s per launch on Docker Desktop, so a host-side
+# stamp keyed by the volume's CreatedAt skips it once seeded. Removing the
+# volume changes CreatedAt, so a stamp that outlives its volume can never skip
+# seeding a fresh one; the stamp is written only after the seeder succeeds, so
+# a concurrent or failed seed just runs the (idempotent) seeder again.
+stamp_dir=${XDG_CACHE_HOME:-$HOME/.cache}/slk-sandbox
+stamp="$stamp_dir/seeded-$state_vol"
+if ! vol_created=$(docker volume inspect -f '{{ .CreatedAt }}' "$state_vol" 2>/dev/null); then
+  docker volume create "$state_vol" >/dev/null
+  vol_created=$(docker volume inspect -f '{{ .CreatedAt }}' "$state_vol")
 fi
+if [ "$(cat "$stamp" 2>/dev/null)" != "$vol_created" ]; then
+  # The agent sandbox seeds from the user sandbox when one exists (config and
+  # tokens only, never cache.db) so agent runs exercise the exact state the
+  # user's working session has; a fresh machine falls back to the host files.
+  # (${arr[@]+"${arr[@]}"} below: macOS ships bash 3.2, where expanding an
+  # empty array under set -u dies with "unbound variable".)
+  seed_vol=()
+  if [ "$role" = agent ] && docker volume inspect slk-test-state >/dev/null 2>&1; then
+    seed_vol=(-v slk-test-state:/seed-vol:ro)
+  fi
 
-docker volume create "$state_vol" >/dev/null
-docker run --rm \
-  -v "$state_vol":/state \
-  ${seed_vol[@]+"${seed_vol[@]}"} \
-  -v "$HOME/.config/slk":/seed/config:ro \
-  -v "$HOME/.local/share/slk/tokens":/seed/tokens:ro \
-  "$image" sh -c '
-    set -e
-    [ -e /state/.seeded ] && exit 0
-    mkdir -p /state/xdg/config/slk /state/xdg/data/slk/tokens /state/xdg/cache
-    if [ -f /seed-vol/xdg/config/slk/config.toml ]; then
-      cp /seed-vol/xdg/config/slk/config.toml /state/xdg/config/slk/
-      cp /seed-vol/xdg/data/slk/tokens/*.json /state/xdg/data/slk/tokens/
-    else
-      cp /seed/config/config.toml /state/xdg/config/slk/
-      cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
-    fi
-    touch /state/.seeded'
+  docker run --rm \
+    -v "$state_vol":/state \
+    ${seed_vol[@]+"${seed_vol[@]}"} \
+    -v "$HOME/.config/slk":/seed/config:ro \
+    -v "$HOME/.local/share/slk/tokens":/seed/tokens:ro \
+    "$image" sh -c '
+      set -e
+      [ -e /state/.seeded ] && exit 0
+      mkdir -p /state/xdg/config/slk /state/xdg/data/slk/tokens /state/xdg/cache
+      if [ -f /seed-vol/xdg/config/slk/config.toml ]; then
+        cp /seed-vol/xdg/config/slk/config.toml /state/xdg/config/slk/
+        cp /seed-vol/xdg/data/slk/tokens/*.json /state/xdg/data/slk/tokens/
+      else
+        cp /seed/config/config.toml /state/xdg/config/slk/
+        cp /seed/tokens/*.json /state/xdg/data/slk/tokens/
+      fi
+      touch /state/.seeded'
+  mkdir -p "$stamp_dir"
+  printf '%s\n' "$vol_created" >"$stamp"
+fi
 
 bin="$repo/bin/$bin_name"
 if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]; then
-  echo "building linux slk ($bin_name)..." >&2
+  echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
   docker run --rm -v "$repo":/src -w /src \
     -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
     -e GOFLAGS=-buildvcs=false \
