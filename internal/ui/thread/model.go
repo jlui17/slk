@@ -100,12 +100,12 @@ type Model struct {
 	channelID         string
 	threadTS          string
 	selected          int
-	// pendingSelectTS, when non-empty, pins the cursor to this ts on
-	// every SetThread for the current thread. A permalink open runs
-	// SetThread more than once (cache prime, then the authoritative
-	// fetch), and each pass resets the cursor to the newest reply;
-	// the pin re-applies the linked message across those reloads.
-	// Cleared when the thread changes or the panel is cleared.
+	// pendingSelectTS, when non-empty, is a one-shot cursor pin: the
+	// first SetThread of the current thread whose content contains
+	// this ts selects it, then the pin disarms. Armed by a permalink
+	// open (SetPendingSelectTS) and by a same-thread reload whose
+	// content lost the cursor's message (restoreSelection); both live
+	// in select.go.
 	pendingSelectTS string
 	focused           bool
 	coloredUsernames  bool
@@ -314,10 +314,12 @@ func (m *Model) HandleAvatarReady(userID string) {
 // identity changes (i.e. the user is opening a different thread, not just
 // receiving a refresh of the current one), the unread boundary is cleared
 // so a fresh boundary can be set by the caller via SetUnreadBoundary.
+// A refresh of the current thread instead keeps the user's cursor and
+// scroll where they were — see restoreSelection in select.go.
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
+	prev := m.snapshotSelection(channelID, threadTS)
 	if channelID != m.channelID || threadTS != m.threadTS {
 		m.unreadBoundaryTS = ""
-		m.pendingSelectTS = ""
 	}
 	m.ClearSelection()
 	m.parent = parent
@@ -333,14 +335,12 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	} else {
 		m.selected = parentSelected
 	}
-	if m.pendingSelectTS != "" {
-		m.SelectByTS(m.pendingSelectTS)
-	}
 	// Force the next View() to re-snap the viewport to the new selection.
 	// Without this, opening a thread whose newest-reply index matches the
 	// previously-viewed thread's snapped selection skips the snap and leaves
 	// the viewport scrolled to the top. Mirrors messages.Model.SetMessages.
 	m.hasSnapped = false
+	m.restoreSelection(prev)
 	m.InvalidateCache()
 }
 

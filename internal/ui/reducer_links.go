@@ -230,10 +230,11 @@ func (a *App) openThreadForPermalink(channelID, threadTS, selectTS string) tea.C
 	}
 
 	cmd := a.openThreadPanel(parent, channelID, threadTS)
-	// Pin the cursor to the exact linked message across the panel's
-	// reloads (cache prime, authoritative fetch) — otherwise each
-	// SetThread snaps to the newest reply. Armed after openThreadPanel:
-	// its SetThread clears the pin on a thread-identity change.
+	// Pin the cursor to the exact linked message: the panel loads in
+	// passes (cache prime, authoritative fetch) and the pin holds until
+	// the pass that contains the message, then disarms so later
+	// refetches can't yank the cursor back. Armed after openThreadPanel:
+	// its SetThread drops the pin on a thread-identity change.
 	a.threadPanel.SetPendingSelectTS(selectTS)
 	return cmd
 }

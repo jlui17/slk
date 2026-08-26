@@ -58,3 +58,36 @@ func TestThreadPermalinkSelectsLinkedReply(t *testing.T) {
 		t.Errorf("parent link: want parent selected, got %+v", sel)
 	}
 }
+
+// TestThreadRefetchKeepsCursorAfterPermalink reproduces the reconnect
+// annoyance: a thread opened via permalink refetches its replies on
+// every websocket reconnect (ThreadRepliesLoadedMsg), and each refetch
+// used to re-apply the permalink pin, yanking the cursor back to the
+// linked message the user had already navigated away from.
+func TestThreadRefetchKeepsCursorAfterPermalink(t *testing.T) {
+	a := NewApp()
+	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
+	a.activeChannelID = "C1"
+	a.pendingLinkNav = &pendingLinkNav{
+		channelID: "C1",
+		messageTS: "300.000003",
+		threadTS:  "100.000001",
+	}
+	_ = a.completePendingLinkNav("C1", true)
+
+	replies := []messages.MessageItem{
+		{TS: "200.000002", Text: "one"},
+		{TS: "300.000003", Text: "two"},
+		{TS: "400.000004", Text: "three"},
+	}
+	_, _ = a.Update(ThreadRepliesLoadedMsg{ThreadTS: "100.000001", Replies: replies})
+	if sel := a.threadPanel.SelectedReply(); sel == nil || sel.TS != "300.000003" {
+		t.Fatalf("want linked reply selected first, got %+v", sel)
+	}
+
+	a.threadPanel.SelectByTS("200.000002")
+	_, _ = a.Update(ThreadRepliesLoadedMsg{ThreadTS: "100.000001", Replies: replies})
+	if sel := a.threadPanel.SelectedReply(); sel == nil || sel.TS != "200.000002" {
+		t.Errorf("refetch must keep the user's cursor on 200.000002, got %+v", sel)
+	}
+}
