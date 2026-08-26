@@ -20,10 +20,12 @@ const systemPrompt = "You label terminal tabs. The user message started a Slack 
 	"punctuation, no ticket or task IDs. Reply with the label only."
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
-	"excerpt of an ongoing Slack thread where a coding agent works on a task. Write a " +
-	"label naming what the thread is doing now, weighting the newest messages: " +
-	"2 to 5 words, 30 characters maximum, no emoji, no quotes, no trailing " +
-	"punctuation, no ticket or task IDs. Reply with the label only."
+	"of a Slack thread where a coding agent works on a task. Reply with exactly two " +
+	"lines. Line 1: the tracker task id or PR/issue number this whole thread is about " +
+	"(e.g. colony-123 or #1170) — judge from the full thread, a passing mention is not " +
+	"the thread's task — or the word none when it has no id. Line 2: a label naming " +
+	"what the thread is doing now: 2 to 5 words, 30 characters maximum, no emoji, " +
+	"no quotes, no trailing punctuation, no ids."
 
 // maxRootBytes caps the prompt: the root message carries the ask, and a
 // label needs nothing past its opening.
@@ -32,7 +34,7 @@ const maxRootBytes = 2000
 // maxTranscriptBytes is Relabel's defensive cap; the caller owns the real
 // budget (assembled newest-first), so a prefix-keeping clip here only
 // guards against a caller that didn't.
-const maxTranscriptBytes = 8000
+const maxTranscriptBytes = 400000
 
 // Client labels threads via one fixed model.
 type Client struct {
@@ -63,11 +65,38 @@ func (c *Client) Label(ctx context.Context, root string) (string, error) {
 	return c.complete(ctx, systemPrompt, clip(root, maxRootBytes))
 }
 
-// Relabel asks the model for a short tab label naming what an ongoing
-// thread is doing now, from a transcript excerpt of its recent messages.
-// Same reply contract as Label.
-func (c *Client) Relabel(ctx context.Context, transcript string) (string, error) {
-	return c.complete(ctx, relabelSystemPrompt, clip(transcript, maxTranscriptBytes))
+// Relabel asks the model to judge, from a whole-thread transcript, which
+// task id the thread is about and what it is doing now. hints are freeform
+// per-user guidance lines appended to the system prompt. id is "" when the
+// model judged the thread has no task id; label follows Label's contract.
+func (c *Client) Relabel(ctx context.Context, transcript string, hints []string) (id, label string, err error) {
+	system := relabelSystemPrompt
+	if len(hints) > 0 {
+		system += "\nHints from this user about naming their tabs:\n- " + strings.Join(hints, "\n- ")
+	}
+	reply, err := c.complete(ctx, system, clip(transcript, maxTranscriptBytes))
+	if err != nil {
+		return "", "", err
+	}
+	return parseRelabelReply(reply)
+}
+
+// parseRelabelReply splits the two-line id/label contract, tolerating a
+// model that skips the id line: a single line is a label with no id.
+func parseRelabelReply(reply string) (id, label string, err error) {
+	lines := strings.SplitN(reply, "\n", 2)
+	if len(lines) == 1 {
+		return "", strings.TrimSpace(lines[0]), nil
+	}
+	id = strings.Trim(strings.TrimSpace(lines[0]), "[]")
+	if strings.EqualFold(id, "none") {
+		id = ""
+	}
+	label = strings.TrimSpace(lines[1])
+	if id == "" && label == "" {
+		return "", "", errors.New("empty completion")
+	}
+	return id, label, nil
 }
 
 func (c *Client) complete(ctx context.Context, system, user string) (string, error) {

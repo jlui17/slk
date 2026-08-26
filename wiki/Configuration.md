@@ -121,11 +121,14 @@ max_image_cache_mb = 200
 # and any failure (no key, timeout) leaves the deterministic label in
 # place. Costs one small API call per opened agent thread; needs
 # ANTHROPIC_API_KEY in slk's environment. The label derives from the root
-# message once, at thread open; :retitle re-derives it later from the
-# thread's recent messages (see Keybindings).
+# message once, at thread open; :retitle re-derives it later from the whole
+# thread, with the model judging the task id too (see Keybindings).
+# tab_name_hints are freeform lines handed to the :retitle model as naming
+# guidance, e.g. what your task ids look like.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)
+tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 
 # The O keybinding opens a Slack permalink in a new herdr tab running a
 # second slk instance. The tab's shell runs `<open_command> '<permalink>'`;

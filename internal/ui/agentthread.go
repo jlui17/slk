@@ -509,10 +509,16 @@ var taskIDRe = regexp.MustCompile(`\b[A-Za-z]{2,}-\d{2,}\b`)
 // ("attempt #1") don't read as refs.
 var prRefRe = regexp.MustCompile(`#\d{2,}\b`)
 
+// urlRe matches a URL so hoisting can ignore it: a pasted GitHub link's
+// "#issuecomment-15686" fragment matches taskIDRe and is never the
+// thread's task.
+var urlRe = regexp.MustCompile(`https?://\S+`)
+
 // hoistTaskID picks the id a tab label hoists to its "[id]" prefix: the
-// first tracker task id, else the first PR/issue ref. Empty when the text
-// carries neither.
+// first tracker task id, else the first PR/issue ref, URLs excluded.
+// Empty when the text carries neither.
 func hoistTaskID(flat string) string {
+	flat = urlRe.ReplaceAllString(flat, "")
 	if id := taskIDRe.FindString(flat); id != "" {
 		return id
 	}

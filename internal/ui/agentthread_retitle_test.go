@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -65,9 +66,10 @@ func TestRetitleBudgetKeepsNewestReplies(t *testing.T) {
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> do the thing", UserID: "UHUMAN"}
 	big := strings.Repeat("x", maxRetitleReply-100)
 	var replies []messages.MessageItem
-	for i := 0; i < 12; i++ {
+	n := maxRetitleTranscript/maxRetitleReply + 50
+	for i := 0; i < n; i++ {
 		replies = append(replies, messages.MessageItem{
-			TS: "101.0", Text: "reply" + string(rune('a'+i)) + " " + big, UserID: "UHUMAN",
+			TS: "101.0", Text: fmt.Sprintf("reply%04d %s", i, big), UserID: "UHUMAN",
 		})
 	}
 	a, calls, _ := newRetitleTestApp(t, parent, replies)
@@ -78,10 +80,10 @@ func TestRetitleBudgetKeepsNewestReplies(t *testing.T) {
 	if len(c.transcript) > maxRetitleTranscript {
 		t.Errorf("transcript over budget: %d bytes", len(c.transcript))
 	}
-	if !strings.Contains(c.transcript, "replyl") {
+	if !strings.Contains(c.transcript, fmt.Sprintf("reply%04d", n-1)) {
 		t.Errorf("newest reply dropped:\n%.200s", c.transcript)
 	}
-	if strings.Contains(c.transcript, "replya ") {
+	if strings.Contains(c.transcript, "reply0000 ") {
 		t.Errorf("oldest reply kept despite budget")
 	}
 	if !strings.Contains(c.transcript, "do the thing") {
@@ -89,44 +91,53 @@ func TestRetitleBudgetKeepsNewestReplies(t *testing.T) {
 	}
 }
 
-func TestRetitleTaskIDNewestMentionWins(t *testing.T) {
-	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> colony-562 fix the viewer", UserID: "UHUMAN"}
-	replies := []messages.MessageItem{
-		{TS: "101.0", Text: "filed as colony-999, starting", UserID: "UBOT"},
-	}
-	a, _, tabNames := newRetitleTestApp(t, parent, replies)
+func TestRelabelResultAppliesModelTaskID(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
 
-	_ = executeCommand(a, "retitle")
-
-	if got := a.agentSidebar.llmLabel.taskID; got != "colony-999" {
-		t.Fatalf("taskID = %q, want the reply's colony-999", got)
-	}
-	if _, handled := reduceAgentTabLabel(a, AgentTabLabelMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Label: "Implement viewer fix",
+	if _, handled := reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "#1170", Label: "#1170 CI workflow optimization",
 	}); !handled {
-		t.Fatal("label msg not handled")
+		t.Fatal("relabel msg not handled")
 	}
 	last := (*tabNames)[len(*tabNames)-1]
-	if last != "[colony-999] Implement viewer fix" {
-		t.Errorf("tab = %q", last)
+	if last != "[#1170] CI workflow optimization" {
+		t.Errorf("tab = %q, want the model id hoisted and its echo stripped", last)
+	}
+	if got := a.agentSidebar.llmLabel.taskID; got != "#1170" {
+		t.Errorf("taskID = %q", got)
 	}
 }
 
-func TestRetitleKeepsTaskIDWhenRecentContextHasNone(t *testing.T) {
-	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> colony-562 fix the viewer", UserID: "UHUMAN"}
-	replies := []messages.MessageItem{
-		{TS: "101.0", Text: "done with the first pass", UserID: "UBOT"},
+func TestRelabelResultNoIDClearsStaleID(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+	a.agentSidebar.llmLabel.taskID = "issuecomment-15686"
+
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "", Label: "CI workflow optimization",
+	})
+
+	last := (*tabNames)[len(*tabNames)-1]
+	if last != "CI workflow optimization" {
+		t.Errorf("tab = %q, want no id prefix", last)
 	}
-	a, _, _ := newRetitleTestApp(t, parent, replies)
-	// Simulate a hoist that happened before the replies existed, with a
-	// root the panel no longer carries the id from.
-	a.agentSidebar.llmLabel = llmLabelState{requested: true, taskID: "colony-777"}
-	a.threadPanel.SetThread(messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}, replies, "C1", "100.0")
+	if got := a.agentSidebar.llmLabel.taskID; got != "" {
+		t.Errorf("taskID = %q, want the stale id dropped", got)
+	}
+}
 
-	_ = executeCommand(a, "retitle")
+func TestRelabelResultThreadMismatchDropped(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+	before := len(*tabNames)
 
-	if got := a.agentSidebar.llmLabel.taskID; got != "colony-777" {
-		t.Errorf("taskID = %q, want the previously hoisted colony-777 kept", got)
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "999.0", TaskID: "#1170", Label: "Stale result",
+	})
+
+	if len(*tabNames) != before {
+		t.Errorf("stale result renamed the tab: %+v", *tabNames)
 	}
 }
 

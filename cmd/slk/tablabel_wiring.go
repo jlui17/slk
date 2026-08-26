@@ -31,26 +31,28 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 		return
 	}
 	gen := tablabel.New(cfg.TabNameModel)
-	request := func(teamID, channelID, threadTS string, call func(context.Context) (string, error)) {
+	request := func(call func(context.Context) (tea.Msg, error)) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), labelTimeout)
 			defer cancel()
-			label, err := call(ctx)
+			msg, err := call(ctx)
 			if err != nil {
 				debuglog.Notify("tablabel: %v", err)
 				return
 			}
-			send(ui.AgentTabLabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Label: label})
+			send(msg)
 		}()
 	}
 	app.SetAgentTabLabeler(func(teamID, channelID, threadTS, root string) {
-		request(teamID, channelID, threadTS, func(ctx context.Context) (string, error) {
-			return gen.Label(ctx, root)
+		request(func(ctx context.Context) (tea.Msg, error) {
+			label, err := gen.Label(ctx, root)
+			return ui.AgentTabLabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Label: label}, err
 		})
 	})
 	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript string) {
-		request(teamID, channelID, threadTS, func(ctx context.Context) (string, error) {
-			return gen.Relabel(ctx, transcript)
+		request(func(ctx context.Context) (tea.Msg, error) {
+			id, label, err := gen.Relabel(ctx, transcript, cfg.TabNameHints)
+			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, Label: label}, err
 		})
 	})
 }

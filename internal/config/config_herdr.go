@@ -17,4 +17,7 @@ type Herdr struct {
 	// label. Empty means deterministic labels only. Needs
 	// ANTHROPIC_API_KEY.
 	TabNameModel string `toml:"tab_name_model"`
+	// TabNameHints are freeform per-user lines handed to the :retitle
+	// model as naming guidance (e.g. "task ids look like colony-123").
+	TabNameHints []string `toml:"tab_name_hints"`
 }

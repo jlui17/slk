@@ -1,8 +1,8 @@
 // The :retitle command: re-derive the tracked agent thread's tab label
-// from the thread's recent messages. The open-time label request
-// (agentthread_llm.go) fires once, from the root only; a thread that
-// drifts — brainstorm to design to implementation, a task id filed
-// mid-thread — keeps its stale label until this manual refresh.
+// from the whole thread. The open-time label request (agentthread_llm.go)
+// fires once, from the root only; a thread that drifts — brainstorm to
+// design to implementation, a task id filed mid-thread — keeps its stale
+// label until this manual refresh.
 package ui
 
 import (
@@ -15,12 +15,48 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
-// AgentTabRelabelFunc requests a model-generated tab label from a
-// transcript excerpt of the tracked agent thread's recent messages — the
-// :retitle refresh of the open-time AgentTabLabelFunc request. Keyed and
-// answered identically: an AgentTabLabelMsg into the program loop, or
-// nothing on failure, leaving the current label standing.
+// AgentTabRelabelFunc requests a model-judged task id and label from a
+// whole-thread transcript — the :retitle refresh of the open-time
+// AgentTabLabelFunc request. Answers with an AgentTabRelabelMsg into the
+// program loop, or nothing on failure, leaving the current label standing.
 type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript string)
+
+// AgentTabRelabelMsg carries a :retitle result back into the program loop.
+// TaskID is the model's judgment of which task the whole thread is about;
+// empty means it judged the thread has no id, which on a refresh is
+// authoritative — a previously hoisted (possibly wrong) id is dropped, not
+// kept.
+type AgentTabRelabelMsg struct {
+	TeamID    string
+	ChannelID string
+	ThreadTS  string
+	TaskID    string
+	Label     string
+}
+
+// reduceAgentTabRelabel lands a :retitle result on the tab, unless the
+// tracked thread moved on while the request was in flight.
+var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
+	m, ok := msg.(AgentTabRelabelMsg)
+	if !ok {
+		return nil, false
+	}
+	t := a.agentSidebar.thread
+	if !t.active || a.agentSidebar.nameTab == nil || m.TeamID != t.teamID ||
+		m.ChannelID != t.channelID || m.ThreadTS != t.threadTS {
+		return nil, true
+	}
+	label := sanitizeModelLabel(m.Label, m.TaskID)
+	if m.TaskID == "" && label == "" {
+		return nil, true
+	}
+	a.agentSidebar.llmLabel.taskID = m.TaskID
+	if m.TaskID != "" {
+		label = withTaskID(m.TaskID, label)
+	}
+	a.agentSidebar.nameTab(label)
+	return nil, true
+}
 
 // SetAgentTabRelabeler installs the :retitle generator. Unset, :retitle
 // reports the feature unconfigured.
@@ -30,20 +66,20 @@ func (a *App) SetAgentTabRelabeler(gen AgentTabRelabelFunc) {
 
 func init() { commands["retitle"] = cmdRetitle }
 
-// maxRetitleTranscript caps the excerpt :retitle sends; recency owns the
-// budget (the newest replies survive, the oldest drop). The root always
-// rides, capped separately so a long opening can't starve the replies
-// the refresh exists to see.
+// maxRetitleTranscript caps what :retitle sends — sized to fit whole
+// threads (400KB ≈ 100K tokens, half of claude-haiku-4-5's window), with
+// per-message caps so one pasted log can't crowd out the rest. On
+// overflow the newest replies survive; the root always rides.
 const (
-	maxRetitleTranscript = 8000
+	maxRetitleTranscript = 400000
 	maxRetitleRoot       = 2000
 	maxRetitleReply      = 1000
 )
 
-// cmdRetitle re-derives the tracked agent thread's tab label from its
-// recent messages, through the same sanitize → task-id prefix → NameTab
-// pipeline as the open-time label. The thread panel must be showing the
-// tracked thread: its loaded messages are the context source.
+// cmdRetitle sends the tracked agent thread's whole transcript for a
+// model-judged task id and label; reduceAgentTabRelabel lands the result.
+// The thread panel must be showing the tracked thread: its loaded
+// messages are the context source.
 func cmdRetitle(a *App, _ []string) tea.Cmd {
 	t := a.agentSidebar.thread
 	if !t.active || a.agentSidebar.nameTab == nil {
@@ -61,11 +97,6 @@ func cmdRetitle(a *App, _ []string) tea.Cmd {
 	if transcript == "" {
 		return toastWithClear(a, "Nothing to label yet", 2*time.Second)
 	}
-	taskID := a.retitleTaskID(parent, replies, t.botUserID)
-	if taskID == "" {
-		taskID = a.agentSidebar.llmLabel.taskID
-	}
-	a.agentSidebar.llmLabel = llmLabelState{requested: true, taskID: taskID}
 	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript)
 	return toastWithClear(a, "Re-deriving tab label…", 2*time.Second)
 }
@@ -128,16 +159,3 @@ func (a *App) retitleSpeaker(userID string) string {
 	return ""
 }
 
-// retitleTaskID picks the id the refreshed label hoists: the newest
-// message carrying one wins, the root last — a task filed mid-thread
-// outranks the id the thread opened with. Every reply is scanned, not
-// just the transcript's budget survivors. Empty when no message carries
-// an id; the caller keeps the previously hoisted one.
-func (a *App) retitleTaskID(parent messages.MessageItem, replies []messages.MessageItem, botUserID string) string {
-	for i := len(replies) - 1; i >= 0; i-- {
-		if id := hoistTaskID(a.flattenRootText(replies[i].Text)); id != "" {
-			return id
-		}
-	}
-	return hoistTaskID(a.flattenRootText(stripMention(parent.Text, botUserID)))
-}

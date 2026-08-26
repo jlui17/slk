@@ -153,6 +153,9 @@ func TestAgentTabLabelHoistsTaskID(t *testing.T) {
 		{"colony-1105 follow-up to #1164", "[colony-1105] follow-up to #1164"},
 		// Small "#N" ordinals in prose are not refs.
 		{"retry attempt #1 failed", "retry attempt #1 failed"},
+		// Ids inside URLs (a GitHub link's #issuecomment-15686 fragment)
+		// are never the thread's task: no hoist, plain truncation.
+		{"see https://github.com/o/r/pull/9#issuecomment-15686 for CI", "see https://github.com/o/r/pu…"},
 	}
 	for _, c := range cases {
 		if got := agentTabLabel(c.flat); got != c.want {

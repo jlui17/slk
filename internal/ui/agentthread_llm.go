@@ -58,8 +58,8 @@ func (a *App) maybeRequestAgentTabLabel(flat string) {
 }
 
 // sanitizeModelLabel normalizes a model completion into tab-label shape:
-// first line only, surrounding quotes and an echo of taskID (the id
-// hoisted at request time) removed, whitespace collapsed, truncated like
+// first line only, surrounding quotes and an echo of taskID (the known
+// id for the label) removed, whitespace collapsed, truncated like
 // the deterministic label. Only that known id is stripped — a taskIDRe
 // sweep would also eat hyphen-digit terms the model wrote ("utf-8",
 // "sha-256"). Empty means unusable — the caller keeps the label already
