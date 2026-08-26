@@ -91,9 +91,11 @@ type agentSidebar struct {
 	thread       agentThreadState
 
 	// labelGen and llmLabel drive the model-generated tab-label
-	// refinement; see agentthread_llm.go.
-	labelGen AgentTabLabelFunc
-	llmLabel llmLabelState
+	// refinement; see agentthread_llm.go. relabelGen is its :retitle
+	// refresh; see agentthread_retitle.go.
+	labelGen   AgentTabLabelFunc
+	relabelGen AgentTabRelabelFunc
+	llmLabel   llmLabelState
 
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of

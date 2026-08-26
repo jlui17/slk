@@ -120,7 +120,9 @@ max_image_cache_mb = 200
 # The task-id prefix and the never-overwrite-your-labels rule still apply,
 # and any failure (no key, timeout) leaves the deterministic label in
 # place. Costs one small API call per opened agent thread; needs
-# ANTHROPIC_API_KEY in slk's environment.
+# ANTHROPIC_API_KEY in slk's environment. The label derives from the root
+# message once, at thread open; :retitle re-derives it later from the
+# thread's recent messages (see Keybindings).
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)

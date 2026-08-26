@@ -31,16 +31,26 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 		return
 	}
 	gen := tablabel.New(cfg.TabNameModel)
-	app.SetAgentTabLabeler(func(teamID, channelID, threadTS, root string) {
+	request := func(teamID, channelID, threadTS string, call func(context.Context) (string, error)) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), labelTimeout)
 			defer cancel()
-			label, err := gen.Label(ctx, root)
+			label, err := call(ctx)
 			if err != nil {
 				debuglog.Notify("tablabel: %v", err)
 				return
 			}
 			send(ui.AgentTabLabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Label: label})
 		}()
+	}
+	app.SetAgentTabLabeler(func(teamID, channelID, threadTS, root string) {
+		request(teamID, channelID, threadTS, func(ctx context.Context) (string, error) {
+			return gen.Label(ctx, root)
+		})
+	})
+	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript string) {
+		request(teamID, channelID, threadTS, func(ctx context.Context) (string, error) {
+			return gen.Relabel(ctx, transcript)
+		})
 	})
 }
