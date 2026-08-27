@@ -10,12 +10,14 @@ import (
 // emoji generation; if a future asset reorganization breaks our URLs,
 // updating this constant is the single edit needed.
 //
-// "google-small" is Slack's Google-style emoji set at the smallest
-// pre-rendered size (~16x16px). Workspace admins on Slack web can
-// pick between Apple / Google / Twitter / Slack-classic; v1 of this
-// renderer hardcodes the google set, matching the default for most
-// workspaces. Per-workspace style detection is a follow-up.
-const CDNBaseURL = "https://a.slack-edge.com/production-standard-emoji-assets/16.0/google-small/"
+// "google-large" is Slack's Google-style emoji set at 32x32px — the
+// largest pre-rendered tier ("google-small" is 16x16, "google-medium"
+// 22x22), and the closest to the ~34x37px cell box emoji render into,
+// so it upscales least. Workspace admins on Slack web can pick between
+// Apple / Google / Twitter / Slack-classic; v1 of this renderer
+// hardcodes the google set, matching the default for most workspaces.
+// Per-workspace style detection is a follow-up.
+const CDNBaseURL = "https://a.slack-edge.com/production-standard-emoji-assets/16.0/google-large/"
 
 // vs16 is U+FE0F, the variation selector that requests emoji
 // presentation for a base codepoint. Slack's CDN PRESERVES VS16 in
