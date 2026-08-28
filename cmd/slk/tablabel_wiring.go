@@ -18,10 +18,11 @@ import (
 // the goroutine when the API hangs.
 const labelTimeout = 20 * time.Second
 
-// wireAgentTabLabeler installs model-generated tab labels when configured
-// (herdr.tab_name_model) and credentialed (ANTHROPIC_API_KEY). Results
-// re-enter the program loop as ui.AgentTabLabelMsg; failures are logged
-// and dropped, leaving the deterministic label standing.
+// wireAgentTabLabeler installs the model-backed assists — tab labels,
+// :retitle, and the working judge — when configured (herdr.tab_name_model)
+// and credentialed (ANTHROPIC_API_KEY). Results re-enter the program loop
+// as ui messages; failures are logged and dropped, leaving the
+// deterministic behavior standing.
 func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	if cfg.TabNameModel == "" {
 		return
@@ -53,6 +54,12 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 		request(func(ctx context.Context) (tea.Msg, error) {
 			id, label, err := gen.Relabel(ctx, transcript, cfg.TabNameHints)
 			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, Label: label}, err
+		})
+	})
+	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, fromAgent bool) {
+		request(func(ctx context.Context) (tea.Msg, error) {
+			working, err := gen.Working(ctx, message, fromAgent)
+			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, Working: working}, err
 		})
 	})
 }

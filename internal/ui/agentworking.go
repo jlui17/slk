@@ -54,21 +54,34 @@ type agentLastMsg struct {
 	human    bool
 	todo     bool
 	acked    bool
+	// text is the raw mrkdwn body, kept for the model working judge
+	// (agentworking_llm.go): the ambiguous shapes are judged from the
+	// newest message alone.
+	text string
 }
 
 // derivedWorking is the content-derived in-progress signal: a human
 // message the agent hasn't reacted to means the agent owes a response,
-// and an agent-authored todo post means it is mid-task. Anything else (a
-// plain agent reply, an agent-acked human message) reads as idle.
+// and an agent-authored todo post means it is mid-task. The two shapes
+// content can't decide — a plain agent reply, an agent-acked human
+// message — take the model verdict when one has landed for exactly this
+// state, and read idle otherwise.
 func (g *agentSidebar) derivedWorking() bool {
 	l := g.lastMsg
 	if l.ts == "" {
 		return false
 	}
 	if l.human {
-		return !l.acked
+		if !l.acked {
+			return true
+		}
+	} else if l.todo {
+		return true
 	}
-	return l.todo
+	if g.workingJudge.judgedKey == workingJudgeKey(l) {
+		return g.workingJudge.working
+	}
+	return false
 }
 
 // effectiveWorking combines the assistant's live turn state
@@ -113,12 +126,15 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 	switch {
 	case msg.IsEdited:
 		// Only an edit of the newest message can change the derived
-		// state, and only its todo-ness: author and reactions survive
-		// an edit.
+		// state — its todo-ness and its judged text: author and
+		// reactions survive an edit, but a standing model verdict
+		// answered the old text, so it is dropped and re-asked.
 		if msg.TS != last.ts {
 			return
 		}
 		last.todo = isAgentTodoText(msg.Text)
+		last.text = msg.Text
+		a.agentSidebar.workingJudge = workingJudgeState{}
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
 		// fixed width, so an echo or out-of-order arrival can't
@@ -131,8 +147,10 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 			human:    a.agentAuthorIsHuman(msg.UserID),
 			todo:     isAgentTodoText(msg.Text),
 			acked:    reactionBy(msg.Reactions, t.botUserID),
+			text:     msg.Text,
 		}
 	}
+	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
 }
 
@@ -146,6 +164,7 @@ func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, remo
 	}
 	prev := a.agentSidebar.effectiveWorking()
 	a.agentSidebar.lastMsg.acked = !removed
+	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
 }
 
@@ -161,6 +180,7 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 	}
 	prev := a.agentSidebar.effectiveWorking()
 	last.human = false
+	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
 }
 
@@ -197,7 +217,9 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 		human:    a.agentAuthorIsHuman(last.UserID),
 		todo:     isAgentTodoText(last.Text),
 		acked:    reactionBy(last.Reactions, t.botUserID),
+		text:     last.Text,
 	}
+	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
 }
 

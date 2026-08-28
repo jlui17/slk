@@ -97,6 +97,12 @@ type agentSidebar struct {
 	relabelGen AgentTabRelabelFunc
 	llmLabel   llmLabelState
 
+	// judgeGen and workingJudge drive the model working verdict for the
+	// last-message shapes the derived signal can't decide; see
+	// agentworking_llm.go.
+	judgeGen     AgentWorkingJudgeFunc
+	workingJudge workingJudgeState
+
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of
 	// effectiveWorking (the other is the content-derived signal from
@@ -238,6 +244,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	a.agentSidebar.thread = next
 	a.agentSidebar.working = false
 	a.agentSidebar.lastMsg = agentLastMsg{}
+	a.agentSidebar.workingJudge = workingJudgeState{}
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil

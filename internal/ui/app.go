@@ -703,6 +703,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceAgentThread,
 		reduceAgentTabLabel,
 		reduceAgentTabRelabel,
+		reduceAgentWorkingVerdict,
 		reduceCacheWatermark,
 	); handled {
 		if cmd != nil {
