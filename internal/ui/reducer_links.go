@@ -161,12 +161,15 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		// open its thread panel (cursor on the parent row) instead of
 		// stopping at the in-channel select. Permalink navs only
 		// (openParentThread): a workspace-search jump to a top-level
-		// hit stays a plain select. First landing only: a best-effort
-		// open keeps the nav armed (falling through to the keep-armed
-		// logic below) so the authoritative pass re-selects the parent
-		// on the fresh buffer — behind the panel it already opened,
-		// which stays put.
-		if p.openParentThread && firstLanding {
+		// hit stays a plain select. Re-evaluated on every pass while no
+		// thread panel is up: the first landing is usually the cached
+		// render, whose parent row can carry a stale zero ReplyCount
+		// (live replies bump only the in-memory pane, never the cache
+		// row), so only the authoritative buffer's count is
+		// trustworthy. An already-open panel — this nav's own
+		// best-effort open, or one the user raised mid-flight — stays
+		// put.
+		if p.openParentThread && !a.threadVisible {
 			for _, m := range a.messagepane.Messages() {
 				if m.TS != p.messageTS {
 					continue

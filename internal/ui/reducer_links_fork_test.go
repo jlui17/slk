@@ -193,6 +193,54 @@ func TestBestEffortParentOpen_AuthoritativeReselectsBehindPanel(t *testing.T) {
 	}
 }
 
+// The stale-cache variant: the cached render's parent row carries
+// ReplyCount 0 (live replies bump only the in-memory pane, never the
+// cache row), so the best-effort pass finds nothing to open. The
+// authoritative buffer carries the real count; the open decision must
+// re-run there rather than stay locked to the first landing.
+func TestAuthoritativePass_OpensParentThread_WhenCacheCountStale(t *testing.T) {
+	app, _ := linkTestApp(t)
+	app.activeChannelID = "C054JFCBN69"
+	var fetchedThread string
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+		fetchedThread = string(threadTS)
+		return nil
+	})
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139"},
+	})
+	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	// Best-effort (cache render) completion: selects, sees no replies,
+	// keeps the nav armed.
+	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
+	if app.threadVisible {
+		t.Fatal("cache render with zero replies opened a thread panel")
+	}
+	if app.pendingLinkNav == nil {
+		t.Fatal("nav retired on best-effort completion")
+	}
+	// The in-flight fetch lands with the real reply count.
+	_, cmd := app.Update(MessagesLoadedMsg{
+		ChannelID: "C054JFCBN69",
+		Messages: []messages.MessageItem{
+			{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 3},
+		},
+	})
+	drainCmd(cmd)
+	if !app.threadVisible {
+		t.Fatal("authoritative pass did not open the parent's thread")
+	}
+	if got := app.threadPanel.ThreadTS(); got != "1779284733.270139" {
+		t.Errorf("ThreadTS = %q, want the parent's ts", got)
+	}
+	if fetchedThread != "1779284733.270139" {
+		t.Errorf("thread fetch = %q", fetchedThread)
+	}
+	if app.pendingLinkNav != nil {
+		t.Errorf("pendingLinkNav not cleared: %+v", app.pendingLinkNav)
+	}
+}
+
 // The off-buffer variant: the parent arrives via FetchAround, so the
 // MessagesAroundLoadedMsg arm makes the thread-open call.
 func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
