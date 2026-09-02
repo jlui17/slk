@@ -50,12 +50,9 @@ func appendBlock(out *RenderResult, b Block, ctx Context, width int) {
 	case ImageBlock:
 		appendImageBlock(out, v, ctx, width)
 	case RichTextBlock:
-		// rich_text content is rendered through Message.Text by the
-		// host (after RichTextToMrkdwn reconstructs the newline
-		// structure that Slack's text fallback strips), so the
-		// block renderer itself emits zero lines to avoid
-		// double-rendering.
-		return
+		appendRichText(out, v, ctx, width)
+	case TableBlock:
+		appendTable(out, v, ctx, width)
 	case UnknownBlock:
 		out.Lines = append(out.Lines, renderUnsupported(v.Type, width))
 	default:
@@ -427,7 +424,7 @@ func renderUnsupported(typeName string, width int) string {
 	if lipgloss.Width(label) > width {
 		label = truncateToWidth(label, width)
 	}
-	return mutedStyle().Render(label)
+	return unsupportedStyle().Render(label)
 }
 
 // truncateToWidth returns s truncated by display columns to at most

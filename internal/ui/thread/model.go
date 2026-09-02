@@ -1471,7 +1471,7 @@ func (m *Model) View(height, width int) string {
 			// escapes (Username, Timestamp, MessageText, RenderSlackMarkdown's
 			// reset-reapplications) with the tint color so the tint reaches
 			// every cell of the row, not just the trailing whitespace.
-			renderedTinted := messages.RepaintBgToSelectionTint(rendered, m.focused)
+			renderedTinted := messages.ReapplyBgAfterResets(messages.RepaintBgToSelectionTint(rendered, m.focused), messages.SelectionTintBgANSI(m.focused))
 			selectedFill := lipgloss.NewStyle().
 				Background(styles.SelectionTintColor(m.focused)).
 				Width(width - 1).
@@ -1874,7 +1874,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	var bkLines []string
 	bkInteractive := false
 	if len(msg.Blocks) > 0 {
-		res := blockkit.Render(msg.Blocks, bkCtx, contentWidth)
+		res := blockkit.RenderMessageBlocks(msg.Blocks, bkCtx, contentWidth)
 		bkLines = append(bkLines, res.Lines...)
 		flushes = append(flushes, res.Flushes...)
 		bkInteractive = bkInteractive || res.Interactive

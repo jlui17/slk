@@ -130,3 +130,45 @@ func TestMigrateFork_AddsUsersNameIndexOnPreExistingDB(t *testing.T) {
 	}
 	db2.Close()
 }
+
+func TestMigrateForkBlanksLossyTableCellRows(t *testing.T) {
+	db := setupDBWithWorkspace(t)
+	defer db.Close()
+	rows := map[string]string{
+		"1.0": `{"blocks":[{"type":"table","rows":[[{"type":"raw_text","elements":[]}]]}]}`,
+		"2.0": `{"blocks":[{"type":"table","rows":[[{"type":"raw_number","elements":null}]]}]}`,
+		"3.0": `{"blocks":[{"type":"table","rows":[[{"type":"raw_text","text":"docs"}]]}]}`,
+		"4.0": `{"blocks":[{"type":"table","rows":[[{"type":"rich_text","elements":[]}]]}]}`,
+	}
+	for ts, raw := range rows {
+		if err := db.UpsertMessage(Message{TS: ts, ChannelID: "C1", WorkspaceID: "T1", Text: "t", RawJSON: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.conn.Exec(`DELETE FROM fork_migrations WHERE name = 'table-cells-lossy-decode'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.migrateFork(); err != nil {
+		t.Fatal(err)
+	}
+	for ts, wantBlank := range map[string]bool{"1.0": true, "2.0": true, "3.0": false, "4.0": false} {
+		m, err := db.GetMessage("C1", ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (m.RawJSON == "") != wantBlank {
+			t.Errorf("ts %s raw_json blanked = %v, want %v (%q)", ts, m.RawJSON == "", wantBlank, m.RawJSON)
+		}
+	}
+
+	// One-shot: a lossy row written after the migration ran stays as is.
+	if err := db.UpsertMessage(Message{TS: "5.0", ChannelID: "C1", WorkspaceID: "T1", Text: "t", RawJSON: rows["1.0"]}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.migrateFork(); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := db.GetMessage("C1", "5.0"); m.RawJSON == "" {
+		t.Error("migration re-ran on a second migrateFork call; it must apply once per database")
+	}
+}

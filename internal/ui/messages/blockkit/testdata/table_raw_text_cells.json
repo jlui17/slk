@@ -1,0 +1,32 @@
+{
+  "blocks": [
+    {
+      "type": "rich_text",
+      "block_id": "p1",
+      "elements": [
+        {"type": "rich_text_section", "elements": [{"type": "text", "text": "Say go and I'll open PR 1.\n"}]}
+      ]
+    },
+    {
+      "type": "table",
+      "block_id": "tbl",
+      "rows": [
+        [
+          {"type": "raw_text", "text": "docs"},
+          {"type": "raw_text", "text": "today"},
+          {"type": "raw_text", "text": "after"}
+        ],
+        [
+          {"type": "raw_text", "text": "snapshotter README"},
+          {"type": "raw_text", "text": "255 lines; hand-kept roster + option lists, container contract"},
+          {"type": "raw_text", "text": "the one README"}
+        ],
+        [
+          {"type": "raw_text", "text": "7 per-service hydration plans"},
+          {"type": "raw_number", "value": 1980, "text": "~1,980 lines"},
+          null
+        ]
+      ]
+    }
+  ]
+}

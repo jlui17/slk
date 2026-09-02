@@ -54,9 +54,8 @@ func TestRenderHeaderTruncatesIfTooWide(t *testing.T) {
 
 func TestRenderUnknownBlockShowsTypePlaceholder(t *testing.T) {
 	// Use "video" rather than "rich_text" — rich_text is a known
-	// fall-through type that the renderer silently skips so it
-	// doesn't add a placeholder next to the body text on every
-	// user-typed message. See TestRenderRichTextProducesNoOutput.
+	// type that renders as text, never as a placeholder. See
+	// TestRenderRichTextProducesNoOutput.
 	r := Render([]Block{UnknownBlock{Type: "video"}}, Context{}, 80)
 	if r.Height != 1 {
 		t.Fatalf("Height = %d", r.Height)
@@ -71,11 +70,11 @@ func TestRenderUnknownBlockShowsTypePlaceholder(t *testing.T) {
 }
 
 func TestRenderRichTextProducesNoOutput(t *testing.T) {
-	// rich_text content is rendered by the host through Message.Text
-	// (with content reconstructed via RichTextToMrkdwn when needed),
-	// so the block renderer itself must emit zero lines for a
-	// RichTextBlock — otherwise we'd double-render alongside the
-	// text body.
+	// The body rich_text block is rendered by the host through
+	// Message.Text (with content reconstructed via RichTextToMrkdwn
+	// when needed), so RenderMessageBlocks must emit zero lines for
+	// a lone RichTextBlock — otherwise we'd double-render alongside
+	// the text body.
 	rt := RichTextBlock{Elements: []slack.RichTextElement{
 		&slack.RichTextSection{
 			Type: slack.RTESection,
@@ -84,7 +83,7 @@ func TestRenderRichTextProducesNoOutput(t *testing.T) {
 			},
 		},
 	}}
-	r := Render([]Block{rt}, Context{}, 80)
+	r := RenderMessageBlocks([]Block{rt}, Context{}, 80)
 	if r.Height != 0 {
 		t.Errorf("Height = %d, want 0 (rich_text rendered through Message.Text)", r.Height)
 	}

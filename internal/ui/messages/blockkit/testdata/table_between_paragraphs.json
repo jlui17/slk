@@ -1,0 +1,73 @@
+{
+  "blocks": [
+    {
+      "type": "rich_text",
+      "block_id": "p1",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {"type": "text", "text": "The other three steps are bare verbs, so the fourth should read the same way.\n\n"}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "block_id": "tbl",
+      "rows": [
+        [
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Step"}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Adapter does"}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Runner does"}]}]}
+        ],
+        [
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Auth()", "style": {"code": true}}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "proves it can reach the service"}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "fails the run if not"}]}]}
+        ],
+        [
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Capture()", "style": {"code": true}}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "writes the objects to the sink"}]}]},
+          {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "commits each object"}]}]}
+        ]
+      ]
+    },
+    {
+      "type": "rich_text",
+      "block_id": "p2",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {"type": "text", "text": "Candidates for the 4th step:\n\n"}
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "style": "bullet",
+          "indent": 0,
+          "elements": [
+            {"type": "rich_text_section", "elements": [{"type": "text", "text": "Manifest()", "style": {"code": true}}, {"type": "text", "text": ". A noun, so it reads as a getter."}]},
+            {"type": "rich_text_section", "elements": [{"type": "text", "text": "Attest()", "style": {"code": true}}, {"type": "text", "text": ". One word, least obvious."}]}
+          ]
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {"type": "text", "text": "\nI'd pick "},
+            {"type": "text", "text": "DescribeCapture()", "style": {"code": true}},
+            {"type": "text", "text": "."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "block_id": "ctx",
+      "elements": [
+        {"type": "mrkdwn", "text": "claude-fable-5-1 · <https://example.com/configure|Configure>"}
+      ]
+    }
+  ]
+}

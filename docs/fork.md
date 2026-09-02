@@ -82,6 +82,17 @@ there and resolve them knowing what the fork wants:
   the fork's expectation is pinned in `mode_insert_fork_test.go`.
 - `internal/ui/sixelpaint_test.go` — one assertion updated for the
   sixel frame memo (a post-force identical frame reuses its ID).
+- `internal/ui/messages/blockkit/render.go` (+ `render_test.go`) — the
+  `rich_text` arm draws in place instead of returning, which also makes
+  rich_text nested in legacy attachments visible (it was dropped before);
+  the host's body-block
+  skip lives in `RenderMessageBlocks` in `render_fork.go`, mirroring
+  `messages.MessageTextSource` and pinned by the panes' "appears exactly
+  once" tests), a `table` arm, and the unsupported-block marker restyled as
+  a warning badge; the zero-lines test retargeted to `RenderMessageBlocks`.
+  Both panes' selected-variant builders reassert the selection tint after
+  every reset (`ReapplyBgAfterResets`) so bare runs from block renderers
+  take the tint.
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into
@@ -94,6 +105,10 @@ there and resolve them knowing what the fork wants:
   in `bootstrap_test.go` relaxed or deleted. See "Overlapped boot" below.
 - `internal/notify/*` — leader gate on notifications.
 - `internal/config/config.go` — two fork struct fields (`Herdr`, `Restore`).
+- `go.mod` / `go.sum` — `github.com/slack-go/slack` bumped past upstream's
+  pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
+  decoded every cell as rich_text and dropped raw_text content). On an
+  upstream bump, keep whichever is newer.
 - Docs (`README.md`, `wiki/*`, `docs/STATUS.md`, `docs/superpowers/*`) —
   fork features documented in place; markdown conflicts, resolve by hand.
 

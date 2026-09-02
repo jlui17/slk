@@ -1661,7 +1661,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		bwT0 = time.Now()
 	}
 	filledNormal := cs.borderFill.Width(width - 1).Render(rendered)
-	renderedTinted := RepaintBgToSelectionTint(rendered, m.focused)
+	renderedTinted := ReapplyBgAfterResets(RepaintBgToSelectionTint(rendered, m.focused), SelectionTintBgANSI(m.focused))
 	selectedFill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1).Render(renderedTinted)
 	normal := cs.borderInvis.Render(filledNormal)
 	selected := cs.borderSelect.Render(selectedFill)
@@ -2202,7 +2202,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 			bkT0 = time.Now()
 		}
 		startInBk := len(bkLines)
-		res := blockkit.Render(msg.Blocks, bkCtx, contentWidth)
+		res := blockkit.RenderMessageBlocks(msg.Blocks, bkCtx, contentWidth)
 		if stats != nil {
 			stats.blockKitTotal += time.Since(bkT0)
 			stats.blockKitCount++
