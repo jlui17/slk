@@ -208,9 +208,7 @@ func WordWrap(s string, limit int) string {
 // can't see and which would push downstream layout (e.g. the thread
 // compose box) over content above it.
 func wrapLine(buf *strings.Builder, line string, limit int) {
-	line = expandTabs(line)
-	if lipgloss.Width(line) <= limit {
-		buf.WriteString(line)
+	if writeIfFits(buf, line, limit) {
 		return
 	}
 	words := strings.Fields(line)
