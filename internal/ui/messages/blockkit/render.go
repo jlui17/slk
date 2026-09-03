@@ -178,11 +178,7 @@ func appendContext(out *RenderResult, c ContextBlock, ctx Context, width int) {
 			}
 			parts = append(parts, "["+alt+"]")
 		case e.Text != "":
-			rendered := e.Text
-			if ctx.RenderText != nil {
-				rendered = ctx.RenderText(e.Text, ctx.UserNames)
-			}
-			parts = append(parts, rendered)
+			parts = append(parts, ctx.renderText(e.Text, width))
 		}
 	}
 	combined := strings.Join(parts, " ")
@@ -330,10 +326,7 @@ func renderControlLabel(kind, label string) string {
 // renderTextLines runs text through Context.RenderText then wraps it
 // to width via Context.WrapText, then splits on newline.
 func renderTextLines(text string, ctx Context, width int) []string {
-	rendered := text
-	if ctx.RenderText != nil {
-		rendered = ctx.RenderText(text, ctx.UserNames)
-	}
+	rendered := ctx.renderText(text, width)
 	if ctx.WrapText != nil {
 		rendered = ctx.WrapText(rendered, width)
 	}

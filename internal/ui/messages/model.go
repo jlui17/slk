@@ -1893,11 +1893,11 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 		UserNames:   userNames,
 		MessageTS:   msg.TS,
 		Channel:     m.channelName,
-		// Capture channelNames in a closure so blockkit's two-arg
-		// RenderText signature stays stable; channel-name resolution
-		// is a host concern.
+		// Capture channelNames in a closure so blockkit's
+		// RenderTextForWidth signature stays stable; channel-name
+		// resolution is a host concern.
 		//
-		// blockkit's RenderText is called from inside block rendering
+		// blockkit's RenderTextForWidth is called from inside block rendering
 		// where the per-call flush accumulator isn't accessible. Pass
 		// the emoji opts but no flush collector: warm-path emoji
 		// flushes inside rich-text blocks are best-effort in v1
@@ -1905,7 +1905,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 		// per-message buildCache walks the entry again). Worst case:
 		// one extra frame of cold-cache spacing for a block-kit
 		// emoji on first reveal. Acceptable.
-		RenderText: func(s string, un map[string]string) string {
+		RenderTextForWidth: func(s string, un map[string]string, width int) string {
 			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
 				UserNames:    un,
 				ChannelNames: channelNames,
@@ -1914,6 +1914,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 				EmojiCells:   m.emojiCtx.Cells,
 				Customs:      m.emojiCtx.Customs,
 				EmojiFlushes: nil,
+				Width:        width,
 			})
 		},
 		WrapText: WordWrap,
@@ -1972,6 +1973,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		EmojiCells:   m.emojiCtx.Cells,
 		Customs:      m.emojiCtx.Customs,
 		EmojiFlushes: &flushes,
+		Width:        contentWidth,
 	}
 	rendered := RenderSlackMarkdownWith(MessageTextSource(msg), bodyOpts)
 	if len(m.searchTerms) > 0 {

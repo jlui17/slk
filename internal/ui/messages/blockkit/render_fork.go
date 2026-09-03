@@ -60,9 +60,7 @@ func appendTable(out *RenderResult, t TableBlock, ctx Context, width int) {
 	for r, row := range t.Rows {
 		rendered[r] = make([]string, cols)
 		for c, cell := range row {
-			if ctx.RenderText != nil {
-				cell = ctx.RenderText(cell, ctx.UserNames)
-			}
+			cell = ctx.renderText(cell, 0)
 			rendered[r][c] = cell
 			natural[c] = max(natural[c], lipgloss.Width(cell))
 		}

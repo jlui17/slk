@@ -246,3 +246,31 @@ func TestRenderUnsupportedWearsWarningBadge(t *testing.T) {
 		t.Errorf("unsupported marker %q lacks the Warning background %q", got, warningBg)
 	}
 }
+
+// Text is rendered for the exact width it is then wrapped to, including
+// where a block narrows its text column (an accessory beside a section,
+// the stripe of a legacy attachment).
+func TestRenderTextForWidthMatchesWrapWidth(t *testing.T) {
+	var renderW, wrapW []int
+	ctx := Context{
+		RenderTextForWidth: func(s string, _ map[string]string, width int) string {
+			renderW = append(renderW, width)
+			return s
+		},
+		WrapText: func(s string, width int) string {
+			wrapW = append(wrapW, width)
+			return s
+		},
+	}
+	Render([]Block{
+		SectionBlock{Text: "> quoted", Accessory: LabelAccessory{Kind: "button", Label: "Deploy"}},
+		SectionBlock{Text: "plain", Fields: []string{"a", "b"}},
+	}, ctx, 80)
+	RenderLegacy([]LegacyAttachment{{Pretext: "pre", Text: "> quoted"}}, ctx, 80)
+	if len(renderW) < 5 || !slices.Equal(renderW, wrapW) {
+		t.Errorf("render widths %v, wrap widths %v: every text must be rendered for the width it is wrapped to", renderW, wrapW)
+	}
+	if slices.Equal(renderW, []int{80, 80, 80, 80, 80, 80}) {
+		t.Errorf("fixture never narrowed the text column: %v", renderW)
+	}
+}

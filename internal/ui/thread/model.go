@@ -1821,7 +1821,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 		UserNames:   userNames,
 		MessageTS:   msg.TS,
 		Channel:     m.channelID,
-		RenderText: func(s string, un map[string]string) string {
+		RenderTextForWidth: func(s string, un map[string]string, width int) string {
 			return messages.RenderSlackMarkdownWith(s, messages.RenderSlackMarkdownOpts{
 				UserNames:    un,
 				ChannelNames: channelNames,
@@ -1830,6 +1830,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 				EmojiCells:   m.emojiCtx.Cells,
 				Customs:      m.emojiCtx.Customs,
 				EmojiFlushes: nil,
+				Width:        width,
 			})
 		},
 		WrapText: messages.WordWrap,
@@ -1862,6 +1863,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		EmojiCells:   m.emojiCtx.Cells,
 		Customs:      m.emojiCtx.Customs,
 		EmojiFlushes: &flushes,
+		Width:        contentWidth,
 	}
 	text := styles.MessageText.Render(messages.WordWrap(messages.RenderSlackMarkdownWith(messages.MessageTextSource(msg), bodyOpts), contentWidth))
 

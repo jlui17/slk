@@ -254,6 +254,10 @@ type Context struct {
 	// internal/ui/messages.RenderSlackMarkdown. May be nil; when nil,
 	// raw text passes through unchanged.
 	RenderText func(s string, userNames map[string]string) string
+	// RenderTextForWidth is RenderText told the width WrapText will
+	// wrap the result to, so block styles (a quote's bar) can wrap
+	// inside themselves. Preferred over RenderText when set.
+	RenderTextForWidth func(s string, userNames map[string]string, width int) string
 
 	// WrapText word-wraps an ANSI-styled string to the given display
 	// width. The host wires this to internal/ui/messages.WordWrap.

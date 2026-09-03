@@ -626,6 +626,7 @@ type RenderSlackMarkdownOpts struct {
 	EmojiCells   int                      // 0 falls back to 2
 	Customs      map[string]string        // workspace custom emoji map; may be nil
 	EmojiFlushes *[]func(io.Writer) error // append-only; may be nil
+	Width        int                      // only blockquotes consume it: they wrap inside their bar; the caller still wraps the rest
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -665,7 +666,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 			quoted := strings.TrimPrefix(line, "&gt; ")
 			quoted = strings.TrimPrefix(quoted, "> ")
 			quoted = slackEntityDecoder.Replace(quoted)
-			line = blockquoteStyle().Render(quoted)
+			line = renderBlockquote(quoted, opts.Width)
 		} else {
 			line = renderInlineFormattingWith(line, opts)
 			// Decode Slack-escaped entities after markup regexes have
