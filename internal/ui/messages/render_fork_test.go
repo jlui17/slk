@@ -197,3 +197,11 @@ func TestWordWrap_KeepsFittingRowsVerbatim(t *testing.T) {
 		t.Errorf("WordWrap rewrote rows that already fit:\n got %q\nwant %q", got, in)
 	}
 }
+
+func TestWordWrap_TabsCountAsPainted(t *testing.T) {
+	const limit = 18
+	for _, in := range []string{"aaaa\tbbbb\tcccc\tdd", "> a\tb\tc\tddddddd"} {
+		out := lipgloss.NewStyle().Render(WordWrap(RenderSlackMarkdownWith(in, RenderSlackMarkdownOpts{Width: limit}), limit))
+		requireRowsWithin(t, in, strippedRows(out), limit)
+	}
+}
