@@ -208,6 +208,9 @@ func WordWrap(s string, limit int) string {
 // can't see and which would push downstream layout (e.g. the thread
 // compose box) over content above it.
 func wrapLine(buf *strings.Builder, line string, limit int) {
+	if writeIfFits(buf, line, limit) {
+		return
+	}
 	words := strings.Fields(line)
 	if len(words) == 0 {
 		return
@@ -626,7 +629,7 @@ type RenderSlackMarkdownOpts struct {
 	EmojiCells   int                      // 0 falls back to 2
 	Customs      map[string]string        // workspace custom emoji map; may be nil
 	EmojiFlushes *[]func(io.Writer) error // append-only; may be nil
-	Width        int                      // only blockquotes consume it: they wrap inside their bar; the caller still wraps the rest
+	Width        int                      // display width the caller wraps to; code blocks, list items and blockquotes wrap inside their decoration first
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -655,7 +658,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	text = codeBlockRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
-		return "\n" + codeBlockStyle().Render(inner) + "\n"
+		return "\n" + renderCodeBlock(inner, opts.Width) + "\n"
 	})
 
 	// Process line by line for blockquotes
@@ -667,6 +670,8 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 			quoted = strings.TrimPrefix(quoted, "> ")
 			quoted = slackEntityDecoder.Replace(quoted)
 			line = renderBlockquote(quoted, opts.Width)
+		} else if item, ok := renderListItem(line, opts); ok {
+			line = item
 		} else {
 			line = renderInlineFormattingWith(line, opts)
 			// Decode Slack-escaped entities after markup regexes have
