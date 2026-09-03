@@ -205,3 +205,11 @@ func TestWordWrap_TabsCountAsPainted(t *testing.T) {
 		requireRowsWithin(t, in, strippedRows(out), limit)
 	}
 }
+
+func TestCodeBlock_RowsAreNotListItems(t *testing.T) {
+	out := RenderSlackMarkdownWith("```\n• "+strings.Repeat("x", 40)+"\n```", RenderSlackMarkdownOpts{Width: 30})
+	rows := nonBlankRows(out)
+	if len(rows) < 2 || !strings.HasPrefix(rows[1], " xx") {
+		t.Errorf("expected the continuation row to stay a code row, got %q", rows)
+	}
+}
