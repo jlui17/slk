@@ -23,8 +23,8 @@ const (
 // "go ahead" as the agent not having started).
 const workingAgentSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the agent. Classify the agent's state from it. " +
-	"w: working, mid-task or saying it is doing or about to do something next without waiting on the user; mentioning something it will need from the user later, while continuing now, is still w. " +
-	"u: the agent needs the user to answer in this thread before it can continue: it asked a question, presented options or a plan for approval, said it will wait for a go-ahead, or is stopped on something only the user can provide. Work that continues in another thread is not u. " +
+	"w: working, mid-task or saying it is doing or about to do something next without waiting on the user: acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now, is w. " +
+	"u: the agent has stopped and cannot continue until the user answers in this thread: it asked the user a direct question, presented options or a plan and is waiting for approval, or is stuck on something only the user can provide. A message that asks the user nothing is never u. Noting that a review or merge is pending on the user, or work that continues in another thread, is not u. " +
 	"d: done, nothing pending on the agent: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
 	"Reply with exactly one letter: w, u, or d."
 

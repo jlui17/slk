@@ -55,6 +55,7 @@ func TestWorkingLive(t *testing.T) {
 		{"redoing after feedback", true, "Fair on both counts. Redoing it as a diagram page that starts from why the twin exists and defines each term, no infra knowledge assumed.", VerdictWorking},
 		{"future ask while continuing", true, "One thing I'll need from you eventually: the bucket name for the postgres archive. Not blocking yet, I'm doing the capture-side change first and will ask again when I get to the twin.", VerdictWorking},
 		{"watching ci", true, "Pushed the fix. Watching CI, will report when it finishes.", VerdictWorking},
+		{"ack with review pending", true, "Will do. \"Same\" will mean one real hydration run at main and at the PR head on the same slot, with identical pushed digests and row contents, posted here before each merge. Review for #1461 is requested here.", VerdictWorking},
 		{"user thanks", false, "thanks!", VerdictIdle},
 		{"user fyi", false, "fyi I merged the manifest PR, no action needed", VerdictIdle},
 		{"user hold off", false, "hold off on this for now, we'll revisit next week", VerdictIdle},
