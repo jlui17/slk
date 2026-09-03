@@ -667,20 +667,12 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	var result []string
 	hl := newSearchHighlighter(opts.SearchTerms)
 	for _, line := range lines {
-		if strings.HasPrefix(line, "&gt; ") || strings.HasPrefix(line, "> ") {
-			quoted := strings.TrimPrefix(line, "&gt; ")
-			quoted = strings.TrimPrefix(quoted, "> ")
-			quoted = slackEntityDecoder.Replace(quoted)
-			line = renderBlockquote(quoted, opts.Width, hl)
+		if body, isQuote := stripQuotePrefix(line); isQuote {
+			line = renderBlockquote(renderInlineLine(body, opts, hl), opts.Width, hl)
 		} else if item, ok := renderListItem(line, opts, hl); ok {
 			line = item
 		} else {
-			line = renderInlineFormattingWith(line, opts)
-			// Decode Slack-escaped entities after markup regexes have
-			// consumed legitimate <...> markers, so escaped user input
-			// (e.g. literal "<@U1>") doesn't become a fake mention.
-			line = slackEntityDecoder.Replace(line)
-			line = hl.highlight(line)
+			line = renderInlineLine(line, opts, hl)
 		}
 		result = append(result, line)
 	}
@@ -913,14 +905,11 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 	lines := strings.Split(text, "\n")
 	var result []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "&gt; ") || strings.HasPrefix(line, "> ") {
-			quoted := strings.TrimPrefix(line, "&gt; ")
-			quoted = strings.TrimPrefix(quoted, "> ")
-			quoted = slackEntityDecoder.Replace(quoted)
-			line = "> " + quoted
-		} else {
-			line = slackMrkdwnToCommonMarkInline(line, userNames, channelNames, userGroups)
-			line = slackEntityDecoder.Replace(line)
+		body, isQuote := stripQuotePrefix(line)
+		line = slackMrkdwnToCommonMarkInline(body, userNames, channelNames, userGroups)
+		line = slackEntityDecoder.Replace(line)
+		if isQuote {
+			line = "> " + line
 		}
 		result = append(result, line)
 	}

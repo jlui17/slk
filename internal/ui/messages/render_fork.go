@@ -47,14 +47,26 @@ func (h searchHighlighter) reopenAcrossRows(rows string) string {
 	return strings.Join(split, "\n")
 }
 
-func renderBlockquote(quoted string, width int, hl searchHighlighter) string {
+func stripQuotePrefix(line string) (string, bool) {
+	body := strings.TrimPrefix(line, "&gt; ")
+	body = strings.TrimPrefix(body, "> ")
+	return body, body != line
+}
+
+// Decode entities only after the markup regexes have consumed real <...>
+// tokens, so escaped user input (a literal "<@U1>") never becomes a mention.
+func renderInlineLine(text string, opts RenderSlackMarkdownOpts, hl searchHighlighter) string {
+	return hl.highlight(slackEntityDecoder.Replace(renderInlineFormattingWith(text, opts)))
+}
+
+func renderBlockquote(body string, width int, hl searchHighlighter) string {
 	style := blockquoteStyle()
-	inner := width - style.GetHorizontalFrameSize()
-	if len(hl.terms) == 0 {
-		return style.Render(WordWrap(quoted, inner))
+	body = ReapplyBgAfterResets(body, fgANSIFor(style.GetForeground()))
+	body = WordWrap(body, width-style.GetHorizontalFrameSize())
+	if len(hl.terms) > 0 {
+		body = hl.reopenAcrossRows(body)
 	}
-	body := ReapplyBgAfterResets(hl.highlight(quoted), fgANSIFor(style.GetForeground()))
-	return style.Render(hl.reopenAcrossRows(WordWrap(body, inner)))
+	return style.Render(body)
 }
 
 func renderCodeBlock(inner string, width int) string {
@@ -68,7 +80,7 @@ func renderListItem(line string, opts RenderSlackMarkdownOpts, hl searchHighligh
 	if head == "" {
 		return "", false
 	}
-	body := hl.highlight(slackEntityDecoder.Replace(renderInlineFormattingWith(line[len(head):], opts)))
+	body := renderInlineLine(line[len(head):], opts, hl)
 	w := lipgloss.Width(head)
 	body = WordWrap(body, opts.Width-w)
 	return head + strings.ReplaceAll(body, "\n", "\n"+strings.Repeat(" ", w)), true

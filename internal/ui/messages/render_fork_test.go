@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -333,5 +334,126 @@ func TestCodeBlock_RowsHighlightSearchTerms(t *testing.T) {
 	out := RenderSlackMarkdownWith("```\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
 	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
 		t.Errorf("code row term not highlighted: %q", out)
+	}
+}
+
+func withDarkTheme(t *testing.T) {
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+}
+
+func sgrPrefix(t *testing.T, style lipgloss.Style) string {
+	t.Helper()
+	probe := style.Render("x")
+	end := strings.IndexByte(probe, 'm')
+	if !strings.HasPrefix(probe, "\x1b[") || end < 0 {
+		t.Fatalf("style emitted no SGR: %q", probe)
+	}
+	return probe[:end+1]
+}
+
+func TestBlockquote_InlineFormattingMatchesPlainLine(t *testing.T) {
+	withDarkTheme(t)
+	opts := RenderSlackMarkdownOpts{UserNames: map[string]string{"U1": "alice"}}
+	cases := []struct {
+		name, in string
+		style    lipgloss.Style
+	}{
+		{"bold", "say *loud* now", boldStyle()},
+		{"italic", "say _soft_ now", italicStyle()},
+		{"strike", "say ~gone~ now", strikethroughStyle()},
+		{"code", "run `ls` now", codeStyle()},
+		{"link", "see <https://example.com|docs> now", linkStyle()},
+		{"mention", "hi <@U1> now", mentionStyle()},
+	}
+	for _, tc := range cases {
+		plain := RenderSlackMarkdownWith(tc.in, opts)
+		quote := RenderSlackMarkdownWith("> "+tc.in, opts)
+		if want, got := quoteBar+" "+ansi.Strip(plain), ansi.Strip(quote); got != want {
+			t.Errorf("%s: quote text %q, want %q", tc.name, got, want)
+		}
+		if sgr := sgrPrefix(t, tc.style); !strings.Contains(quote, sgr) {
+			t.Errorf("%s: quote lacks the span's SGR %q:\n%q", tc.name, sgr, quote)
+		}
+	}
+}
+
+func TestBlockquote_EmojiShortcodeConverts(t *testing.T) {
+	if got := ansi.Strip(RenderSlackMarkdown("> :smile: there", nil, nil)); strings.Contains(got, ":smile:") {
+		t.Errorf("emoji shortcode left raw inside quote: %q", got)
+	}
+}
+
+func TestBlockquote_EscapedMarkupStaysLiteral(t *testing.T) {
+	opts := RenderSlackMarkdownOpts{UserNames: map[string]string{"U1": "alice"}}
+	got := ansi.Strip(RenderSlackMarkdownWith("> &lt;@U1&gt; and &lt;https://x|y&gt;", opts))
+	if want := quoteBar + " <@U1> and <https://x|y>"; got != want {
+		t.Errorf("escaped markup inside quote: got %q, want %q", got, want)
+	}
+}
+
+func TestBlockquote_StyledSpanSurvivesWrap(t *testing.T) {
+	withDarkTheme(t)
+	const width = 30
+	in := "> " + strings.Repeat("word ", 8) + "*loud* " + strings.Repeat("word ", 8)
+	out := RenderSlackMarkdownWith(in, RenderSlackMarkdownOpts{Width: width})
+	bold := sgrPrefix(t, boldStyle())
+	for name, pass := range map[string]string{"rendered": out, "rendered+WordWrap": WordWrap(out, width)} {
+		rows := strings.Split(pass, "\n")
+		requireBarredRows(t, name, strippedRows(pass), 3)
+		if !slices.ContainsFunc(rows, func(row string) bool {
+			return strings.Contains(row, bold) && strings.Contains(ansi.Strip(row), "loud")
+		}) {
+			t.Errorf("%s: no barred row carries the bold span:\n%q", name, rows)
+		}
+	}
+}
+
+func TestBlockquote_TailStaysMutedAfterSpan(t *testing.T) {
+	withDarkTheme(t)
+	muted, primary := fgANSIFor(blockquoteStyle().GetForeground()), FgANSI()
+	if muted == primary || muted == "" {
+		t.Fatalf("theme must distinguish muted %q from primary %q", muted, primary)
+	}
+	out := RenderSlackMarkdown("> before *loud* after", nil, nil)
+	_, tail, _ := strings.Cut(out, "loud")
+	tail, _, _ = strings.Cut(tail, "after")
+	if !strings.Contains(tail, muted) || strings.LastIndex(tail, muted) < strings.LastIndex(tail, primary) {
+		t.Errorf("quote text after a span is not muted; escapes before %q: %q", "after", tail)
+	}
+}
+
+func TestBlockquote_RichTextQuoteRendersInline(t *testing.T) {
+	withDarkTheme(t)
+	rt := blockkit.RichTextBlock{Elements: []slack.RichTextElement{
+		&slack.RichTextQuote{Type: slack.RTEQuote, Elements: []slack.RichTextSectionElement{
+			&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "say "},
+			&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "loud", Style: &slack.RichTextSectionTextStyle{Bold: true}},
+		}},
+	}}
+	m := New(nil, "general")
+	r := blockkit.Render([]blockkit.Block{rt}, m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil), 40)
+	if len(r.Lines) != 1 {
+		t.Fatalf("expected one row, got %q", r.Lines)
+	}
+	if got := ansi.Strip(r.Lines[0]); got != quoteBar+" say loud" {
+		t.Errorf("rich_text quote text %q", got)
+	}
+	if bold := sgrPrefix(t, boldStyle()); !strings.Contains(r.Lines[0], bold) {
+		t.Errorf("rich_text quote lacks bold SGR %q:\n%q", bold, r.Lines[0])
+	}
+}
+
+func TestCommonMark_QuoteConvertsInline(t *testing.T) {
+	names := map[string]string{"U1": "alice"}
+	cases := map[string]string{
+		"> *loud* <@U1> &amp; <https://example.com|docs>": "> **loud** @alice & [docs](https://example.com)",
+		"> &lt;@U1&gt;": "> <@U1>",
+		"&gt; run `ls`": "> run `ls`",
+	}
+	for in, want := range cases {
+		if got := SlackMrkdwnToCommonMark(in, names, nil); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
 	}
 }
