@@ -30,18 +30,18 @@ func requireBarredRows(t *testing.T, name string, lines []string, minRows int) {
 }
 
 // The hosts WordWrap the rendered body again; that pass must leave the
-// barred rows alone.
+// renderer's rows alone.
+func hostPasses(out string, width int) map[string]string {
+	return map[string]string{"rendered": out, "rendered+WordWrap": WordWrap(out, width)}
+}
+
 func TestBlockquote_WrapsInsideBar(t *testing.T) {
 	const width = 30
 	out := RenderSlackMarkdownWith("> "+strings.Repeat("word ", 20), RenderSlackMarkdownOpts{Width: width})
-	for name, pass := range map[string]string{"rendered": out, "rendered+WordWrap": WordWrap(out, width)} {
+	for name, pass := range hostPasses(out, width) {
 		lines := strippedRows(pass)
 		requireBarredRows(t, name, lines, 3)
-		for i, l := range lines {
-			if w := lipgloss.Width(l); w > width {
-				t.Errorf("%s: row %d is %d wide, limit %d: %q", name, i, w, width, l)
-			}
-		}
+		requireRowsWithin(t, name, lines, width)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestCodeBlock_WrapsInsideBox(t *testing.T) {
 	const width = 30
 	code := "func f() {\n    if a {\n        return 1234567890 1234567890 1234567890\n    }\n}"
 	out := RenderSlackMarkdownWith("```\n"+code+"\n```", RenderSlackMarkdownOpts{Width: width})
-	for name, pass := range map[string]string{"rendered": out, "rendered+WordWrap": WordWrap(out, width)} {
+	for name, pass := range hostPasses(out, width) {
 		rows := nonBlankRows(pass)
 		if len(rows) < 6 {
 			t.Fatalf("%s: expected the long code line to split, got %d rows: %q", name, len(rows), rows)
@@ -161,7 +161,7 @@ func TestListItem_HangingIndent(t *testing.T) {
 	}
 	for name, tc := range cases {
 		out := RenderSlackMarkdownWith(tc.marker+body, RenderSlackMarkdownOpts{Width: width})
-		for pass, s := range map[string]string{"rendered": out, "rendered+WordWrap": WordWrap(out, width)} {
+		for pass, s := range hostPasses(out, width) {
 			requireHangingIndent(t, name+"/"+pass, strippedRows(s), tc.marker, tc.indent, width)
 		}
 	}
