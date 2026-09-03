@@ -666,7 +666,11 @@ func TestReportsDuringMovesNoRace(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 40; i++ {
-			r.Report("slack-claude", "Claude", "#eng fix retries", i%2 == 0, "")
+			state := "idle"
+			if i%2 == 0 {
+				state = "working"
+			}
+			r.Report("slack-claude", "Claude", "#eng fix retries", state, "")
 		}
 	}()
 	for i := 1; i <= 10; i++ {

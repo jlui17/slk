@@ -268,9 +268,9 @@ type releaseAgentParams struct {
 // Report upserts this pane's agent-sidebar entry: agent is herdr's internal
 // agent id (e.g. "slack-claude"), displayName the human name shown in the
 // sidebar (e.g. "Claude"), title the pane title (channel + thread snippet),
-// working the state (true → "working", false → "idle"), statusMessage the
-// transient status text ("is thinking…", may be empty).
-func (r *Reporter) Report(agent, displayName, title string, working bool, statusMessage string) {
+// state one of herdr's lifecycle states ("working", "idle", "blocked"),
+// statusMessage the transient status text ("is thinking…", may be empty).
+func (r *Reporter) Report(agent, displayName, title, state, statusMessage string) {
 	if r == nil {
 		return
 	}
@@ -278,10 +278,6 @@ func (r *Reporter) Report(agent, displayName, title string, working bool, status
 	r.agent = agent
 	paneID := r.paneID
 	r.mu.Unlock()
-	state := "idle"
-	if working {
-		state = "working"
-	}
 	seq := nextSeq()
 	// The metadata draws its own seq: herdr's per-pane seq counter is
 	// shared across report methods and silently drops an equal-or-stale

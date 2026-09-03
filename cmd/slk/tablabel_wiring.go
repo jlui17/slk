@@ -58,8 +58,8 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	})
 	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, fromAgent bool) {
 		request(func(ctx context.Context) (tea.Msg, error) {
-			working, err := gen.Working(ctx, message, fromAgent)
-			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, Working: working}, err
+			verdict, err := gen.Judge(ctx, message, fromAgent)
+			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict)}, err
 		})
 	})
 }

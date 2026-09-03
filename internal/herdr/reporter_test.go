@@ -218,7 +218,7 @@ func TestRequestsFollowAdoptedIdentity(t *testing.T) {
 	// launch env's.
 	r.adopt(paneInfo{PaneID: "w2:p9", TabID: "w2:t9", WorkspaceID: "w2", TerminalID: "term_a"})
 
-	r.Report("slack-claude", "Claude", "#eng fix retries", true, "")
+	r.Report("slack-claude", "Claude", "#eng fix retries", "working", "")
 	for _, line := range waitLines(t, rec, 2) {
 		method, params := decode(t, line)
 		if params["pane_id"] != "w2:p9" {
@@ -289,7 +289,7 @@ func TestReport(t *testing.T) {
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
-	r.Report("slack-claude", "Claude", "#general · thread", true, "is thinking…")
+	r.Report("slack-claude", "Claude", "#general · thread", "working", "is thinking…")
 	lines := waitLines(t, rec, 2)
 
 	method, params := decode(t, lines[0])
@@ -366,7 +366,7 @@ func TestReportIdleOmitsEmptyMessage(t *testing.T) {
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
-	r.Report("slack-claude", "Claude", "title", false, "")
+	r.Report("slack-claude", "Claude", "title", "idle", "")
 	lines := waitLines(t, rec, 2)
 
 	_, params := decode(t, lines[0])
@@ -382,7 +382,7 @@ func TestReportTCP(t *testing.T) {
 	ln, rec := startServer(t, "tcp", "127.0.0.1:0")
 	r := newReporter("tcp", ln.Addr().String(), "pane-1", "tab-1")
 
-	r.Report("slack-claude", "Claude", "title", true, "")
+	r.Report("slack-claude", "Claude", "title", "working", "")
 	lines := waitLines(t, rec, 2)
 	if method, _ := decode(t, lines[0]); method != "pane.report_agent" {
 		t.Fatalf("first method = %q, want pane.report_agent", method)
@@ -394,7 +394,7 @@ func TestRelease(t *testing.T) {
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
-	r.Report("slack-claude", "Claude", "title", true, "")
+	r.Report("slack-claude", "Claude", "title", "working", "")
 	waitLines(t, rec, 2)
 	r.release()
 	lines := waitLines(t, rec, 3)
@@ -430,7 +430,7 @@ func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 
 func TestNilReporter(t *testing.T) {
 	var r *Reporter
-	r.Report("a", "A", "t", true, "m")
+	r.Report("a", "A", "t", "working", "m")
 	r.release()
 	r.NameTab("x")
 	r.Close(time.Second)
@@ -512,7 +512,7 @@ func TestCloseWaitsForInFlight(t *testing.T) {
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
-	r.Report("slack-claude", "Claude", "title", true, "")
+	r.Report("slack-claude", "Claude", "title", "working", "")
 	r.Close(2 * time.Second)
 
 	// Close released and waited, so all three requests must already be

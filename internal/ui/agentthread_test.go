@@ -16,6 +16,7 @@ type agentReportCall struct {
 	agent       string
 	displayName string
 	title       string
+	state       AgentState
 	working     bool
 	status      string
 }
@@ -43,8 +44,8 @@ func newAgentTestAppWithTab(t *testing.T) (*App, *[]agentReportCall, *[]agentUnr
 	tabNames := &[]string{}
 	a := newHarnessApp(t, withApp(func(a *App) {
 		a.SetAgentReporter(
-			func(agent, displayName, title string, working bool, statusMessage string) {
-				*calls = append(*calls, agentReportCall{agent, displayName, title, working, statusMessage})
+			func(agent, displayName, title string, state AgentState, statusMessage string) {
+				*calls = append(*calls, agentReportCall{agent, displayName, title, state, state == AgentWorking, statusMessage})
 			},
 			func(agent, displayName, title, statusMessage string) {
 				*unreads = append(*unreads, agentUnreadCall{agent, displayName, title, statusMessage})

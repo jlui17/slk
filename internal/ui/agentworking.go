@@ -60,35 +60,55 @@ type agentLastMsg struct {
 	text string
 }
 
-// derivedWorking is the content-derived in-progress signal: a human
-// message the agent hasn't reacted to means the agent owes a response,
-// and an agent-authored todo post means it is mid-task. The two shapes
-// content can't decide — a plain agent reply, an agent-acked human
-// message — take the model verdict when one has landed for exactly this
-// state, and read idle otherwise.
-func (g *agentSidebar) derivedWorking() bool {
+// derivedState is the content-derived lifecycle state: a human message
+// the agent hasn't reacted to means the agent owes a response, and an
+// agent-authored todo post means it is mid-task. The two shapes content
+// can't decide — a plain agent reply, an agent-acked human message — take
+// the model verdict when one has landed for exactly this state, and read
+// idle otherwise.
+func (g *agentSidebar) derivedState() AgentState {
 	l := g.lastMsg
 	if l.ts == "" {
-		return false
+		return AgentIdle
 	}
 	if l.human {
 		if !l.acked {
-			return true
+			return AgentWorking
 		}
 	} else if l.todo {
-		return true
+		return AgentWorking
 	}
 	if g.workingJudge.judgedKey == workingJudgeKey(l) {
-		return g.workingJudge.working
+		return g.workingJudge.state
 	}
-	return false
+	return AgentIdle
 }
 
-// effectiveWorking combines the assistant's live turn state
+// effectiveState combines the assistant's live turn state
 // (ai_assistant_status, covering the composing window) with the derived
 // signal (covering the gaps between messages). Every gate and report that
 // used to read the turn state alone reads this.
-func (g *agentSidebar) effectiveWorking() bool { return g.working || g.derivedWorking() }
+func (g *agentSidebar) effectiveState() AgentState {
+	if g.working {
+		return AgentWorking
+	}
+	return g.derivedState()
+}
+
+// statusFor is the row's status text for state: the live turn's text
+// while a turn is composing, otherwise the unread count when there is one.
+func (g *agentSidebar) statusFor(state AgentState) string {
+	if state == AgentWorking {
+		if g.working {
+			return g.statusText
+		}
+		return ""
+	}
+	if n := g.unreadTotal(); n > 0 {
+		return unreadStatusMessage(n)
+	}
+	return ""
+}
 
 // agentAuthorIsHuman classifies a message author for the derived state:
 // the tracked bot user and anything the user cache marks as a bot (a
@@ -121,7 +141,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 	if msg.ThreadTS != t.threadTS && msg.TS != t.threadTS {
 		return
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	last := &a.agentSidebar.lastMsg
 	switch {
 	case msg.IsEdited:
@@ -162,7 +182,7 @@ func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, remo
 		ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
 		return
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg.acked = !removed
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
@@ -178,7 +198,7 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 		userID != last.authorID || !last.human {
 		return
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	last.human = false
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
@@ -193,7 +213,7 @@ func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
 		ts != a.agentSidebar.lastMsg.ts {
 		return
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg = agentLastMsg{}
 	a.publishAgentThreadDerived(prev)
 }
@@ -210,7 +230,7 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	if len(replies) > 0 {
 		last = replies[len(replies)-1]
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg = agentLastMsg{
 		ts:       last.TS,
 		authorID: last.UserID,
@@ -224,26 +244,13 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 }
 
 // publishAgentThreadDerived reports the tracked thread's state when a
-// derived-state change flipped the effective working value; a same-state
-// update publishes nothing, so echoes and reloads can't spam herdr. The
+// derived-state change moved the effective state; a same-state update
+// publishes nothing, so echoes and reloads can't spam herdr. The
 // working→idle report here is a real completion edge, and unread state
 // deferred during the run rides it.
-func (a *App) publishAgentThreadDerived(prevEffective bool) {
-	if a.agentSidebar.report == nil {
+func (a *App) publishAgentThreadDerived(prev AgentState) {
+	if a.agentSidebar.effectiveState() == prev {
 		return
 	}
-	eff := a.agentSidebar.effectiveWorking()
-	if eff == prevEffective {
-		return
-	}
-	t := a.agentSidebar.thread
-	status := ""
-	if eff {
-		if a.agentSidebar.working {
-			status = a.agentSidebar.statusText
-		}
-	} else if a.agentSidebar.unreadTotal() > 0 {
-		status = unreadStatusMessage(a.agentSidebar.unreadTotal())
-	}
-	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, status)
+	a.reportAgentThreadState()
 }

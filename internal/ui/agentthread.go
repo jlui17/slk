@@ -12,13 +12,24 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
+// AgentState is the lifecycle state slk reports for the tracked thread,
+// in herdr's own vocabulary: blocked means the agent is waiting on the
+// user (a question, a plan for approval) and cannot continue until they
+// answer.
+type AgentState string
+
+const (
+	AgentIdle    AgentState = "idle"
+	AgentWorking AgentState = "working"
+	AgentBlocked AgentState = "blocked"
+)
+
 // AgentReportFunc mirrors the tracked agent thread (a thread whose root
 // message mentions, or was written by, a bot user) onto an external agent
-// sidebar. agent is the sidebar's
-// internal agent id, displayName the human name it shows, title the pane
-// title, working the in-progress flag, statusMessage the assistant's
+// sidebar. agent is the sidebar's internal agent id, displayName the human
+// name it shows, title the pane title, statusMessage the assistant's
 // transient status text ("is thinking…", may be empty). See internal/herdr.
-type AgentReportFunc func(agent, displayName, title string, working bool, statusMessage string)
+type AgentReportFunc func(agent, displayName, title string, state AgentState, statusMessage string)
 
 // AgentUnreadReportFunc publishes the tracked thread's unread state as a
 // synthetic working→idle completion (the only edge herdr derives its
@@ -105,7 +116,7 @@ type agentSidebar struct {
 
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of
-	// effectiveWorking (the other is the content-derived signal from
+	// effectiveState (the other is the content-derived signal from
 	// lastMsg — see agentworking.go); while the effective state is
 	// working, unread changes ride the next idle report instead of
 	// publishing a completion that would stomp the live working state.
@@ -253,7 +264,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// so a turn already in progress isn't visible until its next event.
 	// The panel snapshot that follows on the open path re-derives the
 	// content-based state immediately (snapshotAgentThreadLast).
-	a.agentSidebar.report(agentSidebarID(name), name, next.title, false, "")
+	a.agentSidebar.report(agentSidebarID(name), name, next.title, AgentIdle, "")
 	// The mention is dropped from the raw text, not trimmed from the
 	// flattened string: trimming by rendered name breaks when the
 	// in-memory name map and the user cache disagree on the bot's name.
@@ -302,7 +313,6 @@ func (a *App) noteAgentThreadReply(teamID, channelID string, msg messages.Messag
 // funnels through one of them, so the sidebar row mirrors Slack's read
 // state wherever it changed.
 func (a *App) markAgentThreadRead(teamID, channelID, threadTS string) {
-	t := a.agentSidebar.thread
 	if !a.tracksThread(teamID, channelID, threadTS) || a.agentSidebar.unreadTotal() == 0 {
 		return
 	}
@@ -311,8 +321,8 @@ func (a *App) markAgentThreadRead(teamID, channelID, threadTS string) {
 	// herdr's seen flag untouched, so a dot herdr is showing can
 	// only be cleared by focusing the tab — but the row's status
 	// text stops claiming unread immediately.
-	if !a.agentSidebar.effectiveWorking() && a.agentSidebar.report != nil {
-		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, false, "")
+	if a.agentSidebar.effectiveState() != AgentWorking {
+		a.reportAgentThreadState()
 	}
 }
 
@@ -339,8 +349,8 @@ func (a *App) dropAgentThreadReply(teamID, channelID, ts string) {
 		a.reportAgentThreadUnread()
 		return
 	}
-	if !a.agentSidebar.effectiveWorking() && a.agentSidebar.report != nil {
-		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, false, "")
+	if a.agentSidebar.effectiveState() != AgentWorking {
+		a.reportAgentThreadState()
 	}
 }
 
@@ -372,9 +382,9 @@ func (a *App) dropAgentThreadTurnState(teamID string) {
 	}
 	a.agentSidebar.working = false
 	a.agentSidebar.statusText = ""
-	if a.agentSidebar.effectiveWorking() {
-		// The derived signal still says working: republish so the row
-		// stops showing the dead turn's status text, with no edge.
+	if a.agentSidebar.effectiveState() != AgentIdle {
+		// The derived signal still says working or blocked: republish so
+		// the row stops showing the dead turn's status text, with no edge.
 		a.reportAgentThreadState()
 		return
 	}
@@ -392,25 +402,26 @@ func (a *App) reportAgentThreadState() {
 		return
 	}
 	t := a.agentSidebar.thread
-	eff := a.agentSidebar.effectiveWorking()
-	// The transient status text belongs to the live WS turn alone; a
-	// derived-only working state shows none.
-	status := ""
-	if a.agentSidebar.working {
-		status = a.agentSidebar.statusText
-	}
-	if !eff && a.agentSidebar.unreadTotal() > 0 {
-		status = unreadStatusMessage(a.agentSidebar.unreadTotal())
-	}
-	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, status)
+	eff := a.agentSidebar.effectiveState()
+	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, a.agentSidebar.statusFor(eff))
 }
 
 // reportAgentThreadUnread publishes the tracked thread's unread state as a
 // synthetic completion. Deferred while the agent reads as working (a live
 // WS turn or the derived signal) — the count rides the working→idle report
-// instead, and that edge is itself the completion herdr needs.
+// instead, and that edge is itself the completion herdr needs. A blocked
+// row republishes with the count instead: a synthetic completion would
+// replace blocked with idle, and herdr treats the later blocked→idle edge
+// as a completion on its own.
 func (a *App) reportAgentThreadUnread() {
-	if a.agentSidebar.reportUnread == nil || a.agentSidebar.effectiveWorking() {
+	switch a.agentSidebar.effectiveState() {
+	case AgentWorking:
+		return
+	case AgentBlocked:
+		a.reportAgentThreadState()
+		return
+	}
+	if a.agentSidebar.reportUnread == nil {
 		return
 	}
 	t := a.agentSidebar.thread
@@ -601,20 +612,14 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			m.ThreadTS != t.threadTS || m.BotUserID != t.botUserID {
 			return nil, true
 		}
-		working := m.Status != ""
-		a.agentSidebar.working = working
+		a.agentSidebar.working = m.Status != ""
 		a.agentSidebar.statusText = m.Status
-		eff := a.agentSidebar.effectiveWorking()
-		status := m.Status
-		if !eff && a.agentSidebar.unreadTotal() > 0 {
-			// The working→idle report is itself the completion edge, so
-			// unread state deferred during the run lands here. A turn
-			// end while the derived signal still says working publishes
-			// working instead, and the completion waits for the derived
-			// flip (publishAgentThreadDerived).
-			status = unreadStatusMessage(a.agentSidebar.unreadTotal())
-		}
-		a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, status)
+		// The working→idle report is itself the completion edge, so
+		// unread state deferred during the run lands here. A turn end
+		// while the derived signal still says working publishes working
+		// instead, and the completion waits for the derived flip
+		// (publishAgentThreadDerived).
+		a.reportAgentThreadState()
 		return nil, true
 
 	case HerdrTabViewMsg:

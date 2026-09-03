@@ -75,7 +75,7 @@ max_image_cache_mb = 200
 
 # When slk runs inside a herdr pane, it mirrors an agent thread (a thread
 # whose root message @-mentions a bot, e.g. Claude) onto herdr's agent
-# sidebar: idle/working state, the bot's name, and a channel+snippet title.
+# sidebar: idle/working/blocked state, the bot's name, and a channel+snippet title.
 # Opening one starts the mirroring, and it keeps going after you navigate
 # away, close the thread panel, or switch to another workspace — that is
 # where replies you haven't read arrive. Only opening a different agent
@@ -88,8 +88,9 @@ max_image_cache_mb = 200
 # with a "todos as of HH:MM UTC" stamp). With tab_name_model set, the two
 # shapes content can't decide — a plain bot reply, a human message the bot
 # only acked — are judged by that model. A bot reply reads as working
-# when the bot is doing something next on its own, idle when it is
-# finished or waiting on you (a question, a plan for approval). An acked
+# when the bot is doing something next on its own, blocked (herdr's
+# needs-input state) when it is waiting on you to answer in the thread (a
+# question, a plan for approval), and idle when it is finished. An acked
 # human message reads as working when it asks the bot for anything (a
 # request, a question, a go-ahead), idle when it just closes the exchange.
 #

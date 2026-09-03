@@ -7,18 +7,26 @@ import (
 	"unicode/utf8"
 )
 
+// Verdict values are herdr's lifecycle-state names, so the caller can
+// report one without translating it.
+type Verdict string
+
+const (
+	VerdictIdle    Verdict = "idle"
+	VerdictWorking Verdict = "working"
+	VerdictBlocked Verdict = "blocked"
+)
+
 // The two ambiguous shapes are two different questions, so each side gets
 // its own system prompt: one prompt covering both misreads one side or
 // the other (an agent waiting for the user's go as working, or a user's
 // "go ahead" as the agent not having started).
 const workingAgentSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
-	"The newest message in the thread is from the agent. " +
-	"Judge whether the agent is still working: mid-task, or saying it is doing or about to do something next without waiting on the user. " +
-	"It is not working when it has finished, or when the next move is the user's: it asked a question, presented options or a plan for approval, or said it will wait for a go-ahead. " +
-	"An unfinished task still counts as not working while the agent waits on the user. " +
-	"Mentioning something it will need from the user later, while continuing now, still counts as working. " +
-	"A message that neither says what the agent does next nor hands the move to the user, such as a plain answer or report, is not working. " +
-	"Reply with exactly one letter: y if the agent is working, n if not."
+	"The newest message in the thread is from the agent. Classify the agent's state from it. " +
+	"w: working, mid-task or saying it is doing or about to do something next without waiting on the user; mentioning something it will need from the user later, while continuing now, is still w. " +
+	"u: the agent needs the user to answer in this thread before it can continue: it asked a question, presented options or a plan for approval, said it will wait for a go-ahead, or is stopped on something only the user can provide. Work that continues in another thread is not u. " +
+	"d: done, nothing pending on the agent: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
+	"Reply with exactly one letter: w, u, or d."
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the user; the agent reacted to it with an emoji and has not replied yet, so the agent owes a response to anything it asks. " +
@@ -27,40 +35,45 @@ const workingUserSystemPrompt = "You watch Slack threads where a coding agent wo
 	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
 	"Reply with exactly one letter: y if the agent has work to do, n if not."
 
+var (
+	agentVerdictLetters = map[byte]Verdict{'w': VerdictWorking, 'u': VerdictBlocked, 'd': VerdictIdle}
+	userVerdictLetters  = map[byte]Verdict{'y': VerdictWorking, 'n': VerdictIdle}
+)
+
 // maxWorkingBytes caps the one message a working judgment sends. The cap
 // keeps both ends: a long post opens with what the agent did and closes
 // with the hand-off ("I'll wait for your go"), and either end can carry
 // the verdict.
 const maxWorkingBytes = 4000
 
-// Working judges the thread's newest message alone. For the agent's own
-// reply (fromAgent) it asks whether the agent is still working; for a user
-// message the agent has acknowledged with a reaction but not answered, it
-// asks whether the message gives the agent anything to do. Both collapse to
-// working=true/false for the caller.
-func (c *Client) Working(ctx context.Context, message string, fromAgent bool) (bool, error) {
-	system := workingAgentSystemPrompt
+// Judge reads the thread's newest message alone. For the agent's own reply
+// (fromAgent) it asks whether the agent is working, needs the user, or is
+// done; for a user message the agent has acknowledged with a reaction but
+// not answered, it asks whether the message gives the agent anything to
+// do, which is never VerdictBlocked.
+func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Verdict, error) {
+	system, letters := workingAgentSystemPrompt, agentVerdictLetters
 	if !fromAgent {
-		system = workingUserSystemPrompt
+		system, letters = workingUserSystemPrompt, userVerdictLetters
 	}
 	reply, err := c.complete(ctx, system, "Newest message:\n"+clipEnds(message, maxWorkingBytes))
 	if err != nil {
-		return false, err
+		return VerdictIdle, err
 	}
-	return parseWorkingReply(reply)
+	return parseVerdict(reply, letters)
 }
 
-// parseWorkingReply reads the y/n contract leniently: any completion
-// leading with y or n counts, so "yes" or "n — looks finished" still parse.
-func parseWorkingReply(reply string) (bool, error) {
-	switch s := strings.ToLower(strings.TrimSpace(reply)); {
-	case strings.HasPrefix(s, "y"):
-		return true, nil
-	case strings.HasPrefix(s, "n"):
-		return false, nil
-	default:
-		return false, fmt.Errorf("unparseable working verdict %q", reply)
+// parseVerdict reads the one-letter contract leniently: any completion
+// leading with a known letter counts, so "yes" or "d — looks finished"
+// still parse.
+func parseVerdict(reply string, letters map[byte]Verdict) (Verdict, error) {
+	s := strings.ToLower(strings.TrimSpace(reply))
+	if s != "" {
+		if v, ok := letters[s[0]]; ok {
+			return v, nil
+		}
 	}
+	return VerdictIdle, fmt.Errorf("unparseable working verdict %q", reply)
 }
 
 // clipEnds keeps the head and tail of s, marking the cut between them.

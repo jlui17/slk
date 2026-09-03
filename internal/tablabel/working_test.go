@@ -7,16 +7,16 @@ import (
 )
 
 func TestWorkingFramesAgentMessage(t *testing.T) {
-	srv, got := fakeAPI(t, "y")
+	srv, got := fakeAPI(t, "w")
 	defer srv.Close()
 
 	c := newForTest("claude-haiku-4-5", srv.URL)
-	working, err := c.Working(context.Background(), "let me go check the workflow config", true)
+	v, err := c.Judge(context.Background(), "let me go check the workflow config", true)
 	if err != nil {
-		t.Fatalf("Working: %v", err)
+		t.Fatalf("Judge: %v", err)
 	}
-	if !working {
-		t.Error("expected working=true for a y completion")
+	if v != VerdictWorking {
+		t.Errorf("verdict = %v, want VerdictWorking for a w completion", v)
 	}
 	if len(got.System) == 0 || got.System[0].Text != workingAgentSystemPrompt {
 		t.Errorf("system prompt is not the agent-side prompt: %+v", got.System)
@@ -31,12 +31,12 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	defer srv.Close()
 
 	c := newForTest("claude-haiku-4-5", srv.URL)
-	working, err := c.Working(context.Background(), "thanks!", false)
+	v, err := c.Judge(context.Background(), "thanks!", false)
 	if err != nil {
-		t.Fatalf("Working: %v", err)
+		t.Fatalf("Judge: %v", err)
 	}
-	if working {
-		t.Error("expected working=false for an n completion")
+	if v != VerdictIdle {
+		t.Errorf("verdict = %v, want VerdictIdle for an n completion", v)
 	}
 	if len(got.System) == 0 || got.System[0].Text != workingUserSystemPrompt {
 		t.Errorf("system prompt is not the acked-user prompt: %+v", got.System)
@@ -47,13 +47,13 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 }
 
 func TestWorkingCapsMessageSize(t *testing.T) {
-	srv, got := fakeAPI(t, "y")
+	srv, got := fakeAPI(t, "w")
 	defer srv.Close()
 
 	c := newForTest("claude-haiku-4-5", srv.URL)
 	long := "HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
-	if _, err := c.Working(context.Background(), long, true); err != nil {
-		t.Fatalf("Working: %v", err)
+	if _, err := c.Judge(context.Background(), long, true); err != nil {
+		t.Fatalf("Judge: %v", err)
 	}
 	body := got.Messages[0].Content[0].Text
 	if n := len(body); n > maxWorkingBytes+100 {
@@ -64,29 +64,32 @@ func TestWorkingCapsMessageSize(t *testing.T) {
 	}
 }
 
-func TestParseWorkingReply(t *testing.T) {
+func TestParseVerdict(t *testing.T) {
 	cases := []struct {
 		reply   string
-		working bool
+		letters map[byte]Verdict
+		want    Verdict
 		wantErr bool
 	}{
-		{reply: "y", working: true},
-		{reply: "Y\n", working: true},
-		{reply: "yes", working: true},
-		{reply: "n", working: false},
-		{reply: "No — looks finished.", working: false},
-		{reply: "maybe", wantErr: true},
+		{reply: "w", letters: agentVerdictLetters, want: VerdictWorking},
+		{reply: "U\n", letters: agentVerdictLetters, want: VerdictBlocked},
+		{reply: "d — looks finished.", letters: agentVerdictLetters, want: VerdictIdle},
+		{reply: "y", letters: agentVerdictLetters, wantErr: true},
+		{reply: "yes", letters: userVerdictLetters, want: VerdictWorking},
+		{reply: "No — just a thanks.", letters: userVerdictLetters, want: VerdictIdle},
+		{reply: "u", letters: userVerdictLetters, wantErr: true},
+		{reply: "", letters: userVerdictLetters, wantErr: true},
 	}
 	for _, tc := range cases {
-		got, err := parseWorkingReply(tc.reply)
+		got, err := parseVerdict(tc.reply, tc.letters)
 		if tc.wantErr {
 			if err == nil {
-				t.Errorf("parseWorkingReply(%q) = %v, want error", tc.reply, got)
+				t.Errorf("parseVerdict(%q) = %v, want error", tc.reply, got)
 			}
 			continue
 		}
-		if err != nil || got != tc.working {
-			t.Errorf("parseWorkingReply(%q) = %v, %v; want %v", tc.reply, got, err, tc.working)
+		if err != nil || got != tc.want {
+			t.Errorf("parseVerdict(%q) = %v, %v; want %v", tc.reply, got, err, tc.want)
 		}
 	}
 }

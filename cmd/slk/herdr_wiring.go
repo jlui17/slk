@@ -24,7 +24,10 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	}
 	hr.SetPaneIDCache(herdrPaneIDStore(db, os.Getenv("HERDR_PANE_ID")))
 	hr.SetTabLabelCache(herdrTabLabelStore(db, os.Getenv("HERDR_PANE_ID")))
-	app.SetAgentReporter(hr.Report, hr.ReportUnread, hr.NameTab, func(userID string) (string, bool, bool) {
+	report := func(agent, displayName, title string, state ui.AgentState, statusMessage string) {
+		hr.Report(agent, displayName, title, string(state), statusMessage)
+	}
+	app.SetAgentReporter(report, hr.ReportUnread, hr.NameTab, func(userID string) (string, bool, bool) {
 		// Straight to the DB: detection needs IsBot, which the
 		// in-memory name map doesn't carry.
 		u, err := db.GetUser(userID)

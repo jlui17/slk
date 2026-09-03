@@ -1,15 +1,16 @@
 // Model-judged working state: the deterministic derived signal
 // (agentworking.go) can't read two last-message shapes — a plain non-todo
 // agent reply ("let me check that") and a human message the agent only
-// acked with a reaction — so those ask the tab-label model for a y/n
-// verdict. The deterministic verdicts (human unacked, todo post) never
-// consult it, and until a verdict lands the ambiguous states read idle,
-// exactly as they did before this existed.
+// acked with a reaction — so those ask the tab-label model for a
+// verdict: working, blocked on the user, or idle. The deterministic
+// verdicts (human unacked, todo post) never consult it, and until a
+// verdict lands the ambiguous states read idle, exactly as they did
+// before this existed.
 package ui
 
 import tea "charm.land/bubbletea/v2"
 
-// AgentWorkingJudgeFunc requests a model working/idle verdict for the
+// AgentWorkingJudgeFunc requests a model working/blocked/idle verdict for the
 // tracked thread's newest message. key identifies the exact state judged
 // (message plus who owes what), so the eventual verdict can be dropped if
 // the thread moved on. Fire-and-forget: the implementation answers with an
@@ -23,7 +24,7 @@ type AgentWorkingVerdictMsg struct {
 	ChannelID string
 	ThreadTS  string
 	Key       string
-	Working   bool
+	State     AgentState
 }
 
 // workingJudgeState tracks the model verdict machinery: the key already
@@ -33,7 +34,7 @@ type AgentWorkingVerdictMsg struct {
 type workingJudgeState struct {
 	requestedKey string
 	judgedKey    string
-	working      bool
+	state        AgentState
 }
 
 // workingJudgeKey names the judged state: the message plus which side wrote
@@ -92,9 +93,9 @@ var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, 
 		m.ThreadTS != t.threadTS || m.Key != workingJudgeKey(a.agentSidebar.lastMsg) {
 		return nil, true
 	}
-	prev := a.agentSidebar.effectiveWorking()
+	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.workingJudge.judgedKey = m.Key
-	a.agentSidebar.workingJudge.working = m.Working
+	a.agentSidebar.workingJudge.state = m.State
 	a.publishAgentThreadDerived(prev)
 	return nil, true
 }

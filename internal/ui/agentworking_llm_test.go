@@ -45,9 +45,9 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 		t.Errorf("expected idle while verdict in flight, got %+v", got)
 	}
 
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", Working: true})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
-		t.Errorf("expected working after y verdict, got %+v", got)
+		t.Errorf("expected working after a working verdict, got %+v", got)
 	}
 }
 
@@ -67,9 +67,9 @@ func TestAckReactionAsksJudgeAboutAckedMessage(t *testing.T) {
 	if got := lastReport(t, reports); got.working {
 		t.Errorf("expected idle while verdict in flight, got %+v", got)
 	}
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", Working: true})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
-		t.Errorf("expected working after y verdict on acked ask, got %+v", got)
+		t.Errorf("expected working after a working verdict on acked ask, got %+v", got)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestStaleVerdictIsDropped(t *testing.T) {
 		TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "also this",
 	}})
 	before := len(*reports)
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", Working: false})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentIdle})
 	if len(*reports) != before {
 		t.Errorf("stale verdict published a report: %+v", (*reports)[before:])
 	}
@@ -130,9 +130,9 @@ func TestEditOfJudgedMessageReasks(t *testing.T) {
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "On it, checking now.",
 	}})
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", Working: true})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
-		t.Fatalf("expected working after y verdict, got %+v", got)
+		t.Fatalf("expected working after a working verdict, got %+v", got)
 	}
 	// The edit changes what was judged: the old verdict is dropped (idle
 	// again) and the new text is re-asked.
@@ -144,5 +144,43 @@ func TestEditOfJudgedMessageReasks(t *testing.T) {
 	}
 	if len(*judged) != 2 || !strings.Contains((*judged)[1].message, "all green") {
 		t.Errorf("expected a re-ask with the edited text, got %+v", *judged)
+	}
+}
+
+func TestBlockedVerdictReportsBlocked(t *testing.T) {
+	a, reports, unreads := newAgentTestApp(t)
+	withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "Two options here, A or B. Which do you want?",
+	}})
+	before := len(*unreads)
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentBlocked})
+	// The reply itself is unread: the blocked report carries the count.
+	if got := lastReport(t, reports); got.state != AgentBlocked || got.status != "1 unread reply" {
+		t.Fatalf("expected a blocked report with the unread count, got %+v", got)
+	}
+
+	// Read and unread changes while blocked ride plain blocked reports,
+	// never the synthetic working→idle completion that would clear the state.
+	a.markAgentThreadRead("", "C1", "100.0")
+	if got := lastReport(t, reports); got.state != AgentBlocked || got.status != "" {
+		t.Errorf("expected blocked report with no status after read, got %+v", got)
+	}
+	a.markAgentThreadUnread("", "C1", "100.0", "101.0")
+	if got := lastReport(t, reports); got.state != AgentBlocked || got.status != "1 unread reply" {
+		t.Errorf("expected blocked report carrying the unread count, got %+v", got)
+	}
+	if len(*unreads) != before {
+		t.Errorf("unread published as a synthetic completion while blocked: %+v", (*unreads)[before:])
+	}
+
+	// The user's answer is a human message the agent hasn't acked: working.
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "A",
+	}})
+	if got := lastReport(t, reports); got.state != AgentWorking {
+		t.Errorf("expected working after the user's answer, got %+v", got)
 	}
 }
