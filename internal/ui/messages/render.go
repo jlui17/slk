@@ -630,6 +630,7 @@ type RenderSlackMarkdownOpts struct {
 	Customs      map[string]string        // workspace custom emoji map; may be nil
 	EmojiFlushes *[]func(io.Writer) error // append-only; may be nil
 	Width        int                      // display width the caller wraps to; code blocks, list items and blockquotes wrap inside their decoration first
+	SearchTerms  []string                 // folded (text.Fold) word-prefix terms; matches wear SearchHighlightSGR
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -664,13 +665,14 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	// Process line by line for blockquotes
 	lines := strings.Split(text, "\n")
 	var result []string
+	hl := newSearchHighlighter(opts.SearchTerms)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "&gt; ") || strings.HasPrefix(line, "> ") {
 			quoted := strings.TrimPrefix(line, "&gt; ")
 			quoted = strings.TrimPrefix(quoted, "> ")
 			quoted = slackEntityDecoder.Replace(quoted)
-			line = renderBlockquote(quoted, opts.Width)
-		} else if item, ok := renderListItem(line, opts); ok {
+			line = renderBlockquote(quoted, opts.Width, hl)
+		} else if item, ok := renderListItem(line, opts, hl); ok {
 			line = item
 		} else {
 			line = renderInlineFormattingWith(line, opts)
@@ -678,6 +680,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 			// consumed legitimate <...> markers, so escaped user input
 			// (e.g. literal "<@U1>") doesn't become a fake mention.
 			line = slackEntityDecoder.Replace(line)
+			line = hl.highlight(line)
 		}
 		result = append(result, line)
 	}

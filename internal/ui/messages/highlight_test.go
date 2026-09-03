@@ -3,9 +3,6 @@ package messages
 import (
 	"strings"
 	"testing"
-
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/ui/styles"
 )
 
 func TestHighlightSearchTerms_PlainText(t *testing.T) {
@@ -122,33 +119,6 @@ func TestHighlightSearchTerms_NonCSIEscape(t *testing.T) {
 	want := "fine \x1b(B [deploy]"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestSearchHighlightSGR_EndRestoresThemeColors(t *testing.T) {
-	styles.Apply("dark", config.Theme{})
-	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
-	start, end, ok := SearchHighlightSGR()
-	if !ok {
-		t.Fatal("SearchHighlightSGR returned !ok")
-	}
-	if start == "" {
-		t.Fatal("empty start sequence")
-	}
-	bg, fg := BgANSI(), FgANSI()
-	if bg == "" || fg == "" {
-		t.Fatalf("theme ANSI helpers empty: bg=%q fg=%q", bg, fg)
-	}
-	bi := strings.Index(end, bg)
-	fi := strings.Index(end, fg)
-	if bi < 0 || fi < 0 {
-		t.Fatalf("end %q does not restore theme bg/fg (bg=%q fg=%q)", end, bg, fg)
-	}
-	if fi < bi {
-		t.Errorf("fg restored before bg in %q", end)
-	}
-	if bi == 0 {
-		t.Errorf("no close/reset sequence before bg restore in %q", end)
 	}
 }
 

@@ -492,11 +492,9 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
 	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
 
-	// Highlight open/close SGRs, derived once per render (same guard
-	// as the messages pane's call site). The close carries the theme
-	// bg/fg restore so the highlighter's reset can't bleed
-	// terminal-default colors before renderBox's ReapplyBgAfterResets
-	// pass.
+	// Highlight open/close SGRs, derived once per render. renderBox's
+	// ReapplyBgAfterResets pass restores the theme bg/fg after the
+	// close's reset.
 	var hlStart, hlEnd string
 	if len(m.highlightTerms) > 0 {
 		if start, end, ok := messages.SearchHighlightSGR(); ok {

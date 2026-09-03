@@ -13,20 +13,14 @@ import (
 // SearchHighlightStyle by rendering a sentinel and splitting on it —
 // works for any lipgloss color profile without hand-building escapes.
 //
-// The close sequence is a bare reset (\x1b[m), which in plain body text
-// would leave the terminal's default bg/fg showing until the next escape
-// or EOL. The rendered body has already been through ReapplyBgAfterResets
-// (inside RenderSlackMarkdownWith), so instead of re-scanning the whole
-// string — which would double-inject after every pre-existing reset — we
-// append the theme bg+fg restore (the same style argument render.go uses)
-// to the close sequence itself, targeting exactly the resets the
-// highlighter introduces.
+// The close is a bare reset; callers restore their own bg/fg after it
+// with ReapplyBgAfterResets.
 func SearchHighlightSGR() (start, end string, ok bool) {
 	parts := strings.SplitN(styles.SearchHighlightStyle().Render("\x00"), "\x00", 2)
 	if len(parts) != 2 || parts[0] == "" {
 		return "", "", false
 	}
-	return parts[0], parts[1] + BgANSI() + FgANSI(), true
+	return parts[0], parts[1], true
 }
 
 // HighlightSearchTerms wraps case- and accent-insensitive word-prefix

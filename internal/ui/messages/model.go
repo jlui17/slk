@@ -1915,6 +1915,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 				Customs:      m.emojiCtx.Customs,
 				EmojiFlushes: nil,
 				Width:        width,
+				SearchTerms:  m.searchTerms,
 			})
 		},
 		WrapText: WordWrap,
@@ -1974,17 +1975,9 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		Customs:      m.emojiCtx.Customs,
 		EmojiFlushes: &flushes,
 		Width:        contentWidth,
+		SearchTerms:  m.searchTerms,
 	}
 	rendered := RenderSlackMarkdownWith(MessageTextSource(msg), bodyOpts)
-	if len(m.searchTerms) > 0 {
-		// SearchHighlightSGR's close sequence restores the theme bg/fg
-		// after the highlight's reset so plain body text doesn't bleed
-		// terminal-default colors. One derivation per renderMessagePlain
-		// call (i.e. per cache miss), not per line.
-		if hlStart, hlEnd, ok := SearchHighlightSGR(); ok {
-			rendered = HighlightSearchTerms(rendered, m.searchTerms, hlStart, hlEnd)
-		}
-	}
 	text := styles.MessageText.Render(WordWrap(rendered, contentWidth))
 	if stats != nil {
 		stats.bodyTotal += time.Since(bodyT0)

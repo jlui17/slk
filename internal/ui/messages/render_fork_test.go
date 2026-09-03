@@ -8,7 +8,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/slack-go/slack"
 
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/styles"
 )
 
 const quoteBar = "┃"
@@ -72,6 +74,98 @@ func TestBlockquote_BlockKitTextWrapsInsideBar(t *testing.T) {
 	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil)
 	out := ctx.RenderTextForWidth("&gt; "+strings.Repeat("word ", 20), nil, 30)
 	requireBarredRows(t, "blockkit text", strippedRows(out), 3)
+}
+
+func searchHighlightSGRForTest(t *testing.T) (start, end string) {
+	t.Helper()
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+	start, end, ok := SearchHighlightSGR()
+	if !ok {
+		t.Fatal("SearchHighlightSGR returned !ok")
+	}
+	return start, end
+}
+
+// A 60-char URL inside a quote at Width 30 hard-breaks into rows of 28:
+// "https://example.com/01234567" | "89abcdefghijklmnopqrstuvwxyz" | "ABCD".
+const hardBrokenQuoteURL = "https://example.com/0123456789abcdefghijklmnopqrstuvwxyzABCD"
+
+func TestBlockquote_TermSpanningHardBreakHighlightsEveryRow(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	term := "https://example.com/0123456789abc"
+	out := RenderSlackMarkdownWith("&gt; "+hardBrokenQuoteURL, RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{term}})
+	rows := strings.Split(out, "\n")
+	requireBarredRows(t, "highlighted quote", strippedRows(out), 3)
+	if !strings.Contains(rows[0], hlStart+"https://example.com/01234567") {
+		t.Errorf("row 0 does not open the highlight at the term start: %q", rows[0])
+	}
+	_, tail, found := strings.Cut(rows[1], hlStart+"89abc"+hlEnd)
+	if !found {
+		t.Fatalf("row 1 does not re-open the highlight for the term's continuation: %q", rows[1])
+	}
+	beforeNextVisible, _, _ := strings.Cut(tail, "defg")
+	quoteFg := fgANSIFor(blockquoteStyle().GetForeground())
+	if strings.LastIndex(beforeNextVisible, quoteFg) < strings.LastIndex(beforeNextVisible, FgANSI()) {
+		t.Errorf("row 1 does not return to the quote fg after the highlight close: %q", rows[1])
+	}
+}
+
+// "https://example.com/1234567/" is exactly the 28-column inner width, so
+// the term starts on the hard-break column.
+func TestBlockquote_TermAtHardBreakColumnHighlights(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("&gt; https://example.com/1234567/deploy-x", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("term at the hard-break column not highlighted: %q", out)
+	}
+}
+
+func TestBlockquote_SecondFragmentIsNotAWordStart(t *testing.T) {
+	hlStart, _ := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("&gt; "+hardBrokenQuoteURL, RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"89abc"}})
+	if strings.Contains(out, hlStart) {
+		t.Errorf("mid-word term highlighted at a hard-break row start: %q", out)
+	}
+}
+
+func TestBlockquote_WordBoundaryWrapStillHighlights(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("> "+strings.Repeat("word ", 10)+"deploy done", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("term after a word-boundary wrap not highlighted: %q", out)
+	}
+}
+
+func TestRenderSlackMarkdownWith_SearchTermsHighlightPlainLines(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("deploy went fine &amp; dandy", RenderSlackMarkdownOpts{SearchTerms: []string{"deploy", "&"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("plain line term not highlighted: %q", out)
+	}
+	if !strings.Contains(out, hlStart+"&"+hlEnd) {
+		t.Errorf("entity-decoded text not highlighted (highlight must run after decode): %q", out)
+	}
+}
+
+func TestRenderMessagePlain_HighlightsSearchTerms(t *testing.T) {
+	hlStart, _ := searchHighlightSGRForTest(t)
+	m := New(nil, "general")
+	m.SetSearchTerms([]string{"deploy"})
+	content, _, _, _, _ := m.renderMessagePlain(MessageItem{TS: "1.0", UserName: "u", Text: "deploy went fine"}, 80, "", nil, nil, false, nil)
+	if !strings.Contains(content, hlStart+"deploy") {
+		t.Errorf("messages pane body lost search highlighting: %q", content)
+	}
+}
+
+func TestBlockKitText_HighlightsSearchTerms(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	m := New(nil, "general")
+	m.SetSearchTerms([]string{"deploy"})
+	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil)
+	if out := ctx.RenderTextForWidth("deploy went fine", nil, 30); !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("block kit text not highlighted: %q", out)
+	}
 }
 
 func requireRowsWithin(t *testing.T, name string, rows []string, width int) {
@@ -223,5 +317,21 @@ func TestCodeBlock_DecodesEntitiesBeforeWrapping(t *testing.T) {
 	}
 	if lipgloss.Width(rows[0]) != lipgloss.Width(rows[1]) {
 		t.Errorf("box edge is ragged: %q", rows)
+	}
+}
+
+func TestListItem_HighlightsSearchTerms(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("• "+strings.Repeat("item ", 8)+"deploy done", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("list item term not highlighted: %q", out)
+	}
+}
+
+func TestCodeBlock_RowsHighlightSearchTerms(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("```\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("code row term not highlighted: %q", out)
 	}
 }
