@@ -213,3 +213,15 @@ func TestCodeBlock_RowsAreNotListItems(t *testing.T) {
 		t.Errorf("expected the continuation row to stay a code row, got %q", rows)
 	}
 }
+
+func TestCodeBlock_DecodesEntitiesBeforeWrapping(t *testing.T) {
+	const width = 30
+	out := RenderSlackMarkdownWith("```\n"+strings.Repeat("x", 27)+"&gt; b\n```", RenderSlackMarkdownOpts{Width: width})
+	rows := nonBlankRows(out)
+	if len(rows) != 2 || strings.TrimSpace(rows[0])+strings.TrimSpace(rows[1]) != strings.Repeat("x", 27)+">b" {
+		t.Fatalf("expected the entity to be decoded before the break, got %q", rows)
+	}
+	if lipgloss.Width(rows[0]) != lipgloss.Width(rows[1]) {
+		t.Errorf("box edge is ragged: %q", rows)
+	}
+}

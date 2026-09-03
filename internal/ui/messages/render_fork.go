@@ -17,11 +17,8 @@ func renderBlockquote(quoted string, width int) string {
 
 func renderCodeBlock(inner string, width int) string {
 	style := codeBlockStyle()
-	inner = expandTabs(inner)
-	if limit := width - style.GetHorizontalFrameSize(); limit > 0 {
-		inner = ansi.Hardwrap(inner, limit, true)
-	}
-	return style.Render(inner)
+	inner = expandTabs(slackEntityDecoder.Replace(inner))
+	return style.Render(ansi.Hardwrap(inner, width-style.GetHorizontalFrameSize(), true))
 }
 
 func renderListItem(line string, opts RenderSlackMarkdownOpts) (string, bool) {
@@ -30,9 +27,18 @@ func renderListItem(line string, opts RenderSlackMarkdownOpts) (string, bool) {
 		return "", false
 	}
 	body := slackEntityDecoder.Replace(renderInlineFormattingWith(line[len(head):], opts))
-	indent := strings.Repeat(" ", lipgloss.Width(head))
-	body = WordWrap(body, opts.Width-len(indent))
-	return head + strings.ReplaceAll(body, "\n", "\n"+indent), true
+	w := lipgloss.Width(head)
+	body = WordWrap(body, opts.Width-w)
+	return head + strings.ReplaceAll(body, "\n", "\n"+strings.Repeat(" ", w)), true
+}
+
+func writeIfFits(buf *strings.Builder, line string, limit int) bool {
+	line = expandTabs(line)
+	if lipgloss.Width(line) > limit {
+		return false
+	}
+	buf.WriteString(line)
+	return true
 }
 
 // lipgloss paints a tab as four cells but lipgloss.Width counts it as zero.
