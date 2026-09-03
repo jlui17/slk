@@ -85,7 +85,13 @@ max_image_cache_mb = 200
 # status ("is thinking…"), and the thread's content — the row reads as
 # working while the newest message is a human's the bot hasn't reacted to
 # (any emoji counts as its ack), or a bot todo-list post (the ones ending
-# with a "todos as of HH:MM UTC" stamp).
+# with a "todos as of HH:MM UTC" stamp). With tab_name_model set, the two
+# shapes content can't decide — a plain bot reply, a human message the bot
+# only acked — are judged by that model. A bot reply reads as working
+# when the bot is doing something next on its own, idle when it is
+# finished or waiting on you (a question, a plan for approval). An acked
+# human message reads as working when it asks the bot for anything (a
+# request, a question, a go-ahead), idle when it just closes the exchange.
 #
 # While Slack considers the thread unread, the row shows the unread reply
 # count and herdr's unseen "done" indicator, the same blue dot it shows for

@@ -18,12 +18,10 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	if !working {
 		t.Error("expected working=true for a y completion")
 	}
-	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "y if the agent is still working") {
-		t.Errorf("system prompt missing the y/n contract: %+v", got.System)
+	if len(got.System) == 0 || got.System[0].Text != workingAgentSystemPrompt {
+		t.Errorf("system prompt is not the agent-side prompt: %+v", got.System)
 	}
-	body := got.Messages[0].Content[0].Text
-	if !strings.HasPrefix(body, "Newest message, from the agent:\n") ||
-		!strings.Contains(body, "let me go check") {
+	if body := got.Messages[0].Content[0].Text; !strings.Contains(body, "let me go check") {
 		t.Errorf("user content = %q", body)
 	}
 }
@@ -40,9 +38,11 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	if working {
 		t.Error("expected working=false for an n completion")
 	}
-	body := got.Messages[0].Content[0].Text
-	if !strings.Contains(body, "from the user") || !strings.Contains(body, "reacted") {
-		t.Errorf("user content missing the acked-user framing: %q", body)
+	if len(got.System) == 0 || got.System[0].Text != workingUserSystemPrompt {
+		t.Errorf("system prompt is not the acked-user prompt: %+v", got.System)
+	}
+	if body := got.Messages[0].Content[0].Text; !strings.Contains(body, "thanks!") {
+		t.Errorf("user content = %q", body)
 	}
 }
 
@@ -51,11 +51,16 @@ func TestWorkingCapsMessageSize(t *testing.T) {
 	defer srv.Close()
 
 	c := newForTest("claude-haiku-4-5", srv.URL)
-	if _, err := c.Working(context.Background(), strings.Repeat("x", 10000), true); err != nil {
+	long := "HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
+	if _, err := c.Working(context.Background(), long, true); err != nil {
 		t.Fatalf("Working: %v", err)
 	}
-	if n := len(got.Messages[0].Content[0].Text); n > maxWorkingBytes+100 {
+	body := got.Messages[0].Content[0].Text
+	if n := len(body); n > maxWorkingBytes+100 {
 		t.Errorf("user content is %d bytes, want capped near %d", n, maxWorkingBytes)
+	}
+	if !strings.Contains(body, "HEAD-") || !strings.Contains(body, "-TAIL") {
+		t.Errorf("clipped content lost an end: %q…%q", body[:40], body[len(body)-20:])
 	}
 }
 
