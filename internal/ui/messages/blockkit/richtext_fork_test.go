@@ -77,3 +77,25 @@ func TestRichTextToMrkdwn_QuoteTextLiteralEscaped(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func rtPreformatted(language, text string) RichTextBlock {
+	return RichTextBlock{Elements: []slack.RichTextElement{&slack.RichTextPreformatted{
+		Type:     slack.RTEPreformatted,
+		Language: language,
+		Elements: []slack.RichTextSectionElement{&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: text}},
+	}}}
+}
+
+func TestRichTextToMrkdwn_PreformattedCarriesOnlyKnownLanguages(t *testing.T) {
+	cases := []struct{ language, want string }{
+		{"go", "```go\nx := 1\n```"},
+		{"", "```\nx := 1\n```"},
+		{"not_a_language", "```\nx := 1\n```"},
+		{"go\n```", "```\nx := 1\n```"},
+	}
+	for _, c := range cases {
+		if got := RichTextToMrkdwn(rtPreformatted(c.language, "x := 1")); got != c.want {
+			t.Errorf("language %q: got %q, want %q", c.language, got, c.want)
+		}
+	}
+}

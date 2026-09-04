@@ -7,6 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/gammons/slk/internal/ui/syntax"
 )
 
 var listItemRe = regexp.MustCompile(`^ *(• |\d+\. )`)
@@ -86,9 +88,49 @@ func (h heldCodeBlocks) restore(s string) string {
 
 func renderCodeBlock(inner string, width int, hl searchHighlighter) string {
 	style := codeBlockStyle()
-	inner = expandTabs(slackEntityDecoder.Replace(inner))
-	inner = ansi.Hardwrap(inner, width-style.GetHorizontalFrameSize(), true)
-	return style.Render(hl.highlight(inner))
+	language, code := splitFenceLanguage(slackEntityDecoder.Replace(inner))
+	code = syntax.Highlight(expandTabs(code), language)
+	code = ansi.Hardwrap(code, width-style.GetHorizontalFrameSize(), true)
+	return style.Render(hl.highlight(reopenFgAcrossRows(code)))
+}
+
+// A first line is a language tag only when the highlighter knows it;
+// otherwise it is the first line of code (a bot's "ERROR" header stays).
+func splitFenceLanguage(inner string) (language, code string) {
+	first, rest, ok := strings.Cut(inner, "\n")
+	if !ok || !syntax.Known(first) {
+		return "", inner
+	}
+	return first, rest
+}
+
+func commonMarkCodeFence(inner string) string {
+	language, code := splitFenceLanguage(inner)
+	return "```" + language + "\n" + code + "\n```"
+}
+
+var sgrRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// Highlight paints a token once and lets the color run until the next
+// token, but lipgloss closes every row and Hardwrap splits tokens across
+// rows: re-open the running foreground at the start of each later row.
+func reopenFgAcrossRows(rows string) string {
+	split := strings.Split(rows, "\n")
+	open := ""
+	for i, row := range split {
+		if open != "" {
+			split[i] = open + row
+		}
+		for _, seq := range sgrRe.FindAllString(row, -1) {
+			switch params := seq[2 : len(seq)-1]; {
+			case params == "" || params == "0":
+				open = ""
+			case strings.HasPrefix(params, "38;"):
+				open = seq
+			}
+		}
+	}
+	return strings.Join(split, "\n")
 }
 
 func renderListItem(line string, opts RenderSlackMarkdownOpts, hl searchHighlighter) (string, bool) {

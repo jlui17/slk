@@ -890,7 +890,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
 		placeholder := fmt.Sprintf("\x00CB%d\x00", len(codeBlocks))
-		codeBlocks = append(codeBlocks, "```\n"+slackEntityDecoder.Replace(inner)+"\n```")
+		codeBlocks = append(codeBlocks, commonMarkCodeFence(slackEntityDecoder.Replace(inner)))
 		return placeholder
 	})
 

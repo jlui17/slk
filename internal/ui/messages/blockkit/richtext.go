@@ -28,7 +28,7 @@ func RichTextToMrkdwn(rt RichTextBlock) string {
 		case *slack.RichTextList:
 			parts = append(parts, listToMrkdwn(v))
 		case *slack.RichTextPreformatted:
-			parts = append(parts, preformattedToMrkdwn(v.Elements))
+			parts = append(parts, withFenceLanguage(preformattedToMrkdwn(v.Elements), v.Language))
 		case *slack.RichTextQuote:
 			parts = append(parts, quoteToMrkdwn(v.Elements))
 			// RichTextUnknown is silently dropped — we can't render

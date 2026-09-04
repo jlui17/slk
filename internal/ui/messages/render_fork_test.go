@@ -497,3 +497,63 @@ func TestSlackMrkdwnToCommonMark_DecodesEntitiesInsideCode(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestCodeBlock_LanguageLineIsConsumedAndKeywordsPainted(t *testing.T) {
+	withDarkTheme(t)
+	out := RenderSlackMarkdownWith("```go\nfunc main() {}\n```", RenderSlackMarkdownOpts{Width: 40})
+	rows := nonBlankRows(out)
+	if len(rows) != 1 || !strings.HasPrefix(ansi.Strip(rows[0]), " func main() {}") {
+		t.Fatalf("expected one code row without the language line, got %q", strippedRows(out))
+	}
+	if !strings.Contains(out, fgANSIFor(styles.Primary)+"func") {
+		t.Errorf("keyword not painted in the theme's Primary: %q", out)
+	}
+}
+
+func TestCodeBlock_UnknownFirstLineStaysCode(t *testing.T) {
+	for _, code := range []string{"ERROR\nboom", "notalanguage\nx"} {
+		out := RenderSlackMarkdownWith("```\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 40})
+		if plain := ansi.Strip(out); !strings.Contains(plain, strings.Split(code, "\n")[0]) {
+			t.Errorf("first line of %q eaten as a language: %q", code, plain)
+		}
+	}
+}
+
+func TestCodeBlock_HighlightReopensOnWrappedRows(t *testing.T) {
+	withDarkTheme(t)
+	code := "s := \"" + strings.Repeat("a", 40) + "\""
+	out := RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 20})
+	var rows []string
+	for _, r := range strings.Split(out, "\n") {
+		if strings.TrimSpace(ansi.Strip(r)) != "" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected the string to wrap, got %q", rows)
+	}
+	i := strings.IndexByte(rows[1], 'a')
+	if i < 0 || !strings.Contains(rows[1][:i], fgANSIFor(styles.Accent)) {
+		t.Errorf("wrapped string row does not re-open the string color: %q", rows[1])
+	}
+}
+
+func TestCodeBlock_SearchTermsHighlightInsideHighlightedCode(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("```go\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
+	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
+		t.Errorf("term not highlighted inside highlighted code: %q", out)
+	}
+}
+
+func TestSlackMrkdwnToCommonMark_CarriesFenceLanguage(t *testing.T) {
+	cases := map[string]string{
+		"```go\nx := 1\n```":  "```go\nx := 1\n```",
+		"```\nERROR\nboom```": "```\nERROR\nboom\n```",
+	}
+	for in, want := range cases {
+		if got := SlackMrkdwnToCommonMark(in, nil, nil); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}
