@@ -755,3 +755,14 @@ func TestCodeBlock_TypedEntityTagStaysLiteral(t *testing.T) {
 	out := RenderSlackMarkdownWith("```&lt;go&gt;\nx := 1\n```", RenderSlackMarkdownOpts{Width: 30})
 	requireCodeRows(t, "escaped tag", out, "<go>", "x := 1")
 }
+
+// SlackMrkdwnToCommonMarkWithUserGroups (upstream) spells the held-block
+// placeholder by hand; this pins the fork's helper to that spelling.
+func TestCodeBlockMarker_MatchesTheCommonMarkPlaceholder(t *testing.T) {
+	if got := codeBlockMarker(7); got != fmt.Sprintf("\x00CB%d\x00", 7) {
+		t.Errorf("marker %q diverged from the CommonMark placeholder format", got)
+	}
+	if !isCodeBlockMarker(fmt.Sprintf("\x00CB%d\x00", 12)) {
+		t.Error("CommonMark-shaped placeholder not recognised as a marker")
+	}
+}
