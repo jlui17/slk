@@ -1,12 +1,9 @@
 package syntax
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 	"testing"
-
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -18,59 +15,54 @@ func withTheme(t *testing.T, name string) {
 	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
 }
 
-func fgOf(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r>>8, g>>8, b>>8)
-}
-
-func TestHighlight_PaintsTokensFromThemeAndKeepsTextLiteral(t *testing.T) {
-	withTheme(t, "dark")
-	const code = "func main() { s := \"x\" // hi\n}"
-	out := Highlight(code, "go")
-	if ansi.Strip(out) != code {
-		t.Fatalf("visible text changed: %q", ansi.Strip(out))
-	}
-	for _, want := range []string{
-		fgOf(styles.Primary) + "func",
-		fgOf(styles.Accent) + "\"x\"",
-		fgOf(styles.TextMuted) + "// hi",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in %q", want, out)
+func TestLexer_NamesAndAliasesOnly(t *testing.T) {
+	for lang, want := range map[string]bool{"go": true, "Go": true, "golang": true, "sh": true, "main.go": false, "": false, "go\n```": false, "nope": false} {
+		if got := Lexer(lang) != nil; got != want {
+			t.Errorf("Lexer(%q) != nil = %v, want %v", lang, got, want)
 		}
 	}
-}
-
-func TestHighlight_EmitsNoResets(t *testing.T) {
-	out := Highlight("x = \"a\" # c\n1", "python")
-	if strings.Contains(out, "\x1b[0m") || strings.Contains(out, "\x1b[m") {
-		t.Errorf("highlight emitted a reset: %q", out)
+	if got := Lexer("json").Config().Name; got != "JSON" {
+		t.Errorf("display name = %q, want JSON", got)
 	}
 }
 
-func TestHighlight_UnknownLanguageIsPassthrough(t *testing.T) {
-	if out := Highlight("x", "not-a-language"); out != "x" {
-		t.Errorf("got %q", out)
+func TestHighlight_PaintsFromThemeAndKeepsTextIntact(t *testing.T) {
+	withTheme(t, "dark")
+	const code = "func main() { s := \"x\" // hi\n}"
+	spans := Highlight(code, Lexer("go"))
+	var text strings.Builder
+	got := map[string]color.Color{}
+	for _, s := range spans {
+		text.WriteString(s.Text)
+		got[strings.TrimSpace(s.Text)] = s.Color
 	}
-	if Known("not-a-language") || !Known("go") {
-		t.Error("Known disagrees with chroma's lexer table")
+	if text.String() != code {
+		t.Fatalf("text changed: %q", text.String())
+	}
+	for tok, want := range map[string]color.Color{"func": styles.Primary, "\"x\"": styles.Accent, "// hi": styles.TextMuted, "main": styles.TextPrimary} {
+		if got[tok] != want {
+			t.Errorf("%q colored %v, want %v", tok, got[tok], want)
+		}
 	}
 }
 
 func TestHighlight_FollowsThemeChanges(t *testing.T) {
 	withTheme(t, "dark")
-	dark := Highlight("func", "go")
+	dark := Highlight("func", Lexer("go"))[0].Color
 	withTheme(t, "dracula")
-	dracula := Highlight("func", "go")
-	if dark == dracula || !strings.HasPrefix(dracula, fgOf(styles.Primary)) {
-		t.Errorf("keyword color did not follow the theme: dark=%q dracula=%q", dark, dracula)
+	if dracula := Highlight("func", Lexer("go"))[0].Color; dracula == dark || dracula != styles.Primary {
+		t.Errorf("keyword color did not follow the theme: dark=%v dracula=%v", dark, dracula)
 	}
 }
 
-func TestName_IsTheLexerDisplayName(t *testing.T) {
-	for lang, want := range map[string]string{"go": "Go", "json": "JSON", "bash": "Bash", "nope": ""} {
-		if got := Name(lang); got != want {
-			t.Errorf("Name(%q) = %q, want %q", lang, got, want)
+func TestHighlight_DropsTheNewlineEnsureNLLexersAppend(t *testing.T) {
+	for lang, code := range map[string]string{"diff": "-a\n+b", "c": "int x;\n// done", "go": "x := 1"} {
+		var text strings.Builder
+		for _, s := range Highlight(code, Lexer(lang)) {
+			text.WriteString(s.Text)
+		}
+		if text.String() != code {
+			t.Errorf("%s: text %q, want %q", lang, text.String(), code)
 		}
 	}
 }

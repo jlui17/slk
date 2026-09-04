@@ -1,9 +1,8 @@
 package blockkit
 
 import (
+	"regexp"
 	"strings"
-
-	"github.com/gammons/slk/internal/ui/syntax"
 )
 
 // A rich_text text element carries the characters the author typed,
@@ -14,12 +13,14 @@ func escapeLiteralText(text string) string {
 	return literalTextEscaper.Replace(text)
 }
 
-// Slack tags a preformatted block with the language its picker chose;
-// only languages the renderer can highlight ride on the fence, so a
-// tag it can't use never shows up as a first line of code.
+var fenceLanguageRe = regexp.MustCompile(`^[A-Za-z0-9_+#.-]+$`)
+
+// The tag rides as <lang> right after the fence: Slack escapes < in code
+// text, so nothing delivered can collide with it. Any fence-safe language
+// rides along; the renderer decides what it can highlight.
 func withFenceLanguage(fence, language string) string {
-	if language == "" || !syntax.Known(language) {
+	if !fenceLanguageRe.MatchString(language) {
 		return fence
 	}
-	return strings.Replace(fence, "```\n", "```"+language+"\n", 1)
+	return "```<" + language + ">" + strings.TrimPrefix(fence, "```")
 }

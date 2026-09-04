@@ -637,6 +637,7 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 			UserNames:    m.userNames.Current(),
 			ChannelNames: m.channelNames,
 			UserGroups:   m.userGroups,
+			Preview:      true,
 		})
 		preview = strings.ReplaceAll(preview, "\n", " ")
 		previewMax := contentWidth - 4

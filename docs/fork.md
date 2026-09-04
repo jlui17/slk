@@ -54,6 +54,10 @@ there and resolve them knowing what the fork wants:
 - `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
   bindings and reducer switch arms; the usernames-store migration's
   mechanical call-site edits.
+- `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
+  visible rune stream across escape sequences, so a term spanning a styled
+  boundary (a colored token, an inline span) highlights as one run; upstream
+  matches within one segment. Upstreaming candidate.
 - `internal/slack/events.go` — `OnThreadMarked` passes the subscription's
   `active` flag through instead of inverting it into a bogus `read` bool.
   Upstreaming candidate: it fixes an upstream bug.

@@ -26,15 +26,15 @@ func SearchHighlightSGR() (start, end string, ok bool) {
 // HighlightSearchTerms wraps case- and accent-insensitive word-prefix
 // occurrences of terms in s with hlStart/hlEnd. s may contain ANSI
 // escape sequences (CSI/SGR, OSC hyperlinks, other escapes): they are
-// skipped during matching, preserved byte-identical in the output, and
-// any CSI SGR sequences active at a match start are re-emitted after
-// hlEnd so the highlight does not clobber surrounding styling.
+// skipped during matching, so a term may span them. Outside a match they
+// are preserved byte-identical; a CSI SGR inside a match is withheld so
+// it cannot paint over the highlight, and every SGR active at the match's
+// end (including the withheld ones) is re-emitted after hlEnd so the
+// highlight does not clobber surrounding styling.
 //
 // terms must already be folded (text.Fold). Matching is per-rune
 // folded comparison, which keeps a 1:1 position mapping for the
-// diacritics Fold removes. Matches spanning a styled-segment boundary
-// are not highlighted at all — the whole term must fall within one
-// visible segment. Acceptable for v1.
+// diacritics Fold removes.
 func HighlightSearchTerms(s string, terms []string, hlStart, hlEnd string) string {
 	if len(terms) == 0 || s == "" {
 		return s
@@ -103,67 +103,95 @@ func HighlightSearchTerms(s string, terms []string, hlStart, hlEnd string) strin
 		}
 	}
 
-	var out strings.Builder
-	var active []string // SGR sequences since last reset, for re-apply
-	prevRune := rune(0) // last visible rune across segments (word boundary)
+	// Match on the visible rune stream, ignoring escapes, so a term that
+	// spans a styled boundary (a colored token, an inline span) still lights
+	// up as one run.
+	var runes []rune
+	var folded []string
 	for _, sg := range segs {
 		if sg.isANSI {
-			// prevRune deliberately persists across all ANSI segments
-			// (including OSC) so escapes don't fake word boundaries.
-			out.WriteString(sg.text)
-			if sg.opaque {
-				continue
+			continue
+		}
+		for _, r := range sg.text {
+			runes = append(runes, r)
+			folded = append(folded, foldRune(r))
+		}
+	}
+	matchLen := make([]int, len(runes))
+	prevRune := rune(0)
+	for g := 0; g < len(runes); {
+		n := 0
+		if !unicode.IsLetter(prevRune) && !unicode.IsDigit(prevRune) {
+			for _, term := range terms {
+				if n = prefixMatchLen(folded, g, term); n > 0 {
+					break
+				}
 			}
-			if sg.text == "\x1b[0m" || sg.text == "\x1b[m" {
+		}
+		if n > 0 {
+			matchLen[g] = n
+			prevRune = runes[g+n-1]
+			g += n
+			continue
+		}
+		prevRune = runes[g]
+		g++
+	}
+
+	var out strings.Builder
+	var active []string // SGR sequences since last reset, for re-apply
+	g, remaining := 0, 0
+	for _, sg := range segs {
+		if sg.isANSI {
+			switch {
+			case sg.opaque:
+				out.WriteString(sg.text)
+			case sg.text == "\x1b[0m" || sg.text == "\x1b[m":
+				out.WriteString(sg.text)
 				active = active[:0]
-			} else {
+				if remaining > 0 {
+					out.WriteString(hlStart)
+				}
+			case remaining > 0:
+				// Withheld: a color change inside the match would paint over
+				// the highlight. It is replayed with active after hlEnd.
+				active = append(active, sg.text)
+			default:
+				out.WriteString(sg.text)
 				active = append(active, sg.text)
 			}
 			continue
 		}
-		runes := []rune(sg.text)
-		folded := make([]string, len(runes))
-		for i, r := range runes {
-			if r < utf8.RuneSelf {
-				// ASCII fast path: text.Fold allocates a transform
-				// chain per call (see fold.go); for ASCII, folding is
-				// just lowercasing.
-				if r >= 'A' && r <= 'Z' {
-					r += 'a' - 'A'
-				}
-				folded[i] = string(r)
-			} else {
-				folded[i] = text.Fold(string(r))
+		for _, r := range sg.text {
+			if remaining == 0 && matchLen[g] > 0 {
+				out.WriteString(hlStart)
+				remaining = matchLen[g]
 			}
-		}
-		for i := 0; i < len(runes); {
-			atWordStart := !unicode.IsLetter(prevRune) && !unicode.IsDigit(prevRune)
-			matched := 0
-			if atWordStart {
-				for _, term := range terms {
-					if n := prefixMatchLen(folded, i, term); n > 0 {
-						matched = n
-						break
+			out.WriteRune(r)
+			g++
+			if remaining > 0 {
+				if remaining--; remaining == 0 {
+					out.WriteString(hlEnd)
+					for _, a := range active {
+						out.WriteString(a)
 					}
 				}
 			}
-			if matched > 0 {
-				out.WriteString(hlStart)
-				out.WriteString(string(runes[i : i+matched]))
-				out.WriteString(hlEnd)
-				for _, a := range active {
-					out.WriteString(a)
-				}
-				prevRune = runes[i+matched-1]
-				i += matched
-				continue
-			}
-			out.WriteRune(runes[i])
-			prevRune = runes[i]
-			i++
 		}
 	}
 	return out.String()
+}
+
+func foldRune(r rune) string {
+	if r < utf8.RuneSelf {
+		// ASCII fast path: text.Fold allocates a transform chain per
+		// call (see fold.go); for ASCII, folding is just lowercasing.
+		if r >= 'A' && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		return string(r)
+	}
+	return text.Fold(string(r))
 }
 
 // prefixMatchLen reports how many runes starting at folded[i] are

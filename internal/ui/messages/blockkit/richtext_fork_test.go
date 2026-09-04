@@ -86,12 +86,13 @@ func rtPreformatted(language, text string) RichTextBlock {
 	}}}
 }
 
-func TestRichTextToMrkdwn_PreformattedCarriesOnlyKnownLanguages(t *testing.T) {
+func TestRichTextToMrkdwn_PreformattedCarriesFenceSafeLanguages(t *testing.T) {
 	cases := []struct{ language, want string }{
-		{"go", "```go\nx := 1\n```"},
+		{"go", "```<go>\nx := 1\n```"},
+		{"plain_text", "```<plain_text>\nx := 1\n```"},
 		{"", "```\nx := 1\n```"},
-		{"not_a_language", "```\nx := 1\n```"},
 		{"go\n```", "```\nx := 1\n```"},
+		{"<go>", "```\nx := 1\n```"},
 	}
 	for _, c := range cases {
 		if got := RichTextToMrkdwn(rtPreformatted(c.language, "x := 1")); got != c.want {

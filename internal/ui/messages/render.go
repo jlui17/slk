@@ -22,7 +22,7 @@ var (
 	// side of the delimiter. See renderItalics below.
 	boldRe       = regexp.MustCompile(`\*([^*\n]+)\*`)
 	inlineCodeRe = regexp.MustCompile("`([^`\n]+)`")
-	codeBlockRe  = regexp.MustCompile("(?s)```(.+?)```")
+	codeBlockRe     = regexp.MustCompile("(?s)```(.+?)```")
 
 	// Slack link patterns: <url|label> or <url>.
 	// linkWithLabelRe matches both http(s) URLs and mailto: addresses
@@ -631,6 +631,7 @@ type RenderSlackMarkdownOpts struct {
 	EmojiFlushes *[]func(io.Writer) error // append-only; may be nil
 	Width        int                      // display width the caller wraps to; code blocks, list items and blockquotes wrap inside their decoration first
 	SearchTerms  []string                 // folded (text.Fold) word-prefix terms; matches wear SearchHighlightSGR
+	Preview      bool                     // the caller flattens the result to one row: code blocks render as bare code rows
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -661,9 +662,9 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	text = codeBlockRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
-		return "\n" + held.hold(renderCodeBlock(inner, opts.Width, hl)) + "\n"
+		return "\n" + held.hold(renderCodeBlock(inner, opts, hl)) + "\n"
 	})
-	text = tightenCodeBlockRows(text)
+	text = held.tighten(text)
 
 	// Process line by line for blockquotes
 	lines := strings.Split(text, "\n")
@@ -891,7 +892,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
 		placeholder := fmt.Sprintf("\x00CB%d\x00", len(codeBlocks))
-		codeBlocks = append(codeBlocks, commonMarkCodeFence(slackEntityDecoder.Replace(inner)))
+		codeBlocks = append(codeBlocks, commonMarkCodeFence(inner))
 		return placeholder
 	})
 

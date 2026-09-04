@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/ui/syntax"
 )
 
 const quoteBar = "┃"
@@ -204,8 +206,10 @@ func TestCodeBlock_WrapsInsideBox(t *testing.T) {
 				t.Errorf("%s: row %d is %d wide, box is %d: %q", name, i, lipgloss.Width(r), boxWidth, r)
 			}
 		}
-		requireRowWithPrefix(t, name, rows, "│     if a {")
-		requireRowWithPrefix(t, name, rows, "│         return")
+		code := codeRows(pass)
+		if len(code) < 3 || code[1] != "    if a {" || !strings.HasPrefix(code[2], "        return") {
+			t.Errorf("%s: code indentation lost: %q", name, code)
+		}
 	}
 }
 
@@ -214,12 +218,12 @@ func TestCodeBlock_TabsCountAsFourCells(t *testing.T) {
 	out := RenderSlackMarkdownWith("```\nf()\n\t\t"+strings.Repeat("x", 30)+"\n```", RenderSlackMarkdownOpts{Width: width})
 	rows := nonBlankRows(out)
 	requireRowsWithin(t, "tabbed code", rows, width)
-	requireRowWithPrefix(t, "tabbed code", rows, "│"+strings.Repeat(" ", 9)+"x")
+	requireCodeRows(t, "tabbed code", out, "f()", strings.Repeat(" ", 8)+strings.Repeat("x", 8), strings.Repeat("x", 16), strings.Repeat("x", 6))
 }
 
 func TestCodeBlock_NoWidthLeavesRowsIntact(t *testing.T) {
 	out := RenderSlackMarkdownWith("```\n"+strings.Repeat("x", 80)+"\n```", RenderSlackMarkdownOpts{})
-	requireRowWithPrefix(t, "unbounded code", nonBlankRows(out), "│ "+strings.Repeat("x", 80))
+	requireCodeRows(t, "unbounded code", out, strings.Repeat("x", 80))
 }
 
 func requireHangingIndent(t *testing.T, name string, rows []string, marker, indent string, width int) {
@@ -295,19 +299,14 @@ func TestWordWrap_TabsCountAsPainted(t *testing.T) {
 
 func TestCodeBlock_RowsAreNotListItems(t *testing.T) {
 	out := RenderSlackMarkdownWith("```\n• "+strings.Repeat("x", 40)+"\n```", RenderSlackMarkdownOpts{Width: 30})
-	requireRowWithPrefix(t, "continuation row", nonBlankRows(out), "│ xx")
+	requireCodeRows(t, "continuation row", out, "• "+strings.Repeat("x", 24), strings.Repeat("x", 16))
 }
 
 func TestCodeBlock_DecodesEntitiesBeforeWrapping(t *testing.T) {
 	const width = 30
 	out := RenderSlackMarkdownWith("```\n"+strings.Repeat("x", 27)+"&gt; b\n```", RenderSlackMarkdownOpts{Width: width})
 	rows := nonBlankRows(out)
-	var code []string
-	for _, r := range rows {
-		if inner := strings.TrimSpace(strings.Trim(r, "│")); inner != "" && strings.HasPrefix(r, "│") {
-			code = append(code, inner)
-		}
-	}
+	code := codeRows(out)
 	if len(code) != 2 || code[0]+code[1] != strings.Repeat("x", 27)+"> b" {
 		t.Fatalf("expected the entity to be decoded before the break, got %q", rows)
 	}
@@ -495,23 +494,8 @@ func TestSlackMrkdwnToCommonMark_DecodesEntitiesInsideCode(t *testing.T) {
 	}
 }
 
-func TestCodeBlock_LanguageLineIsConsumedAndKeywordsPainted(t *testing.T) {
-	withDarkTheme(t)
-	out := RenderSlackMarkdownWith("```go\nfunc main() {}\n```", RenderSlackMarkdownOpts{Width: 40})
-	rows := nonBlankRows(out)
-	requireRowWithPrefix(t, "tagged code", rows, "│ 1  func main() {}")
-	for _, r := range rows {
-		if strings.HasPrefix(r, "│ go") {
-			t.Errorf("language line rendered as code: %q", rows)
-		}
-	}
-	if !strings.Contains(out, fgANSIFor(styles.Primary)+"func") {
-		t.Errorf("keyword not painted in the theme's Primary: %q", out)
-	}
-}
-
 func TestCodeBlock_UnknownFirstLineStaysCode(t *testing.T) {
-	for _, code := range []string{"ERROR\nboom", "notalanguage\nx"} {
+	for _, code := range []string{"ERROR\nboom", "notalanguage\nx", "make\nmake test", "text\nhello", "c\nd"} {
 		out := RenderSlackMarkdownWith("```\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 40})
 		if plain := ansi.Strip(out); !strings.Contains(plain, strings.Split(code, "\n")[0]) {
 			t.Errorf("first line of %q eaten as a language: %q", code, plain)
@@ -522,7 +506,7 @@ func TestCodeBlock_UnknownFirstLineStaysCode(t *testing.T) {
 func TestCodeBlock_HighlightReopensOnWrappedRows(t *testing.T) {
 	withDarkTheme(t)
 	code := "s := \"" + strings.Repeat("a", 40) + "\""
-	out := RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 20})
+	out := RenderSlackMarkdownWith("```<go>\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 20})
 	var rows []string
 	for _, r := range strings.Split(out, "\n") {
 		if strings.Contains(r, "aaaa") {
@@ -538,18 +522,13 @@ func TestCodeBlock_HighlightReopensOnWrappedRows(t *testing.T) {
 	}
 }
 
-func TestCodeBlock_SearchTermsHighlightInsideHighlightedCode(t *testing.T) {
-	hlStart, hlEnd := searchHighlightSGRForTest(t)
-	out := RenderSlackMarkdownWith("```go\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})
-	if !strings.Contains(out, hlStart+"deploy"+hlEnd) {
-		t.Errorf("term not highlighted inside highlighted code: %q", out)
-	}
-}
-
 func TestSlackMrkdwnToCommonMark_CarriesFenceLanguage(t *testing.T) {
 	cases := map[string]string{
-		"```go\nx := 1\n```":  "```go\nx := 1\n```",
-		"```\nERROR\nboom```": "```\nERROR\nboom\n```",
+		"```<go>\nx := 1\n```":         "```go\nx := 1\n```",
+		"```<plain_text>\nx := 1\n```": "```plain_text\nx := 1\n```",
+		"```\nERROR\nboom```":          "```\nERROR\nboom\n```",
+		"```\nmake\nmake test```":      "```\nmake\nmake test\n```",
+		"```&lt;go&gt;\nx```":          "```\n<go>\nx\n```",
 	}
 	for in, want := range cases {
 		if got := SlackMrkdwnToCommonMark(in, nil, nil); got != want {
@@ -558,25 +537,38 @@ func TestSlackMrkdwnToCommonMark_CarriesFenceLanguage(t *testing.T) {
 	}
 }
 
-func requireRowWithPrefix(t *testing.T, name string, rows []string, prefix string) {
-	t.Helper()
-	for _, r := range rows {
-		if strings.HasPrefix(r, prefix) {
-			return
+// The non-blank rows inside the frame, in order, with the frame and the
+// right padding removed and the left indentation kept.
+func codeRows(out string) []string {
+	var code []string
+	for _, r := range nonBlankRows(out) {
+		if !strings.HasPrefix(r, "│") {
+			continue
+		}
+		inner := strings.TrimRight(strings.TrimSuffix(strings.TrimPrefix(r, "│ "), "│"), " ")
+		if inner != "" {
+			code = append(code, inner)
 		}
 	}
-	t.Errorf("%s: no row starts with %q: %q", name, prefix, rows)
+	return code
+}
+
+func requireCodeRows(t *testing.T, name, out string, want ...string) {
+	t.Helper()
+	if got := codeRows(out); !slices.Equal(got, want) {
+		t.Errorf("%s: code rows %q, want %q", name, got, want)
+	}
 }
 
 func TestCodeBlock_FramedWithLanguageLabel(t *testing.T) {
 	withDarkTheme(t)
 	const width = 30
-	out := RenderSlackMarkdownWith("```go\nx := 1\n```", RenderSlackMarkdownOpts{Width: width})
+	out := RenderSlackMarkdownWith("```<go>\nreturn 1\n```", RenderSlackMarkdownOpts{Width: width})
 	rows := nonBlankRows(out)
 	if len(rows) != 6 {
 		t.Fatalf("want top border, label, blank, code, blank, bottom border; got %q", rows)
 	}
-	for i, want := range []string{"╭", "│ Go", "│  ", "│ 1  x := 1", "│  ", "╰"} {
+	for i, want := range []string{"╭", "│ Go", "│  ", "│ 1  return 1", "│  ", "╰"} {
 		if !strings.HasPrefix(rows[i], want) {
 			t.Errorf("row %d = %q, want prefix %q", i, rows[i], want)
 		}
@@ -592,6 +584,17 @@ func TestCodeBlock_FramedWithLanguageLabel(t *testing.T) {
 	if !strings.Contains(out, fgANSIFor(styles.TextMuted)+"Go") {
 		t.Errorf("label is not muted: %q", out)
 	}
+	if !strings.Contains(out, fgANSIFor(styles.Primary)+"return") {
+		t.Errorf("keyword not painted in the theme's Primary: %q", out)
+	}
+}
+
+func TestPaintSpans_OneChangePerColorRun(t *testing.T) {
+	withDarkTheme(t)
+	got := paintSpans([]syntax.Span{{Text: "a", Color: styles.Primary}, {Text: "b", Color: styles.Primary}, {Text: "c", Color: styles.Accent}})
+	if want := fgANSIFor(styles.Primary) + "ab" + fgANSIFor(styles.Accent) + "c"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
 }
 
 func TestCodeBlock_UntaggedIsPaddedWithoutLabel(t *testing.T) {
@@ -602,7 +605,8 @@ func TestCodeBlock_UntaggedIsPaddedWithoutLabel(t *testing.T) {
 	}
 }
 
-// One letter per run of rows: T text, B box, . blank.
+// T text row, . blank row, B a run of box rows: a box collapses to one
+// letter, every blank or text row keeps its own so the gaps are counted.
 func rowPattern(out string) string {
 	var p []byte
 	for _, r := range strippedRows(out) {
@@ -638,11 +642,8 @@ func TestCodeBlock_OneBlankRowFromNeighbours(t *testing.T) {
 func TestCodeBlock_TaggedRowsAreNumbered(t *testing.T) {
 	withDarkTheme(t)
 	code := "a := 1\nb := \"" + strings.Repeat("x", 40) + "\"\nc := 3"
-	out := RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30})
-	rows := nonBlankRows(out)
-	for _, want := range []string{"│ 1  a := 1", "│ 2  b := \"xxx", "│    xxxx", "│ 3  c := 3"} {
-		requireRowWithPrefix(t, "numbered code", rows, want)
-	}
+	out := RenderSlackMarkdownWith("```<go>\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30})
+	requireCodeRows(t, "numbered code", out, "Go", "1  a := 1", "2  b := \""+strings.Repeat("x", 17), "   "+strings.Repeat("x", 23), "   \"", "3  c := 3")
 	if !strings.Contains(out, fgANSIFor(styles.TextMuted)+"1  ") {
 		t.Errorf("gutter is not muted: %q", out)
 	}
@@ -650,25 +651,107 @@ func TestCodeBlock_TaggedRowsAreNumbered(t *testing.T) {
 
 func TestCodeBlock_GutterWidensWithLineCount(t *testing.T) {
 	code := strings.TrimSuffix(strings.Repeat("x\n", 10), "\n")
-	rows := nonBlankRows(RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30}))
-	requireRowWithPrefix(t, "two-digit gutter", rows, "│  9  x")
-	requireRowWithPrefix(t, "two-digit gutter", rows, "│ 10  x")
-}
-
-func TestCodeBlock_UntaggedRowsAreNotNumbered(t *testing.T) {
-	rows := nonBlankRows(RenderSlackMarkdownWith("```\na\nb\n```", RenderSlackMarkdownOpts{Width: 30}))
-	requireRowWithPrefix(t, "untagged code", rows, "│ a")
-	for _, r := range rows {
-		if strings.HasPrefix(r, "│ 1") {
-			t.Errorf("untagged block got a line number: %q", rows)
-		}
+	rows := codeRows(RenderSlackMarkdownWith("```<go>\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30}))[1:]
+	if len(rows) != 10 || rows[8] != " 9  x" || rows[9] != "10  x" {
+		t.Errorf("gutter did not widen to two digits: %q", rows)
 	}
 }
 
 func TestCodeBlock_SearchTermsSkipTheGutter(t *testing.T) {
 	hlStart, hlEnd := searchHighlightSGRForTest(t)
-	out := RenderSlackMarkdownWith("```go\nx := 2\ny := 0\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"2"}})
+	out := RenderSlackMarkdownWith("```<go>\nx := 2\ny := 0\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"2"}})
 	if n := strings.Count(out, hlStart+"2"+hlEnd); n != 1 {
 		t.Errorf("term highlighted %d times, want once (code only, not the gutter): %q", n, out)
 	}
+}
+
+func TestCodeBlock_TaggedUnknownLanguageRendersUntagged(t *testing.T) {
+	out := RenderSlackMarkdownWith("```<plain_text>\nx := 1\n```", RenderSlackMarkdownOpts{Width: 30})
+	rows := nonBlankRows(out)
+	if len(rows) != 5 || !strings.HasPrefix(rows[2], "│ x := 1") || strings.Contains(out, "plain_text") {
+		t.Errorf("want the untagged five-row box with the tag gone, got %q", rows)
+	}
+}
+
+func TestCodeBlock_EmptyTaggedBlockKeepsItsLabel(t *testing.T) {
+	out := RenderSlackMarkdownWith("```<go>\n\n```", RenderSlackMarkdownOpts{Width: 30})
+	requireCodeRows(t, "empty tagged", out, "Go", "1")
+}
+
+func TestCodeBlock_PreviewIsBareCodeRows(t *testing.T) {
+	out := RenderSlackMarkdownWith("```<go>\nx := 1\n```", RenderSlackMarkdownOpts{Preview: true})
+	plain := ansi.Strip(out)
+	if strings.ContainsAny(plain, "╭╰│") || strings.Contains(plain, "Go") || strings.Contains(plain, "1  ") {
+		t.Errorf("preview carries frame, label or gutter: %q", plain)
+	}
+	if !strings.Contains(plain, "x := 1") {
+		t.Errorf("preview lost the code: %q", plain)
+	}
+}
+
+func TestCodeBlock_SearchTermSpansTokenColors(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("```<go>\nfunc main() {}\n```", RenderSlackMarkdownOpts{Width: 40, SearchTerms: []string{"func main"}})
+	if a, b := strings.Index(out, hlStart+"func"), strings.Index(out, "main"+hlEnd); a < 0 || b < a {
+		t.Errorf("term across a keyword/name boundary not highlighted as one run: %q", out)
+	}
+}
+
+func TestCodeBlock_HighlightFollowsThemeAcrossRenders(t *testing.T) {
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+	dark := RenderSlackMarkdownWith("```<go>\nfunc\n```", RenderSlackMarkdownOpts{Width: 30})
+	styles.Apply("dracula", config.Theme{})
+	dracula := RenderSlackMarkdownWith("```<go>\nfunc\n```", RenderSlackMarkdownOpts{Width: 30})
+	if dark == dracula || !strings.Contains(dracula, fgANSIFor(styles.Primary)+"func") {
+		t.Errorf("second render of the same block kept the old theme's colors: %q", dracula)
+	}
+}
+
+func TestReopenSGRAcrossRows_ClosersRetireOpensAndAreNotCarried(t *testing.T) {
+	const fg, bg, bold = "\x1b[38;2;1;2;3m", "\x1b[48;5;7m", "\x1b[1m"
+	cases := []struct {
+		name string
+		rows []string
+		want string
+	}{
+		{"kitty placeholder closes its fg", []string{"a " + fg + "\U0010EEEE\x1b[39m b", "next"}, "next"},
+		{"bg closer", []string{bg + "x\x1b[49m", "next"}, "next"},
+		{"bold off keeps the open fg", []string{bold + "b " + fg + "red\x1b[22m", "next"}, fg + "next"},
+		{"reset clears everything", []string{bold + fg + "x\x1b[m", "next"}, "next"},
+		{"open fg carries", []string{fg + "x", "next"}, fg + "next"},
+	}
+	for _, c := range cases {
+		if got := reopenSGRAcrossRows(c.rows)[1]; got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestCodeBlock_SearchHighlightKeepsTheSurfaceBehindTheRestOfTheRow(t *testing.T) {
+	_, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("```\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 40, SearchTerms: []string{"deploy"}})
+	rest := out[strings.Index(out, "deploy")+len("deploy"):]
+	rest = rest[strings.Index(rest, hlEnd)+len(hlEnd):]
+	var reapplied []string
+	for m := sgrRe.FindStringIndex(rest); m != nil && m[0] == 0; m = sgrRe.FindStringIndex(rest) {
+		reapplied = append(reapplied, rest[:m[1]])
+		rest = rest[m[1]:]
+	}
+	if !slices.Contains(reapplied, bgANSIFor(styles.Surface)) {
+		t.Errorf("box background not restored after the highlight's reset; re-applied %q", reapplied)
+	}
+}
+
+// Below frame plus gutter there is nothing to wrap to; the box keeps its
+// natural width rather than letting lipgloss shred it into one-cell rows.
+func TestCodeBlock_TooNarrowForTheFrameKeepsRowsWhole(t *testing.T) {
+	for _, width := range []int{1, 5, 7} {
+		requireCodeRows(t, fmt.Sprint("width ", width), RenderSlackMarkdownWith("```<go>\nreturn 1\n```", RenderSlackMarkdownOpts{Width: width}), "Go", "1  return 1")
+	}
+}
+
+func TestCodeBlock_TypedEntityTagStaysLiteral(t *testing.T) {
+	out := RenderSlackMarkdownWith("```&lt;go&gt;\nx := 1\n```", RenderSlackMarkdownOpts{Width: 30})
+	requireCodeRows(t, "escaped tag", out, "<go>", "x := 1")
 }

@@ -1,11 +1,8 @@
 package syntax
 
 import (
-	"fmt"
 	"image/color"
-	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -13,91 +10,77 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 )
 
-var languageRe = regexp.MustCompile(`^[A-Za-z0-9_+#.-]+$`)
+// Names and aliases only: chroma's own lookup falls back to filename-glob
+// matching, which scans every lexer on a miss and would turn a first code
+// line like "main.go" into a language tag.
+var byName = func() map[string]chroma.Lexer {
+	m := map[string]chroma.Lexer{}
+	for _, l := range lexers.GlobalLexerRegistry.Lexers {
+		cfg := l.Config()
+		m[strings.ToLower(cfg.Name)] = l
+		for _, alias := range cfg.Aliases {
+			m[strings.ToLower(alias)] = l
+		}
+	}
+	return m
+}()
 
-// Known reports whether language can ride on a code fence: a name the
-// highlighter has a lexer for, spelled so it cannot break the fence line.
-func Known(language string) bool {
-	return languageRe.MatchString(language) && lexers.Get(language) != nil
+// Lexer resolves a language tag by lexer name or alias; nil when unknown.
+func Lexer(language string) chroma.Lexer {
+	return byName[strings.ToLower(language)]
 }
 
-// Name is the display name of language's lexer ("Go", "JSON"), or "" when
-// Known would be false.
-func Name(language string) string {
-	if !Known(language) {
-		return ""
-	}
-	return lexers.Get(language).Config().Name
+type Span struct {
+	Text  string
+	Color color.Color
 }
 
-// Highlight colors code with foreground SGR sequences only: no resets and
-// no attributes, so the caller's background and per-row framing stay in
-// force. Unknown languages and lexer failures return code unchanged.
-func Highlight(code, language string) string {
-	lexer := lexers.Get(language)
-	if lexer == nil {
-		return code
-	}
+// Highlight splits code into runs colored from the active theme; the
+// concatenated Text is code unchanged.
+func Highlight(code string, lexer chroma.Lexer) []Span {
 	tokens, err := chroma.Coalesce(lexer).Tokenise(nil, code)
 	if err != nil {
-		return code
+		return []Span{{Text: code, Color: styles.TextPrimary}}
 	}
-	style := themeStyle()
-	var b strings.Builder
-	current := ""
+	var spans []Span
+	n := 0
 	for tok := tokens(); tok != chroma.EOF; tok = tokens() {
-		if fg := fgSGR(style.Get(tok.Type).Colour); fg != current {
-			b.WriteString(fg)
-			current = fg
+		spans = append(spans, Span{Text: tok.Value, Color: tokenColor(tok.Type)})
+		n += len(tok.Value)
+	}
+	// Lexers configured with ensure_nl tokenise code plus a newline they add.
+	if n > len(code) {
+		last := &spans[len(spans)-1]
+		last.Text = strings.TrimSuffix(last.Text, "\n")
+		if last.Text == "" {
+			spans = spans[:len(spans)-1]
 		}
-		b.WriteString(tok.Value)
 	}
-	return b.String()
+	return spans
 }
 
-var cache struct {
-	sync.Mutex
-	version int64
-	style   *chroma.Style
+// Pointers, because styles.Apply reassigns the theme variables.
+var palette = map[chroma.TokenType]*color.Color{
+	chroma.Keyword:           &styles.Primary,
+	chroma.NameBuiltin:       &styles.Primary,
+	chroma.NameTag:           &styles.Primary,
+	chroma.NameDecorator:     &styles.Primary,
+	chroma.LiteralString:     &styles.Accent,
+	chroma.LiteralNumber:     &styles.Warning,
+	chroma.NameConstant:      &styles.Warning,
+	chroma.NameAttribute:     &styles.Warning,
+	chroma.Comment:           &styles.TextMuted,
+	chroma.GenericDeleted:    &styles.Error,
+	chroma.GenericInserted:   &styles.Accent,
+	chroma.GenericHeading:    &styles.Primary,
+	chroma.GenericSubheading: &styles.Primary,
 }
 
-func themeStyle() *chroma.Style {
-	cache.Lock()
-	defer cache.Unlock()
-	if cache.style == nil || cache.version != styles.Version() {
-		cache.style = buildThemeStyle()
-		cache.version = styles.Version()
+func tokenColor(t chroma.TokenType) color.Color {
+	for _, k := range []chroma.TokenType{t, t.SubCategory(), t.Category()} {
+		if c, ok := palette[k]; ok {
+			return *c
+		}
 	}
-	return cache.style
-}
-
-func buildThemeStyle() *chroma.Style {
-	return chroma.MustNewStyle("slk", chroma.StyleEntries{
-		chroma.Background:        hex(styles.TextPrimary),
-		chroma.Keyword:           hex(styles.Primary),
-		chroma.NameBuiltin:       hex(styles.Primary),
-		chroma.NameTag:           hex(styles.Primary),
-		chroma.NameDecorator:     hex(styles.Primary),
-		chroma.LiteralString:     hex(styles.Accent),
-		chroma.LiteralNumber:     hex(styles.Warning),
-		chroma.NameConstant:      hex(styles.Warning),
-		chroma.NameAttribute:     hex(styles.Warning),
-		chroma.Comment:           hex(styles.TextMuted),
-		chroma.GenericDeleted:    hex(styles.Error),
-		chroma.GenericInserted:   hex(styles.Accent),
-		chroma.GenericHeading:    hex(styles.Primary),
-		chroma.GenericSubheading: hex(styles.Primary),
-	})
-}
-
-func hex(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
-}
-
-func fgSGR(c chroma.Colour) string {
-	if !c.IsSet() {
-		return ""
-	}
-	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+	return styles.TextPrimary
 }
