@@ -656,16 +656,17 @@ func RenderSlackMarkdown(text string, userNames map[string]string, channelNames 
 // opts struct it is byte-identical to RenderSlackMarkdown.
 func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	// Handle code blocks first (before other formatting to avoid conflicts)
+	hl := newSearchHighlighter(opts.SearchTerms)
+	var held heldCodeBlocks
 	text = codeBlockRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
-		return "\n" + renderCodeBlock(inner, opts.Width) + "\n"
+		return "\n" + held.hold(renderCodeBlock(inner, opts.Width, hl)) + "\n"
 	})
 
 	// Process line by line for blockquotes
 	lines := strings.Split(text, "\n")
 	var result []string
-	hl := newSearchHighlighter(opts.SearchTerms)
 	for _, line := range lines {
 		if body, isQuote := stripQuotePrefix(line); isQuote {
 			line = renderBlockquote(renderInlineLine(body, opts, hl), opts.Width, hl)
@@ -677,7 +678,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 		result = append(result, line)
 	}
 
-	output := strings.Join(result, "\n")
+	output := held.restore(strings.Join(result, "\n"))
 
 	// Post-process: re-apply theme background AND foreground after every
 	// ANSI reset so that inline styled text (bold, link, mention) doesn't

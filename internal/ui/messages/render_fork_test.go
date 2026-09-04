@@ -329,6 +329,17 @@ func TestListItem_HighlightsSearchTerms(t *testing.T) {
 	}
 }
 
+func TestCodeBlock_RowsAreLiteral(t *testing.T) {
+	code := "Init(ctx, *Config) error   Init(ctx, *Config) error\n_x_ ~y~ `z` :smile:"
+	out := RenderSlackMarkdownWith("```\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 60})
+	plain := ansi.Strip(out)
+	for _, want := range strings.Split(code, "\n") {
+		if !strings.Contains(plain, want) {
+			t.Errorf("code row lost its literal text %q:\n%s", want, plain)
+		}
+	}
+}
+
 func TestCodeBlock_RowsHighlightSearchTerms(t *testing.T) {
 	hlStart, hlEnd := searchHighlightSGRForTest(t)
 	out := RenderSlackMarkdownWith("```\nfunc deploy() {}\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"deploy"}})

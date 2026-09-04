@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -69,10 +70,25 @@ func renderBlockquote(body string, width int, hl searchHighlighter) string {
 	return style.Render(body)
 }
 
-func renderCodeBlock(inner string, width int) string {
+type heldCodeBlocks []string
+
+func (h *heldCodeBlocks) hold(rendered string) string {
+	*h = append(*h, rendered)
+	return fmt.Sprintf("\x00CB%d\x00", len(*h)-1)
+}
+
+func (h heldCodeBlocks) restore(s string) string {
+	for i, block := range h {
+		s = strings.Replace(s, fmt.Sprintf("\x00CB%d\x00", i), block, 1)
+	}
+	return s
+}
+
+func renderCodeBlock(inner string, width int, hl searchHighlighter) string {
 	style := codeBlockStyle()
 	inner = expandTabs(slackEntityDecoder.Replace(inner))
-	return style.Render(ansi.Hardwrap(inner, width-style.GetHorizontalFrameSize(), true))
+	inner = ansi.Hardwrap(inner, width-style.GetHorizontalFrameSize(), true)
+	return style.Render(hl.highlight(inner))
 }
 
 func renderListItem(line string, opts RenderSlackMarkdownOpts, hl searchHighlighter) (string, bool) {
