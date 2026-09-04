@@ -499,7 +499,7 @@ func TestCodeBlock_LanguageLineIsConsumedAndKeywordsPainted(t *testing.T) {
 	withDarkTheme(t)
 	out := RenderSlackMarkdownWith("```go\nfunc main() {}\n```", RenderSlackMarkdownOpts{Width: 40})
 	rows := nonBlankRows(out)
-	requireRowWithPrefix(t, "tagged code", rows, "│ func main() {}")
+	requireRowWithPrefix(t, "tagged code", rows, "│ 1  func main() {}")
 	for _, r := range rows {
 		if strings.HasPrefix(r, "│ go") {
 			t.Errorf("language line rendered as code: %q", rows)
@@ -576,7 +576,7 @@ func TestCodeBlock_FramedWithLanguageLabel(t *testing.T) {
 	if len(rows) != 6 {
 		t.Fatalf("want top border, label, blank, code, blank, bottom border; got %q", rows)
 	}
-	for i, want := range []string{"╭", "│ Go", "│  ", "│ x := 1", "│  ", "╰"} {
+	for i, want := range []string{"╭", "│ Go", "│  ", "│ 1  x := 1", "│  ", "╰"} {
 		if !strings.HasPrefix(rows[i], want) {
 			t.Errorf("row %d = %q, want prefix %q", i, rows[i], want)
 		}
@@ -632,5 +632,43 @@ func TestCodeBlock_OneBlankRowFromNeighbours(t *testing.T) {
 		if got := rowPattern(RenderSlackMarkdownWith(in, RenderSlackMarkdownOpts{Width: 30})); got != want {
 			t.Errorf("%q: rows %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestCodeBlock_TaggedRowsAreNumbered(t *testing.T) {
+	withDarkTheme(t)
+	code := "a := 1\nb := \"" + strings.Repeat("x", 40) + "\"\nc := 3"
+	out := RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30})
+	rows := nonBlankRows(out)
+	for _, want := range []string{"│ 1  a := 1", "│ 2  b := \"xxx", "│    xxxx", "│ 3  c := 3"} {
+		requireRowWithPrefix(t, "numbered code", rows, want)
+	}
+	if !strings.Contains(out, fgANSIFor(styles.TextMuted)+"1  ") {
+		t.Errorf("gutter is not muted: %q", out)
+	}
+}
+
+func TestCodeBlock_GutterWidensWithLineCount(t *testing.T) {
+	code := strings.TrimSuffix(strings.Repeat("x\n", 10), "\n")
+	rows := nonBlankRows(RenderSlackMarkdownWith("```go\n"+code+"\n```", RenderSlackMarkdownOpts{Width: 30}))
+	requireRowWithPrefix(t, "two-digit gutter", rows, "│  9  x")
+	requireRowWithPrefix(t, "two-digit gutter", rows, "│ 10  x")
+}
+
+func TestCodeBlock_UntaggedRowsAreNotNumbered(t *testing.T) {
+	rows := nonBlankRows(RenderSlackMarkdownWith("```\na\nb\n```", RenderSlackMarkdownOpts{Width: 30}))
+	requireRowWithPrefix(t, "untagged code", rows, "│ a")
+	for _, r := range rows {
+		if strings.HasPrefix(r, "│ 1") {
+			t.Errorf("untagged block got a line number: %q", rows)
+		}
+	}
+}
+
+func TestCodeBlock_SearchTermsSkipTheGutter(t *testing.T) {
+	hlStart, hlEnd := searchHighlightSGRForTest(t)
+	out := RenderSlackMarkdownWith("```go\nx := 2\ny := 0\n```", RenderSlackMarkdownOpts{Width: 30, SearchTerms: []string{"2"}})
+	if n := strings.Count(out, hlStart+"2"+hlEnd); n != 1 {
+		t.Errorf("term highlighted %d times, want once (code only, not the gutter): %q", n, out)
 	}
 }

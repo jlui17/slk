@@ -3,6 +3,7 @@ package messages
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -94,17 +95,50 @@ func renderCodeBlock(inner string, width int, hl searchHighlighter) string {
 		BorderBackground(styles.Background).
 		Padding(1, 1)
 	language, code := splitFenceLanguage(slackEntityDecoder.Replace(inner))
-	code = syntax.Highlight(expandTabs(code), language)
-	code = ansi.Hardwrap(code, width-style.GetHorizontalFrameSize(), true)
-	code = hl.highlight(reopenFgAcrossRows(code))
-	if name := syntax.Name(language); name != "" {
+	name := syntax.Name(language)
+	lines := strings.Split(syntax.Highlight(expandTabs(code), language), "\n")
+	gutter := 0
+	if name != "" {
+		gutter = len(strconv.Itoa(len(lines))) + 2
+	}
+	limit := width - style.GetHorizontalFrameSize() - gutter
+	var rows []string
+	var lineStart []bool
+	for _, line := range lines {
+		for j, row := range strings.Split(ansi.Hardwrap(line, limit, true), "\n") {
+			rows = append(rows, row)
+			lineStart = append(lineStart, j == 0)
+		}
+	}
+	rows = strings.Split(hl.highlight(reopenFgAcrossRows(strings.Join(rows, "\n"))), "\n")
+	if gutter > 0 {
+		numberRows(rows, lineStart, gutter)
+	}
+	body := strings.Join(rows, "\n")
+	if name != "" {
 		style = style.PaddingTop(0)
-		code = fgANSIFor(styles.TextMuted) + name + "\n\n" + code
+		body = fgANSIFor(styles.TextMuted) + name + "\n\n" + body
 	}
 	if width > 0 {
 		style = style.Width(width)
 	}
-	return style.Render(code)
+	return style.Render(body)
+}
+
+// Search highlighting and the per-row color re-open run before the gutter
+// goes on, so a term never matches a line number and a row's first token
+// keeps its own color after the muted digits.
+func numberRows(rows []string, lineStart []bool, gutter int) {
+	muted := fgANSIFor(styles.TextMuted)
+	n := 0
+	for i, row := range rows {
+		if lineStart[i] {
+			n++
+			rows[i] = muted + fmt.Sprintf("%*d  ", gutter-2, n) + row
+		} else {
+			rows[i] = strings.Repeat(" ", gutter) + row
+		}
+	}
 }
 
 var codeBlockMarkerRe = regexp.MustCompile(`^\x00CB\d+\x00$`)
