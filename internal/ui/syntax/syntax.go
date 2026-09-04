@@ -21,6 +21,15 @@ func Known(language string) bool {
 	return languageRe.MatchString(language) && lexers.Get(language) != nil
 }
 
+// Name is the display name of language's lexer ("Go", "JSON"), or "" when
+// Known would be false.
+func Name(language string) string {
+	if !Known(language) {
+		return ""
+	}
+	return lexers.Get(language).Config().Name
+}
+
 // Highlight colors code with foreground SGR sequences only: no resets and
 // no attributes, so the caller's background and per-row framing stay in
 // force. Unknown languages and lexer failures return code unchanged.

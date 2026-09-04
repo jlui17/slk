@@ -66,3 +66,11 @@ func TestHighlight_FollowsThemeChanges(t *testing.T) {
 		t.Errorf("keyword color did not follow the theme: dark=%q dracula=%q", dark, dracula)
 	}
 }
+
+func TestName_IsTheLexerDisplayName(t *testing.T) {
+	for lang, want := range map[string]string{"go": "Go", "json": "JSON", "bash": "Bash", "nope": ""} {
+		if got := Name(lang); got != want {
+			t.Errorf("Name(%q) = %q, want %q", lang, got, want)
+		}
+	}
+}

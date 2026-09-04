@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/syntax"
 )
 
@@ -87,11 +88,49 @@ func (h heldCodeBlocks) restore(s string) string {
 }
 
 func renderCodeBlock(inner string, width int, hl searchHighlighter) string {
-	style := codeBlockStyle()
+	style := codeBlockStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(styles.Border).
+		BorderBackground(styles.Background).
+		Padding(1, 1)
 	language, code := splitFenceLanguage(slackEntityDecoder.Replace(inner))
 	code = syntax.Highlight(expandTabs(code), language)
 	code = ansi.Hardwrap(code, width-style.GetHorizontalFrameSize(), true)
-	return style.Render(hl.highlight(reopenFgAcrossRows(code)))
+	code = hl.highlight(reopenFgAcrossRows(code))
+	if name := syntax.Name(language); name != "" {
+		style = style.PaddingTop(0)
+		code = fgANSIFor(styles.TextMuted) + name + "\n\n" + code
+	}
+	if width > 0 {
+		style = style.Width(width)
+	}
+	return style.Render(code)
+}
+
+var codeBlockMarkerRe = regexp.MustCompile(`^\x00CB\d+\x00$`)
+
+// A held code block sits exactly one blank row from whatever surrounds
+// it, whatever spacing the author or the block-to-mrkdwn join produced.
+func tightenCodeBlockRows(text string) string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		afterBlock := len(out) > 0 && codeBlockMarkerRe.MatchString(out[len(out)-1])
+		switch {
+		case codeBlockMarkerRe.MatchString(line):
+			for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+				out = out[:len(out)-1]
+			}
+			if len(out) > 0 {
+				out = append(out, "")
+			}
+		case afterBlock && strings.TrimSpace(line) == "":
+			continue
+		case afterBlock:
+			out = append(out, "")
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // A first line is a language tag only when the highlighter knows it;
