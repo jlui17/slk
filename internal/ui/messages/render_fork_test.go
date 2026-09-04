@@ -468,3 +468,32 @@ func TestCommonMark_QuoteConvertsInline(t *testing.T) {
 		}
 	}
 }
+
+func richTextLiteralMessage() MessageItem {
+	return MessageItem{TS: "1.0", Blocks: []blockkit.Block{blockkit.RichTextBlock{Elements: []slack.RichTextElement{
+		&slack.RichTextSection{Type: slack.RTESection, Elements: []slack.RichTextSectionElement{
+			&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "ping <@U1> then "},
+			&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "a < b", Style: &slack.RichTextSectionTextStyle{Code: true}},
+		}},
+	}}}}
+}
+
+func TestRichTextLiteralMentionRendersAsText(t *testing.T) {
+	msg := richTextLiteralMessage()
+	opts := RenderSlackMarkdownOpts{UserNames: map[string]string{"U1": "alice"}, Width: 60}
+	got := ansi.Strip(RenderSlackMarkdownWith(MessageTextSource(msg), opts))
+	if !strings.Contains(got, "ping <@U1> then a < b") || strings.Contains(got, "alice") {
+		t.Errorf("literal rich_text characters reinterpreted: %q", got)
+	}
+	if plain := renderedFor(t, msg, 80); !strings.Contains(plain, "ping <@U1> then a < b") {
+		t.Errorf("messages pane reinterpreted literal rich_text characters:\n%s", plain)
+	}
+}
+
+func TestSlackMrkdwnToCommonMark_DecodesEntitiesInsideCode(t *testing.T) {
+	in := "`a &lt; b`\n```\nx &amp;&amp; y &gt; z\n```"
+	want := "`a < b`\n```\nx && y > z\n```"
+	if got := SlackMrkdwnToCommonMark(in, nil, nil); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

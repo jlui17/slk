@@ -890,7 +890,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
 		inner = strings.TrimSpace(inner)
 		placeholder := fmt.Sprintf("\x00CB%d\x00", len(codeBlocks))
-		codeBlocks = append(codeBlocks, "```\n"+inner+"\n```")
+		codeBlocks = append(codeBlocks, "```\n"+slackEntityDecoder.Replace(inner)+"\n```")
 		return placeholder
 	})
 
@@ -899,7 +899,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 	text = inlineCodeRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := inlineCodeRe.FindStringSubmatch(match)[1]
 		placeholder := fmt.Sprintf("\x00IC%d\x00", len(inlineCodes))
-		inlineCodes = append(inlineCodes, "`"+inner+"`")
+		inlineCodes = append(inlineCodes, "`"+slackEntityDecoder.Replace(inner)+"`")
 		return placeholder
 	})
 

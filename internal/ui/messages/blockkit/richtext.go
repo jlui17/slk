@@ -95,6 +95,7 @@ func textToMrkdwn(text string, style *slack.RichTextSectionTextStyle) string {
 	if text == "" {
 		return ""
 	}
+	text = escapeLiteralText(text)
 	// Whitespace-only runs are also treated as plain text — wrapping
 	// "  " in *…* would mean Slack sees "* *" which it ignores.
 	if style == nil || strings.TrimSpace(text) == "" {
@@ -174,7 +175,7 @@ func preformattedToMrkdwn(elements []slack.RichTextSectionElement) string {
 	for _, e := range elements {
 		switch v := e.(type) {
 		case *slack.RichTextSectionTextElement:
-			b.WriteString(v.Text)
+			b.WriteString(escapeLiteralText(v.Text))
 		case *slack.RichTextSectionLinkElement:
 			b.WriteString(v.URL)
 		}
