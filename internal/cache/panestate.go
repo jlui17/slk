@@ -55,3 +55,37 @@ func (db *DB) GetPaneState(paneKey string) (PaneState, bool, error) {
 	}
 	return s, true, nil
 }
+
+// PaneStateRow is one saved pane state with the key it was recorded
+// under and when it was last written.
+type PaneStateRow struct {
+	PaneKey   string
+	State     PaneState
+	UpdatedAt time.Time
+}
+
+// ListPaneStates returns every saved pane state, sorted by pane key.
+func (db *DB) ListPaneStates() ([]PaneStateRow, error) {
+	rows, err := db.conn.Query(`
+		SELECT pane_key, workspace_id, channel_id, thread_ts, updated_at
+		FROM pane_state
+		ORDER BY pane_key`)
+	if err != nil {
+		return nil, fmt.Errorf("listing pane states: %w", err)
+	}
+	defer rows.Close()
+	var out []PaneStateRow
+	for rows.Next() {
+		var r PaneStateRow
+		var updated int64
+		if err := rows.Scan(&r.PaneKey, &r.State.WorkspaceID, &r.State.ChannelID, &r.State.ThreadTS, &updated); err != nil {
+			return nil, fmt.Errorf("scanning pane state: %w", err)
+		}
+		r.UpdatedAt = time.Unix(updated, 0)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing pane states: %w", err)
+	}
+	return out, nil
+}

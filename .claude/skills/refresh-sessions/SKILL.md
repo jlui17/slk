@@ -39,8 +39,8 @@ edge case can be handled without rediscovering it.
 ## Handling the edges
 
 - **Zero sessions found**: nothing is running. A dead pane has no process
-  to discover; relaunch it by hand with
-  `herdr pane run <pane_id> tools/run-docker.sh` — `pane_state` restores it.
+  to discover; `tools/run-docker.sh herdr reboot` relaunches every pane
+  that has a saved `pane_state` and is sitting at its shell prompt.
 - **`wait-output` timeout on the first pane**: the build is failing. Read
   the pane (`herdr pane read <pane_id> --source visible`) for the compile
   error; don't rerun until it builds.

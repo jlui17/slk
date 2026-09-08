@@ -1,6 +1,9 @@
 package cache
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func newPaneStateTestDB(t *testing.T) *DB {
 	t.Helper()
@@ -67,5 +70,35 @@ func TestPaneStateKeyIsolation(t *testing.T) {
 	}
 	if got.ChannelID != "C1" || got.ThreadTS != "" {
 		t.Errorf("p1 state clobbered by p2 write: %+v", got)
+	}
+}
+
+func TestListPaneStatesSortedByKeyWithUpdatedAt(t *testing.T) {
+	db := newPaneStateTestDB(t)
+
+	if rows, err := db.ListPaneStates(); err != nil || len(rows) != 0 {
+		t.Fatalf("empty table: want no rows, got %v err=%v", rows, err)
+	}
+	before := time.Now().Add(-time.Second)
+	if err := db.RecordPaneState("w1:p2", PaneState{WorkspaceID: "T1", ChannelID: "C2", ThreadTS: "111.222"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordPaneState("w1:p1", PaneState{WorkspaceID: "T1", ChannelID: "C1"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.ListPaneStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].PaneKey != "w1:p1" || rows[1].PaneKey != "w1:p2" {
+		t.Fatalf("want rows sorted by key [w1:p1 w1:p2], got %+v", rows)
+	}
+	if rows[1].State != (PaneState{WorkspaceID: "T1", ChannelID: "C2", ThreadTS: "111.222"}) {
+		t.Errorf("w1:p2 state = %+v", rows[1].State)
+	}
+	for _, r := range rows {
+		if r.UpdatedAt.Before(before) || r.UpdatedAt.After(time.Now().Add(time.Second)) {
+			t.Errorf("%s updated_at %v not within the test's run", r.PaneKey, r.UpdatedAt)
+		}
 	}
 }

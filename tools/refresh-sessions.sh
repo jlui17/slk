@@ -43,8 +43,8 @@ for ws in json.load(sys.stdin)["result"]["workspaces"]:
 
 if [ "${#panes[@]}" -eq 0 ]; then
   echo "no live user slk sessions found; nothing to restart" >&2
-  echo "(a dead pane has no process to find — relaunch it by hand:" >&2
-  echo "  herdr pane run <pane_id> $repo/tools/run-docker.sh)" >&2
+  echo "(a dead pane has no process to find; bring dead panes back with:" >&2
+  echo "  $repo/tools/run-docker.sh herdr reboot)" >&2
   exit 0
 fi
 

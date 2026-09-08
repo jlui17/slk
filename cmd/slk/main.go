@@ -753,6 +753,8 @@ func main() {
 				os.Exit(1)
 			}
 			os.Exit(0)
+		case "herdr":
+			os.Exit(herdrMain(os.Args[2:]))
 		}
 		// A URL argument is a Slack message permalink to open on
 		// startup (slk <link>). Unparseable URLs are rejected before
