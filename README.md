@@ -68,6 +68,24 @@ you're done.
 
 Full walkthrough: [Setup wiki page](https://github.com/gammons/slk/wiki/Setup).
 
+## Running inside herdr
+
+Inside a [herdr](https://herdr.dev) pane, slk mirrors the open agent
+thread onto herdr's agent sidebar and names the tab after it, and each
+pane remembers the channel and thread it had open. After a herdr restart
+every pane is back to a bare shell; bring them all back at once from any
+pane:
+
+```bash
+slk herdr pane states   # what each pane had open
+slk herdr reboot        # relaunch slk in every pane with a saved state
+```
+
+`reboot` skips panes that already run slk or have something else in the
+foreground, and runs the `[herdr] open_command` from your config (default
+`slk`) in the rest. Add `--dry-run` to see the plan first. Details:
+[Configuration wiki page](https://github.com/gammons/slk/wiki/Configuration).
+
 ## Debugging
 
 Set `SLK_DEBUG=1` to enable a comprehensive debug log written to

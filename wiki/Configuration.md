@@ -141,6 +141,7 @@ tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 # second slk instance. The tab's shell runs `<open_command> '<permalink>'`;
 # it is a host shell even when slk itself runs in a container (e.g. via
 # tools/run-docker.sh), so point this at the host-side launch command.
+# `slk herdr reboot` runs the same command in every pane with a saved state.
 open_command = "slk"   # default
 
 # Relaunching slk reopens the workspace, channel, and thread that were open
