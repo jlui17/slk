@@ -12,11 +12,12 @@ edge case can be handled without rediscovering it.
 
 ## Why the flow is shaped this way
 
-- **The TUI can't be driven from outside.** `herdr pane send-text` /
-  `send-keys` never reach slk in these docker-attached panes (verified: keys
-  land nowhere, no mode change), so "press Q, confirm" is not scriptable.
-  `docker stop` is the quit path: slk is PID 1 in its container, bubbletea
-  handles the SIGTERM, and main's defers release the herdr sidebar entry.
+- **Quit through docker, not keystrokes.** `herdr pane send-keys` does
+  reach slk (an earlier "keys land nowhere" reading was the unviewed-pane
+  view gate hiding the repaint), but scripting "press Q, confirm" against a
+  pane whose screen you can't trust is fragile. `docker stop` is the quit
+  path: slk is PID 1 in its container, bubbletea handles the SIGTERM, and
+  main's defers release the herdr sidebar entry.
 - **Stopping the user's containers here is compatible with the never-kill
   rule** (CLAUDE.md, Running Go on Santa-managed hosts): the ask *is* the
   restart, and identity is captured per pane at run time — the container
