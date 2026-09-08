@@ -15,6 +15,10 @@ import (
 // drops (herdr restart, transient socket error).
 const watchRetryDelay = 5 * time.Second
 
+// watchPollInterval paces the location polls that back up the event
+// stream (see WatchFocus).
+const watchPollInterval = 2 * time.Second
+
 type subscribeParams struct {
 	Subscriptions []subscription `json:"subscriptions"`
 }
@@ -57,8 +61,17 @@ func (l paneLocation) viewed() bool { return l.wsFocused && l.tabFocused }
 // seen-wipe caused purely by the user returning to the terminal window
 // passes unnoticed until the next tab or workspace focus change.
 //
-// Runs a persistent events.subscribe connection with reconnects until
-// Close, and is nil-safe.
+// Viewedness is read two ways. An events.subscribe stream is kept
+// because an event lands the instant herdr sends one; but herdr 0.9.0
+// sends tab.focused / workspace.focused only for API-driven focus
+// (`herdr tab focus`), not for the user navigating its TUI, while
+// workspace.get does reflect that navigation. So the watcher also
+// re-reads the pane's location every pollInterval. Without the poll, a
+// pane whose tab is in the background when it starts is seeded unviewed
+// and never hears otherwise.
+//
+// Runs a persistent connection with reconnects until Close, and is
+// nil-safe.
 func (r *Reporter) WatchFocus(onViewChange func(viewed bool), onConnected func()) {
 	if r == nil {
 		return
@@ -132,62 +145,105 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool), onConnected fu
 	// viewedness needs it from the start, not from the first transition.
 	onViewChange(loc.viewed())
 
-	for scanner.Scan() {
-		var ev struct {
-			Data struct {
-				Type        string   `json:"type"`
-				TabID       string   `json:"tab_id"`
-				WorkspaceID string   `json:"workspace_id"`
-				PreviousID  string   `json:"previous_pane_id"`
-				Pane        paneInfo `json:"pane"`
-			} `json:"data"`
+	// The stream is read on its own goroutine so this one can poll;
+	// everything that touches loc or calls onViewChange stays here.
+	done := make(chan struct{})
+	defer close(done)
+	events := make(chan watchEvent)
+	go func() {
+		defer close(events)
+		for scanner.Scan() {
+			var ev struct {
+				Data watchEvent `json:"data"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+				continue
+			}
+			select {
+			case events <- ev.Data:
+			case <-done:
+				return
+			}
 		}
-		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
-			continue
-		}
-		d := ev.Data
+	}()
+
+	ticker := time.NewTicker(r.pollInterval)
+	defer ticker.Stop()
+	for {
 		was := loc.viewed()
-		switch d.Type {
-		case "tab_focused":
-			// Another workspace's tab focus doesn't change which tab is
-			// focused within ours; herdr keeps a focused tab per workspace.
-			if d.WorkspaceID != loc.workspaceID {
-				continue
+		select {
+		case <-r.stop:
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
 			}
-			loc.tabFocused = d.TabID == loc.tabID
-		case "workspace_focused":
-			loc.wsFocused = d.WorkspaceID == loc.workspaceID
-		case "pane_moved":
-			// Matched by the terminal id first (stable within a server
-			// run, which is as long as an event stream lives): a cross-workspace
-			// move assigns a new public pane id, so after one move the id
-			// comparisons alone would miss every later move. They stay as
-			// the fallback for an event without a terminal id. The terminal
-			// match must be positive — with no terminal id known, an empty
-			// event terminal id "matching" the empty tracked one would
-			// adopt every other pane's move.
-			id := r.identity()
-			if (id.TerminalID == "" || d.Pane.TerminalID != id.TerminalID) &&
-				d.PreviousID != id.PaneID && d.Pane.PaneID != id.PaneID {
-				continue
-			}
-			// The pane landed somewhere else: adopt the new coordinates
-			// and re-read whether that location is viewed, rather than
-			// folding further events against the tab it left.
-			r.adopt(d.Pane)
-			moved, err := r.locate()
+			next, err := r.fold(loc, ev)
 			if err != nil {
 				debuglog.Notify("herdr: focus watch relocate: %v", err)
 				return
 			}
-			loc = moved
-		default:
-			continue
+			loc = next
+		case <-ticker.C:
+			fresh, err := r.locate()
+			if err != nil {
+				debuglog.Notify("herdr: focus watch poll: %v", err)
+				continue
+			}
+			loc = fresh
 		}
 		if was != loc.viewed() {
 			onViewChange(loc.viewed())
 		}
 	}
+}
+
+// watchEvent is the data of one subscription event: the fields that
+// tab_focused, workspace_focused, and pane_moved carry between them.
+type watchEvent struct {
+	Type        string   `json:"type"`
+	TabID       string   `json:"tab_id"`
+	WorkspaceID string   `json:"workspace_id"`
+	PreviousID  string   `json:"previous_pane_id"`
+	Pane        paneInfo `json:"pane"`
+}
+
+// fold applies one event to where the pane sits and whether it is
+// viewed, returning loc unchanged for events about other panes or
+// workspaces. Only a pane_moved for this pane can fail: it re-resolves
+// the location.
+func (r *Reporter) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
+	switch d.Type {
+	case "tab_focused":
+		// Another workspace's tab focus doesn't change which tab is
+		// focused within ours; herdr keeps a focused tab per workspace.
+		if d.WorkspaceID != loc.workspaceID {
+			return loc, nil
+		}
+		loc.tabFocused = d.TabID == loc.tabID
+	case "workspace_focused":
+		loc.wsFocused = d.WorkspaceID == loc.workspaceID
+	case "pane_moved":
+		// Matched by the terminal id first (stable within a server
+		// run, which is as long as an event stream lives): a cross-workspace
+		// move assigns a new public pane id, so after one move the id
+		// comparisons alone would miss every later move. They stay as
+		// the fallback for an event without a terminal id. The terminal
+		// match must be positive — with no terminal id known, an empty
+		// event terminal id "matching" the empty tracked one would
+		// adopt every other pane's move.
+		id := r.identity()
+		if (id.TerminalID == "" || d.Pane.TerminalID != id.TerminalID) &&
+			d.PreviousID != id.PaneID && d.Pane.PaneID != id.PaneID {
+			return loc, nil
+		}
+		// The pane landed somewhere else: adopt the new coordinates
+		// and re-read whether that location is viewed, rather than
+		// folding further events against the tab it left.
+		r.adopt(d.Pane)
+		return r.locate()
+	}
+	return loc, nil
 }
 
 // locate reads the pane's current coordinates, adopts them as the

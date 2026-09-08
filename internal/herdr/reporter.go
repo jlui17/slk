@@ -63,6 +63,8 @@ type Reporter struct {
 	stopOnce sync.Once
 	// retryDelay paces the focus watcher's reconnects.
 	retryDelay time.Duration
+	// pollInterval paces the focus watcher's location polls.
+	pollInterval time.Duration
 
 	// loadPaneID and savePaneID bridge the pane's resolved public id to
 	// a store that outlives the process; both are set once via
@@ -143,8 +145,9 @@ func NewReporterFromEnv() *Reporter {
 func newReporter(network, addr, paneID, tabID string) *Reporter {
 	return &Reporter{
 		network: network, addr: addr, paneID: paneID, tabID: tabID,
-		stop:       make(chan struct{}),
-		retryDelay: watchRetryDelay,
+		stop:         make(chan struct{}),
+		retryDelay:   watchRetryDelay,
+		pollInterval: watchPollInterval,
 	}
 }
 

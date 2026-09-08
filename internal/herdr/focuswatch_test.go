@@ -346,6 +346,26 @@ func TestWatchFocusSeedsFromLiveLocation(t *testing.T) {
 	view(false, "left the tab")
 }
 
+func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	s := startFocusServer(t, sock)
+	// herdr 0.9.0 sends no focus event when the user switches tabs in
+	// its TUI: the only trace is workspace.get's answer changing. The
+	// pane starts in a background tab, and no event ever arrives.
+	s.setLocation("w1:t1", "w1:t7", true)
+	r := newReporter("unix", sock, "w1:p1", "")
+	r.pollInterval = 20 * time.Millisecond
+	view, _ := focusWatcher(t, r)
+	s.waitSubscribed()
+	view(false, "seeded in a background tab")
+
+	s.setLocation("w1:t1", "w1:t1", true)
+	view(true, "tab activated in the TUI")
+
+	s.setLocation("w1:t1", "w1:t7", true)
+	view(false, "tab left in the TUI")
+}
+
 func TestWatchFocusTracksPaneMove(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	s := startFocusServer(t, sock)
