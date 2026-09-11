@@ -92,14 +92,16 @@ tz="${TZ:-$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')}"
 spool=$(mktemp -d /tmp/slk-open.XXXXXX)
 watcher_pid=
 bridge_pid=
+clipboard_pid=
 cleanup() {
   [ -n "$watcher_pid" ] && kill "$watcher_pid" 2>/dev/null
   [ -n "$bridge_pid" ] && kill "$bridge_pid" 2>/dev/null
+  [ -n "$clipboard_pid" ] && kill "$clipboard_pid" 2>/dev/null
   rm -rf "$spool"
 }
 trap cleanup EXIT
 # A PID-targeted signal must not skip cleanup and orphan the watcher or the
-# bridge; `exit` re-routes through the EXIT trap. Bash delivers these traps
+# bridges; `exit` re-routes through the EXIT trap. Bash delivers these traps
 # only once the foreground docker run returns.
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -143,11 +145,34 @@ if [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_
   fi
 fi
 
+# The container has no access to the macOS clipboard, so Ctrl+V smart paste
+# reads it through a host-side HTTP bridge at host.docker.internal:<port>.
+# Darwin only: the bridge reads the clipboard with osascript. Same shape as
+# the herdr bridge — watches this shell's PID, and best-effort: losing it
+# costs only clipboard paste, never the launch.
+clipboard_port=
+if [ "$(uname)" = Darwin ]; then
+  port_file=$(mktemp)
+  python3 "$repo/tools/clipboard-bridge.py" $$ >"$port_file" &
+  clipboard_pid=$!
+  for _ in $(seq 1 50); do
+    clipboard_port=$(head -n 1 "$port_file")
+    [ -n "$clipboard_port" ] && break
+    sleep 0.1
+  done
+  rm -f "$port_file"
+  if [ -z "$clipboard_port" ]; then
+    echo "warning: clipboard bridge did not report a port; starting without Ctrl+V image paste" >&2
+    kill "$clipboard_pid" 2>/dev/null || true
+    clipboard_pid=
+  fi
+fi
+
 # Terminal identity rides into the container so graphics-protocol detection
 # sees the real terminal; the kitty probe's reply comes back over the -it pty.
 # -w /src puts slk-debug.log (written to cwd under SLK_DEBUG) in the
 # host checkout instead of dying with the --rm container. No exec: the EXIT
-# trap must run to stop the spool watcher and the bridge.
+# trap must run to stop the spool watcher and the bridges.
 #
 # Headless hooks (tools/smoke.sh composes all three):
 #   no host tty  -> -t only: the app still gets a pty, stdin stays detached
@@ -186,6 +211,7 @@ docker run --rm "${tty_args[@]}" \
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
   ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
   ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
+  ${clipboard_port:+-e SLK_CLIPBOARD_ADDR="host.docker.internal:$clipboard_port"} \
   -e GOMEMLIMIT=400MiB \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \

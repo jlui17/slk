@@ -80,6 +80,17 @@ slk honors `$BROWSER`, which the script points at `tools/spool-open` — it
 drops the URL into a `/tmp` spool directory that a host-side watcher in the
 script opens with `open`.
 
+Ctrl+V image paste works through a second bridge: the container can't see
+the macOS clipboard, so the script starts `tools/clipboard-bridge.py`, a
+host-side HTTP server that dumps the clipboard through `osascript`
+(Apple-signed, so Santa allows it), and passes its address in as
+`SLK_CLIPBOARD_ADDR`. slk then reads the clipboard from that address
+instead of the native library. Each paste costs one `osascript` launch
+(~0.25s), which runs off the UI goroutine while the status bar shows
+`Pasting from clipboard…`. Check it by hand: `python3 tools/clipboard-bridge.py $$` prints
+a port; `curl http://127.0.0.1:<port>/image > x.png` returns the clipboard
+image (204 when there is none).
+
 **Caveat:** the docker pty reports no pixel dimensions, so the TIOCGWINSZ
 path for cell metrics always fails. slk recovers by querying the terminal
 directly (XTWINOPS `CSI 16t`), which rides through the docker pty; only a

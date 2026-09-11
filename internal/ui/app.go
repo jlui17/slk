@@ -227,6 +227,10 @@ type App struct {
 	// actions. Tests inject fakes via SetClipboardWriter.
 	clipboardWrite clipboardWriter
 
+	// asyncPaste routes paste off the UI goroutine for a slow (bridged)
+	// clipboard reader; see paste_async_fork.go.
+	asyncPaste asyncPasteState
+
 	// threads is the App's ThreadService collaborator (fetch / mark /
 	// reply / list-fetch + parent-channel last-read lookup for the
 	// unread boundary). See internal/ui/services.go. Defaulted to a
@@ -705,6 +709,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceAgentTabRelabel,
 		reduceAgentWorkingVerdict,
 		reduceCacheWatermark,
+		reducePasteAsync,
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)

@@ -111,6 +111,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	mod := msg.Key().Mod
 	isPaste := code == 'v' && mod == tea.ModCtrl
 	if isPaste {
+		if cmd, handled := a.pasteAsync(nil); handled { // fork: bridged clipboard reads off the UI goroutine
+			return cmd
+		}
 		return a.smartPaste()
 	}
 

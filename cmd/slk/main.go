@@ -991,6 +991,7 @@ func run(startupLink *slackurl.Permalink) error {
 	if useWaylandClipboard {
 		app.SetClipboardReader(ui.WaylandClipboardReader())
 	}
+	wireRemoteClipboard(app) // fork: SLK_CLIPBOARD_ADDR (container -> host clipboard bridge)
 
 	// Connect to workspaces
 	ctx := context.Background()

@@ -312,6 +312,9 @@ func reducePaste(a *App, m tea.PasteMsg) tea.Cmd {
 	if a.mode != ModeInsert {
 		return nil
 	}
+	if cmd, handled := a.pasteAsync(&m); handled { // fork: bridged clipboard reads off the UI goroutine
+		return cmd
+	}
 	if a.clipboardAvailable {
 		target := &a.compose
 		if a.focusedPanel == PanelThread && a.threadVisible {
