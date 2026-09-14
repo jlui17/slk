@@ -102,26 +102,19 @@ func TestRichTextToMrkdwn_PreformattedCarriesFenceSafeLanguages(t *testing.T) {
 	}
 }
 
-// Slack links a message inline as a message_mention element (seen 2026-09
-// in Claude-in-Slack replies). slack-go v0.29 has no type for it, so it
-// arrives as an unknown element carrying the raw JSON.
+// The JSON round-trip is the point: slack-go must still hand
+// message_mention over as an unknown element with Raw populated.
+// Shape as seen 2026-09 in Claude-in-Slack replies.
 func TestRichTextToMrkdwn_MessageMentionIsABareLink(t *testing.T) {
 	const raw = `{"blocks":[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[
-		{"type":"text","text":"Started it here: "},
-		{"type":"message_mention","message_ts":"1788296622.155919","channel_id":"C0BCG30UGEP",
-		 "url":"https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1788296622155919"},
-		{"type":"text","text":" — read that"}]}]}]}`
-	var msg slack.Msg
-	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		{"type":"message_mention","message_ts":"1788296622.155919","channel_id":"C1",
+		 "url":"https://x.slack.com/archives/C1/p1788296622155919"}]}]}]}`
+	var p fixturePayload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatal(err)
 	}
-	blocks := Parse(msg.Blocks)
-	rt, ok := blocks[0].(RichTextBlock)
-	if !ok {
-		t.Fatalf("Parse produced %T, want RichTextBlock", blocks[0])
-	}
-	want := "Started it here: <https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1788296622155919> — read that"
-	if got := RichTextToMrkdwn(rt); got != want {
+	rt := Parse(p.Blocks)[0].(RichTextBlock)
+	if got, want := RichTextToMrkdwn(rt), "<https://x.slack.com/archives/C1/p1788296622155919>"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

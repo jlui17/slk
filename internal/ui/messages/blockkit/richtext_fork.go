@@ -29,7 +29,7 @@ func withFenceLanguage(fence, language string) string {
 }
 
 // Slack links a message inline as a message_mention element, which
-// slack-go v0.29 does not model, so it arrives with only its raw JSON.
+// slack-go does not model, so it arrives with only its raw JSON.
 // Slack's own text fallback spells it as a bare <url>.
 func unknownInlineToMrkdwn(e *slack.RichTextSectionUnknownElement) string {
 	if e.Type != "message_mention" {
@@ -41,5 +41,5 @@ func unknownInlineToMrkdwn(e *slack.RichTextSectionUnknownElement) string {
 	if json.Unmarshal([]byte(e.Raw), &mention) != nil || mention.URL == "" {
 		return ""
 	}
-	return "<" + mention.URL + ">"
+	return linkToMrkdwn(mention.URL, "")
 }
