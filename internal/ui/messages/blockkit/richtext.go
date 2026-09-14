@@ -81,6 +81,8 @@ func inlineToMrkdwn(e slack.RichTextSectionElement) string {
 		return strconv.FormatInt(int64(v.Timestamp), 10)
 	case *slack.RichTextSectionColorElement:
 		return v.Value
+	case *slack.RichTextSectionUnknownElement:
+		return unknownInlineToMrkdwn(v)
 	}
 	return ""
 }

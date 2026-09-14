@@ -1,8 +1,11 @@
 package blockkit
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/slack-go/slack"
 )
 
 // A rich_text text element carries the characters the author typed,
@@ -23,4 +26,20 @@ func withFenceLanguage(fence, language string) string {
 		return fence
 	}
 	return "```<" + language + ">" + strings.TrimPrefix(fence, "```")
+}
+
+// Slack links a message inline as a message_mention element, which
+// slack-go v0.29 does not model, so it arrives with only its raw JSON.
+// Slack's own text fallback spells it as a bare <url>.
+func unknownInlineToMrkdwn(e *slack.RichTextSectionUnknownElement) string {
+	if e.Type != "message_mention" {
+		return ""
+	}
+	var mention struct {
+		URL string `json:"url"`
+	}
+	if json.Unmarshal([]byte(e.Raw), &mention) != nil || mention.URL == "" {
+		return ""
+	}
+	return "<" + mention.URL + ">"
 }
