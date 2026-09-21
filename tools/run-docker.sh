@@ -85,6 +85,20 @@ fi
 tz="${TZ:-$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')}"
 
 
+# A run either draws the TUI or runs a CLI subcommand. Only the TUI opens
+# links and pastes, so the browser spool watcher and the clipboard bridge
+# are TUI-only; the herdr bridge also serves every `slk herdr` command,
+# which drive herdr's socket API. Mirrors main.go's dispatch: no args or a
+# permalink launches the TUI; `herdr`, `help`, `version`, and anything
+# starting with `-` do not. A named subcommand missing here only starts
+# slower, it does not break.
+tui=1
+case "${1:-}" in
+  herdr|help|version|-*) tui= ;;
+esac
+herdr_bridge=$tui
+[ "${1:-}" = herdr ] && herdr_bridge=1
+
 # The container has no browser, so the `o` keybinding's launch can't happen
 # inside it. slk honors $BROWSER; point it at tools/spool-open, which drops
 # the URL into a spool directory this watcher opens on the host. The spool
@@ -106,6 +120,7 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if [ -n "$tui" ]; then
 (
   while :; do
     for f in "$spool"/url-*; do
@@ -120,6 +135,7 @@ trap 'exit 143' TERM
   done
 ) &
 watcher_pid=$!
+fi
 
 # Docker Desktop does not forward bind-mounted unix sockets across its VM
 # boundary, so the herdr socket rides in as host.docker.internal:<port> via a
@@ -128,7 +144,7 @@ watcher_pid=$!
 # reporter itself: a bridge that fails to start only costs the sidebar
 # integration, never the launch.
 bridge_port=
-if [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
+if [ -n "$herdr_bridge" ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
   port_file=$(mktemp)
   python3 "$repo/tools/herdr-bridge.py" "$HERDR_SOCKET_PATH" $$ >"$port_file" &
   bridge_pid=$!
@@ -151,7 +167,7 @@ fi
 # the herdr bridge — watches this shell's PID, and best-effort: losing it
 # costs only clipboard paste, never the launch.
 clipboard_port=
-if [ "$(uname)" = Darwin ]; then
+if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
   port_file=$(mktemp)
   python3 "$repo/tools/clipboard-bridge.py" $$ >"$port_file" &
   clipboard_pid=$!
