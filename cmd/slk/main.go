@@ -823,6 +823,7 @@ Usage:
   slk --remove-workspace  Remove a configured workspace (interactive)
   slk --list-workspaces   List configured workspaces (TeamID, Slug, Name)
   slk --dump-sections     Dump raw users.channelSections.list JSON (diagnostic)
+  slk herdr <command>     Restore slk across herdr panes (slk herdr help)
   slk --version          Print version and exit
   slk --help             Show this help
 

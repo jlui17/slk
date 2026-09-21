@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gammons/slk/internal/cache"
@@ -90,5 +91,28 @@ func TestPlanRebootStopsOnProcessInfoError(t *testing.T) {
 	)
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want wrapped %v", err, boom)
+	}
+}
+
+func TestHerdrCommandHelp(t *testing.T) {
+	for _, args := range [][]string{nil, {"help"}, {"--help"}, {"-h"}} {
+		var out strings.Builder
+		if err := herdrCommand(args, &out); err != nil {
+			t.Fatalf("herdrCommand(%q): %v", args, err)
+		}
+		if out.String() != herdrUsage {
+			t.Fatalf("herdrCommand(%q) printed %q, want usage", args, out.String())
+		}
+	}
+}
+
+func TestHerdrCommandUnknownIsAnErrorCarryingUsage(t *testing.T) {
+	var out strings.Builder
+	err := herdrCommand([]string{"bogus"}, &out)
+	if err == nil || !strings.Contains(err.Error(), `"bogus"`) || !strings.Contains(err.Error(), herdrUsage) {
+		t.Fatalf("err = %v", err)
+	}
+	if out.String() != "" {
+		t.Fatalf("unknown command wrote to stdout: %q", out.String())
 	}
 }

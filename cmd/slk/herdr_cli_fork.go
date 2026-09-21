@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,11 +34,29 @@ func herdrCommand(args []string, w io.Writer) error {
 		return rebootPanes(w, false)
 	case "reboot --dry-run":
 		return rebootPanes(w, true)
+	case "", "help", "--help", "-h":
+		_, err := io.WriteString(w, herdrUsage)
+		return err
 	}
-	return errors.New(`usage:
-  slk herdr pane states        print every saved pane state (tab-separated)
-  slk herdr reboot [--dry-run]  relaunch slk in every herdr pane with a saved state`)
+	return errors.New("unknown herdr command " + strconv.Quote(strings.Join(args, " ")) + "\n" + herdrUsage)
 }
+
+const herdrUsage = `Usage: slk herdr <command>
+
+Operate on slk across the panes of the herdr session this shell runs in.
+
+Commands:
+  pane states          Print every saved pane state (tab-separated:
+                       pane, team, channel, thread ts, saved at)
+  reboot [--dry-run]   Relaunch slk in every live pane with a saved state.
+                       Skips panes already running slk or with something
+                       else in the foreground; --dry-run prints the plan.
+  help                 Show this help
+
+Panes are saved to the cache as slk runs, so this must run from a shell
+inside the same herdr session and with the same slk state (XDG dirs) as
+the panes being restored.
+`
 
 // openPaneStateDB opens the cache the way run() does.
 func openPaneStateDB() (*cache.DB, error) {
