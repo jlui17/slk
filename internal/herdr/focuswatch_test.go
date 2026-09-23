@@ -115,8 +115,8 @@ func startFocusServer(t *testing.T, sock string) *focusServer {
 	}
 	t.Cleanup(func() { ln.Close() })
 	s := &focusServer{
-		t:    t,
-		pane: paneInfo{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1", TerminalID: "term_a"},
+		t:           t,
+		pane:        paneInfo{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1", TerminalID: "term_a"},
 		activeTabID: "w1:t1", wsFocused: true,
 		stale:      map[string]bool{},
 		foreign:    map[string]paneInfo{},

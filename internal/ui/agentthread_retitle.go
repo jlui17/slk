@@ -158,4 +158,3 @@ func (a *App) retitleSpeaker(userID string) string {
 	}
 	return ""
 }
-

@@ -22,7 +22,7 @@ var (
 	// side of the delimiter. See renderItalics below.
 	boldRe       = regexp.MustCompile(`\*([^*\n]+)\*`)
 	inlineCodeRe = regexp.MustCompile("`([^`\n]+)`")
-	codeBlockRe     = regexp.MustCompile("(?s)```(.+?)```")
+	codeBlockRe  = regexp.MustCompile("(?s)```(.+?)```")
 
 	// Slack link patterns: <url|label> or <url>.
 	// linkWithLabelRe matches both http(s) URLs and mailto: addresses

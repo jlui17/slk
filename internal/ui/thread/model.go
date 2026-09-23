@@ -96,18 +96,18 @@ type reactionHitRect struct {
 const parentSelected = -1
 
 type Model struct {
-	parent            messages.MessageItem
-	replies           []messages.MessageItem
-	channelID         string
-	threadTS          string
-	selected          int
+	parent    messages.MessageItem
+	replies   []messages.MessageItem
+	channelID string
+	threadTS  string
+	selected  int
 	// pendingSelectTS, when non-empty, is a one-shot cursor pin: the
 	// first SetThread of the current thread whose content contains
 	// this ts selects it, then the pin disarms. Armed by a permalink
 	// open (SetPendingSelectTS) and by a same-thread reload whose
 	// content lost the cursor's message (restoreSelection); both live
 	// in select.go.
-	pendingSelectTS string
+	pendingSelectTS   string
 	focused           bool
 	coloredUsernames  bool
 	avatarFn          messages.AvatarFunc

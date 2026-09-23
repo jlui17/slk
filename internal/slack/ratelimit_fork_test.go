@@ -61,4 +61,3 @@ func TestGetChannels_RateLimitSleepIsObservable(t *testing.T) {
 		t.Errorf("notify observed %v, want [1ms] — the sleep the retry took", notified)
 	}
 }
-

@@ -25,8 +25,8 @@ import (
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/workspace"
-	"golang.design/x/clipboard"
 	"github.com/gammons/slk/internal/usernames"
+	"golang.design/x/clipboard"
 )
 
 func TestAppFocusCycle(t *testing.T) {
