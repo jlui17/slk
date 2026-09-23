@@ -342,7 +342,7 @@ func run(startupLink *slackurl.Permalink) error {
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
 	app.SetClipboardAvailable(clipboardOK)
 	desktop := core.DesktopServiceFuncs{
-		Open:          launchOS,
+		Open:          browserLauncher(launchOS), // fork: $BROWSER opens URLs
 		ReadClipboard: nativeClipboardRead,
 		Stat:          os.Stat,
 		SaveThread:    export.SaveThread,

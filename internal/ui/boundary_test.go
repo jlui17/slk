@@ -68,7 +68,7 @@ func TestTUIReachesTheAppOnlyThroughCore(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			for _, banned := range tuiBannedImports {
-				if path == banned && !tuiForkExempt[filepath.ToSlash(rel)][path] {
+				if path == banned {
 					t.Errorf("%s imports %s; go through an internal/core port", rel, path)
 				}
 			}

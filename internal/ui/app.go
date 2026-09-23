@@ -2873,17 +2873,17 @@ func (a *App) openInSystemViewerCmd(path string) tea.Cmd {
 	}
 }
 
-// openURLCmd asynchronously launches a browser for url: $BROWSER when
-// set (see browserLauncher), else the OS default handler. A failed
-// launch surfaces a toast — unlike the image viewer, the user
-// otherwise gets no feedback at all.
+// openURLCmd asynchronously launches the OS default browser for url.
+// Same launcher matrix as openInSystemViewerCmd (xdg-open / open /
+// rundll32). A failed launch surfaces a toast — unlike the image
+// viewer, the user otherwise gets no feedback at all.
 func (a *App) openURLCmd(url string) tea.Cmd {
-	launch := browserLauncher(a.desktop.Open)
+	desktop := a.desktop
 	return func() tea.Msg {
 		if url == "" {
 			return nil
 		}
-		if err := launch(url); err != nil {
+		if err := desktop.Open(url); err != nil {
 			log.Printf("browser launch failed: %v", err)
 			return ToastMsg{Text: "Failed to open link"}
 		}

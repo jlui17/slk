@@ -1,4 +1,4 @@
-package ui
+package main
 
 import (
 	"io"
@@ -9,7 +9,7 @@ import (
 	"github.com/gammons/slk/internal/core"
 )
 
-// RemoteClipboardReader returns a clipboardReader that fetches the
+// RemoteClipboardReader returns a clipboard reader that fetches the
 // clipboard from a host-side HTTP bridge at addr ("host:port"). Used
 // when slk runs in a container (see tools/run-docker.sh), where
 // golang.design/x/clipboard has no X11 display to init against and
@@ -18,7 +18,7 @@ import (
 // clipboard. GET /image answers 200 with PNG bytes, GET /text with
 // UTF-8 text; either answers 204 when the clipboard holds nothing of
 // that kind.
-func RemoteClipboardReader(addr string) clipboardReader {
+func RemoteClipboardReader(addr string) func(format core.ClipboardFormat) []byte {
 	// osascript on the host answers in ~0.25s; a large image takes
 	// longer, so leave headroom without letting Ctrl+V hang the UI.
 	client := &http.Client{Timeout: 5 * time.Second}

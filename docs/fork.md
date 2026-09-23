@@ -64,7 +64,8 @@ there and resolve them knowing what the fork wants:
   `TeamID`-tagged dispatch for background workspaces); `attachments.go` one
   line (`OriginalW/H`); `main.go` keeps `run()`'s fork wiring (permalink
   argument, `herdr` subcommand, pane restore, notify leader, the `Preview`
-  service func). The single biggest divergence; irreducible.
+  service func, the `$BROWSER` opener). The single biggest divergence;
+  irreducible.
 - `cmd/slk/markread.go` — `OnThreadMarked` only: persistence is upstream's
   cursor-only writers; the fork derives `Read` (`threadMarkReadState` from
   `ThreadNewestActivity`) and dispatches `ThreadMarkedRemoteMsg`
@@ -73,10 +74,13 @@ there and resolve them knowing what the fork wants:
   `OriginalW/H`, `MessageService.Preview`, and the `Preview` member of
   `MessageServiceFuncs`; the adapter method and `TableBlock` live in
   `adapters_fork.go` and `blocks/blocks_fork.go`.
-- `internal/ui/boundary_test.go` — both import checks consult
-  `tuiForkExempt` (`boundary_fork_test.go`): `app_fork.go` → `os/exec` for
-  `$BROWSER`, `clipboard_remote.go` → `net/http`, `blockkittest.go` →
-  slack-go.
+- `internal/ui/boundary_test.go` — the slack-go import check consults
+  `tuiForkExempt` (`boundary_fork_test.go`), whose one entry is
+  `blockkittest.go` → slack-go. The fork's other outside-world code lives in
+  `cmd/slk`: the `$BROWSER` launch wraps the opener `core.NewDesktopService`
+  receives (`browserLauncher` in `launch_fork.go`), and the docker host
+  clipboard reader (`clipboard_remote.go`) is handed to
+  `SetAsyncClipboardReader`.
 - `internal/ui/app.go` (live thread-reply read marking) — upstream's
   `recordThreadMark` + `scheduleMarkFlush` is the single issuer; the fork
   adds a `PaneViewed` gate at the top of `flushPendingMarks` and a

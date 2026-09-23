@@ -17,6 +17,6 @@ func wireRemoteClipboard(app *ui.App) {
 	if addr == "" {
 		return
 	}
-	app.SetAsyncClipboardReader(ui.RemoteClipboardReader(addr))
+	app.SetAsyncClipboardReader(RemoteClipboardReader(addr))
 	log.Printf("Clipboard served by the host bridge at %s; Ctrl+V paste enabled", addr)
 }

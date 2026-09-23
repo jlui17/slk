@@ -2,8 +2,6 @@ package ui
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -39,22 +37,6 @@ func (a *App) ToggleThreadFullscreen() {
 	a.threadFullscreen = !a.threadFullscreen
 	if a.threadFullscreen && a.focusedPanel == PanelMessages {
 		a.focusedPanel = PanelThread
-	}
-}
-
-// browserLauncher returns the launcher openURLCmd uses: $BROWSER when
-// set (the conventional override; also how tools/run-docker.sh bridges
-// container link-opens to the host browser), else fallback.
-func browserLauncher(fallback func(target string) error) func(target string) error {
-	// Word-split: $BROWSER conventionally carries flags
-	// ("open -a Firefox", "firefox --new-tab"), and a multi-word
-	// value used whole as argv[0] would fail every launch.
-	argv := strings.Fields(os.Getenv("BROWSER"))
-	if len(argv) == 0 {
-		return fallback
-	}
-	return func(target string) error {
-		return exec.Command(argv[0], append(argv[1:], target)...).Start()
 	}
 }
 

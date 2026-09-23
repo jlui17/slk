@@ -18,8 +18,8 @@ type clipboardReader func(f core.ClipboardFormat) []byte
 const pastingToast = "Pasting from clipboard…"
 
 // asyncPasteState makes smart paste non-blocking for a clipboard reader
-// that is slow enough to notice (the host bridge in clipboard_remote.go:
-// one osascript launch per read). Native reads are instant, so they
+// that is slow enough to notice (the host bridge behind cmd/slk's
+// RemoteClipboardReader: one osascript launch per read). Native reads are instant, so they
 // stay on the synchronous upstream path; SetAsyncClipboardReader turns
 // this on.
 //
