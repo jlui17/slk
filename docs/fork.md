@@ -166,6 +166,9 @@ there and resolve them knowing what the fork wants:
   pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
   decoded every cell as rich_text and dropped raw_text content). On an
   upstream bump, keep whichever is newer.
+- `flake.nix` — `vendorHash` covers the fork's go.mod, not upstream's.
+  Whenever go.mod changes (an upstream merge, a bump), the nix CI job
+  prints the new hash in its `got:` line; paste it in.
 - Docs (`README.md`, `wiki/*`, `docs/STATUS.md`, `docs/superpowers/*`) —
   fork features documented in place; markdown conflicts, resolve by hand.
 

@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/slack-go/slack"
 	"github.com/gammons/slk/internal/usernames"
+	"github.com/slack-go/slack"
 )
 
 // TestMessageAuthorBotIdentity is the headline of the bot-avatar fix: a

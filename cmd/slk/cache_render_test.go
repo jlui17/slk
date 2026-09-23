@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/cache"
-	"github.com/slack-go/slack"
 	"github.com/gammons/slk/internal/usernames"
+	"github.com/slack-go/slack"
 )
 
 // newCacheForTest returns a fresh in-memory cache.DB seeded with a

@@ -17,7 +17,7 @@
           pname = "slk";
           version = "0.0.0";
           src = ./.;
-          vendorHash = "sha256-deqCUDgRvhe/Bpmy+9bIHjSBo+KTCtAN2XcGMhAj/G0=";
+          vendorHash = "sha256-yVbKhQOflQwOi4JFC/LSNJyzxi2rLTbEuj66kJzQgpg=";
           buildInputs = [pkgs.libX11];
         };
       in {

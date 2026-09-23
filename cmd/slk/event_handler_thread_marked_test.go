@@ -203,4 +203,3 @@ func TestOnThreadMarked_UnknownThread_PersistsButSkipsDispatch(t *testing.T) {
 		t.Fatalf("unknown-thread mark must still persist: %+v", subs)
 	}
 }
-
