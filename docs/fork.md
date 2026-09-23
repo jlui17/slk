@@ -101,8 +101,9 @@ there and resolve them knowing what the fork wants:
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into
   fork helpers (`retractLatestReply`, `migrateFork`).
-- `internal/image/probe.go`, `kitty.go`, `cellmetrics.go` — probe result
-  shape, cell-size-keyed payload memo, measured cell metrics.
+- `internal/image/probe.go`, `kitty.go`, `cellmetrics.go` — id-matched
+  probe replies logged verbatim, cell-size-keyed payload memo, measured
+  cell metrics.
 - `internal/bootstrap/*` — `Run`'s post-userBoot chain routed through the
   `overlapPhases` hook (`bootstrap_fork.go`); the `revalidate` entry point
   deleted, its nil-guards moved into the hook; the two serial-order tests

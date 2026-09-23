@@ -58,7 +58,7 @@ func TestKitty_UploadEscapeWrappedInTmux(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux")
 
 	var buf bytes.Buffer
-	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5, 170, 185, false); err != nil {
+	if err := emitKittyUpload(&buf, 42, "abcd", 10, 5); err != nil {
 		t.Fatal(err)
 	}
 	s := buf.String()

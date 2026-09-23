@@ -2,7 +2,6 @@ package image
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -11,58 +10,6 @@ import (
 
 	"github.com/gammons/slk/internal/debuglog"
 )
-
-// ProbeKittyRGBA is ProbeKittyGraphics with a raw-RGBA payload (f=32,
-// one opaque white pixel) instead of PNG. Raw pixel formats are the
-// part of the kitty graphics protocol every implementation decodes
-// natively — libghostty-vt embedders that reject PNG (no decoder
-// wired) still accept these — so an OK here means uploads work as
-// long as they're encoded raw (see SetKittyUploadRGBA). rejected has
-// the same meaning as in ProbeKittyGraphics.
-func ProbeKittyRGBA(w io.Writer, r io.Reader, timeout time.Duration) (ok, rejected bool) {
-	const rawWhitePixel = "/////w==" // base64 of 4×0xff: one RGBA pixel
-	header := fmt.Sprintf("a=T,f=32,s=1,v=1,t=d,i=%d,q=0", kittyProbeIDRGBA)
-	return probeKittyTransmit(w, r, timeout, "rgba probe", kittyProbeIDRGBA, header, rawWhitePixel)
-}
-
-// Distinct probe image IDs so a late reply to one probe can never be
-// misread as the answer to the other.
-const (
-	kittyProbeIDPNG  = 9999
-	kittyProbeIDRGBA = 9998
-)
-
-// probeKittyTransmit sends one kitty graphics transmit and classifies
-// the terminal's answer: (true, false) on ;OK, (false, true) on a
-// complete non-OK reply, (false, false) when nothing came back before
-// timeout. tag labels the debug log line.
-func probeKittyTransmit(w io.Writer, r io.Reader, timeout time.Duration, tag string, id int, header, payload string) (ok, rejected bool) {
-	if err := writeKittySequence(w, fmt.Sprintf("\x1b_G%s;%s\x1b\\", header, payload)); err != nil {
-		return false, false
-	}
-
-	start := time.Now()
-	// atomic: the test-only goroutine fallback runs scan on another
-	// goroutine that can outlive a timeout return.
-	var sawReject atomic.Bool
-	scan := func(buf []byte) (bool, bool) {
-		matched, scanOK := scanForOK(buf, id)
-		if matched && !scanOK {
-			sawReject.Store(true)
-		}
-		return matched, scanOK
-	}
-
-	if f, isFile := r.(*os.File); isFile {
-		acked, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
-		debuglog.ImgRender("%s: ok=%v reason=%s elapsed_ms=%d reply=%q",
-			tag, acked, reason, time.Since(start).Milliseconds(), collected)
-		return acked, sawReject.Load()
-	}
-
-	// Test fallback for non-*os.File readers.
-	return probeViaGoroutineScan(r, timeout, scan), sawReject.Load()
-}
 
 // ProbeCellPixels asks the terminal for its cell size in pixels via
 // the XTWINOPS query CSI 16t; the reply is CSI 6 ; height ; width t.
@@ -87,8 +34,7 @@ func ProbeCellPixels(w io.Writer, r io.Reader, timeout time.Duration) (pxW, pxH 
 
 	start := time.Now()
 	// atomics: the test-only goroutine fallback runs scan on another
-	// goroutine that can outlive a timeout return (same hazard
-	// sawReject guards against in probeKittyTransmit).
+	// goroutine that can outlive a timeout return.
 	var gotW, gotH atomic.Int32
 	scan := func(buf []byte) (matched, ok bool) {
 		matched, cw, ch := scanForCellSize(buf)

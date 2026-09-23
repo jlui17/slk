@@ -12,9 +12,9 @@ func TestProbeKittyGraphics_TimeoutFails(t *testing.T) {
 	t.Setenv("TMUX", "")
 	r := blockingReader{}
 	var w bytes.Buffer
-	ok, rejected := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
-	if ok || rejected {
-		t.Errorf("expected (false, false) on timeout, got (%v, %v)", ok, rejected)
+	ok := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
+	if ok {
+		t.Error("expected probe to fail on timeout")
 	}
 	if !strings.Contains(w.String(), "\x1b_G") {
 		t.Errorf("expected \\e_G in probe output, got %q", w.String())
@@ -25,7 +25,7 @@ func TestProbeKittyGraphics_WrapsProbeInTmux(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux")
 	r := blockingReader{}
 	var w bytes.Buffer
-	ok, _ := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
+	ok := ProbeKittyGraphics(&w, r, 50*time.Millisecond)
 	if ok {
 		t.Error("expected probe to fail on timeout")
 	}
@@ -56,7 +56,7 @@ func TestProbeKittyGraphics_NoStdinTheftAfterTimeout(t *testing.T) {
 	defer pw.Close()
 
 	var wbuf bytes.Buffer
-	ok, _ := ProbeKittyGraphics(&wbuf, pr, 50*time.Millisecond)
+	ok := ProbeKittyGraphics(&wbuf, pr, 50*time.Millisecond)
 	if ok {
 		t.Fatal("expected probe to fail on timeout (pipe never replies)")
 	}

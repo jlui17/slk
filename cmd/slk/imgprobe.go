@@ -31,25 +31,12 @@ func withRawTerminal(probeName string, fn func()) bool {
 }
 
 // probeKittySupport interrogates the real terminal for working kitty
-// graphics: PNG transmit first, then raw RGBA when the terminal
-// answered the PNG with an explicit rejection — a graphics
-// implementation without a PNG decoder (herdr's embedded
-// libghostty-vt) rejects f=100 but decodes raw pixels natively. An
-// RGBA-only ack flips the renderer to raw uploads for the whole
-// session (imgpkg.SetKittyUploadRGBA). probed is false when raw mode
-// couldn't be entered and nothing was learned; ok is meaningful only
-// when probed. Must run before bubbletea takes over stdin.
+// graphics. probed is false when raw mode couldn't be entered and
+// nothing was learned; ok is meaningful only when probed. Must run
+// before bubbletea takes over stdin.
 func probeKittySupport() (ok, probed bool) {
 	probed = withRawTerminal("kitty probe", func() {
-		var rejected bool
-		ok, rejected = imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
-		if ok || !rejected {
-			return
-		}
-		ok, _ = imgpkg.ProbeKittyRGBA(os.Stdout, os.Stdin, 200*time.Millisecond)
-		if ok {
-			imgpkg.SetKittyUploadRGBA()
-		}
+		ok = imgpkg.ProbeKittyGraphics(os.Stdout, os.Stdin, 200*time.Millisecond)
 	})
 	return ok, probed
 }

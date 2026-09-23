@@ -44,35 +44,10 @@ func TestScanForOK_MatchesProbeID(t *testing.T) {
 func TestProbeKittyGraphics_IgnoresStaleReplyForOtherID(t *testing.T) {
 	t.Setenv("TMUX", "")
 	var w bytes.Buffer
-	// Only a stale RGBA-probe OK is buffered; the PNG probe must not
+	// Only a stale OK for another id is buffered; the probe must not
 	// claim it, so it times out instead of succeeding.
-	ok, rejected := ProbeKittyGraphics(&w, strings.NewReader("\x1b_Gi=9998;OK\x1b\\"), 100*time.Millisecond)
-	if ok || rejected {
-		t.Errorf("got (ok=%v, rejected=%v), want (false, false)", ok, rejected)
-	}
-}
-
-func TestProbeKittyGraphics_RejectedOnErrorReply(t *testing.T) {
-	t.Setenv("TMUX", "")
-	var w bytes.Buffer
-	// herdr's embedded libghostty-vt without a PNG decoder answers
-	// exactly this.
-	r := strings.NewReader("\x1b_Gi=9999;EINVAL: unsupported format\x1b\\")
-	ok, rejected := ProbeKittyGraphics(&w, r, time.Second)
-	if ok || !rejected {
-		t.Errorf("got (ok=%v, rejected=%v), want (false, true)", ok, rejected)
-	}
-}
-
-func TestProbeKittyRGBA_SendsRawTransmit(t *testing.T) {
-	t.Setenv("TMUX", "")
-	var w bytes.Buffer
-	ok, rejected := ProbeKittyRGBA(&w, strings.NewReader("\x1b_Gi=9998;OK\x1b\\"), time.Second)
-	if !ok || rejected {
-		t.Errorf("got (ok=%v, rejected=%v), want (true, false)", ok, rejected)
-	}
-	if !strings.Contains(w.String(), "f=32,s=1,v=1") {
-		t.Errorf("expected raw RGBA probe header, got %q", w.String())
+	if ProbeKittyGraphics(&w, strings.NewReader("\x1b_Gi=9998;OK\x1b\\"), 100*time.Millisecond) {
+		t.Error("probe claimed a reply addressed to another id")
 	}
 }
 

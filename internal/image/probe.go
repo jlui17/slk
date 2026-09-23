@@ -11,17 +11,10 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 )
 
-// ProbeKittyGraphics sends a tiny PNG upload with response requested
-// and waits up to timeout for the OK reply. ok is true if the terminal
-// acknowledges. rejected is true when a complete reply arrived that
-// was NOT an OK — the terminal speaks the graphics protocol but
-// refused this transmit — as opposed to no reply at all (a mux
-// swallowed the escape, or no kitty support whatsoever). Callers use
-// rejected to decide whether trying another pixel format is worth a
-// second probe: libghostty-vt embedders without a wired PNG decoder
-// (herdr) answer "EINVAL: unsupported format" here but accept raw
-// RGBA (see ProbeKittyRGBA). Used at startup to downgrade ProtoKitty
-// when the terminal claims kitty support but doesn't actually deliver
+// ProbeKittyGraphics sends a tiny image upload with response requested
+// and waits up to timeout for the OK reply. Returns true if the
+// terminal acknowledges. Used at startup to downgrade ProtoKitty when
+// the terminal claims kitty support but doesn't actually deliver
 // (e.g., iTerm2's limited kitty implementation, or zellij / tmux with
 // allow-passthrough=off swallowing the probe escape).
 //
@@ -47,11 +40,27 @@ import (
 // (blockingReader in tests), this falls back to the goroutine-based
 // probe; that path may leak a goroutine on timeout but tests exit
 // immediately so it doesn't matter.
-func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) (ok, rejected bool) {
+func ProbeKittyGraphics(w io.Writer, r io.Reader, timeout time.Duration) bool {
 	// Minimal valid 1x1 PNG.
 	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=="
-	header := fmt.Sprintf("a=T,f=100,t=d,i=%d,q=0", kittyProbeIDPNG)
-	return probeKittyTransmit(w, r, timeout, "png probe", kittyProbeIDPNG, header, tinyPNG)
+	const probeID = 9999
+	header := fmt.Sprintf("a=T,f=100,t=d,i=%d,q=0", probeID)
+	if err := writeKittySequence(w, fmt.Sprintf("\x1b_G%s;%s\x1b\\", header, tinyPNG)); err != nil {
+		return false
+	}
+
+	start := time.Now()
+	scan := func(buf []byte) (bool, bool) { return scanForOK(buf, probeID) }
+
+	if f, ok := r.(*os.File); ok {
+		ok, collected, reason := pollProbe(int(f.Fd()), timeout, scan)
+		debuglog.ImgRender("png probe: ok=%v reason=%s elapsed_ms=%d reply=%q",
+			ok, reason, time.Since(start).Milliseconds(), collected)
+		return ok
+	}
+
+	// Test fallback for non-*os.File readers.
+	return probeViaGoroutineScan(r, timeout, scan)
 }
 
 // ProbeSixel sends a Primary Device Attributes query (CSI c) and reports
