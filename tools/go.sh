@@ -69,10 +69,12 @@ for var in GOOS GOARCH CGO_ENABLED; do
 done
 
 # The tablabel live test (internal/tablabel/live_test.go) is env-gated;
-# without these it silently skips inside the container.
+# without these it silently skips inside the container. Passed by name so
+# docker reads the value from its own environment: a key on the command line
+# is visible to ps and to anything that wraps docker.
 for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY; do
   if [[ -n "${!var:-}" ]]; then
-    docker_args+=(-e "$var=${!var}")
+    docker_args+=(-e "$var")
   fi
 done
 
