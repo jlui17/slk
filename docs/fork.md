@@ -113,6 +113,11 @@ there and resolve them knowing what the fork wants:
   Ctrl+U clear-compose intercept removed so Ctrl+U (kitty's
   cmd+backspace) falls through to the textarea's delete-before-cursor;
   the fork's expectation is pinned in `mode_insert_fork_test.go`.
+- `internal/ui/keys.go`, `internal/ui/mode_insert.go` (+ the key in
+  `editor_test.go` and `seams_test.go`'s `editDraft`) — the $EDITOR draft
+  binding moved from `ctrl+e` to `ctrl+x` so Ctrl+E (kitty's cmd+right)
+  reaches the textarea's LineEnd; pinned in `mode_insert_fork_test.go`.
+  Upstream comments still say Ctrl+E.
 - `internal/ui/sixelpaint_test.go` — one assertion updated for the
   sixel frame memo (a post-force identical frame reuses its ID).
 - `internal/ui/messages/blockkit/render.go` (+ `render_test.go`) — the

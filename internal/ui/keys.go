@@ -146,7 +146,8 @@ func DefaultKeyMap() KeyMap {
 		// "Also send to #channel" checkbox for the next reply.
 		// Alt+Enter sends and broadcasts in a single keystroke.
 		ToggleBroadcast: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o / alt+enter", "also send reply to channel")),
-		// Shadows the textarea's own ctrl+e (LineEnd); "End" still works.
-		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
+		// fork: upstream binds ctrl+e, but kitty sends ctrl+e for cmd+right,
+		// so ctrl+e must reach the textarea's LineEnd.
+		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+x"), key.WithHelp("ctrl+x", "edit message in $EDITOR")),
 	}
 }

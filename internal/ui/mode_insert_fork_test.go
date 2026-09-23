@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -28,5 +29,49 @@ func TestHandleInsertMode_CtrlU_DeletesCurrentLineOnly(t *testing.T) {
 	}
 	if len(app.compose.Attachments()) != 1 {
 		t.Errorf("expected attachments preserved, got %d", len(app.compose.Attachments()))
+	}
+}
+
+// Ctrl+E (what kitty sends for cmd+right) falls through to the
+// textarea's LineEnd instead of opening the external editor.
+func TestHandleInsertMode_CtrlE_MovesToLineEnd(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	app.focusedPanel = PanelMessages
+	app.SetMode(ModeInsert)
+	_ = app.compose.Focus()
+	app.compose.SetValue("hello")
+	app.compose.MoveCursorToStart()
+
+	app.handleInsertMode(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+	if got := statusbarText(app); strings.Contains(got, "No editor configured") {
+		t.Errorf("Ctrl+E reached the editor path, status bar = %q", got)
+	}
+	// The compose model doesn't export its cursor column; a typed rune
+	// lands where the cursor is.
+	app.handleInsertMode(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if got := app.compose.Value(); got != "hellox" {
+		t.Errorf("expected the cursor at the end of the line, typed rune gave %q", got)
+	}
+}
+
+// Ctrl+X is the fork's key for upstream's edit-the-draft-in-$EDITOR.
+func TestHandleInsertMode_CtrlX_ReachesEditor(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	app.focusedPanel = PanelMessages
+	app.SetMode(ModeInsert)
+	_ = app.compose.Focus()
+	app.compose.SetValue("hello")
+
+	app.handleInsertMode(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+
+	// No editor is configured on a bare App, so the editor path toasts.
+	if got := statusbarText(app); !strings.Contains(got, "No editor configured") {
+		t.Errorf("status bar = %q, want the no-editor toast", got)
+	}
+	if got := app.compose.Value(); got != "hello" {
+		t.Errorf("draft changed without an editor: %q", got)
 	}
 }

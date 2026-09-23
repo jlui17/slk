@@ -14,7 +14,8 @@
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
 | `Ctrl+U` | Insert | Delete to start of line (what kitty sends for `Cmd+Backspace`) |
-| `Ctrl+E` | Insert | Edit the draft in `$VISUAL` / `$EDITOR` (or `compose.editor`) |
+| `Ctrl+E` | Insert | Move to end of line (what kitty sends for `Cmd+Right`) |
+| `Ctrl+X` | Insert | Edit the draft in `$VISUAL` / `$EDITOR` (or `compose.editor`) |
 | `Ctrl+O` | Insert (thread) | Toggle "also send to channel" for the next thread reply |
 | `Alt+Enter` | Insert (thread) | Send thread reply and broadcast to channel (one-shot) |
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |

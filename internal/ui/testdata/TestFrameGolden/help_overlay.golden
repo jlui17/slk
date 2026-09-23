@@ -18,7 +18,7 @@
       │             │  j/down             down                               │ │                 ┃  
       │             │  d                  download file in message           │ │                 ┃  
       │             │  E                  edit message                       │ │                 ┃  
-      │             │  ctrl+e             edit message in $EDITOR            │ │                 ┃  
+      │             │  ctrl+x             edit message in $EDITOR            │ │                 ┃  
       │             │  ctrl+w h/j/k/l     focus window in direction          │ │                 ┃  
       │             │  ctrl+d             half page down                     │ │                 ┃  
       │             │                                                          │                 ┃  

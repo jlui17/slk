@@ -17,7 +17,7 @@
 //     file path / verbatim text).
 //   - Ctrl+O (thread compose)    -> toggle "also send to channel" for
 //     the next thread reply.
-//   - Ctrl+E                     -> edit the draft in $VISUAL/$EDITOR
+//   - Ctrl+X                     -> edit the draft in $VISUAL/$EDITOR
 //     (suspends the TUI; see editor.go).
 //   - Up / Down on first/last line -> jump to start/end of textarea.
 //   - Plain Enter                -> send (or commit edit, or upload-
@@ -123,7 +123,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		}
 		return a.smartPaste()
 	}
-	if code == 'e' && mod == tea.ModCtrl {
+	if code == 'x' && mod == tea.ModCtrl { // fork: ctrl+e is the textarea's LineEnd (see keys.go)
 		return a.openComposeInEditor()
 	}
 

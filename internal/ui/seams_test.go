@@ -793,7 +793,7 @@ func editDraft(a *App, draft string) tea.Cmd {
 	a.SetMode(ModeInsert)
 	_ = a.compose.Focus()
 	a.compose.SetValue(draft)
-	return a.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	return a.handleKey(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 }
 
 func TestSeam_EditorGetsDraftInTempFile(t *testing.T) {
