@@ -5,7 +5,34 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/gammons/slk/internal/cache"
+	slackclient "github.com/gammons/slk/internal/slack"
 )
+
+// blockingSubscriptions is a getView walk caught mid-paging: it signals
+// entered, then blocks until its context ends, as the real lister's
+// HTTP call does.
+type blockingSubscriptions struct {
+	entered chan struct{}
+}
+
+func (b *blockingSubscriptions) ListThreadSubscriptions(ctx context.Context) ([]slackclient.ThreadSubscriptionView, error) {
+	close(b.entered)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// siblingSweeps runs a second instance's sweep attempt against the
+// same DB and reports how many getView walks it made.
+func siblingSweeps(t *testing.T, db *cache.DB) int {
+	t.Helper()
+	sibling := &fakeSubscriptions{}
+	if err := newSubscriptionSync(db, sibling, nil).syncIfUnclaimed(context.Background(), 30*time.Minute); err != nil {
+		t.Fatalf("sibling syncIfUnclaimed: %v", err)
+	}
+	return sibling.calls
+}
 
 // Ten instances share one cache.db and the sweep writes everything it
 // learns into that DB, so a sibling's recent sweep substitutes for
@@ -65,5 +92,62 @@ func TestThreadSweep_ClaimsAndRunsWhenUnclaimed(t *testing.T) {
 	}
 	if sibling.calls != 0 {
 		t.Fatalf("sibling swept %d times right after ours claimed; want 0", sibling.calls)
+	}
+}
+
+// A sweep whose context ends mid-paging is a failed sweep: the lister
+// returns ctx.Err() and the release, which takes no context, still
+// lands.
+func TestThreadSweep_CancelledSweepReleasesTheClaim(t *testing.T) {
+	db := newTestDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	blocked := &blockingSubscriptions{entered: make(chan struct{})}
+	s := &threadSubscriptionSync{client: blocked, db: db, workspaceID: "T1"}
+	done := make(chan error, 1)
+	go func() { done <- s.syncIfUnclaimed(ctx, 30*time.Minute) }()
+	<-blocked.entered
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled sweep returned %v; want context.Canceled", err)
+	}
+
+	if n := siblingSweeps(t, db); n != 1 {
+		t.Fatalf("sibling swept %d times after our sweep was cancelled; want 1 — the claim must be released", n)
+	}
+}
+
+// Quit cancels nothing: both trigger sites hand the sweep
+// context.Background(), so a sweep in flight when the UI loop exits
+// dies with the process, having written nothing. Its claim must not
+// outlive it, or every instance skips the sweep for the whole window.
+func TestThreadSweep_QuitMidSweepReleasesTheClaim(t *testing.T) {
+	db := newTestDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	blocked := &blockingSubscriptions{entered: make(chan struct{})}
+	s := &threadSubscriptionSync{client: blocked, db: db, workspaceID: "T1"}
+	done := make(chan error, 1)
+	go func() { done <- s.syncIfUnclaimed(ctx, 30*time.Minute) }()
+	t.Cleanup(func() { cancel(); <-done })
+	<-blocked.entered
+
+	releaseInFlightThreadSweepClaims(db)
+
+	if n := siblingSweeps(t, db); n != 1 {
+		t.Fatalf("sibling swept %d times after we quit mid-sweep; want 1 — the claim must be released", n)
+	}
+}
+
+// A completed sweep's claim is what spares the siblings their own
+// sweep for the window; quitting afterwards must leave it standing.
+func TestThreadSweep_QuitAfterCompletedSweepKeepsTheClaim(t *testing.T) {
+	db := newTestDB(t)
+	if err := newSubscriptionSync(db, &fakeSubscriptions{}, nil).syncIfUnclaimed(context.Background(), 30*time.Minute); err != nil {
+		t.Fatalf("syncIfUnclaimed: %v", err)
+	}
+
+	releaseInFlightThreadSweepClaims(db)
+
+	if n := siblingSweeps(t, db); n != 0 {
+		t.Fatalf("sibling swept %d times after we completed a sweep and quit; want 0", n)
 	}
 }

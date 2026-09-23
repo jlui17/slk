@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
+	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/debuglog"
 )
 
@@ -21,6 +23,10 @@ func (s *threadSubscriptionSync) syncIfUnclaimed(ctx context.Context, window tim
 		debuglog.Backfill("team=%s subscription-sync skipped: sibling instance holds the sweep claim", s.workspaceID)
 		return nil
 	}
+	if claimErr == nil {
+		inFlightThreadSweepClaims.Store(s.workspaceID, now)
+		defer inFlightThreadSweepClaims.Delete(s.workspaceID)
+	}
 	err := s.sync(ctx)
 	if err != nil && claimErr == nil {
 		// A transient getView failure must not block every sibling for
@@ -30,4 +36,25 @@ func (s *threadSubscriptionSync) syncIfUnclaimed(ctx context.Context, window tim
 		}
 	}
 	return err
+}
+
+// inFlightThreadSweepClaims is the claims this process holds for
+// sweeps that have not returned: workspace ID -> claimedAt. The
+// per-workspace gate admits one sweep at a time, so the workspace ID
+// identifies the claim.
+var inFlightThreadSweepClaims sync.Map
+
+// releaseInFlightThreadSweepClaims gives back the claims of sweeps the
+// exiting process is about to abandon. Quit cancels nothing — both
+// trigger sites hand the sweep context.Background() — so a sweep in
+// flight when the UI loop exits dies with the process, having written
+// nothing, and its claim would cost every sibling the sweep for the
+// whole window. Call after the UI loop has exited, while db is open.
+func releaseInFlightThreadSweepClaims(db *cache.DB) {
+	inFlightThreadSweepClaims.Range(func(workspaceID, claimedAt any) bool {
+		if err := db.ReleaseThreadSweepClaim(workspaceID.(string), claimedAt.(time.Time)); err != nil {
+			debuglog.Backfill("team=%s subscription-sync claim release at quit err=%v", workspaceID, err)
+		}
+		return true
+	})
 }

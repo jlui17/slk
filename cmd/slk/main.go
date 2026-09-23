@@ -1767,6 +1767,7 @@ func run(startupLink *slackurl.Permalink) error {
 	if paneWriter != nil {
 		paneWriter.Close()
 	}
+	releaseInFlightThreadSweepClaims(db) // fork: a sweep abandoned by quit must not keep its claim
 
 	// Dump the API request tally before anything else at shutdown.
 	//
