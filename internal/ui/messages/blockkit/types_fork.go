@@ -1,12 +1,10 @@
 package blockkit
 
-// TableBlock is the Slack `table` block. Slack draws the first row as the
-// header.
-type TableBlock struct {
-	Rows [][]string
-}
+import "github.com/gammons/slk/internal/core/blocks"
 
-func (TableBlock) blockType() string { return "table" }
+// TableBlock lives in core/blocks beside the Block interface it
+// implements; the interface's method is unexported.
+type TableBlock = blocks.TableBlock
 
 func (ctx Context) renderText(s string, width int) string {
 	if ctx.RenderTextForWidth != nil {

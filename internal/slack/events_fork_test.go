@@ -34,3 +34,24 @@ func TestDispatchAssistantStatus(t *testing.T) {
 		t.Errorf("clear: got %+v, want %+v", handler.assistantStatuses[1], want)
 	}
 }
+
+func TestDispatch_ThreadMarked_WireCapture_SubscribedOnFullyReadThread(t *testing.T) {
+	// Wire capture: a second Slack client reading a 3-reply thread to
+	// its end (last_read == the newest reply's ts), observed 2026-08-21
+	// on a live slk WS connection. active=true on a fully-read thread is
+	// the exact frame the old active->read inversion misclassified.
+	handler := &mockEventHandler{}
+	data := []byte(`{"type":"thread_marked","subscription":{"type":"thread","channel":"C0BS6HBB3R6","thread_ts":"1787352842.910909","date_create":1787352862,"active":true,"last_read":"1787352903.834189"},"event_ts":"1787353529.072900"}`)
+	dispatchWebSocketEvent(data, handler)
+
+	if len(handler.threadMarks) != 1 {
+		t.Fatalf("expected 1 threadMark, got %d", len(handler.threadMarks))
+	}
+	got := handler.threadMarks[0]
+	if got.channelID != "C0BS6HBB3R6" || got.threadTS != "1787352842.910909" || got.lastRead != "1787352903.834189" {
+		t.Errorf("unexpected: %+v", got)
+	}
+	if !got.subscribed {
+		t.Error("expected subscribed=true passed through verbatim")
+	}
+}

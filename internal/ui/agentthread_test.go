@@ -3,9 +3,8 @@ package ui
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/statusbar"
@@ -192,7 +191,7 @@ func TestAgentThreadTitleFlattensMrkdwn(t *testing.T) {
 func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	root := messages.MessageItem{TS: "100.0", Text: "<@UBOT> hello", UserID: "UHUMAN", ThreadTS: "100.0"}
-	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
+	a.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
 		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem {
 			return []messages.MessageItem{root}
 		},
@@ -602,9 +601,9 @@ func TestAgentThreadBackgroundListReloadKeepsUnread(t *testing.T) {
 	a, _, unreads := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	var fetched int
-	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
+	a.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
 		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem { return nil },
-		Fetch: func(ids.ChannelID, ids.ThreadTS) tea.Msg {
+		Fetch: func(ids.ChannelID, ids.ThreadTS) core.Msg {
 			fetched++
 			return nil
 		},
@@ -639,9 +638,9 @@ func TestAgentThreadOpenClearsUnreadWhenFetchFails(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")
 	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "x"})
-	a.SetThreadService(NewThreadService(ThreadServiceFuncs{
+	a.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
 		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem { return nil },
-		Fetch:     func(ids.ChannelID, ids.ThreadTS) tea.Msg { return nil },
+		Fetch:     func(ids.ChannelID, ids.ThreadTS) core.Msg { return nil },
 	}))
 	a.view = ViewThreads
 	a.threadsView.SetSummaries([]cache.ThreadSummary{{
@@ -691,7 +690,7 @@ func TestAgentThreadTracksItsOwnWorkspaceInBackground(t *testing.T) {
 	}
 
 	// A remote read-mark from that same background workspace clears it.
-	reduceThreads(a, ThreadMarkedRemoteMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true})
+	reduceThreads(a, ThreadMarkedRemoteMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", LastRead: "101.0", Read: true})
 	if a.agentSidebar.unreadTotal() != 0 {
 		t.Fatalf("background read-mark must clear the count, got %d", a.agentSidebar.unreadTotal())
 	}
@@ -708,7 +707,7 @@ func TestAgentThreadIgnoresOtherWorkspacesSameChannelID(t *testing.T) {
 	reduceSend(a, NewMessageMsg{TeamID: "T2", ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "different workspace",
 	}})
-	reduceThreads(a, ThreadMarkedRemoteMsg{TeamID: "T2", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: false})
+	reduceThreads(a, ThreadMarkedRemoteMsg{TeamID: "T2", ChannelID: "C1", ThreadTS: "100.0", LastRead: "101.0", Read: false})
 	if len(*unreads) != 0 || a.agentSidebar.unreadTotal() != 0 {
 		t.Fatalf("another workspace's lookalike thread must not drive the row; unreads=%+v count=%d",
 			*unreads, a.agentSidebar.unreadTotal())
@@ -787,7 +786,7 @@ func TestAgentThreadRemoteMarkReportsOnce(t *testing.T) {
 	// apart today -- which is the reason the redundancy went, before
 	// something made the calls non-idempotent.
 	reduceThreads(a, ThreadMarkedRemoteMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true,
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", LastRead: "101.0", Read: true,
 	})
 	if len(*calls) != 1 {
 		t.Fatalf("want exactly one report for one mark, got %+v", *calls)

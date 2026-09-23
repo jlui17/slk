@@ -19,7 +19,7 @@ func TestOpenURLCmd_BrowserEnvOverride(t *testing.T) {
 	}
 	t.Setenv("BROWSER", script)
 
-	if msg := openURLCmd("https://example.com/x")(); msg != nil {
+	if msg := NewApp().openURLCmd("https://example.com/x")(); msg != nil {
 		t.Fatalf("unexpected msg %#v", msg)
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -50,7 +50,7 @@ func TestOpenURLCmd_BrowserEnvMultiWord(t *testing.T) {
 	}
 	t.Setenv("BROWSER", script+" --new-tab")
 
-	if msg := openURLCmd("https://example.com/x")(); msg != nil {
+	if msg := NewApp().openURLCmd("https://example.com/x")(); msg != nil {
 		t.Fatalf("unexpected msg %#v", msg)
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -71,7 +71,7 @@ func TestOpenURLCmd_BrowserEnvMultiWord(t *testing.T) {
 
 func TestOpenURLCmd_BrowserLaunchFailureToasts(t *testing.T) {
 	t.Setenv("BROWSER", "/nonexistent/browser")
-	msg := openURLCmd("https://example.com/x")()
+	msg := NewApp().openURLCmd("https://example.com/x")()
 	toast, ok := msg.(ToastMsg)
 	if !ok || toast.Text != "Failed to open link" {
 		t.Fatalf("msg = %#v, want failure toast", msg)

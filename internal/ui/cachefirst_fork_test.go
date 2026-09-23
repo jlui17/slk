@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
-	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
@@ -21,10 +19,10 @@ func cachedBootHarness(t *testing.T, cachedMsgs []messages.MessageItem, fetches 
 	t.Helper()
 	return newHarnessApp(t, withApp(func(a *App) {
 		a.SetLoadingWorkspaces([]string{"Acme"})
-		a.SetChannelService(NewChannelService(ChannelServiceFuncs{
+		a.SetChannelService(core.NewChannelService(core.ChannelServiceFuncs{
 			ReadCache: func(id ids.ChannelID) []messages.MessageItem { return cachedMsgs },
 			SyncedAt:  func(id ids.ChannelID) int64 { return time.Now().Add(-time.Hour).Unix() },
-			Fetch: func(id ids.ChannelID, name string) tea.Msg {
+			Fetch: func(id ids.ChannelID, name string) core.Msg {
 				if fetches != nil {
 					*fetches = append(*fetches, string(id))
 				}
@@ -219,9 +217,9 @@ func TestWorkspaceFailedClearsProvisionalPill(t *testing.T) {
 func TestCachedSelectionDrawsUnreadLine(t *testing.T) {
 	cached := []messages.MessageItem{{TS: "1700000002.000000", Text: "newer"}}
 	a := cachedBootHarness(t, cached, nil)
-	a.SetReadStateReader(func() map[string]cache.ReadState {
-		return map[string]cache.ReadState{"C2": {LastReadTS: "1700000001.000000", HasUnread: true}}
-	})
+	a.SetUnreadService(core.NewUnreadService(func() map[string]core.ReadState {
+		return map[string]core.ReadState{"C2": {LastReadTS: "1700000001.000000", HasUnread: true}}
+	}, nil))
 
 	_, cmd := a.Update(cachedWorkspaceFixture())
 	sel, _ := findChannelSelected(cmd())

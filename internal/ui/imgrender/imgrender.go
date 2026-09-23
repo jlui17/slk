@@ -19,6 +19,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -30,7 +31,7 @@ import (
 // triggered when bytes arrive.
 type ImageContext struct {
 	Protocol    imgpkg.Protocol
-	Fetcher     *imgpkg.Fetcher
+	Fetcher     core.ImageFetcher
 	KittyRender *imgpkg.KittyRenderer
 	CellPixels  image.Point
 	// MaxRows caps the height of an inline image in terminal rows.

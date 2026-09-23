@@ -16,15 +16,17 @@
 - Edited / threaded message indicators
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
+- Copy message text (`y`) and copy permalink (`Y` / `C`) to the system clipboard via OSC 52
 
 ## Compose
 
 - Multi-line input, `Shift+Enter` for newlines
+- External editor (`Ctrl+E`) — opens the draft in `$VISUAL`, then `$EDITOR`, then `[compose] editor` from config; the edited text replaces the draft when the editor exits
 - Inline `@mention` autocomplete (resolves to `<@UserID>` on send)
 - Special mentions: `@here`, `@channel`, `@everyone`
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes
 - Smart paste (`Ctrl+V`) — pastes a clipboard image as an attachment, or a copied file path as an attached file, or falls through to text. Multiple attachments + caption send together via Slack's V2 file-upload API. Note: use `Ctrl+V` (not your terminal's `Ctrl+Shift+V` paste shortcut) — terminal-initiated paste only delivers text, never image bytes.
-- CommonMark in compose: type `**bold**`, `~~strike~~`, `[label](url)`, `- list items`, `1. numbered`, or fenced ```code blocks``` and slk converts them on send to Slack's mrkdwn + rich_text format. Already-mrkdwn syntax (`*bold*`, `_italic_`, `~strike~`) passes through unchanged. Single-asterisk emphasis (`*x*`) is preserved as literal text since it conflicts with Slack mrkdwn bold.
+- CommonMark in compose: type `**bold**`, `~~strike~~`, `[label](url)`, `- list items`, `1. numbered`, or fenced ```code blocks``` and slk converts them on send to Slack's mrkdwn + rich_text format. Already-mrkdwn syntax (`*bold*`, `_italic_`, `~strike~`) passes through unchanged and receives the corresponding rich-text styling.
 
 ## Images
 
@@ -43,6 +45,11 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 
 - Side panel (35% width), opened with `Enter`, toggled with `Ctrl+]`
 - Live thread reply routing, real-time updates
+- Also send to channel: `Ctrl+O` while composing a thread reply toggles Slack's
+  "Also send to #channel" broadcast (`reply_broadcast=true`), and `Alt+Enter`
+  sends with broadcast in a single keystroke. An accent-colored
+  `↪ also send to #channel` line under the input shows when it's armed; the
+  toggle is non-sticky (cleared after send or when opening another thread).
 - Auto-closes on channel switch or narrow terminals
 - **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of every
   thread you authored, replied to, or were @-mentioned in for the active
@@ -61,7 +68,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Channels & Workspaces
 
 - Three-panel layout: workspace rail, channel sidebar, message pane
-- Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels
+- Public (`#`), private (`◆`), DM (`●`/`○` for presence, `⊘` while the other person is in Do Not Disturb), and group DM channels
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. Reorder, rename, create, or delete sections in any other Slack client; slk catches up within a couple seconds. Read-only: section editing still happens in the official client. Falls back to glob-based config sections when disabled or if the API is unavailable.
 - Collapsible sections — `Enter`/`Space` on a section header toggles it. The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
 - Live unread indicators: bold + blue dot for unread channels, muted text for read ones, aggregate dot+count on collapsed section headers
@@ -83,6 +90,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Standard snooze durations (20m / 1h / 2h / 4h / 8h / 24h / until tomorrow morning) plus custom minutes
 - Live status segment in the status bar with snooze countdown
 - Reflects external state changes — set from the official Slack client or via your own API scripts — in real time over the WebSocket
+- Shows other people's state too: their custom status emoji (🎧 instead while they are in a huddle) follows their name on DM rows, message authors and channel-finder rows, `⊘` replaces the presence dot while they are in DND, and an open DM's header shows the full status text and when their DND ends
+- Statuses and DND disappear when they expire; a huddle is re-checked every minute, because Slack does not always announce that one ended
 
 ## Connectivity
 

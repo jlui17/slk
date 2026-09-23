@@ -5,40 +5,6 @@ import (
 	"github.com/gammons/slk/internal/usernames"
 )
 
-// CustomEmoji returns this workspace's emoji name -> URL (or
-// "alias:target") map, or an empty map before any fetch has published
-// one. Safe to call from any goroutine; the result must be treated as
-// read-only.
-func (w *WorkspaceContext) CustomEmoji() map[string]string {
-	if m := w.customEmoji.Load(); m != nil {
-		return *m
-	}
-	return map[string]string{}
-}
-
-// SetCustomEmoji publishes an emoji map for this workspace. The caller
-// must not mutate the map afterwards.
-func (w *WorkspaceContext) SetCustomEmoji(emojis map[string]string) {
-	w.customEmoji.Store(&emojis)
-}
-
-func (r *workspaceRouter) Add(wctx *WorkspaceContext) {
-	r.allMu.Lock()
-	defer r.allMu.Unlock()
-	r.all[wctx.TeamID] = wctx
-}
-
-// All returns a snapshot of every connected workspace.
-func (r *workspaceRouter) All() []*WorkspaceContext {
-	r.allMu.RLock()
-	defer r.allMu.RUnlock()
-	out := make([]*WorkspaceContext, 0, len(r.all))
-	for _, wctx := range r.all {
-		out = append(out, wctx)
-	}
-	return out
-}
-
 // userNameFill batches one fetch/load pass's memoizations so the store
 // publishes once per pass (one copy-on-write) instead of once per
 // author.

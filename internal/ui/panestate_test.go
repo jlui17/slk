@@ -12,7 +12,7 @@ func newPaneStateTestApp(t *testing.T) (*App, *[]paneReport) {
 	t.Helper()
 	var got []paneReport
 	a := newHarnessApp(t,
-		withSize(200, 60),
+		withHarnessSize(200, 60),
 		withApp(func(a *App) {
 			a.SetPaneStateRecorder(func(teamID, channelID, threadTS string) {
 				got = append(got, paneReport{teamID, channelID, threadTS})

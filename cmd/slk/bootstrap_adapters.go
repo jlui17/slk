@@ -108,10 +108,10 @@ func (a countsAdapter) Counts(ctx context.Context) (bootstrap.Counts, error) {
 	}
 	for _, u := range unreads {
 		out.Unreads = append(out.Unreads, bootstrap.Unread{
-			ChannelID: u.ChannelID,
-			Count:     u.Count,
-			HasUnread: u.HasUnread,
-			LastRead:  u.LastRead,
+			ChannelID:    u.ChannelID,
+			MentionCount: u.MentionCount,
+			HasUnread:    u.HasUnread,
+			LastRead:     u.LastRead,
 		})
 	}
 	return out, nil
@@ -554,9 +554,14 @@ func hydrateFirstSight(db *cache.DB, workspaceID string, res *bootstrap.Result) 
 			// "away" is what every other first-sight write in slk
 			// records: a view result carries no presence, and the
 			// presence subscription corrects it on the first render.
-			Presence:   "away",
-			IsBot:      u.IsBot || u.IsAppUser,
-			IsExternal: u.TeamID != "" && u.TeamID != workspaceID,
+			Presence:         "away",
+			IsBot:            u.IsBot || u.IsAppUser,
+			IsExternal:       u.TeamID != "" && u.TeamID != workspaceID,
+			StatusEmoji:      u.Profile.StatusEmoji,
+			StatusText:       u.Profile.StatusText,
+			StatusExpiration: u.Profile.StatusExpiration,
+			HuddleState:      u.Profile.HuddleState,
+			HuddleExpiration: u.Profile.HuddleStateExpirationTS,
 		}); err != nil {
 			debuglog.General("bootstrap: hydrating user %s: %v", u.ID, err)
 		}

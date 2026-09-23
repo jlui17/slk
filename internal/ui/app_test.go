@@ -15,8 +15,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
+	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
@@ -356,7 +358,7 @@ func TestHandleInsertMode_AttachmentSendReturnsToNormalMode(t *testing.T) {
 	app.compose.AddAttachment(compose.PendingAttachment{
 		Filename: "a.png", Bytes: []byte("png"), Size: 3,
 	})
-	app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
+	app.setUploaderForTest(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
 		return func() tea.Msg { return UploadResultMsg{Err: nil} }
 	})
 
@@ -382,7 +384,7 @@ func TestHandleInsertMode_ThreadAttachmentSendReturnsToNormalMode(t *testing.T) 
 	app.threadCompose.AddAttachment(compose.PendingAttachment{
 		Filename: "a.png", Bytes: []byte("png"), Size: 3,
 	})
-	app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
+	app.setUploaderForTest(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
 		return func() tea.Msg { return UploadResultMsg{Err: nil} }
 	})
 
@@ -764,7 +766,7 @@ func TestApp_ClickOnThreadInThreadsViewOpensIt(t *testing.T) {
 
 	fetchedCh := ""
 	fetchedTS := ""
-	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedCh = string(channelID)
 		fetchedTS = string(threadTS)
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS), Replies: nil}
@@ -826,7 +828,7 @@ func TestApp_HandleEnterInThreadsViewOpensSelectedThread(t *testing.T) {
 
 	fetchedCh := ""
 	fetchedTS := ""
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedCh = string(channelID)
 		fetchedTS = string(threadTS)
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS), Replies: nil}
@@ -890,7 +892,7 @@ func TestApp_OpenSelectedThreadDedups(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
 	fetched := 0
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetched++
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS), Replies: nil}
 	})
@@ -960,7 +962,7 @@ func TestApp_NewThreadReplyTriggersDirtyMsg(t *testing.T) {
 	app.threadsDirtyDebounce = 5 * time.Millisecond
 
 	fetched := make(chan string, 4)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) tea.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
 		fetched <- string(teamID)
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -996,20 +998,14 @@ func TestApp_NewThreadReplyTriggersDirtyMsg(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("NewMessageMsg with ThreadTS expected to return a cmd")
 	}
-	// Drive every leaf message produced by the cmd graph back into the app.
-	// tea.Tick blocks for the duration before returning a TickMsg-shaped
-	// value (here, ThreadsListDirtyMsg). drainBatch will block on it, which
-	// is fine because we set the debounce to 5ms.
-	for _, m := range drainBatch(cmd) {
-		if m != nil {
-			_, follow := app.Update(m)
-			for _, fm := range drainBatch(follow) {
-				if fm != nil {
-					app.Update(fm)
-				}
-			}
-		}
-	}
+	// Drive every leaf message produced by the cmd graph back into the
+	// app, to whatever depth it runs to: the reply's dirty tick is only
+	// the first of several hops -- the dirty message opens a coalescing
+	// window whose own tick delivers threadsListFetchMsg, and that arm
+	// is what dispatches the fetch. Each tea.Tick blocks for its
+	// duration inside drainBatch, which is fine at the 5ms debounce set
+	// above.
+	feed(t, app, cmd, 0)
 
 	select {
 	case team := <-fetched:
@@ -1027,7 +1023,7 @@ func TestApp_NewMessageWithoutThreadTSDoesNotTriggerDirty(t *testing.T) {
 	app.threadsDirtyDebounce = 5 * time.Millisecond
 
 	fetched := make(chan struct{}, 4)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) tea.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
 		fetched <- struct{}{}
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1063,7 +1059,7 @@ func TestApp_NewMessageWithoutThreadTSDoesNotTriggerDirty(t *testing.T) {
 func TestApp_WorkspaceReadyTriggersThreadsListFetch(t *testing.T) {
 	app := NewApp()
 	fetched := make(chan string, 1)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) tea.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
 		fetched <- string(teamID)
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1120,7 +1116,7 @@ func TestApp_InsertInThreadsViewFocusesThreadCompose(t *testing.T) {
 
 func TestApp_BackgroundWorkspaceReadyDoesNotClobberActiveState(t *testing.T) {
 	app := NewApp()
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) tea.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
 
@@ -1173,7 +1169,7 @@ func TestApp_WorkspaceSwitchedTriggersThreadsListFetchAndSelectsThreadsRow(t *te
 	}
 
 	fetched := make(chan string, 1)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) tea.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
 		fetched <- string(teamID)
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1947,9 +1943,9 @@ func TestNewMessageMsg_EditedIgnoresOtherChannel(t *testing.T) {
 	}
 }
 
-// fakeClipboard returns a clipboardReader that returns canned bytes
+// fakeClipboard returns a clipboard reader that returns canned bytes
 // for FmtImage and FmtText.
-func fakeClipboard(image, text []byte) clipboardReader {
+func fakeClipboard(image, text []byte) func(clipboard.Format) []byte {
 	return func(f clipboard.Format) []byte {
 		switch f {
 		case clipboard.FmtImage:
@@ -1968,7 +1964,7 @@ func TestSmartPaste_ImagePresent_AttachesToCompose(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
 	pngBytes := []byte("\x89PNG\r\n\x1a\nfake")
-	app.SetClipboardReader(fakeClipboard(pngBytes, nil))
+	app.setClipboardReaderForTest(fakeClipboard(pngBytes, nil))
 
 	app.smartPaste()
 
@@ -1994,7 +1990,7 @@ func TestSmartPaste_ImageTooLarge_Refuses(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
 	huge := make([]byte, 11*1024*1024)
-	app.SetClipboardReader(fakeClipboard(huge, nil))
+	app.setClipboardReaderForTest(fakeClipboard(huge, nil))
 
 	app.smartPaste()
 
@@ -2015,7 +2011,8 @@ func TestSmartPaste_FilePathPresent_AttachesByPath(t *testing.T) {
 	app.activeChannelID = "C1"
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
-	app.SetClipboardReader(fakeClipboard(nil, []byte(path)))
+	app.setClipboardReaderForTest(fakeClipboard(nil, []byte(path)))
+	app.setFilesystemForTest()
 
 	app.smartPaste()
 
@@ -2037,7 +2034,7 @@ func TestSmartPaste_NoImage_NoValidPath_FallsThroughToText(t *testing.T) {
 	app.activeChannelID = "C1"
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
-	app.SetClipboardReader(fakeClipboard(nil, []byte("just some text")))
+	app.setClipboardReaderForTest(fakeClipboard(nil, []byte("just some text")))
 
 	app.smartPaste()
 
@@ -2057,7 +2054,7 @@ func TestSmartPaste_ClipboardUnavailable_NoOp(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
 	pngBytes := []byte("\x89PNGfake")
-	app.SetClipboardReader(fakeClipboard(pngBytes, nil))
+	app.setClipboardReaderForTest(fakeClipboard(pngBytes, nil))
 
 	app.smartPaste()
 
@@ -2074,7 +2071,7 @@ func TestSmartPaste_ThreadPane_AttachesToThreadCompose(t *testing.T) {
 	app.threadVisible = true
 	app.focusedPanel = PanelThread
 	app.SetMode(ModeInsert)
-	app.SetClipboardReader(fakeClipboard([]byte("\x89PNG"), nil))
+	app.setClipboardReaderForTest(fakeClipboard([]byte("\x89PNG"), nil))
 
 	app.smartPaste()
 
@@ -2097,7 +2094,7 @@ func TestSubmitWithAttachments_InvokesUploaderAndSetsUploading(t *testing.T) {
 	app.compose.SetValue("look")
 	// Set a no-op uploader so the cmd doesn't error out — we just want to
 	// observe state changes (uploading flag, that an attempt was made).
-	app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
+	app.setUploaderForTest(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
 		return func() tea.Msg { return UploadResultMsg{Err: nil} }
 	})
 
@@ -2119,7 +2116,7 @@ func TestSubmitWithAttachments_RefusesDuringEdit(t *testing.T) {
 	app.editing.channelID = "C1"
 	app.editing.ts = "1.0"
 	app.editing.panel = PanelMessages
-	app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
+	app.setUploaderForTest(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
 		return func() tea.Msg { return UploadResultMsg{Err: nil} }
 	})
 
@@ -2212,7 +2209,7 @@ func TestPasteMsg_ImagePresent_AttachesToCompose(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
 	pngBytes := []byte("\x89PNG\r\n\x1a\nfake")
-	app.SetClipboardReader(fakeClipboard(pngBytes, nil))
+	app.setClipboardReaderForTest(fakeClipboard(pngBytes, nil))
 
 	// Bracketed paste typically delivers some text representation;
 	// what it carries doesn't matter once an image is detected on
@@ -2245,7 +2242,8 @@ func TestPasteMsg_FilePathInPayload_AttachesByPath(t *testing.T) {
 	app.focusedPanel = PanelMessages
 	app.SetMode(ModeInsert)
 	// No image on clipboard; bracketed paste delivers the path as text.
-	app.SetClipboardReader(fakeClipboard(nil, nil))
+	app.setClipboardReaderForTest(fakeClipboard(nil, nil))
+	app.setFilesystemForTest()
 
 	app.Update(tea.PasteMsg{Content: path})
 
@@ -2268,7 +2266,7 @@ func TestPasteMsg_PlainText_FallsThroughToTextarea(t *testing.T) {
 	// (textarea ignores input when blurred).
 	_ = app.compose.Focus()
 	// No image, no valid path — bracketed text should land in textarea.
-	app.SetClipboardReader(fakeClipboard(nil, nil))
+	app.setClipboardReaderForTest(fakeClipboard(nil, nil))
 
 	app.Update(tea.PasteMsg{Content: "hello world"})
 
@@ -2921,44 +2919,307 @@ func TestChannelMarkedRemoteMsg_InactiveChannel_OnlyUpdatesSidebar(t *testing.T)
 	}
 }
 
-func TestThreadMarkedRemoteMsg_UnreadFlipsRow(t *testing.T) {
+func TestThreadMarkedRemoteMsg_CursorBehindLatestFlipsRowUnread(t *testing.T) {
 	app := NewApp()
 	app.threadsView.SetSummaries([]cache.ThreadSummary{
-		{ChannelID: "C1", ThreadTS: "P1", Unread: false},
+		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "5.000000", Unread: false},
 	})
 
 	_, cmd := app.Update(ThreadMarkedRemoteMsg{
 		ChannelID: "C1",
 		ThreadTS:  "P1",
-		TS:        "R5",
-		Read:      false,
+		LastRead:  "4.000000",
 	})
 
 	if cmd != nil && cmdContainsMsgType(cmd, statusbar.MarkedUnreadMsg{}) {
 		t.Error("expected no toast on remote thread event")
 	}
-
+	found := false
 	for _, s := range app.threadsView.Summaries() {
-		if s.ThreadTS == "P1" && !s.Unread {
-			t.Errorf("expected P1 to be Unread=true after remote thread_marked")
+		if s.ThreadTS != "P1" {
+			continue
+		}
+		found = true
+		if !s.Unread {
+			t.Error("expected P1 Unread=true when the cursor is behind the latest reply")
+		}
+	}
+	if !found {
+		t.Fatal("summary P1 missing; the assertion above would have passed vacuously")
+	}
+}
+
+func TestThreadMarkedRemoteMsg_CursorAtLatestClearsRow(t *testing.T) {
+	app := NewApp()
+	app.threadsView.SetSummaries([]cache.ThreadSummary{
+		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "5.000000", Unread: true},
+	})
+
+	_, _ = app.Update(ThreadMarkedRemoteMsg{
+		ChannelID: "C1", ThreadTS: "P1", LastRead: "5.000000",
+	})
+
+	found := false
+	for _, s := range app.threadsView.Summaries() {
+		if s.ThreadTS != "P1" {
+			continue
+		}
+		found = true
+		if s.Unread {
+			t.Error("expected P1 Unread=false when the cursor reaches the latest reply")
+		}
+	}
+	if !found {
+		t.Fatal("summary P1 missing; the assertion above would have passed vacuously")
+	}
+}
+
+// The open thread panel draws its "── new ──" landmark after the
+// boundary ts, so a remote cursor move must move the landmark rather
+// than clear it: a cursor mid-thread still has unread replies below it.
+func TestThreadMarkedRemoteMsg_MovesOpenPanelBoundaryToCursor(t *testing.T) {
+	app := NewApp()
+	app.threadPanel.SetThread(
+		messages.MessageItem{TS: "P1", UserID: "U1", Text: "parent"},
+		[]messages.MessageItem{
+			{TS: "R1", UserID: "U1", Text: "r1"},
+			{TS: "R2", UserID: "U1", Text: "r2"},
+		}, "C1", "P1")
+	app.threadVisible = true
+
+	_, _ = app.Update(ThreadMarkedRemoteMsg{
+		ChannelID: "C1", ThreadTS: "P1", LastRead: "R1",
+	})
+
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Errorf("thread panel unreadBoundary = %q, want R1", got)
+	}
+}
+
+// The local counterpart of the test above, and its mirror image.
+// ThreadMarkedLocalMsg reports slk's OWN subscriptions.thread.mark
+// completing — the one issued by reducer_threads.go's
+// ThreadRepliesLoadedMsg arm on open, or by App.flushPendingMarks for a
+// reply that arrived in the open panel. Moving the boundary to that
+// cursor would land it on the newest reply, rendering no landmark at
+// all, and would destroy the pre-open snapshot openSelectedThreadCmd
+// takes via applyThreadUnreadBoundary precisely so the user can see
+// what is new in the panel they are reading.
+func TestThreadMarkedLocalMsg_LeavesOpenPanelBoundaryInPlace(t *testing.T) {
+	app := NewApp()
+	app.threadPanel.SetThread(
+		messages.MessageItem{TS: "P1", UserID: "U1", Text: "parent"},
+		[]messages.MessageItem{
+			{TS: "R1", UserID: "U1", Text: "r1"},
+			{TS: "R2", UserID: "U1", Text: "r2"},
+		}, "C1", "P1")
+	app.threadVisible = true
+	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadsView.SetSummaries([]cache.ThreadSummary{
+		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
+	})
+
+	_, _ = app.Update(ThreadMarkedLocalMsg{ChannelID: "C1", ThreadTS: "P1", TS: "R2"})
+
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held", got)
+	}
+	// The threads-list side of the same mark must still take effect.
+	for _, s := range app.threadsView.Summaries() {
+		if s.ThreadTS == "P1" && s.Unread {
+			t.Error("a successful local thread mark must still clear the threads-list unread flag")
 		}
 	}
 }
 
-func TestThreadMarkedRemoteMsg_ReadClearsRow(t *testing.T) {
+// threadPanelOnR1R2 opens the thread panel on C1/P1 with two replies
+// and the "── new ──" landmark sitting on R1, which is the state
+// openSelectedThreadCmd's pre-open snapshot produces for a thread whose
+// second reply is unread.
+func threadPanelOnR1R2(t *testing.T) *App {
+	t.Helper()
+	app := NewApp()
+	app.threadPanel.SetThread(
+		messages.MessageItem{TS: "P1", UserID: "U1", Text: "parent"},
+		[]messages.MessageItem{
+			{TS: "R1", UserID: "U1", Text: "r1"},
+			{TS: "R2", UserID: "U1", Text: "r2"},
+		}, "C1", "P1")
+	app.threadVisible = true
+	app.threadPanel.SetUnreadBoundary("R1")
+	return app
+}
+
+// issueThreadMarkOnOpen drives the real mark-on-open issue site: the
+// ThreadRepliesLoadedMsg arm calls ThreadService.Mark for the newest
+// reply and records the self-mark BEFORE the returned cmd — and so the
+// subscriptions.thread.mark request — has run. Returns the
+// ThreadMarkedLocalMsg that cmd yields, so callers can deliver it (or
+// deliberately not) to control the ordering against the WS echo.
+//
+// Tests record through this rather than poking selfThreadMarks so that
+// moving or losing the recording site fails them.
+func issueThreadMarkOnOpen(t *testing.T, app *App) ThreadMarkedLocalMsg {
+	t.Helper()
+	var marked []string
+	app.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
+		Mark: func(channelID ids.ChannelID, threadTS ids.ThreadTS, ts ids.MessageTS) core.Cmd {
+			marked = append(marked, string(channelID)+"/"+string(threadTS)+"/"+string(ts))
+			return func() core.Msg {
+				return ThreadMarkedLocalMsg{
+					ChannelID: string(channelID),
+					ThreadTS:  string(threadTS),
+					TS:        string(ts),
+				}
+			}
+		},
+	}))
+	// Same thread identity as the panel already holds, so SetThread
+	// keeps the boundary the pre-open snapshot installed.
+	_, cmd := app.Update(ThreadRepliesLoadedMsg{
+		ThreadTS: "P1",
+		Replies: []messages.MessageItem{
+			{TS: "R1", UserID: "U1", Text: "r1"},
+			{TS: "R2", UserID: "U1", Text: "r2"},
+		},
+	})
+	if len(marked) != 1 || marked[0] != "C1/P1/R2" {
+		t.Fatalf("Mark calls = %v, want one mark of C1/P1 up to R2", marked)
+	}
+	for _, msg := range drainBatch(cmd) {
+		if local, ok := msg.(ThreadMarkedLocalMsg); ok {
+			return local
+		}
+	}
+	t.Fatal("the mark cmd yielded no ThreadMarkedLocalMsg")
+	return ThreadMarkedLocalMsg{}
+}
+
+// Slack broadcasts thread_marked back to the client that issued the
+// mark, so slk's own subscriptions.thread.mark returns as a
+// ThreadMarkedRemoteMsg carrying the ts slk just set — the newest
+// reply. Applying it would move the landmark past every reply and
+// render no landmark at all, destroying the pre-open snapshot a round
+// trip after the user started reading. The list-state half must still
+// run: the thread really is read.
+func TestThreadMarkedRemoteMsg_SelfEchoHoldsPanelBoundary(t *testing.T) {
+	app := threadPanelOnR1R2(t)
+	local := issueThreadMarkOnOpen(t, app)
+
+	// The mark's own HTTP response, back on the Update goroutine.
+	_, _ = app.Update(local)
+
+	// Re-flag the row so the list-state assertion below cannot pass
+	// vacuously off work the issue and local arms already did: this
+	// stands in for a threads-list refresh landing before the echo.
+	app.threadsView.SetSummaries([]cache.ThreadSummary{
+		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
+	})
+
+	// Slack's echo of that same mark.
+	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
+
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held against slk's own echo", got)
+	}
+	found := false
+	for _, s := range app.threadsView.Summaries() {
+		if s.ThreadTS != "P1" {
+			continue
+		}
+		found = true
+		if s.Unread {
+			t.Error("a suppressed self-echo must still settle the threads-list unread flag")
+		}
+	}
+	if !found {
+		t.Fatal("summary P1 missing; the assertion above would have passed vacuously")
+	}
+}
+
+// The ordering the fix turns on: Slack's WebSocket broadcast and the
+// mark's own HTTP response are independent, so the echo can arrive
+// FIRST. Recording on completion instead of on issue would leave this
+// echo unrecorded and wipe the landmark — in production, silently, for
+// every thread the user opens.
+func TestThreadMarkedRemoteMsg_SelfEchoBeforeLocalMsgStillHoldsBoundary(t *testing.T) {
+	app := threadPanelOnR1R2(t)
+	local := issueThreadMarkOnOpen(t, app)
+
+	// Echo first, before the mark call has even returned.
+	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Fatalf("unreadBoundary = %q, want R1: an echo that beats the HTTP response is still slk's own mark", got)
+	}
+
+	// The response then lands and must not disturb the landmark either.
+	_, _ = app.Update(local)
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Errorf("unreadBoundary = %q after the local completion, want R1", got)
+	}
+}
+
+// The control, and the more important half: a thread_marked slk did not
+// issue means the user read that thread in another Slack client, and
+// the landmark must move. Suppression is keyed on the exact mark, so an
+// outstanding record for a DIFFERENT ts must not shield a foreign one.
+func TestThreadMarkedRemoteMsg_ForeignMarkStillMovesBoundary(t *testing.T) {
+	app := threadPanelOnR1R2(t)
+	app.threadPanel.SetUnreadBoundary("P1")
+	app.selfThreadMarks.record(selfMarkKey{channelID: "C1", threadTS: "P1", ts: "R2"})
+
+	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R1"})
+
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Errorf("thread panel unreadBoundary = %q, want R1: a mark slk never issued must move the landmark", got)
+	}
+}
+
+// One issued mark suppresses one echo. Slack sends a single
+// thread_marked per mark, so a second one at the same ts is a new
+// event — a genuine cursor move made elsewhere — and must be applied.
+func TestThreadMarkedRemoteMsg_SelfEchoSuppressionIsConsumedOnce(t *testing.T) {
+	app := threadPanelOnR1R2(t)
+	local := issueThreadMarkOnOpen(t, app)
+	_, _ = app.Update(local)
+
+	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+		t.Fatalf("first echo: unreadBoundary = %q, want R1 held", got)
+	}
+
+	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R2" {
+		t.Errorf("second echo: unreadBoundary = %q, want R2 — the record is consumed by the first echo", got)
+	}
+}
+
+// Regression for the reported bug: posting a reply auto-subscribes you,
+// so Slack echoes thread_marked with active=true. slk used to read that
+// as "unread" and re-flag the thread the user was looking at.
+func TestThreadMarkedRemoteMsg_SelfReplyDoesNotReFlagUnread(t *testing.T) {
 	app := NewApp()
 	app.threadsView.SetSummaries([]cache.ThreadSummary{
-		{ChannelID: "C1", ThreadTS: "P1", Unread: true},
+		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "7.000000", Unread: false},
 	})
 
+	// Slack's echo after our own reply: cursor caught up to our reply.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{
-		ChannelID: "C1", ThreadTS: "P1", TS: "R5", Read: true,
+		ChannelID: "C1", ThreadTS: "P1", LastRead: "7.000000",
 	})
 
+	found := false
 	for _, s := range app.threadsView.Summaries() {
-		if s.ThreadTS == "P1" && s.Unread {
-			t.Errorf("expected P1 Unread=false after remote thread_marked read=true")
+		if s.ThreadTS != "P1" {
+			continue
 		}
+		found = true
+		if s.Unread {
+			t.Error("replying to a thread must not mark it unread")
+		}
+	}
+	if !found {
+		t.Fatal("summary P1 missing; the assertion above would have passed vacuously")
 	}
 }
 
@@ -2974,6 +3235,12 @@ func TestConversationOpenedMsg_SidebarReceivesItemAndUnread(t *testing.T) {
 			ID:   "G1",
 			Name: "alice, bob",
 			Type: "group_dm",
+		},
+		FinderItem: channelfinder.Item{
+			ID:     "G1",
+			Name:   "alice, bob",
+			Type:   "group_dm",
+			Joined: true,
 		},
 	})
 
@@ -3005,6 +3272,18 @@ func TestConversationOpenedMsg_SidebarReceivesItemAndUnread(t *testing.T) {
 	if app.sidebar.Version() == verBefore {
 		t.Errorf("expected sidebar.Version() to bump after inactive-channel NewMessageMsg, stayed at %d", verBefore)
 	}
+
+	// G1 must also be present in the channel finder (Ctrl+P) immediately,
+	// not just after the next workspace activation.
+	foundInFinder := false
+	for _, it := range app.channelFinder.Items() {
+		if it.ID == "G1" {
+			foundInFinder = true
+		}
+	}
+	if !foundInFinder {
+		t.Errorf("G1 not in channel finder after ConversationOpenedMsg")
+	}
 }
 
 func TestConversationOpenedMsg_InactiveWorkspaceIgnored(t *testing.T) {
@@ -3014,13 +3293,19 @@ func TestConversationOpenedMsg_InactiveWorkspaceIgnored(t *testing.T) {
 
 	// Event for a different workspace must NOT mutate the active sidebar.
 	app.Update(ConversationOpenedMsg{
-		TeamID: "T2",
-		Item:   sidebar.ChannelItem{ID: "G1", Name: "alice, bob", Type: "group_dm"},
+		TeamID:     "T2",
+		Item:       sidebar.ChannelItem{ID: "G1", Name: "alice, bob", Type: "group_dm"},
+		FinderItem: channelfinder.Item{ID: "G1", Name: "alice, bob", Type: "group_dm", Joined: true},
 	})
 
 	for _, it := range app.sidebar.AllItems() {
 		if it.ID == "G1" {
 			t.Errorf("G1 unexpectedly added to active sidebar from inactive-workspace event")
+		}
+	}
+	for _, it := range app.channelFinder.Items() {
+		if it.ID == "G1" {
+			t.Errorf("G1 unexpectedly added to channel finder from inactive-workspace event")
 		}
 	}
 }
@@ -3240,7 +3525,7 @@ func TestChannelSelectedRendersFromCacheWithoutSpinner(t *testing.T) {
 	// ago is >30s (not Tier 1) and <5min (not Tier 3).
 	app.setChannelSyncedAtReaderForTest(func(ids.ChannelID) int64 { return time.Now().Unix() - 120 })
 	fetcherCalled := false
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		fetcherCalled = true
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: nil}
 	})
@@ -3285,7 +3570,7 @@ func TestMessagesLoadedNilDoesNotClobberCachedView(t *testing.T) {
 	// Tier 2: cache renders + fetcher fires (the network failure path
 	// under test happens after both).
 	app.setChannelSyncedAtReaderForTest(func(ids.ChannelID) int64 { return time.Now().Unix() - 120 })
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		// Simulate a network failure by returning the same shape the
 		// real fetcher uses on error.
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: nil}
@@ -3327,7 +3612,7 @@ func TestMessagesLoadedEmptyClearsView(t *testing.T) {
 		{TS: "1.0", UserID: "U1", UserName: "alice", Text: "stale cache"},
 	}
 	app.setChannelCacheReaderForTest(func(channelID ids.ChannelID) []messages.MessageItem { return cachedItems })
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: []messages.MessageItem{}}
 	})
 	app.activeChannelID = "C1"
@@ -3348,7 +3633,7 @@ func TestMessagesLoadedEmptyClearsView(t *testing.T) {
 func TestChannelSelectedFallsBackToSpinnerOnCacheMiss(t *testing.T) {
 	app := NewApp()
 	app.setChannelCacheReaderForTest(func(channelID ids.ChannelID) []messages.MessageItem { return nil })
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: nil}
 	})
 
@@ -3368,7 +3653,7 @@ func TestChannelSelectedFallsBackToSpinnerOnCacheMiss(t *testing.T) {
 func TestWorkspaceSwitchedQueuesChannelSelected(t *testing.T) {
 	app := NewApp()
 	app.setChannelCacheReaderForTest(func(channelID ids.ChannelID) []messages.MessageItem { return nil })
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: nil}
 	})
 
@@ -3432,7 +3717,7 @@ func TestWorkspaceSwitchedEmptyClearsPane(t *testing.T) {
 func TestWorkspaceReadyFirstChannelSetsLoading(t *testing.T) {
 	app := NewApp()
 	app.setChannelCacheReaderForTest(func(channelID ids.ChannelID) []messages.MessageItem { return nil })
-	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) tea.Msg {
+	app.setChannelFetcherForTest(func(channelID ids.ChannelID, channelName string) core.Msg {
 		return MessagesLoadedMsg{ChannelID: string(channelID), Messages: nil}
 	})
 
@@ -3971,12 +4256,12 @@ func TestChannelSelected_Tier1_RenderCacheNoFetch(t *testing.T) {
 		return []messages.MessageItem{{TS: "1.0", UserID: "U", UserName: "u", Text: "hi"}}
 	})
 	fetchCalled := 0
-	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) tea.Msg {
+	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) core.Msg {
 		fetchCalled++
 		return MessagesLoadedMsg{ChannelID: string(id), Messages: nil}
 	})
 	markCalled := 0
-	app.setChannelReadMarkerForTest(func(id ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	app.setChannelReadMarkerForTest(func(id ids.ChannelID, ts ids.MessageTS) core.Msg {
 		markCalled++
 		return nil
 	})
@@ -4000,12 +4285,12 @@ func TestChannelSelected_Tier2_CacheAndFetch(t *testing.T) {
 		return []messages.MessageItem{{TS: "1.0", UserID: "U", UserName: "u", Text: "hi"}}
 	})
 	fetchCalled := 0
-	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) tea.Msg {
+	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) core.Msg {
 		fetchCalled++
 		return MessagesLoadedMsg{ChannelID: string(id), Messages: nil}
 	})
 	markCalled := 0
-	app.setChannelReadMarkerForTest(func(id ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	app.setChannelReadMarkerForTest(func(id ids.ChannelID, ts ids.MessageTS) core.Msg {
 		markCalled++
 		return nil
 	})
@@ -4028,7 +4313,7 @@ func TestChannelSelected_Tier3_SpinnerOnly(t *testing.T) {
 		return nil // no cache at all → genuine Tier 3
 	})
 	fetchCalled := 0
-	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) tea.Msg {
+	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) core.Msg {
 		fetchCalled++
 		return MessagesLoadedMsg{ChannelID: string(id), Messages: nil}
 	})
@@ -4055,7 +4340,7 @@ func TestChannelSelected_UnknownFreshnessWithCache_FallsToTier2(t *testing.T) {
 		return []messages.MessageItem{{TS: "1.0", UserID: "U", UserName: "u", Text: "hi"}}
 	})
 	fetchCalled := 0
-	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) tea.Msg {
+	app.setChannelFetcherForTest(func(id ids.ChannelID, name string) core.Msg {
 		fetchCalled++
 		return MessagesLoadedMsg{ChannelID: string(id), Messages: nil}
 	})
@@ -4202,11 +4487,15 @@ func setupAppForTitleTest(
 	workspaceUnreads []string,
 ) *App {
 	t.Helper()
-	app := NewApp()
-	app.SetWorkspaces(workspaces)
-	app.SetChannels(channels)
-	app.SetReadStateReader(func() map[string]cache.ReadState { return channelState })
-	app.SetWorkspaceUnreadReader(func() []string { return workspaceUnreads })
+	// withSize(0, 0) preserves NewApp's unsized state: the original
+	// builder set no dimensions.
+	app := newTestApp(t,
+		withSize(0, 0),
+		withWorkspaces(workspaces...),
+		withChannels(channels...),
+	)
+	app.setReadStateReaderForTest(func() map[string]cache.ReadState { return channelState })
+	app.setWorkspaceUnreadReaderForTest(func() []string { return workspaceUnreads })
 	return app
 }
 
@@ -4214,7 +4503,9 @@ func setupAppForTitleTest(
 // wiring test. It verifies that notifyReadStateChanged actually plumbs
 // each input from the collaborator the architecture assigns to it:
 //   - active count comes from the sidebar (mute-filtered)
-//   - other-workspace count comes from the rail (not mute-filtered)
+//   - other-workspace count comes from the rail, whose installed reader
+//     applies the sidebar's mute rule per workspace (railUnreadWorkspaces
+//     in cmd/slk); this test's stub reader stands in for it
 //   - workspace name comes from the rail for the active team
 //
 // If a future refactor reroutes any of these sources, the assertions
@@ -4399,5 +4690,30 @@ func TestListReactionsNoOpWhenNoReactions(t *testing.T) {
 	}
 	if app.mode == ModeReactionsView {
 		t.Fatal("mode should not change when there are no reactions")
+	}
+}
+
+// The thread panel's "── new ──" divider must be sourced from the
+// thread's own cursor in thread_subscriptions, not the parent
+// channel's last_read_ts: plain replies never advance the channel
+// watermark, so the channel cursor is systematically stale and puts
+// the divider too early.
+func TestOpenThreadPanel_BoundaryUsesThreadCursor(t *testing.T) {
+	app := NewApp()
+	var gotChannel, gotThread string
+	app.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
+		ThreadLastRead: func(channelID ids.ChannelID, threadTS ids.ThreadTS) string {
+			gotChannel, gotThread = string(channelID), string(threadTS)
+			return "R7"
+		},
+	}))
+
+	_ = app.openThreadPanel(messages.MessageItem{TS: "P1"}, "C1", "P1")
+
+	if gotChannel != "C1" || gotThread != "P1" {
+		t.Fatalf("ThreadLastRead called with (%q, %q), want (C1, P1)", gotChannel, gotThread)
+	}
+	if got := app.threadPanel.UnreadBoundaryTS(); got != "R7" {
+		t.Errorf("thread panel boundary = %q, want the thread cursor R7", got)
 	}
 }

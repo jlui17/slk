@@ -14,6 +14,9 @@
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
 | `Ctrl+U` | Insert | Delete to start of line (what kitty sends for `Cmd+Backspace`) |
+| `Ctrl+E` | Insert | Edit the draft in `$VISUAL` / `$EDITOR` (or `compose.editor`) |
+| `Ctrl+O` | Insert (thread) | Toggle "also send to channel" for the next thread reply |
+| `Alt+Enter` | Insert (thread) | Send thread reply and broadcast to channel (one-shot) |
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |
 | `Up` | Insert | Previous line; on the first line, jump to start of message |
 | `Down` | Insert | Next line; on the last line, jump to end of message |
@@ -35,6 +38,7 @@
 | `D` | Normal (message) | Delete your own message (with confirmation) |
 | `U` | Normal (message) | Mark selected message and everything newer as unread |
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
+| `y` | Normal (message) | Copy message text |
 | `Y` / `C` | Normal (message) | Copy message permalink |
 | `o` | Normal (message) | Open link in message (Slack permalinks for the active workspace navigate in-app; other links open in the browser; multiple links open a picker) |
 | `O` | Normal (message) | Open a Slack permalink from the message in a new herdr tab running a second slk; only slk-openable links are offered (requires running inside herdr; otherwise behaves exactly like `o`) |

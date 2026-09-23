@@ -4,8 +4,13 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
-	"golang.design/x/clipboard"
+
+	"github.com/gammons/slk/internal/core"
 )
+
+// clipboardReader reads the clipboard in one format; nil means nothing
+// of that kind is on it. Same shape as core.DesktopService.ReadClipboard.
+type clipboardReader func(f core.ClipboardFormat) []byte
 
 // pastingToast is the status-bar toast shown while a clipboard read is
 // in flight. Text, not a spinner: the read finishes in well under a
@@ -24,7 +29,9 @@ const pastingToast = "Pasting from clipboard…"
 // paste (smartPaste or reducePaste) against a reader that serves the
 // snapshot, so attach rules, filenames, and toasts stay upstream's.
 type asyncPasteState struct {
-	enabled  bool
+	enabled bool
+	// read is the slow reader, called off the UI goroutine only.
+	read     clipboardReader
 	inFlight bool
 	// applying is set while the snapshot is being replayed through the
 	// upstream path, which re-enters the hook; it tells the hook to
@@ -39,14 +46,14 @@ type clipboardSnapshotMsg struct {
 	bracketed   *tea.PasteMsg
 }
 
-// SetAsyncClipboardReader installs fn as the clipboard reader and routes
-// paste through the background path, so the UI paints pastingToast
-// while fn runs. Also marks the clipboard available: a bridged reader
-// needs no native init.
+// SetAsyncClipboardReader makes fn the clipboard paste reads, in place
+// of the desktop service's, and routes paste through the background
+// path, so the UI paints pastingToast while fn runs. Also marks the
+// clipboard available: a bridged reader needs no native init.
 func (a *App) SetAsyncClipboardReader(fn clipboardReader) {
-	a.SetClipboardReader(fn)
 	a.SetClipboardAvailable(true)
 	a.asyncPaste.enabled = true
+	a.asyncPaste.read = fn
 }
 
 // pasteAsync is the hook the two paste entry points call first. It
@@ -63,13 +70,13 @@ func (a *App) pasteAsync(bracketed *tea.PasteMsg) (tea.Cmd, bool) {
 	}
 	a.asyncPaste.inFlight = true
 	a.statusbar.SetToast(pastingToast)
-	read := a.clipboardRead
+	read := a.asyncPaste.read
 	return func() tea.Msg {
 		msg := clipboardSnapshotMsg{bracketed: bracketed}
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); msg.image = read(clipboard.FmtImage) }()
-		go func() { defer wg.Done(); msg.text = read(clipboard.FmtText) }()
+		go func() { defer wg.Done(); msg.image = read(core.ClipboardImage) }()
+		go func() { defer wg.Done(); msg.text = read(core.ClipboardText) }()
 		wg.Wait()
 		return msg
 	}, true
@@ -87,16 +94,8 @@ var reducePasteAsync reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if a.mode != ModeInsert {
 		return nil, true
 	}
-	prev := a.clipboardRead
-	a.clipboardRead = func(format clipboard.Format) []byte {
-		switch format {
-		case clipboard.FmtImage:
-			return m.image
-		case clipboard.FmtText:
-			return m.text
-		}
-		return nil
-	}
+	prev := a.desktop
+	a.desktop = clipboardSnapshot{DesktopService: prev, image: m.image, text: m.text}
 	a.asyncPaste.applying = true
 	var cmd tea.Cmd
 	if m.bracketed != nil {
@@ -105,6 +104,23 @@ var reducePasteAsync reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		cmd = a.smartPaste()
 	}
 	a.asyncPaste.applying = false
-	a.clipboardRead = prev
+	a.desktop = prev
 	return cmd, true
+}
+
+// clipboardSnapshot is the desktop service with its clipboard replaced
+// by one finished background read.
+type clipboardSnapshot struct {
+	core.DesktopService
+	image, text []byte
+}
+
+func (c clipboardSnapshot) ReadClipboard(f core.ClipboardFormat) []byte {
+	switch f {
+	case core.ClipboardImage:
+		return c.image
+	case core.ClipboardText:
+		return c.text
+	}
+	return nil
 }

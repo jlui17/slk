@@ -629,14 +629,13 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if !m.Viewed && a.agentSidebar.thread.active && a.agentSidebar.unreadTotal() > 0 {
 			a.reportAgentThreadUnread()
 		}
-		// Focusing the tab puts the open thread panel on screen. Replies
-		// that arrived while the pane was unviewed rendered without a
-		// mark (the reply path's viewedness gate), so the refocus is the
-		// read event: schedule the same debounced mark a live reply gets.
-		// The fire-time gates drop it if the user flicks away or the
-		// panel changes inside the debounce window.
-		if m.Viewed && a.threadVisible && a.threadPanel.ThreadTS() != "" {
-			return a.scheduleThreadMark(a.threadPanel.ChannelID(), a.threadPanel.ThreadTS()), true
+		// Focusing the tab puts the pane back on screen. Marks staged while
+		// it was unviewed were held by flushPendingMarks' viewedness gate,
+		// so the refocus is the read event: schedule the same debounced
+		// flush an arrival gets. The gate holds them again if the user
+		// flicks away inside the debounce window.
+		if m.Viewed {
+			return a.scheduleMarkFlush(), true
 		}
 		return nil, true
 

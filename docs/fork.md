@@ -42,15 +42,45 @@ fork-only file would do isn't done.
    reflow-only changes (see "Never run `go fmt` across the tree" in
    CLAUDE.md).
 
+When upstream pure-moves a diverged file into new files (the `cmd/slk/main.go`
+split), don't merge across the refactor in one step: merge up to the commit
+before it, then merge the move commits one at a time, porting the fork's
+delta into each new file as it appears.
+
 ## Where the fork intentionally diverges in place
 
 These upstream files carry real in-place behavior changes; expect conflicts
 there and resolve them knowing what the fork wants:
 
-- `cmd/slk/main.go` — `WorkspaceContext`'s shared maps migrated to
+- `cmd/slk/main.go` and the topical files upstream split out of it —
+  `WorkspaceContext`'s shared maps and self presence/DND fields migrated to
   thread-safe stores (`internal/sharedmap`, `internal/usernames`,
-  `atomic.Pointer`), plus every call site downstream. The single biggest
-  divergence; irreducible.
+  `selfStatusStore`), plus every call site downstream. `workspace.go` holds
+  the struct; `connect.go` seeds the stores and carries `connectWorkspace`'s
+  overlapped boot; `users.go`, `history.go`, `user_resolver.go`,
+  `conversations.go`, `workspace_search.go`, `presence.go` and
+  `rtm_handler.go` are call sites (`presence.go` also the token-guarded
+  status bootstrap and presence dedupe, `rtm_handler.go` also the
+  `TeamID`-tagged dispatch for background workspaces); `attachments.go` one
+  line (`OriginalW/H`); `main.go` keeps `run()`'s fork wiring (permalink
+  argument, `herdr` subcommand, pane restore, notify leader, the `Preview`
+  service func). The single biggest divergence; irreducible.
+- `cmd/slk/markread.go` — `OnThreadMarked` only: persistence is upstream's
+  cursor-only writers; the fork derives `Read` (`threadMarkReadState` from
+  `ThreadNewestActivity`) and dispatches `ThreadMarkedRemoteMsg`
+  `TeamID`-tagged for every workspace, where upstream dispatches active-only.
+- `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
+  `OriginalW/H`, `MessageService.Preview`, and the `Preview` member of
+  `MessageServiceFuncs`; the adapter method and `TableBlock` live in
+  `adapters_fork.go` and `blocks/blocks_fork.go`.
+- `internal/ui/boundary_test.go` — both import checks consult
+  `tuiForkExempt` (`boundary_fork_test.go`): `app_fork.go` → `os/exec` for
+  `$BROWSER`, `clipboard_remote.go` → `net/http`, `blockkittest.go` →
+  slack-go.
+- `internal/ui/app.go` (live thread-reply read marking) — upstream's
+  `recordThreadMark` + `scheduleMarkFlush` is the single issuer; the fork
+  adds a `PaneViewed` gate at the top of `flushPendingMarks` and a
+  `scheduleMarkFlush` call on herdr refocus (`agentthread.go`).
 - `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
   bindings and reducer switch arms; the usernames-store migration's
   mechanical call-site edits.
@@ -58,9 +88,8 @@ there and resolve them knowing what the fork wants:
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
   matches within one segment. Upstreaming candidate.
-- `internal/slack/events.go` — `OnThreadMarked` passes the subscription's
-  `active` flag through instead of inverting it into a bogus `read` bool.
-  Upstreaming candidate: it fixes an upstream bug.
+- `internal/slack/events.go` — `OnAssistantStatus` on `EventHandler` and
+  the `ai_assistant_status` dispatch arm.
 - `internal/slack/client.go` — boot-path calls made cancellable in
   place: SlackAPI's `AuthTest`/`GetConversationsForUser` swapped for
   their `Context` variants, `GetUnreadCounts` takes a ctx, and the
@@ -110,6 +139,20 @@ there and resolve them knowing what the fork wants:
   in `bootstrap_test.go` relaxed or deleted. See "Overlapped boot" below.
 - `internal/notify/*` — leader gate on notifications.
 - `internal/config/config.go` — two fork struct fields (`Herdr`, `Restore`).
+- Upstream tests the fork adjusts — `internal/cache/db_test.go`
+  (`seedUsersTable` adds `display_name`, which `migrateFork` indexes);
+  `cmd/slk/reconnect_sync_test.go`, `internal/slack/client_test.go` (ctx
+  argument on `GetUnreadCounts`, `Context` variants on the mock);
+  `cmd/slk/on_message_mention_test.go`, `rail_unread_test.go`,
+  `internal/ui/seams_test.go`, `threadsview/model_test.go` (fixtures built
+  on the stores); `internal/ui/mode_normal_keys_test.go` (`O` is
+  OpenLinkTab here, image preview is `v` only); `mode_insert_keys_test.go`
+  (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
+  bordered code box); `golden_test.go`, `mode_linkpicker_test.go` (extra
+  argument on `layout.Compute` / `openLinksOfSelected`); seven
+  `internal/ui/testdata/golden/*.ansi` re-blessed (selection tint reassert;
+  `window_split.ansi` gains the "── new ──" line from
+  `applyCachedLastRead`).
 - `go.mod` / `go.sum` — `github.com/slack-go/slack` bumped past upstream's
   pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
   decoded every cell as rich_text and dropped raw_text content). On an

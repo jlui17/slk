@@ -25,14 +25,14 @@ type harnessConfig struct {
 
 type harnessOption func(*harnessConfig)
 
-func withSize(width, height int) harnessOption {
+func withHarnessSize(width, height int) harnessOption {
 	return func(c *harnessConfig) {
 		c.width = width
 		c.height = height
 	}
 }
 
-func withMessages(items ...messages.MessageItem) harnessOption {
+func withHarnessMessages(items ...messages.MessageItem) harnessOption {
 	return func(c *harnessConfig) {
 		c.setup = append(c.setup, func(a *App) {
 			a.messagepane.SetMessages(items)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 
+	"github.com/gammons/slk/internal/core"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -50,7 +51,7 @@ func (a *App) pickPreviewSource(att messages.Attachment) (previewSource, bool) {
 // fetch runs the plan: fetch the picked source, and on failure fall
 // back to the thumbnail pick (marking an undecodable original so
 // later picks skip it).
-func (s previewSource) fetch(ctx context.Context, fetcher *imgpkg.Fetcher, fileID string) (imgpkg.FetchResult, error) {
+func (s previewSource) fetch(ctx context.Context, fetcher core.ImageFetcher, fileID string) (imgpkg.FetchResult, error) {
 	res, err := fetcher.Fetch(ctx, imgpkg.FetchRequest{
 		Key:       fileID + "-preview-" + s.suffix,
 		URL:       s.url,

@@ -11,11 +11,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/scrollbar"
 	"github.com/gammons/slk/internal/ui/selection"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -23,81 +25,17 @@ import (
 	"github.com/gammons/slk/internal/usernames"
 )
 
-type MessageItem struct {
-	TS          string
-	UserName    string
-	UserID      string
-	Text        string
-	Timestamp   string // formatted display time (e.g. "3:04 PM")
-	DateStr     string // date string for grouping (e.g. "2026-04-23")
-	ThreadTS    string
-	ReplyCount  int
-	Reactions   []ReactionItem
-	Attachments []Attachment
-	IsEdited    bool
-	// Subtype mirrors Slack's `subtype` field on a message event.
-	// Currently we only act on "thread_broadcast" (a thread reply that
-	// was also sent to the channel) so we can render a label above it.
-	Subtype string
-
-	// Blocks holds parsed Slack Block Kit blocks. Rendered between
-	// the body Text and the file Attachments by Phase 5.
-	Blocks []blockkit.Block
-
-	// LegacyAttachments holds parsed entries from the legacy
-	// `attachments` field (color stripe + title + fields style bot
-	// cards). Rendered after Blocks.
-	LegacyAttachments []blockkit.LegacyAttachment
-}
-
-// Attachment represents a file or image attached to a message.
-// Kind is "image" for image/* mimetypes, "file" otherwise.
-// URL is the user-facing permalink (preferred) or fallback to url_private.
-type Attachment struct {
-	Kind string // "image" or "file"
-	Name string // display filename / title
-	URL  string // permalink (preferred) or url_private
-
-	// DownloadURL is the auth-gated url_private, used by the `d`
-	// download keybinding and, for images, by the full-screen preview
-	// as the unresized source — so it has to stay a URL that answers
-	// with the raw file bytes. Size is the file size in bytes (0 when
-	// Slack didn't provide one); shown in the file picker.
-	DownloadURL string
-	Size        int64
-
-	// Populated only for Kind == "image":
-	FileID string      // Slack file ID for cache key
-	Mime   string      // e.g. "image/png"
-	Thumbs []ThumbSpec // sorted ascending; empty for non-image
-
-	// OriginalW/H are Slack's original_w/original_h for the unresized
-	// upload behind DownloadURL, which the full-screen preview fetches
-	// when the thumbnails are too small for the pane. Zero means Slack
-	// didn't report them, which keeps the preview on thumbnails.
-	OriginalW, OriginalH int
-}
-
-// ThumbSpec is one Slack thumbnail variant.
-//
-// This is intentionally distinct from image.ThumbSpec in the internal/image
-// package to avoid coupling the messages UI package to the image package's
-// internal type. A converter helper bridges the two where needed.
-type ThumbSpec struct {
-	URL string
-	W   int
-	H   int
-}
+// The message data types live in internal/core so the engine can build
+// them without importing the TUI.
+type (
+	MessageItem  = core.MessageItem
+	Attachment   = core.Attachment
+	ThumbSpec    = core.ThumbSpec
+	ReactionItem = core.ReactionItem
+)
 
 // AvatarFunc returns the rendered half-block avatar for a user ID, or empty string.
 type AvatarFunc func(userID string) string
-
-type ReactionItem struct {
-	Emoji      string // emoji name without colons, e.g. "thumbsup"
-	Count      int
-	HasReacted bool     // whether the current user has reacted with this emoji
-	UserIDs    []string // user IDs who reacted with this emoji
-}
 
 // viewEntry is a pre-rendered row in the message list (message or date separator).
 //
@@ -250,11 +188,12 @@ type Model struct {
 	channelTopic string
 	channelType  string // "channel", "private", "dm", "group_dm" -- drives header glyph
 	loading      bool
-	spinnerFrame int               // braille-spinner frame index for "Loading messages..." animation
-	avatarFn     AvatarFunc        // optional: returns half-block avatar for a userID
-	userNames    *usernames.Store  // user ID -> display name for mention resolution
-	channelNames map[string]string // channel ID -> name for bare <#CID> resolution
-	userGroups   map[string]string // usergroup ID -> handle for bare subteam resolution
+	spinnerFrame int                          // braille-spinner frame index for "Loading messages..." animation
+	avatarFn     AvatarFunc                   // optional: returns half-block avatar for a userID
+	userNames    *usernames.Store             // user ID -> display name for mention resolution
+	userStatuses map[string]peerstatus.Status // user ID -> custom status shown after author names
+	channelNames map[string]string            // channel ID -> name for bare <#CID> resolution
+	userGroups   map[string]string            // usergroup ID -> handle for bare subteam resolution
 
 	// searchTerms are folded word-prefix terms of the active in-channel
 	// search; non-empty enables highlight rendering. nil = no search.
@@ -600,6 +539,20 @@ func MessageTextSource(msg MessageItem) string {
 	return msg.Text
 }
 
+// BlocksCarryBody reports whether msg's blocks already render its body,
+// in which case the host adds no row for msg.Text. A non-empty rich_text
+// block is the exception: it renders through MessageTextSource and must
+// retain the host body row. This decision affects rendering only;
+// copying still uses msg.Text.
+func BlocksCarryBody(msg MessageItem) bool {
+	for _, b := range msg.Blocks {
+		if rt, ok := b.(blockkit.RichTextBlock); ok && blockkit.RichTextToMrkdwn(rt) != "" {
+			return false
+		}
+	}
+	return blockkit.RendersBody(msg.Blocks)
+}
+
 // dirty bumps the render-version counter.
 func (m *Model) dirty() { m.version++ }
 
@@ -637,6 +590,17 @@ func (m *Model) SetChannel(name, topic string) {
 	}
 	m.channelName = name
 	m.channelTopic = topic
+}
+
+// SetChannelTopic replaces the header's second line without changing
+// the channel. A DM uses it for the peer's status and DND.
+func (m *Model) SetChannelTopic(topic string) {
+	if m.channelTopic == topic {
+		return
+	}
+	m.channelTopic = topic
+	m.chromeCacheValid = false
+	m.dirty()
 }
 
 // SetChannelType sets the channel type used to pick the header glyph
@@ -1399,6 +1363,74 @@ func (m *Model) PatchUserName(userID, displayName string) {
 	m.dirty()
 }
 
+// SetUserStatuses replaces the user ID -> custom status map whose emoji
+// follows author names. The map is copied; later changes go through
+// PatchUserStatus.
+func (m *Model) SetUserStatuses(statuses map[string]peerstatus.Status) {
+	m.userStatuses = make(map[string]peerstatus.Status, len(statuses))
+	for id, st := range statuses {
+		m.userStatuses[id] = st
+	}
+	m.cache = nil
+	m.dirty()
+}
+
+// PatchUserStatus records one user's status, invalidating the render
+// cache only when a message in this pane is theirs. No-op when
+// unchanged.
+func (m *Model) PatchUserStatus(userID string, st peerstatus.Status) {
+	if userID == "" || m.userStatuses[userID] == st {
+		return
+	}
+	if m.userStatuses == nil {
+		m.userStatuses = map[string]peerstatus.Status{}
+	}
+	m.userStatuses[userID] = st
+	if m.hasAuthor(userID) {
+		m.cache = nil
+		m.dirty()
+	}
+}
+
+// ExpireStatuses drops statuses whose deadline has passed and reports
+// whether an author name rendered in this pane changed.
+func (m *Model) ExpireStatuses(now time.Time) bool {
+	changed := false
+	for uid, st := range m.userStatuses {
+		if st.Expired(now) {
+			m.userStatuses[uid] = st.Clear(now)
+			if m.hasAuthor(uid) {
+				changed = true
+			}
+		}
+	}
+	if changed {
+		m.cache = nil
+		m.dirty()
+	}
+	return changed
+}
+
+func (m *Model) hasAuthor(userID string) bool {
+	for i := range m.messages {
+		if m.messages[i].UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// AuthorStatusSuffix is what follows an author's name in a message
+// header: a space and their status emoji on the pane background, or ""
+// when they have no live custom status. Shared with the thread pane.
+func AuthorStatusSuffix(statuses map[string]peerstatus.Status, userID string, now time.Time) string {
+	g := statuses[userID].Glyph(now)
+	if g == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Background(styles.Background).Render(" " + g)
+}
+
 // SetChannelNames sets the channel ID -> name map used to resolve bare
 // <#CHANNELID> mentions (Slack-side messages from clients that emit
 // channel mentions without the embedded |name).
@@ -1946,7 +1978,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string, userNames map[string]string, channelNames map[string]string, isSelected bool, stats *entryPerfStats) (
 	content string, flushes []func(io.Writer) error, sixelRows map[int]sixelEntry, hits []entryHit, reactionHits []reactionEntryHit,
 ) {
-	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
 
 	// If we have an avatar, reserve space on the left for it
 	contentWidth := width - 4
@@ -1977,7 +2009,14 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		Width:        contentWidth,
 		SearchTerms:  m.searchTerms,
 	}
-	rendered := RenderSlackMarkdownWith(MessageTextSource(msg), bodyOpts)
+	// Blocks that render the body suppress Slack's notification-fallback
+	// text and its row. See BlocksCarryBody.
+	hasBody := !BlocksCarryBody(msg)
+	bodySrc := MessageTextSource(msg)
+	if !hasBody {
+		bodySrc = ""
+	}
+	rendered := RenderSlackMarkdownWith(bodySrc, bodyOpts)
 	text := styles.MessageText.Render(WordWrap(rendered, contentWidth))
 	if stats != nil {
 		stats.bodyTotal += time.Since(bodyT0)
@@ -2152,7 +2191,8 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	//
 	//   row 0: broadcastLabel (only when subtype=thread_broadcast)
 	//   row 0|1: username line + editedMark
-	//   row N: wrapped body text (lipgloss.Height of styled `text`)
+	//   row N: wrapped body text (lipgloss.Height of styled `text`);
+	//          absent when BlocksCarryBody
 	//
 	// Attachments begin immediately after the body text.
 	var broadcastLabel string
@@ -2161,8 +2201,10 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		broadcastLabel = styles.Timestamp.Render("\u21b3 replied to a thread") + "\n"
 		preAttachmentRows++ // the broadcast label occupies its own row
 	}
-	preAttachmentRows++                        // username + ts row
-	preAttachmentRows += lipgloss.Height(text) // wrapped body text
+	preAttachmentRows++ // username + ts row
+	if hasBody {
+		preAttachmentRows += lipgloss.Height(text) // wrapped body text
+	}
 
 	// contentColBase is the display column at which message content
 	// begins inside the cached entry's linesNormal. buildCache wraps
@@ -2271,7 +2313,31 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 
 	bkBlock := ""
 	if len(bkLines) > 0 {
-		bkBlock = "\n" + strings.Join(bkLines, "\n")
+		// Re-apply the background after every reset, the same treatment
+		// the body text gets from styles.MessageText.
+		//
+		// The inline styles (bold, italic, link, mention) deliberately
+		// omit .Background() and rely on an outer style providing it —
+		// see the comment on boldStyle in render.go. Body text has that
+		// outer style; Block Kit lines do not. They are composed from a
+		// gutter prefix plus rendered content, and the prefix's closing
+		// reset clears the background for everything after it on that
+		// line, so styled and plain runs alike drew on the terminal's
+		// default background while only the trailing pad kept the
+		// theme's. On a selected message that reads as the selection
+		// tint stopping at the glyphs.
+		//
+		// Background only, no foreground: kitty image placeholders
+		// encode their image ID in the cell foreground (see
+		// image.PlaceholderRune) and must not be repainted.
+		//
+		// Each line is also PREFIXED with the background, not just
+		// patched after its own resets. The reset that strips the
+		// background is not in these lines at all — it closes the
+		// avatar gutter that placeAvatarBeside prepends to every line
+		// afterwards, so the run at the start of the content has no
+		// preceding reset here to attach a background to.
+		bkBlock = "\n" + WithBackground(bkLines, BgANSI())
 	}
 
 	if len(msg.Attachments) > 0 {
@@ -2325,7 +2391,11 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		attachmentLineCount = len(flat)
 	}
 
-	msgContent := broadcastLabel + line + editedMark + "\n" + text + bkBlock + attachmentLines + threadLine + reactionLine
+	bodyRow := ""
+	if hasBody {
+		bodyRow = "\n" + text
+	}
+	msgContent := broadcastLabel + line + editedMark + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
 
 	// Translate per-pill specs into entry-relative reaction hit rects.
 	// reactionRowBase is the row index (within linesNormal) where the
@@ -3486,6 +3556,34 @@ func DateFromTS(ts string) string {
 	return time.Unix(sec, 0).Format("2006-01-02")
 }
 
+// nowFunc is the clock FormatDateSeparator reads. Production leaves it
+// as time.Now; tests override it via SetNowFunc so that day-divider
+// labels ("Today", "Yesterday", weekday names) are deterministic.
+//
+// Mirrors the injectable clock sidebar.Model already carries
+// (internal/ui/sidebar/model.go:500), but is package-level rather than a
+// struct field because FormatDateSeparator is a free function shared by
+// the channel and thread panes.
+//
+// Not guarded by a mutex. The invariant that makes that safe is not
+// "this package's tests are serial" — SetNowFunc is exported and is
+// called from three test binaries (this package, internal/ui and
+// internal/ui/thread), which cannot see each other's writes. It is
+// this: no production code path writes it, so every write comes from
+// test setup on the test goroutine before any render, and no test in
+// the repo calls t.Parallel. A future parallel test, or any production
+// caller, would need this to become an atomic.Value or a struct field.
+var nowFunc = time.Now
+
+// SetNowFunc injects a clock for tests. Pass nil to revert to time.Now.
+func SetNowFunc(fn func() time.Time) {
+	if fn == nil {
+		nowFunc = time.Now
+		return
+	}
+	nowFunc = fn
+}
+
 // FormatDateSeparator turns a "2006-01-02" date string into the
 // human-readable label used in day-divider rows ("Today", "Yesterday",
 // a weekday name within the last week, or a fully-qualified date).
@@ -3496,16 +3594,21 @@ func FormatDateSeparator(dateStr string) string {
 	if err != nil {
 		return dateStr
 	}
-	now := nowFn()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	diff := today.Sub(d).Hours() / 24
+	// Compare calendar days, not elapsed time: both endpoints are anchored
+	// to UTC midnight so the delta is always a whole number of days.
+	now := nowFunc()
+	// time.Parse already yields UTC midnight; restating it is defensive, not
+	// load-bearing.
+	dDay := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	days := int(today.Sub(dDay).Hours() / 24)
 
 	switch {
-	case diff < 1:
+	case days <= 0:
 		return "Today"
-	case diff < 2:
+	case days == 1:
 		return "Yesterday"
-	case diff < 7:
+	case days < 7:
 		return d.Format("Monday")
 	default:
 		return d.Format("Monday, January 2, 2006")

@@ -7,14 +7,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
 func linkTestApp(t *testing.T) (*App, *string) {
 	t.Helper()
-	app := NewApp()
-	app.activeTeamID = "T1"
+	// withSize(0, 0) preserves NewApp's unsized state: this fixture never
+	// renders, and the original builder set no dimensions.
+	app := newTestApp(t, withSize(0, 0), withActiveTeam("T1"))
 	app.workspaceDomains["T1"] = "myteam"
 	var opened string
 	app.browserOpener = func(url string) tea.Cmd {
@@ -123,7 +125,7 @@ func TestOpenLink_ActiveChannel_SelectsMessage(t *testing.T) {
 func TestOpenLink_ActiveChannel_TSNotLoaded_FetchesAround(t *testing.T) {
 	app, _ := linkTestApp(t)
 	var fetchedChannel, fetchedTS string
-	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) core.Msg {
 		fetchedChannel, fetchedTS = string(channelID), string(ts)
 		return nil
 	})
@@ -148,7 +150,7 @@ func TestOpenLink_ThreadPermalink_OpensThread(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
 	var fetchedChannel, fetchedThread string
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedChannel, fetchedThread = string(channelID), string(threadTS)
 		return nil
 	})
@@ -205,7 +207,7 @@ func TestOpenLink_OtherChannel_FreshCacheMissingTS_FetchesAround(t *testing.T) {
 		return time.Now().Unix()
 	})
 	var fetchedChannel, fetchedTS string
-	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) core.Msg {
 		fetchedChannel, fetchedTS = string(channelID), string(ts)
 		return nil
 	})
@@ -329,7 +331,7 @@ func TestMessagesAroundLoaded_StaleChannelDropped(t *testing.T) {
 func TestCompletePendingNav_OffBufferTriggersFetchAround(t *testing.T) {
 	app, _ := linkTestApp(t)
 	var fetchedChannel, fetchedTS string
-	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) core.Msg {
 		fetchedChannel, fetchedTS = string(channelID), string(ts)
 		return nil
 	})

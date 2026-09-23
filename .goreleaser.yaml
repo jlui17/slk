@@ -100,12 +100,23 @@ changelog:
     - title: Other
       order: 999
   filters:
+    # Scoped prefixes must be matched explicitly: "^chore:" does NOT
+    # match "chore(ci): ...", so scoped internal commits were leaking
+    # into user-facing notes (v0.16.0 shipped with "chore(ci): bump
+    # golangci-lint" under Other). The (\(.*\))? makes the scope
+    # optional so both spellings are excluded.
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "Merge pull request"
-      - "Merge branch"
+      - "^docs(\\(.*\\))?:"
+      - "^test(\\(.*\\))?:"
+      - "^chore(\\(.*\\))?:"
+      - "^style(\\(.*\\))?:"
+      - "^ci(\\(.*\\))?:"
+      # Every merge commit, not just the two spellings we happened to
+      # hit first. "Merge pull request" and "Merge branch" both missed
+      # "Merge remote-tracking branch ...", which is what git writes
+      # when a PR branch is brought up to date with main -- so that
+      # leaked into the notes as if it were a change.
+      - "^Merge "
 
 nfpms:
   - id: slk

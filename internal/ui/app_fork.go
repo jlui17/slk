@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -13,12 +15,6 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/statusbar"
 )
-
-// threadMarkDebounceDelay is how long scheduleThreadMark waits after a live
-// reply lands in the open thread panel before marking the thread read. Long
-// enough to coalesce an agent-thread reply burst into one mark, short enough
-// that the cursor advances before the user could plausibly navigate away.
-const threadMarkDebounceDelay = 500 * time.Millisecond
 
 // focusPeerWhileZoomed is the whole focus cycle while the thread is
 // zoomed: the messages pane isn't drawn, so it's Sidebar <-> Thread,
@@ -46,34 +42,20 @@ func (a *App) ToggleThreadFullscreen() {
 	}
 }
 
-// scheduleThreadMark returns a tea.Cmd that fires a threadMarkDebounceMsg
-// for the open thread panel's (channelID, threadTS) after the mark-debounce
-// interval. Called once per live reply landing in the panel while the pane
-// is viewed; the generation bump means only the burst's last tick survives,
-// so a burst coalesces into a single subscriptions.thread.mark call.
-func (a *App) scheduleThreadMark(channelID, threadTS string) tea.Cmd {
-	a.pendingThreadMarkGen++
-	gen := a.pendingThreadMarkGen
-	return tea.Tick(threadMarkDebounceDelay, func(time.Time) tea.Msg {
-		return threadMarkDebounceMsg{channelID: channelID, threadTS: threadTS, gen: gen}
-	})
-}
-
-// latestRealReplyTS returns the newest reply TS in the open thread panel,
-// skipping optimistic "local:" placeholders whose Slack TS isn't known yet.
-// Returns "" when the panel holds no real replies — a mark is only ever
-// scheduled after a real reply rendered, so an empty panel means it was
-// cleared and is repopulating (close/reopen inside the debounce window);
-// marking then would use a stale TS and regress the cursor.
-func (a *App) latestRealReplyTS() string {
-	replies := a.threadPanel.Replies()
-	for i := len(replies) - 1; i >= 0; i-- {
-		ts := replies[i].TS
-		if ts != "" && !strings.HasPrefix(ts, "local:") {
-			return ts
-		}
+// browserLauncher returns the launcher openURLCmd uses: $BROWSER when
+// set (the conventional override; also how tools/run-docker.sh bridges
+// container link-opens to the host browser), else fallback.
+func browserLauncher(fallback func(target string) error) func(target string) error {
+	// Word-split: $BROWSER conventionally carries flags
+	// ("open -a Firefox", "firefox --new-tab"), and a multi-word
+	// value used whole as argv[0] would fail every launch.
+	argv := strings.Fields(os.Getenv("BROWSER"))
+	if len(argv) == 0 {
+		return fallback
 	}
-	return ""
+	return func(target string) error {
+		return exec.Command(argv[0], append(argv[1:], target)...).Start()
+	}
 }
 
 // permalinkRowText is a permalink row's fallback display: what the
@@ -185,4 +167,38 @@ func (a *App) markThreadReadLocally(channelID, threadTS string) {
 		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
 	}
 	a.markAgentThreadRead(a.activeTeamID, channelID, threadTS)
+}
+
+// threadMarkedRemoteFork is the fork's half of the ThreadMarkedRemoteMsg
+// arm; true means the message is fully handled.
+//
+// The agent thread row is served here for every workspace, from m.Read:
+// it has no threads-list summary to derive read state from. A mark from
+// a background workspace (see NewMessageMsg.TeamID) goes no further.
+//
+// A read mark never moves the open panel's "── new ──" landmark, whoever
+// issued it: marks land while the user is watching the thread, and
+// yanking the landmark mid-read would hide which replies were new. It
+// takes the self-echo route — list state only — and consumes any
+// self-mark record so a stale one can't shield a later unread mark.
+// Unread marks fall through to upstream's applyThreadMarkEcho.
+func (a *App) threadMarkedRemoteFork(m ThreadMarkedRemoteMsg) bool {
+	teamID := m.TeamID
+	if teamID == "" {
+		teamID = a.activeTeamID
+	}
+	if m.Read {
+		a.markAgentThreadRead(teamID, m.ChannelID, m.ThreadTS)
+	} else {
+		a.markAgentThreadUnread(teamID, m.ChannelID, m.ThreadTS, m.LastRead)
+	}
+	if teamID != a.activeTeamID {
+		return true
+	}
+	if !m.Read {
+		return false
+	}
+	a.selfThreadMarks.consume(selfMarkKey{channelID: m.ChannelID, threadTS: m.ThreadTS, ts: m.LastRead})
+	a.applyThreadMarkListState(m.ChannelID, m.ThreadTS, m.LastRead)
+	return true
 }

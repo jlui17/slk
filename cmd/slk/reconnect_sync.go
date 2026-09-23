@@ -37,9 +37,9 @@ type reconnectClient interface {
 	GetUnreadCounts(ctx context.Context) ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error)
 }
 
-// teaSender is the subset of *tea.Program the reconnect path uses to
-// dispatch a refresh into the UI loop. *tea.Program satisfies it
-// implicitly; tests pass a captureSender.
+// teaSender is the subset of *tea.Program the reconnect path and the
+// RTM event handler use to dispatch into the UI loop. *tea.Program
+// satisfies it implicitly; tests pass a captureSender.
 type teaSender interface {
 	Send(msg tea.Msg)
 }
@@ -135,6 +135,12 @@ func (r *reconnectSync) refreshUnreadState(ctx context.Context) {
 			ChannelID:  u.ChannelID,
 			LastReadTS: u.LastRead,
 			HasUnread:  u.HasUnread,
+			// Reconnect is additive, not a snapshot: only channels
+			// client.counts names are corrected. A channel read
+			// elsewhere during the outage and omitted here keeps its
+			// stale badge until the next boot, matching how
+			// has_unread already behaves on this path.
+			MentionCount: u.MentionCount,
 		})
 	}
 	if err := r.db.BatchUpdateChannelReadState(updates); err != nil {

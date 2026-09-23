@@ -5,22 +5,26 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/usernames"
 )
 
 func newApp_WithOpenConvCapture(t *testing.T) (*App, *capturedOpenConv) {
 	t.Helper()
-	app := NewApp()
+	cap := &capturedOpenConv{}
+	// withSize(0, 0) preserves NewApp's unsized state: the original
+	// builder set no dimensions.
+	app := newTestApp(t,
+		withSize(0, 0),
+		withChannelService(core.ChannelServiceFuncs{
+			OpenConversation: func(userIDs []string, requestID uint64) core.Cmd {
+				cap.calls = append(cap.calls, openConvCall{UserIDs: userIDs, RequestID: requestID})
+				return nil // tests synthesize the result message directly
+			},
+		}),
+	)
 	app.currentUserID = "USELF"
 	app.SetUserNames(usernames.FromMap(map[string]string{"USELF": "Me", "U1": "Alice", "U2": "Bob"}))
-
-	cap := &capturedOpenConv{}
-	app.SetChannelService(NewChannelService(ChannelServiceFuncs{
-		OpenConversation: func(userIDs []string, requestID uint64) tea.Cmd {
-			cap.calls = append(cap.calls, openConvCall{UserIDs: userIDs, RequestID: requestID})
-			return nil // tests synthesize the result message directly
-		},
-	}))
 	return app, cap
 }
 

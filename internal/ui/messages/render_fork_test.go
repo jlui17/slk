@@ -734,7 +734,7 @@ func TestCodeBlock_SearchHighlightKeepsTheSurfaceBehindTheRestOfTheRow(t *testin
 	rest := out[strings.Index(out, "deploy")+len("deploy"):]
 	rest = rest[strings.Index(rest, hlEnd)+len(hlEnd):]
 	var reapplied []string
-	for m := sgrRe.FindStringIndex(rest); m != nil && m[0] == 0; m = sgrRe.FindStringIndex(rest) {
+	for m := sgrSeqRe.FindStringIndex(rest); m != nil && m[0] == 0; m = sgrSeqRe.FindStringIndex(rest) {
 		reapplied = append(reapplied, rest[:m[1]])
 		rest = rest[m[1]:]
 	}

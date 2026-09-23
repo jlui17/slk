@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/usernames"
@@ -50,7 +51,7 @@ func linkPreviewTestApp(t *testing.T) *App {
 	app, _ := linkTestApp(t)
 	app.SetUserNames(usernames.FromMap(map[string]string{"U1": "matt"}))
 	app.channelNames = map[string]string{"C054JFCBN69": "general"}
-	app.SetMessageService(NewMessageService(MessageServiceFuncs{
+	app.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{
 		Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
 			return "U1", "deploy is done\nsee <#C054JFCBN69> for details", nil
 		},

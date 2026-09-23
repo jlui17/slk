@@ -38,6 +38,7 @@ type KeyMap struct {
 	ReactionNav         key.Binding
 	Edit                key.Binding
 	Delete              key.Binding
+	CopyMessage         key.Binding
 	CopyPermalink       key.Binding
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
@@ -65,6 +66,8 @@ type KeyMap struct {
 	WinCycle            key.Binding
 	WinClose            key.Binding
 	WinOnly             key.Binding
+	ToggleBroadcast     key.Binding
+	OpenInEditor        key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -103,6 +106,7 @@ func DefaultKeyMap() KeyMap {
 		ReactionNav:     key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "navigate reactions")),
 		Edit:            key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit message")),
 		Delete:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete message")),
+		CopyMessage:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
 		OpenPreview:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
@@ -138,5 +142,11 @@ func DefaultKeyMap() KeyMap {
 		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
 		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
 		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
+		// Insert mode, thread compose only: toggles Slack's
+		// "Also send to #channel" checkbox for the next reply.
+		// Alt+Enter sends and broadcasts in a single keystroke.
+		ToggleBroadcast: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o / alt+enter", "also send reply to channel")),
+		// Shadows the textarea's own ctrl+e (LineEnd); "End" still works.
+		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
 	}
 }

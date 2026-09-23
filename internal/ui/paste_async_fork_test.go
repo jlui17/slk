@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/core"
 )
 
 func newAsyncPasteApp(t *testing.T, image, text []byte) *App {
@@ -16,7 +18,12 @@ func newAsyncPasteApp(t *testing.T, image, text []byte) *App {
 	// The textarea ignores input when blurred; insert mode focuses it
 	// in the real app.
 	_ = app.compose.Focus()
-	app.SetAsyncClipboardReader(fakeClipboard(image, text))
+	app.SetAsyncClipboardReader(func(f core.ClipboardFormat) []byte {
+		if f == core.ClipboardImage {
+			return image
+		}
+		return text
+	})
 	return app
 }
 

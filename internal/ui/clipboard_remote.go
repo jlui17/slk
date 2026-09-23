@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"golang.design/x/clipboard"
+	"github.com/gammons/slk/internal/core"
 )
 
 // RemoteClipboardReader returns a clipboardReader that fetches the
@@ -22,11 +22,11 @@ func RemoteClipboardReader(addr string) clipboardReader {
 	// osascript on the host answers in ~0.25s; a large image takes
 	// longer, so leave headroom without letting Ctrl+V hang the UI.
 	client := &http.Client{Timeout: 5 * time.Second}
-	return func(format clipboard.Format) []byte {
+	return func(format core.ClipboardFormat) []byte {
 		switch format {
-		case clipboard.FmtImage:
+		case core.ClipboardImage:
 			return bridgeGet(client, addr, "/image")
-		case clipboard.FmtText:
+		case core.ClipboardText:
 			return bridgeGet(client, addr, "/text")
 		}
 		return nil

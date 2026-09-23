@@ -116,7 +116,7 @@ func TestOnThreadMarkedInactiveWorkspaceDispatchesTagged(t *testing.T) {
 		t.Fatalf("want 1 ThreadMarkedRemoteMsg from an inactive workspace, got %d", len(msgs))
 	}
 	m := msgs[0]
-	if m.TeamID != "T2" || m.ChannelID != "C1" || m.ThreadTS != "100.0" || m.TS != "101.0" || !m.Read {
+	if m.TeamID != "T2" || m.ChannelID != "C1" || m.ThreadTS != "100.0" || m.LastRead != "101.0" || !m.Read {
 		t.Fatalf("ThreadMarkedRemoteMsg mis-tagged: %+v", m)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -15,13 +15,13 @@ func newWatermarkTestApp(t *testing.T, syncedAt *int64, fetches *int) *App {
 	t.Helper()
 	return newHarnessApp(t, withApp(func(a *App) {
 		a.activeTeamID = "T1"
-		a.SetChannelService(NewChannelService(ChannelServiceFuncs{
+		a.SetChannelService(core.NewChannelService(core.ChannelServiceFuncs{
 			ReadCache: func(ids.ChannelID) []messages.MessageItem {
 				return []messages.MessageItem{{TS: "1.0", UserName: "alice", UserID: "U1", Text: "hi", Timestamp: "1:00 PM"}}
 			},
 			SyncedAt: func(ids.ChannelID) int64 { return *syncedAt },
-			Fetch:    func(ids.ChannelID, string) tea.Msg { *fetches++; return nil },
-			MarkRead: func(ids.ChannelID, ids.MessageTS) tea.Msg { return nil },
+			Fetch:    func(ids.ChannelID, string) core.Msg { *fetches++; return nil },
+			MarkRead: func(ids.ChannelID, ids.MessageTS) core.Msg { return nil },
 		}))
 	}))
 }

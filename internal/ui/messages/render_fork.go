@@ -225,7 +225,7 @@ func commonMarkCodeFence(inner string) string {
 	return "```" + language + "\n" + slackEntityDecoder.Replace(code) + "\n```"
 }
 
-var sgrRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+var sgrSeqRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // lipgloss closes every row, and wrapping splits styled runs across rows:
 // re-open at each later row's start whatever SGR the row before left open.
@@ -238,7 +238,7 @@ func reopenSGRAcrossRows(rows []string) []string {
 		if len(open) > 0 {
 			rows[i] = strings.Join(open, "") + row
 		}
-		for _, seq := range sgrRe.FindAllString(row, -1) {
+		for _, seq := range sgrSeqRe.FindAllString(row, -1) {
 			params := seq[2 : len(seq)-1]
 			switch closes := sgrClosers[params]; {
 			case params == "" || params == "0":

@@ -20,7 +20,7 @@ import (
 func zoomTestApp(t *testing.T) *App {
 	t.Helper()
 	return newHarnessApp(t,
-		withSize(200, 50),
+		withHarnessSize(200, 50),
 		withApp(func(a *App) { a.threadVisible = true }),
 	)
 }
@@ -205,7 +205,7 @@ func TestZoomFocusCycleSkipsMessages(t *testing.T) {
 func zoomedFocusApp(t *testing.T) *App {
 	t.Helper()
 	a := newHarnessApp(t,
-		withSize(200, 50),
+		withHarnessSize(200, 50),
 		withApp(func(a *App) {
 			a.threadVisible = true
 			a.threadFullscreen = true

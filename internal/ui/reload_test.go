@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/statusbar"
 )
@@ -46,7 +47,7 @@ func TestReload_RefetchesOpenThreadPanel(t *testing.T) {
 	a.SetReloader(func() {})
 	openThreadPanel(a, "C_THREAD", "100.0")
 	var fetched []string
-	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetched = append(fetched, string(channelID)+"/"+string(threadTS))
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS)}
 	})
@@ -79,7 +80,7 @@ func TestReconnect_RefetchesOpenThreadPanel(t *testing.T) {
 	a.activeTeamID = "T1"
 	openThreadPanel(a, "C_THREAD", "100.0")
 	var fetched []string
-	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	a.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetched = append(fetched, string(channelID)+"/"+string(threadTS))
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS)}
 	})

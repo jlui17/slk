@@ -74,7 +74,7 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	})
 
 	_, handled := reduceThreads(a, ThreadMarkedRemoteMsg{
-		TeamID: "T2", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true,
+		TeamID: "T2", ChannelID: "C1", ThreadTS: "100.0", LastRead: "101.0", Read: true,
 	})
 	if !handled {
 		t.Fatal("background-team ThreadMarkedRemoteMsg must still be handled (swallowed)")
@@ -86,7 +86,7 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	}
 
 	_, _ = reduceThreads(a, ThreadMarkedRemoteMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TS: "101.0", Read: true,
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", LastRead: "101.0", Read: true,
 	})
 	for _, s := range a.threadsView.Summaries() {
 		if s.ThreadTS == "100.0" && s.Unread {

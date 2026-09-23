@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"golang.design/x/clipboard"
+	"github.com/gammons/slk/internal/core"
 )
 
 func TestRemoteClipboardReader(t *testing.T) {
@@ -16,13 +16,13 @@ func TestRemoteClipboardReader(t *testing.T) {
 		name   string
 		status int
 		body   []byte
-		format clipboard.Format
+		format core.ClipboardFormat
 		want   []byte
 	}{
-		{"image 200 returns bytes", http.StatusOK, png, clipboard.FmtImage, png},
-		{"text 200 returns text", http.StatusOK, []byte("hello"), clipboard.FmtText, []byte("hello")},
-		{"204 returns nil", http.StatusNoContent, nil, clipboard.FmtImage, nil},
-		{"500 returns nil", http.StatusInternalServerError, []byte("boom"), clipboard.FmtText, nil},
+		{"image 200 returns bytes", http.StatusOK, png, core.ClipboardImage, png},
+		{"text 200 returns text", http.StatusOK, []byte("hello"), core.ClipboardText, []byte("hello")},
+		{"204 returns nil", http.StatusNoContent, nil, core.ClipboardImage, nil},
+		{"500 returns nil", http.StatusInternalServerError, []byte("boom"), core.ClipboardText, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,8 +47,8 @@ func TestRemoteClipboardReader_RoutesFormatToPath(t *testing.T) {
 	}))
 	defer srv.Close()
 	read := RemoteClipboardReader(strings.TrimPrefix(srv.URL, "http://"))
-	read(clipboard.FmtImage)
-	read(clipboard.FmtText)
+	read(core.ClipboardImage)
+	read(core.ClipboardText)
 	if got := strings.Join(paths, ","); got != "/image,/text" {
 		t.Errorf("paths = %q, want /image,/text", got)
 	}
@@ -59,7 +59,7 @@ func TestRemoteClipboardReader_UnreachableReturnsNil(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	addr := strings.TrimPrefix(srv.URL, "http://")
 	srv.Close()
-	if got := RemoteClipboardReader(addr)(clipboard.FmtImage); got != nil {
+	if got := RemoteClipboardReader(addr)(core.ClipboardImage); got != nil {
 		t.Errorf("got %q, want nil", got)
 	}
 }

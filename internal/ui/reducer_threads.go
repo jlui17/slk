@@ -2,36 +2,48 @@
 //
 // Thread-family reducer for App.Update (Phase 4h).
 //
-// Owns the ten Update arms that drive the thread panel, the
+// Owns the eleven Update arms that drive the thread panel, the
 // threads-list view, and the thread-reply send path:
 //
-//   ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
-//                                 echo to the local read state.
-//   threadFetchDebounceMsg      - debounced j/k stop: fire the actual
-//                                 thread fetch (drops stale generations
-//                                 and post-navigation ticks).
-//   threadMarkDebounceMsg       - debounced live-reply burst end: mark
-//                                 the open thread read up to its newest
-//                                 reply (drops stale generations and
-//                                 post-navigation ticks).
-//   ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
-//                                 panel, mark the thread as read, and
-//                                 refresh the sidebar badge.
-//   ThreadsViewActivatedMsg     - user opened the threads-list view:
-//                                 switch view + focus, kick a list
-//                                 fetch, open the highlighted thread.
-//   ThreadsListLoadedMsg        - threads-list fetch returned: push
-//                                 summaries + refresh badge, re-open
-//                                 the highlighted thread if visible.
-//   ThreadsListDirtyMsg         - a debounced "list might be stale"
-//                                 trigger: kick a refresh fetch.
-//   SendThreadReplyMsg          - user sent a reply: optimistic
-//                                 placeholder + chat.postMessage call.
-//   ThreadReplySentMsg          - reply landed: swap placeholder for
-//                                 authoritative message, bump parent
-//                                 reply count, mark threads list dirty.
-//   ThreadReplySendFailedMsg    - reply failed: roll back the
-//                                 placeholder + fire SendFailed toast.
+//	ThreadMarkedRemoteMsg       - apply an inbound thread_marked event
+//	                              to the local read state, skipping the
+//	                              panel landmark when it is the echo of
+//	                              a mark slk itself issued.
+//	ThreadMarkedLocalMsg        - outcome of an slk-initiated
+//	                              subscriptions.thread.mark: apply the
+//	                              accepted cursor to list state only,
+//	                              leaving the open panel's landmark
+//	                              where opening the thread put it, or
+//	                              log and leave read state alone when
+//	                              Slack rejected it. The
+//	                              echo-suppression record is written at
+//	                              each issue site before the mark goes
+//	                              out, never here — see selfMarkDedup.
+//	threadFetchDebounceMsg      - debounced j/k stop: fire the actual
+//	                              thread fetch (drops stale generations
+//	                              and post-navigation ticks).
+//	ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
+//	                              panel, mark the thread as read, and
+//	                              refresh the sidebar badge.
+//	ThreadsViewActivatedMsg     - user opened the threads-list view:
+//	                              switch view + focus, kick a list
+//	                              fetch, open the highlighted thread.
+//	ThreadsListLoadedMsg        - threads-list fetch returned: push
+//	                              summaries + refresh badge, re-open
+//	                              the highlighted thread if visible.
+//	ThreadsListDirtyMsg         - "the list might be stale" from any of
+//	                              its uncoordinated senders: open a
+//	                              coalescing window, or join the open
+//	                              one.
+//	threadsListFetchMsg         - that window closing: run the refresh
+//	                              fetch the window's messages asked for.
+//	SendThreadReplyMsg          - user sent a reply: optimistic
+//	                              placeholder + chat.postMessage call.
+//	ThreadReplySentMsg          - reply landed: swap placeholder for
+//	                              authoritative message, bump parent
+//	                              reply count, mark threads list dirty.
+//	ThreadReplySendFailedMsg    - reply failed: roll back the
+//	                              placeholder + fire SendFailed toast.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the thread panel, the threads-list view, the sidebar's threads
@@ -40,14 +52,17 @@
 // of that cross-section, and creating one would be a rename rather
 // than an extraction (see Phase 3's WorkspaceService skip rationale).
 //
-// The helpers (applyThreadMark, scheduleThreadsDirty,
-// openSelectedThreadCmd) stay on App; this reducer calls them via
-// `a`.
+// The helpers (applyThreadMarkEcho, applyThreadMarkListState,
+// scheduleThreadsDirty, openSelectedThreadCmd) stay on App; this
+// reducer calls them via `a`.
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -57,20 +72,30 @@ import (
 var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ThreadMarkedRemoteMsg:
-		if m.TeamID != "" && m.TeamID != a.activeTeamID {
-			// Background workspace — see NewMessageMsg.TeamID. The
-			// tracked agent thread is one of those thread-scoped
-			// consumers; for the active workspace it is reached
-			// through applyThreadMark's funnel instead, so serving it
-			// here too would report twice per mark.
-			if m.Read {
-				a.markAgentThreadRead(m.TeamID, m.ChannelID, m.ThreadTS)
-			} else {
-				a.markAgentThreadUnread(m.TeamID, m.ChannelID, m.ThreadTS, m.TS)
-			}
+		if a.threadMarkedRemoteFork(m) {
 			return nil, true
 		}
-		a.applyThreadMark(m.ChannelID, m.ThreadTS, m.TS, m.Read)
+		// Via the echo helper: this event is also how slk's own thread
+		// marks come back. See applyThreadMarkEcho.
+		a.applyThreadMarkEcho(m.ChannelID, m.ThreadTS, m.LastRead)
+		return nil, true
+
+	case ThreadMarkedLocalMsg:
+		if m.Err != nil {
+			debuglog.Cache("ThreadMarkedLocalMsg: channel=%s thread_ts=%s failed: %v",
+				m.ChannelID, m.ThreadTS, m.Err)
+			return nil, true
+		}
+		// No self-mark recording here: both issue sites record before
+		// handing off the cmd, so by the time this arrives the record
+		// already exists and recording again would double-count and
+		// suppress a second, foreign echo. See selfMarkDedup.
+		//
+		// List state only: this is slk's own mark completing, so the
+		// open panel's landmark stays where opening the thread put it.
+		// See applyThreadMarkListState.
+		a.applyThreadMarkListState(m.ChannelID, m.ThreadTS, m.TS)
+		a.markAgentThreadRead(a.activeTeamID, m.ChannelID, m.ThreadTS)
 		return nil, true
 
 	case threadFetchDebounceMsg:
@@ -99,48 +124,6 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		batch = append(batch, func() tea.Msg { return threads.Fetch(chID, threadTS) })
 		return tea.Batch(batch...), true
 
-	case threadMarkDebounceMsg:
-		// Drop stale ticks: a later reply in the burst has scheduled
-		// a fresh mark and bumped the generation past this one.
-		if m.gen != a.pendingThreadMarkGen {
-			return nil, true
-		}
-		// Also drop if the user has navigated away: the panel closed
-		// or now shows a different thread. Whatever it shows next
-		// marks itself through its own open path.
-		if !(a.threadVisible &&
-			m.channelID == a.threadPanel.ChannelID() &&
-			m.threadTS == a.threadPanel.ThreadTS()) {
-			return nil, true
-		}
-		// Recheck viewedness at fire time: the schedule-time gate can't
-		// see a tab switch inside the debounce window, and the TS is
-		// resolved from the panel NOW — without this, a burst tail that
-		// arrived after the user tabbed away would be marked read.
-		if !a.PaneViewed() {
-			return nil, true
-		}
-		// Drop when the panel holds no real reply: it was cleared and
-		// is repopulating (close/reopen inside the debounce window),
-		// and the reopen's ThreadRepliesLoadedMsg owns the next mark.
-		latestTS := a.latestRealReplyTS()
-		if latestTS == "" {
-			return nil, true
-		}
-		// Mirror the open-path mark below (ThreadRepliesLoadedMsg):
-		// fire-and-forget server mark with the newest reply ts, plus
-		// the local read-state funnel so the UI reflects the change
-		// before the thread_marked echo lands.
-		a.markThreadReadLocally(m.channelID, m.threadTS)
-		threads := a.threads
-		chID := ids.ChannelID(m.channelID)
-		threadTS := ids.ThreadTS(m.threadTS)
-		ts := ids.MessageTS(latestTS)
-		return func() tea.Msg {
-			threads.Mark(chID, threadTS, ts)
-			return nil
-		}, true
-
 	case ThreadRepliesLoadedMsg:
 		if !(a.threadVisible && m.ThreadTS == a.threadPanel.ThreadTS()) {
 			return nil, true
@@ -168,9 +151,10 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.setThreadPanel(parentMsg, m.Replies, channelID, m.ThreadTS)
 
 		// Mark the thread as read now that the user has actually
-		// seen the replies. Server-side: fire-and-forget against
-		// Slack's subscriptions.thread.mark with the latest reply
-		// ts (or the parent ts when the thread has no replies).
+		// seen the replies. Server-side: subscriptions.thread.mark
+		// with the latest reply ts (or the parent ts when the thread
+		// has no replies); the returned cmd persists the cursor and
+		// reports back as ThreadMarkedLocalMsg.
 		// Local-side: clear the Unread flag in the threads-list
 		// view and refresh the sidebar's threads-row badge so the
 		// UI reflects the change immediately, regardless of which
@@ -183,16 +167,40 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		var cmd tea.Cmd
 		if channelID != "" && m.ThreadTS != "" {
-			threads := a.threads
-			chID := ids.ChannelID(channelID)
-			threadTS := ids.ThreadTS(m.ThreadTS)
-			ts := ids.MessageTS(latestTS)
-			cmd = func() tea.Msg {
-				threads.Mark(chID, threadTS, ts)
-				return nil
+			cmd = teaCmd(a.threads.Mark(
+				ids.ChannelID(channelID),
+				ids.ThreadTS(m.ThreadTS),
+				ids.MessageTS(latestTS),
+			))
+			if cmd != nil {
+				// Record BEFORE the cmd runs, i.e. before the mark is
+				// issued: Slack's thread_marked broadcast races the
+				// mark's own HTTP response, and this is the mark whose
+				// echo would otherwise wipe the landmark the user just
+				// opened the thread to read. Mark only builds the cmd,
+				// so nothing has been sent yet and this record cannot
+				// lose that race. A nil cmd means no mark will be
+				// issued (no active workspace), hence no echo to
+				// suppress. See selfMarkDedup.
+				a.selfThreadMarks.record(selfMarkKey{
+					channelID: channelID, threadTS: m.ThreadTS, ts: latestTS,
+				})
 			}
 		}
-		a.markThreadReadLocally(channelID, m.ThreadTS)
+		// Optimistic local recompute so the badge updates immediately
+		// rather than waiting on the round-trip. MarkByThreadTSReadAt
+		// sets Unread = summary.LastReplyTS > latestTS, so it usually
+		// clears the flag; but it re-derives rather than clears, so it
+		// can also set it. That happens when the summary knows a newer
+		// reply than this fetch returned (LastReplyTS > latestTS), in
+		// which case the thread really is still unread and stays
+		// flagged. ThreadMarkedLocalMsg reconciles this against the
+		// cursor Slack accepted on success; a rejected mark leaves
+		// state untouched and heals on the next list refresh.
+		if a.threadsView.MarkByThreadTSReadAt(channelID, m.ThreadTS, latestTS) {
+			a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+		}
+		a.markAgentThreadRead(a.activeTeamID, channelID, m.ThreadTS)
 		return cmd, true
 
 	case ThreadsViewActivatedMsg:
@@ -232,11 +240,25 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case ThreadsListLoadedMsg:
 		if m.TeamID != a.activeTeamID {
+			// The list cannot go on screen: the user has switched
+			// away since the fetch was issued. It is still the tail
+			// of a thread change dispatched while that workspace was
+			// active, the switch did not recompute the rail
+			// (reduceWorkspaceSwitched only swaps the channel list),
+			// and the rail's thread half reads the rows this list was
+			// read from -- so refresh the dot, or the change never
+			// reaches it.
+			a.notifyReadStateChanged()
 			return nil, true
 		}
 		a.threadsView.SetSummaries(m.Summaries)
 		a.threadsView.SetSubscriptionsAvailable(m.SubscriptionsAvailable)
 		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+		// The badge and the rail's thread half count the same query
+		// (cache.ListSubscribedThreads); recompute the rail at the
+		// moment the badge changes so the two cannot disagree for the
+		// workspace the user is looking at.
+		a.notifyReadStateChanged()
 		// Re-open only what's already on screen. A background reload
 		// must not resurrect a panel the user closed: that reopen
 		// fetches and marks the thread read (here and on Slack) for
@@ -253,7 +275,45 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case ThreadsListDirtyMsg:
+		// Team check first: a dirty message for another workspace must
+		// not take the coalescing window from the active one.
 		if m.TeamID != a.activeTeamID {
+			// No fetch, the list is not on screen; but the rows the
+			// sender changed are the rows the rail's thread half reads,
+			// and for the subscription reconcile (boot, reconnect,
+			// wake: ensureWorkspaceThreadSubs in cmd/slk) this is the
+			// only signal an inactive workspace gets. It lands after
+			// WorkspaceReadyMsg's refresh, so without this a thread
+			// read elsewhere while slk was closed kept its dot until
+			// an unrelated event.
+			a.notifyReadStateChanged()
+			return nil, true
+		}
+		// Drop it if a refresh is already waiting: that fetch has not
+		// run yet, so it will see this change too. Senders do not
+		// coalesce among themselves — a thread being read produces one
+		// from the thread_marked handler per auto-mark on top of the
+		// one scheduleThreadsDirty schedules per reply, and each
+		// uncoalesced delivery is another ListSubscribedThreads query.
+		if a.threadsListFetchScheduled {
+			return nil, true
+		}
+		a.threadsListFetchScheduled = true
+		team := a.activeTeamID
+		d := a.threadsDirtyDebounce
+		if d == 0 {
+			d = defaultThreadsDirtyDebounce
+		}
+		return tea.Tick(d, func(time.Time) tea.Msg {
+			return threadsListFetchMsg{teamID: team}
+		}), true
+
+	case threadsListFetchMsg:
+		// Cleared before either return so the window always reopens.
+		// Leaving it set when the team check below drops the fetch
+		// would freeze the threads list for the rest of the session.
+		a.threadsListFetchScheduled = false
+		if m.teamID != a.activeTeamID {
 			return nil, true
 		}
 		threads := a.threads
@@ -279,18 +339,39 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				ThreadTS:  m.ThreadTS,
 			})
 		}
+		// Broadcast ("Also send to #channel"): the reply will also
+		// land in the parent channel feed as a thread_broadcast row.
+		// The self-send dedup (selfSend.RecordSent in
+		// ThreadReplySentMsg) suppresses the WS echo, so the only
+		// way the feed shows the row promptly is this optimistic
+		// add + the swap in ThreadReplySentMsg below.
+		if m.Broadcast {
+			for _, mm := range a.modelsForChannel(m.ChannelID) {
+				mm.AppendMessage(messages.MessageItem{
+					TS:        localTS,
+					UserID:    a.currentUserID,
+					UserName:  a.userNameFor(a.currentUserID),
+					Text:      optimisticText,
+					Timestamp: a.nowFormatted(),
+					ThreadTS:  m.ThreadTS,
+					Subtype:   "thread_broadcast",
+				})
+			}
+		}
 		threads := a.threads
 		chID := ids.ChannelID(m.ChannelID)
 		ts := ids.ThreadTS(m.ThreadTS)
 		text := m.Text
+		broadcast := m.Broadcast
 		return func() tea.Msg {
-			result := threads.SendReply(chID, ts, text)
+			result := threads.SendReply(chID, ts, text, broadcast)
 			switch r := result.(type) {
 			case ThreadReplySentMsg:
 				r.LocalTS = localTS
 				return r
 			case ThreadReplySendFailedMsg:
 				r.LocalTS = localTS
+				r.Broadcast = broadcast
 				return r
 			}
 			return result
@@ -324,6 +405,18 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				a.threadPanel.UpsertSelfSentReply(m.Message)
 			}
 		}
+		// Broadcast: also land the authoritative message in the
+		// channel feed, swapping the optimistic thread_broadcast
+		// placeholder added in SendThreadReplyMsg. Mirrors
+		// MessageSentMsg's swap-or-upsert contract.
+		if m.Broadcast {
+			for _, mm := range a.modelsForChannel(m.ChannelID) {
+				item := cloneMessageItem(m.Message)
+				if !mm.SwapLocalSent(m.LocalTS, item) {
+					mm.UpsertSelfSent(item)
+				}
+			}
+		}
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
 			mm.IncrementReplyCount(m.ThreadTS, m.Message.TS)
 		}
@@ -335,8 +428,15 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case ThreadReplySendFailedMsg:
 		// chat.postMessage for the thread reply failed; roll back
 		// the optimistic placeholder. Mirrors MessageSendFailedMsg.
+		// For broadcasts, also roll back the thread_broadcast row
+		// optimistically added to the channel feed.
 		if a.threadVisible && m.ThreadTS == a.threadPanel.ThreadTS() && m.ChannelID == a.threadPanel.ChannelID() && m.LocalTS != "" {
 			a.threadPanel.RemoveLocalSentReply(m.LocalTS)
+		}
+		if m.Broadcast && m.LocalTS != "" {
+			for _, mm := range a.modelsForChannel(m.ChannelID) {
+				mm.RemoveLocalSent(m.LocalTS)
+			}
 		}
 		reason := m.Reason
 		return func() tea.Msg {

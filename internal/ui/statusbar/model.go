@@ -83,12 +83,13 @@ func (m *Model) SetChannelType(chType string) {
 }
 
 // channelGlyph returns the prefix glyph for the active channel type.
+// Non-# glyphs carry a trailing space; "#" sits flush against the name.
 func (m Model) channelGlyph() string {
 	switch m.channelType {
 	case "private":
-		return "\u25c6"
+		return "\u25c6 "
 	case "dm", "group_dm":
-		return "\u25cf"
+		return "\u25cf "
 	default:
 		return "#"
 	}
@@ -344,6 +345,11 @@ func (m Model) View(width int) string {
 		gap = 0
 	}
 
+	// Spacers must render exactly the width they're asked for, so they
+	// can't go through styles.StatusBar -- it carries Padding(0, 1) and
+	// would add 2 columns to each one.
+	spacer := lipgloss.NewStyle().Background(styles.SurfaceDark)
+
 	// Render the help hint into the gap when there's room for it plus a
 	// small breathing margin. Drops silently when narrow.
 	var filler string
@@ -357,15 +363,15 @@ func (m Model) View(width int) string {
 		if gap >= hintW+hintPadding {
 			leftPad := (gap - hintW) / 2
 			rightPad := gap - hintW - leftPad
-			filler = styles.StatusBar.Render(strings.Repeat(" ", leftPad)) +
+			filler = spacer.Render(strings.Repeat(" ", leftPad)) +
 				hint +
-				styles.StatusBar.Render(strings.Repeat(" ", rightPad))
+				spacer.Render(strings.Repeat(" ", rightPad))
 		}
 	}
 	if filler == "" {
-		filler = styles.StatusBar.Render(fmt.Sprintf("%*s", gap, ""))
+		filler = spacer.Render(fmt.Sprintf("%*s", gap, ""))
 	}
-	rightPad := styles.StatusBar.Render(strings.Repeat(" ", rightGutter))
+	rightPad := spacer.Render(strings.Repeat(" ", rightGutter))
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, left, filler, rightContent, rightPad)
 }

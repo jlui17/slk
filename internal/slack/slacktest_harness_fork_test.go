@@ -81,8 +81,8 @@ func TestSlacktestHarness_BootAndEventsWithNoCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUnreadCounts: %v", err)
 	}
-	if len(unreads) != 1 || unreads[0].Count != 7 {
-		t.Errorf("unreads = %+v; want one with Count 7 from the override", unreads)
+	if len(unreads) != 1 || unreads[0].MentionCount != 7 {
+		t.Errorf("unreads = %+v; want one with MentionCount 7 from the override", unreads)
 	}
 	if !threads.HasUnreads || threads.UnreadCount != 3 {
 		t.Errorf("threads = %+v; want HasUnreads with UnreadCount 3", threads)

@@ -70,11 +70,17 @@ func wrapForTmux(seq string) string {
 }
 
 func writeKittySequence(w io.Writer, seq string) error {
-	if inTmux() {
-		seq = wrapForTmux(seq)
-	}
-	_, err := io.WriteString(w, seq)
+	_, err := io.WriteString(w, forTerminal(seq))
 	return err
+}
+
+// forTerminal returns seq as it must reach the terminal: wrapped for
+// tmux passthrough when running inside tmux, unchanged otherwise.
+func forTerminal(seq string) string {
+	if inTmux() {
+		return wrapForTmux(seq)
+	}
+	return seq
 }
 
 // KittyRenderer encodes images via the kitty graphics protocol with
@@ -104,8 +110,7 @@ type KittyRenderer struct {
 	// per session, ~12KB per typical 60x20 cached image.
 	placeholders map[placeholderKey][]string
 
-	// payloads memoizes the base64-encoded PNG payload per
-	// (id, target, cell pixel size).
+	// payloads memoizes the base64-encoded PNG payload per payloadKey.
 	//
 	// Why this exists: Registry.Lookup keeps returning fresh=true for
 	// any image whose OnFlush has never fired -- and OnFlush only fires
@@ -118,11 +123,13 @@ type KittyRenderer struct {
 	// typical Slack thumbnail sizes) is the dominant remaining channel-
 	// switch latency observed in slk-debug.log perf traces.
 	//
-	// The source image bound to `key` via SetSource is
-	// content-addressable upstream (BK-<sha1> from URL, or F-<fileID>)
-	// so the same key always binds the same pixel data -- the cached
-	// payload is safe to reuse across arbitrarily many RenderKey calls
-	// within a session. Registry IDs are monotonic and never reused.
+	// The cache is keyed by payloadKey. The source image bound to
+	// `key` via SetSource is content-addressable upstream (BK-<sha1>
+	// from URL, or F-<fileID>) so the same key always binds the same
+	// pixel data -- the cached payload is safe to reuse across
+	// arbitrarily many RenderKey calls within a session. Registry IDs
+	// are monotonic and never reused, so payloadKey → payload is
+	// stable for the session.
 	//
 	// Memory cost scales with the cell metrics: a 60x16 image is
 	// 480x256 px at the 8x16 fallback (~10-30KB encoded, ~20MB for
@@ -220,15 +227,17 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// OnFlush so the terminal eventually receives them (idempotent
 		// from kitty's perspective: re-transmitting the same image id
 		// just re-asserts the binding).
-		cw, ch := sixelCellPixels()
+		cw, ch := measuredCellPixels()
 		pKey := payloadKey{placeholderKey: phKey, cellPxW: cw, cellPxH: ch}
 		k.mu.Lock()
 		payload, payloadHit := k.payloads[pKey]
 		k.mu.Unlock()
 		if !payloadHit {
-			// The terminal stretches the transmitted raster across the
-			// c=<cols>,r=<rows> box, so a raster smaller than that box's
-			// device-pixel size loses detail the terminal cannot restore.
+			// Encode against the terminal's real cell size, not a
+			// hardcoded 8x16. The placement is by cell either way, so
+			// this does not move the image — it decides how many
+			// pixels the terminal has to work with when it scales the
+			// image across those cells. See measuredCellPixels.
 			pxW := target.X * cw
 			pxH := target.Y * ch
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
@@ -289,8 +298,13 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 // chunked. The final chunk has m=0 to mark the end.
 //
 // Reference: https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders
+//
+// The whole upload must be emitted in one Write. Continuation chunks
+// carry no image id, while KittyOutput serializes individual Write
+// calls rather than complete uploads.
 func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) error {
 	const chunk = 4096
+	var sb strings.Builder
 	for i := 0; i < len(payload); i += chunk {
 		end := i + chunk
 		more := 1
@@ -304,12 +318,10 @@ func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) err
 		} else {
 			hdr = fmt.Sprintf("m=%d", more)
 		}
-		seq := fmt.Sprintf("\x1b_G%s;%s\x1b\\", hdr, payload[i:end])
-		if err := writeKittySequence(w, seq); err != nil {
-			return err
-		}
+		sb.WriteString(forTerminal(fmt.Sprintf("\x1b_G%s;%s\x1b\\", hdr, payload[i:end])))
 	}
-	return nil
+	_, err := io.WriteString(w, sb.String())
+	return err
 }
 
 func buildPlaceholderLines(id uint32, cells image.Point) []string {

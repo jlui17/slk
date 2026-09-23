@@ -17,6 +17,7 @@ import (
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/scrollbar"
 	"github.com/gammons/slk/internal/ui/selection"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -111,6 +112,7 @@ type Model struct {
 	coloredUsernames  bool
 	avatarFn          messages.AvatarFunc
 	userNames         *usernames.Store
+	userStatuses      map[string]peerstatus.Status
 	channelNames      map[string]string
 	vp                viewport.Model
 	reactionNavActive bool
@@ -348,7 +350,7 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 // this thread. A "── new ──" landmark is rendered between the last reply
 // with TS <= boundary and the first reply with TS > boundary. Pass "" to
 // clear the boundary. Typically called by the App right after SetThread,
-// using the parent channel's last_read_ts as the boundary.
+// using the thread's own last-read cursor from thread_subscriptions.
 func (m *Model) SetUnreadBoundary(ts string) {
 	if m.unreadBoundaryTS == ts {
 		return
@@ -638,6 +640,70 @@ func (m *Model) SetUserGroups(groups map[string]string) {
 // flag the current user's own reactions (HasReacted) correctly.
 func (m *Model) SetCurrentUser(userID string) {
 	m.currentUserID = userID
+}
+
+// SetUserStatuses replaces the user ID -> custom status map; see
+// messages.Model.SetUserStatuses.
+func (m *Model) SetUserStatuses(statuses map[string]peerstatus.Status) {
+	m.userStatuses = make(map[string]peerstatus.Status, len(statuses))
+	for id, st := range statuses {
+		m.userStatuses[id] = st
+	}
+	m.invalidateAuthors()
+}
+
+// PatchUserStatus records one user's status; see
+// messages.Model.PatchUserStatus.
+func (m *Model) PatchUserStatus(userID string, st peerstatus.Status) {
+	if userID == "" || m.userStatuses[userID] == st {
+		return
+	}
+	if m.userStatuses == nil {
+		m.userStatuses = map[string]peerstatus.Status{}
+	}
+	m.userStatuses[userID] = st
+	if m.hasAuthor(userID) {
+		m.invalidateAuthors()
+	}
+}
+
+// ExpireStatuses drops statuses whose deadline has passed and reports
+// whether an author name rendered in this pane changed.
+func (m *Model) ExpireStatuses(now time.Time) bool {
+	changed := false
+	for uid, st := range m.userStatuses {
+		if st.Expired(now) {
+			m.userStatuses[uid] = st.Clear(now)
+			if m.hasAuthor(uid) {
+				changed = true
+			}
+		}
+	}
+	if changed {
+		m.invalidateAuthors()
+	}
+	return changed
+}
+
+func (m *Model) hasAuthor(userID string) bool {
+	if m.parent.UserID == userID {
+		return true
+	}
+	for i := range m.replies {
+		if m.replies[i].UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// invalidateAuthors forces every cached message header to re-render.
+// userNamesV is bumped because the chrome cache renders the parent
+// message's header too.
+func (m *Model) invalidateAuthors() {
+	m.userNamesV++
+	m.cache = nil
+	m.viewCacheValid = false
 }
 
 // PatchUserName updates the user-name store (used for @mention
@@ -1843,7 +1909,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 }
 
 func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit) {
-	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + messages.AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
 
 	contentWidth := width - 4
 	if contentWidth < 20 {
@@ -1865,7 +1931,18 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		EmojiFlushes: &flushes,
 		Width:        contentWidth,
 	}
-	text := styles.MessageText.Render(messages.WordWrap(messages.RenderSlackMarkdownWith(messages.MessageTextSource(msg), bodyOpts), contentWidth))
+	// Match the main pane: content-bearing blocks suppress the fallback
+	// text and its row. See messages.BlocksCarryBody.
+	hasBody := !messages.BlocksCarryBody(msg)
+	bodySrc := messages.MessageTextSource(msg)
+	if !hasBody {
+		bodySrc = ""
+	}
+	text := styles.MessageText.Render(messages.WordWrap(messages.RenderSlackMarkdownWith(bodySrc, bodyOpts), contentWidth))
+	bodyRow, bodyRows := "", 0
+	if hasBody {
+		bodyRow, bodyRows = "\n"+text, lipgloss.Height(text)
+	}
 
 	// Block Kit blocks + legacy attachments render between the body
 	// text and file attachments, mirroring the main message pane's
@@ -1893,7 +1970,12 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	bkBlock := ""
 	bkLineCount := len(bkLines)
 	if bkLineCount > 0 {
-		bkBlock = "\n" + strings.Join(bkLines, "\n")
+		// Same background treatment the message pane applies; see the
+		// comment at the matching site in messages/model.go. Block Kit
+		// lines have no outer background-providing style, so without
+		// this the run after the gutter's closing reset draws on the
+		// terminal default instead of the theme's.
+		bkBlock = "\n" + messages.WithBackground(bkLines, messages.BgANSI())
 	}
 
 	var reactionLine string
@@ -2070,7 +2152,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	var reactionHits []reactionEntryHit
 	if len(pillSpecs) > 0 && reactionLineCount > 0 {
 		const contentColBase = 1 // thick left border occupies col 0 of linesNormal
-		reactionRowBase := 1 + lipgloss.Height(text) + bkLineCount + attachmentLineCount
+		reactionRowBase := 1 + bodyRows + bkLineCount + attachmentLineCount
 		for _, ps := range pillSpecs {
 			row := reactionRowBase + ps.lineIdx
 			reactionHits = append(reactionHits, reactionEntryHit{
@@ -2083,5 +2165,5 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		}
 	}
 
-	return line + "\n" + text + bkBlock + attachmentLines + reactionLine, flushes, reactionHits
+	return line + bodyRow + bkBlock + attachmentLines + reactionLine, flushes, reactionHits
 }

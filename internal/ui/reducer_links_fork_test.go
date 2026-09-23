@@ -4,8 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -115,7 +114,7 @@ func TestOpenLink_ActiveChannel_ParentWithReplies_OpensThread(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
 	var fetchedChannel, fetchedThread string
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedChannel, fetchedThread = string(channelID), string(threadTS)
 		return nil
 	})
@@ -157,7 +156,7 @@ func TestBestEffortParentOpen_AuthoritativeReselectsBehindPanel(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
 	threadFetches := 0
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		threadFetches++
 		return nil
 	})
@@ -202,7 +201,7 @@ func TestAuthoritativePass_OpensParentThread_WhenCacheCountStale(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
 	var fetchedThread string
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedThread = string(threadTS)
 		return nil
 	})
@@ -247,7 +246,7 @@ func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
 	var fetchedThread string
-	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
+	app.setThreadFetcherForTest(func(channelID ids.ChannelID, threadTS ids.ThreadTS) core.Msg {
 		fetchedThread = string(threadTS)
 		return nil
 	})
@@ -287,7 +286,7 @@ func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
 	app.threadVisible = true
 	app.focusedPanel = PanelThread
 	var fetchedAround bool
-	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg {
+	setChannelFetchAroundForTest(app, func(channelID ids.ChannelID, ts ids.MessageTS) core.Msg {
 		fetchedAround = true
 		return nil
 	})

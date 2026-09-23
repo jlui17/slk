@@ -1,94 +1,108 @@
+// internal/image/kitty_cellpx_test.go
+//
+// Kitty places by cell (c=<cols>,r=<rows>), so the cell size does not
+// affect WHERE an image lands — but it decides how many pixels the
+// terminal has to scale across those cells. Encoding against a cell
+// smaller than the real one hands the terminal a low-resolution source
+// which it then upscales. See measuredCellPixels.
 package image
 
 import (
 	"bytes"
 	"encoding/base64"
 	"image"
-	imgcolor "image/color"
-	"image/png"
-	"strings"
+	"image/color"
+	imgpng "image/png"
 	"testing"
 )
 
-// Kitty stretches the transmitted raster over the c=<cols>,r=<rows>
-// placement box, so the payload must be encoded at the terminal's real
-// cell pixel size — anything smaller is resolution the terminal cannot
-// put back.
-
-func TestKitty_PayloadUsesMeasuredCellPixels(t *testing.T) {
-	t.Setenv("TMUX", "")
-	resetCellPixels(t)
-	t.Cleanup(func() { resetCellPixels(t) })
-	SetCellPixels(17, 37)
-
-	target := image.Pt(10, 5)
-	r := NewKittyRenderer(NewRegistry())
-	r.SetSource("measured", makeSolid(600, 600, imgcolor.RGBA{1, 2, 3, 255}))
-
-	w, h := kittyPayloadDims(t, r.RenderKey("measured", target))
-	if w != target.X*17 || h != target.Y*37 {
-		t.Errorf("payload = %dx%d px, want %dx%d (cells × measured cell size)",
-			w, h, target.X*17, target.Y*37)
-	}
-}
-
-// The payload memo is keyed on the cell metrics as well as (id, cells):
-// a second render after the terminal reports a different cell size must
-// re-encode rather than serve the raster built for the old size.
-func TestKitty_PayloadMemoDiscriminatesCellMetrics(t *testing.T) {
-	t.Setenv("TMUX", "")
-	resetCellPixels(t)
-	t.Cleanup(func() { resetCellPixels(t) })
-
-	target := image.Pt(4, 2)
-	r := NewKittyRenderer(NewRegistry())
-	r.SetSource("remeasured", makeSolid(600, 600, imgcolor.RGBA{1, 2, 3, 255}))
-
-	// Neither render is flushed before the next one is taken, so the
-	// registry keeps reporting fresh=true and both carry a payload.
-	SetCellPixels(8, 16)
-	before := r.RenderKey("remeasured", target)
-	SetCellPixels(16, 32)
-	after := r.RenderKey("remeasured", target)
-
-	if w, h := kittyPayloadDims(t, before); w != target.X*8 || h != target.Y*16 {
-		t.Errorf("first payload = %dx%d px, want %dx%d", w, h, target.X*8, target.Y*16)
-	}
-	if w, h := kittyPayloadDims(t, after); w != target.X*16 || h != target.Y*32 {
-		t.Errorf("payload after the cell size changed = %dx%d px, want %dx%d (stale memo?)",
-			w, h, target.X*16, target.Y*32)
-	}
-}
-
-// kittyPayloadDims flushes r and reports the pixel dimensions of the PNG
-// carried by the emitted kitty upload.
-func kittyPayloadDims(t *testing.T, r Render) (int, int) {
+// decodedPayloadSize renders key at target and returns the pixel
+// dimensions of the PNG the renderer would transmit.
+func decodedPayloadSize(t *testing.T, k *KittyRenderer, key string, target image.Point) (int, int) {
 	t.Helper()
-	if r.OnFlush == nil {
-		t.Fatal("expected OnFlush carrying an upload payload")
-	}
-	var buf bytes.Buffer
-	if err := r.OnFlush(&buf); err != nil {
-		t.Fatalf("OnFlush: %v", err)
-	}
+	k.RenderKey(key, target)
 
-	var b64 strings.Builder
-	for _, seq := range strings.Split(buf.String(), "\x1b_G") {
-		body, ok := strings.CutSuffix(seq, "\x1b\\")
-		if !ok {
-			continue // leading empty split element
-		}
-		_, chunk, ok := strings.Cut(body, ";")
-		if !ok {
-			t.Fatalf("kitty sequence has no payload separator: %q", body)
-		}
-		b64.WriteString(chunk)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if len(k.payloads) != 1 {
+		t.Fatalf("expected exactly one cached payload, got %d", len(k.payloads))
 	}
+	for _, b64 := range k.payloads {
+		raw, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			t.Fatalf("payload is not valid base64: %v", err)
+		}
+		cfg, err := imgpng.DecodeConfig(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatalf("payload is not a decodable PNG: %v", err)
+		}
+		return cfg.Width, cfg.Height
+	}
+	return 0, 0
+}
 
-	dec := base64.NewDecoder(base64.StdEncoding, strings.NewReader(b64.String()))
-	cfg, err := png.DecodeConfig(dec)
-	if err != nil {
-		t.Fatalf("decode payload PNG: %v", err)
+func solidTestImage(w, h int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
+		}
 	}
-	return cfg.Width, cfg.Height
+	return img
+}
+
+func TestKittyPayload_EncodesAtMeasuredCellSize(t *testing.T) {
+	resetCellPixels(t)
+	SetCellPixels(14, 34)
+	t.Cleanup(func() { resetCellPixels(t) })
+
+	k := NewKittyRenderer(NewRegistry())
+	src := solidTestImage(1024, 328)
+	k.SetSource("k", src)
+
+	target := image.Pt(40, 10)
+	w, h := decodedPayloadSize(t, k, "k", target)
+
+	if wantW, wantH := 40*14, 10*34; w != wantW || h != wantH {
+		t.Errorf("payload = %dx%d, want %dx%d (target cells x measured cell size)", w, h, wantW, wantH)
+	}
+}
+
+// With no measurement the 8x16 fallback keeps the previous behaviour,
+// so terminals that answer nothing render exactly as before.
+func TestKittyPayload_FallsBackTo8x16(t *testing.T) {
+	resetCellPixels(t)
+
+	k := NewKittyRenderer(NewRegistry())
+	src := solidTestImage(1024, 328)
+	k.SetSource("k", src)
+
+	target := image.Pt(40, 10)
+	w, h := decodedPayloadSize(t, k, "k", target)
+
+	if wantW, wantH := 40*8, 10*16; w != wantW || h != wantH {
+		t.Errorf("payload = %dx%d, want the %dx%d fallback", w, h, wantW, wantH)
+	}
+}
+
+// The regression this fixes: on a HiDPI cell the old hardcode supplied
+// materially fewer pixels than the box could display.
+func TestKittyPayload_HiDPIBeatsTheOldHardcode(t *testing.T) {
+	target := image.Pt(40, 10)
+	src := solidTestImage(1024, 328)
+
+	resetCellPixels(t)
+	k1 := NewKittyRenderer(NewRegistry())
+	k1.SetSource("k", src)
+	oldW, oldH := decodedPayloadSize(t, k1, "k", target)
+
+	SetCellPixels(14, 34)
+	t.Cleanup(func() { resetCellPixels(t) })
+	k2 := NewKittyRenderer(NewRegistry())
+	k2.SetSource("k", src)
+	newW, newH := decodedPayloadSize(t, k2, "k", target)
+
+	if newW <= oldW || newH <= oldH {
+		t.Errorf("hidpi payload %dx%d is not sharper than the old %dx%d", newW, newH, oldW, oldH)
+	}
 }

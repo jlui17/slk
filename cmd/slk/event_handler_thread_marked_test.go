@@ -76,7 +76,7 @@ func TestOnThreadMarked_ReadToEnd_DispatchesRead(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("want 1 ThreadMarkedRemoteMsg, got %d", len(msgs))
 	}
-	if m := msgs[0]; !m.Read || m.TeamID != "T1" || m.ChannelID != "C1" || m.ThreadTS != "100.0" || m.TS != "102.0" {
+	if m := msgs[0]; !m.Read || m.TeamID != "T1" || m.ChannelID != "C1" || m.ThreadTS != "100.0" || m.LastRead != "102.0" {
 		t.Fatalf("read-to-end mis-dispatched: %+v", m)
 	}
 	subs, _ := db.ListActiveThreadSubscriptions("T1")
@@ -100,7 +100,7 @@ func TestOnThreadMarked_RemoteMarkUnread_DispatchesUnread(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("want 1 ThreadMarkedRemoteMsg, got %d", len(msgs))
 	}
-	if m := msgs[0]; m.Read || m.TS != "101.0" {
+	if m := msgs[0]; m.Read || m.LastRead != "101.0" {
 		t.Fatalf("mark-unread mis-dispatched: %+v", m)
 	}
 }
@@ -127,13 +127,15 @@ func TestOnThreadMarked_ParentOnlyThread_BothDirections(t *testing.T) {
 }
 
 func TestOnThreadMarked_SubscribedFlagNeverInfluencesReadDecision(t *testing.T) {
-	// The flag is persistence-only: a read-to-end mark on a thread
-	// being unsubscribed still dispatches Read=true (and tombstones
-	// the row). No wire capture ever showed active=false on a
-	// thread_marked, so this pins the design boundary, not a Slack
-	// behavior.
+	// The flag only chooses the cursor writer: a read-to-end mark that
+	// reports subscribed=false still dispatches Read=true, and the
+	// existing row keeps `active` and takes the new cursor. No wire
+	// capture ever showed active=false on a thread_marked.
 	db := newTestDB(t)
 	seedThread(t, db, "C1", "100.0", "101.0")
+	if err := db.UpsertThreadSubscription("T1", "C1", "100.0", "100.0", true); err != nil {
+		t.Fatalf("UpsertThreadSubscription: %v", err)
+	}
 	sender := &captureSender{}
 	h := &rtmEventHandler{db: db, program: sender, workspaceID: "T1"}
 
@@ -143,8 +145,9 @@ func TestOnThreadMarked_SubscribedFlagNeverInfluencesReadDecision(t *testing.T) 
 	if len(msgs) != 1 || !msgs[0].Read {
 		t.Fatalf("read decision must ignore subscribed: %+v", msgs)
 	}
-	if subs, _ := db.ListActiveThreadSubscriptions("T1"); len(subs) != 0 {
-		t.Fatalf("subscribed=false must still tombstone the row, got %+v", subs)
+	subs, _ := db.ListActiveThreadSubscriptions("T1")
+	if len(subs) != 1 || subs[0].LastRead != "101.0" {
+		t.Fatalf("subscribed=false must leave the row active with the cursor advanced, got %+v", subs)
 	}
 }
 

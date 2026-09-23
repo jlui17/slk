@@ -7,12 +7,12 @@
 //     prompt), Ctrl-Y (theme switcher), ? (help),
 //     S (presence menu), R (reaction picker)
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
-//     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
+//     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-h/k
 //     (nav back/forward through visited channels)
 //   - layout toggles: ctrl+b (sidebar), ctrl+] (thread), t (zoom thread over
 //     the messages region)
-//   - message ops: y (copy permalink), E (edit), D (delete),
-//     M (mark unread), v (open image preview), o (open link),
+//   - message ops: y (copy message), Y/C (copy permalink), E (edit), D (delete),
+//     U (mark unread), v (open image preview), o (open link),
 //     O (open link in new herdr tab)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
@@ -133,14 +133,14 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.SidebarGrow):
 		a.sidebar.GrowWidth()
-		if a.widthSaveFn != nil {
-			a.widthSaveFn(a.sidebar.Width())
+		if a.settings != nil {
+			a.settings.SaveSidebarWidth(a.sidebar.Width())
 		}
 
 	case key.Matches(msg, a.keys.SidebarShrink):
 		a.sidebar.ShrinkWidth()
-		if a.widthSaveFn != nil {
-			a.widthSaveFn(a.sidebar.Width())
+		if a.settings != nil {
+			a.settings.SaveSidebarWidth(a.sidebar.Width())
 		}
 
 	case key.Matches(msg, a.keys.ToggleThread):
@@ -267,6 +267,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()
 
+	case key.Matches(msg, a.keys.CopyMessage):
+		return a.copyMessageOfSelected()
+
 	case key.Matches(msg, a.keys.CopyPermalink):
 		return a.copyPermalinkOfSelected()
 
@@ -316,12 +319,12 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		keyStr := msg.String()
 		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
 			idx := int(keyStr[0] - '1') // 0-indexed
-			if idx < len(a.workspaceItems) && a.workspaceSwitcher != nil {
+			if idx < len(a.workspaceItems) && a.workspaceSvc != nil {
 				if a.workspaceItems[idx].ID != a.workspaceRail.SelectedID() {
-					switcher := a.workspaceSwitcher
+					switcher := a.workspaceSvc
 					teamID := a.workspaceItems[idx].ID
 					return func() tea.Msg {
-						return switcher(teamID)
+						return switcher.Switch(teamID)
 					}
 				}
 			}

@@ -1,5 +1,5 @@
 // Package threadsview is the UI model for the "Threads" panel: a vertical
-// list of threads the user is involved in, sourced from cache.ThreadSummary.
+// list of threads the user is involved in, sourced from core.ThreadSummary.
 //
 // The model is purely presentation: callers (typically the App layer) push
 // new summaries via SetSummaries whenever the cache produces a fresh ranking,
@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
@@ -84,7 +84,7 @@ func borderFillStyle() lipgloss.Style {
 
 // Model holds the threads-list state.
 type Model struct {
-	summaries    []cache.ThreadSummary
+	summaries    []core.ThreadSummary
 	userNames    *usernames.Store
 	userNamesV   uint64
 	channelNames map[string]string
@@ -226,7 +226,7 @@ func (m *Model) SetSubscriptionsAvailable(available bool) {
 	m.dirty()
 }
 
-func (m *Model) SetSummaries(s []cache.ThreadSummary) {
+func (m *Model) SetSummaries(s []core.ThreadSummary) {
 	prevCh, prevTS, hadSel := m.selectedKey()
 	m.summaries = s
 
@@ -246,7 +246,7 @@ func (m *Model) SetSummaries(s []cache.ThreadSummary) {
 }
 
 // Summaries returns the current list of thread summaries.
-func (m *Model) Summaries() []cache.ThreadSummary { return m.summaries }
+func (m *Model) Summaries() []core.ThreadSummary { return m.summaries }
 
 // SelectedIndex returns the selection cursor's position, or 0 when the list
 // is empty.
@@ -263,9 +263,9 @@ func (m *Model) Selected() (channelID, threadTS string, ok bool) {
 }
 
 // SelectedSummary returns the currently selected ThreadSummary.
-func (m *Model) SelectedSummary() (cache.ThreadSummary, bool) {
+func (m *Model) SelectedSummary() (core.ThreadSummary, bool) {
 	if len(m.summaries) == 0 || m.selected < 0 || m.selected >= len(m.summaries) {
-		return cache.ThreadSummary{}, false
+		return core.ThreadSummary{}, false
 	}
 	return m.summaries[m.selected], true
 }
@@ -394,32 +394,30 @@ func (m *Model) ClickAt(rowY int) bool {
 	return true
 }
 
-// MarkByThreadTSRead clears the local Unread flag on the summary matching
-// (channelID, threadTS), regardless of whether it is the currently selected
-// row. Returns true when a flag was actually flipped, so callers can refresh
-// dependent state (sidebar threads-row badge). This is
-// presentation-only and does not touch Slack server state.
-func (m *Model) MarkByThreadTSRead(channelID, threadTS string) bool {
-	if channelID == "" || threadTS == "" {
+// MarkSelectedRead clears the local Unread flag on the currently selected
+// summary, if any. Returns true when a flag was actually flipped (so callers
+// can refresh dependent state, e.g. the sidebar's threads-row badge). This
+// is a presentation-only update: it does not touch Slack server state and
+// does not advance the thread_subscriptions row's last_read. The next
+// refresh from cache.ListSubscribedThreads will recompute Unread from the
+// persisted per-thread LastRead; a subsequent thread_marked WS echo (or
+// an explicit MarkThreadRead call) is what durably clears it.
+func (m *Model) MarkSelectedRead() bool {
+	if m.selected < 0 || m.selected >= len(m.summaries) {
 		return false
 	}
-	for i := range m.summaries {
-		if m.summaries[i].ChannelID == channelID && m.summaries[i].ThreadTS == threadTS {
-			if !m.summaries[i].Unread {
-				return false
-			}
-			m.summaries[i].Unread = false
-			m.dirty()
-			return true
-		}
+	if !m.summaries[m.selected].Unread {
+		return false
 	}
-	return false
+	m.summaries[m.selected].Unread = false
+	m.dirty()
+	return true
 }
 
 // MarkByThreadTSUnread sets the local Unread flag on the summary matching
 // (channelID, threadTS) to true. Returns true when a flag was actually
 // flipped (i.e., the row existed and was previously read). Like
-// MarkByThreadTSRead this is presentation-only: it does not touch Slack
+// MarkByThreadTSReadAt this is presentation-only: it does not touch Slack
 // server state. Used by the U-key mark-unread flow and by the inbound
 // thread_marked WS handler.
 //
@@ -441,6 +439,36 @@ func (m *Model) MarkByThreadTSUnread(channelID, threadTS string) bool {
 			m.dirty()
 			return true
 		}
+	}
+	return false
+}
+
+// MarkByThreadTSReadAt sets the Unread flag on the summary matching
+// (channelID, threadTS) by comparing the thread's read cursor against
+// its newest known reply: unread iff LastReplyTS > lastRead. Returns
+// true only when the flag actually changed, so callers can skip the
+// sidebar badge refresh.
+//
+// This is the correct handler for an inbound thread_marked echo, which
+// carries a cursor. Slack's subscription `active` flag means
+// "subscribed", not "unread", and must never be used for this decision.
+// Presentation-only: the next cache.ListSubscribedThreads refresh
+// recomputes Unread from the same rule against durable state.
+func (m *Model) MarkByThreadTSReadAt(channelID, threadTS, lastRead string) bool {
+	if channelID == "" || threadTS == "" {
+		return false
+	}
+	for i := range m.summaries {
+		if m.summaries[i].ChannelID != channelID || m.summaries[i].ThreadTS != threadTS {
+			continue
+		}
+		want := m.summaries[i].LastReplyTS > lastRead
+		if m.summaries[i].Unread == want {
+			return false
+		}
+		m.summaries[i].Unread = want
+		m.dirty()
+		return true
 	}
 	return false
 }
@@ -609,7 +637,7 @@ func blankLine(width int) string {
 // mechanism used for messages and thread replies. Non-selected rows
 // reserve the same 1-column gutter with a background-colored (invisible)
 // border so column alignment is uniform.
-func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []string {
+func (m *Model) renderCard(s core.ThreadSummary, width int, selected bool) []string {
 	// The left border occupies 1 column; content fills the remainder.
 	contentWidth := width - 1
 	if contentWidth < 1 {
