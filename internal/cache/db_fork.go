@@ -1,6 +1,9 @@
 package cache
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 func (db *DB) migrateFork() error {
 	const schema = `
@@ -26,7 +29,8 @@ func (db *DB) migrateFork() error {
 
 	CREATE TABLE IF NOT EXISTS thread_sweep_claims (
 		workspace_id TEXT PRIMARY KEY,
-		claimed_at INTEGER NOT NULL DEFAULT 0
+		claimed_at INTEGER NOT NULL DEFAULT 0,
+		completed_at INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_users_workspace_name
@@ -38,6 +42,9 @@ func (db *DB) migrateFork() error {
 	);
 	`
 	if _, err := db.conn.Exec(schema); err != nil {
+		return err
+	}
+	if err := db.addColumn(`ALTER TABLE thread_sweep_claims ADD COLUMN completed_at INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
 	// Rows cached by a binary on slack-go v0.23.0 carry table cells decoded
@@ -65,5 +72,18 @@ func (db *DB) runOnce(name, stmt string) error {
 		return err
 	}
 	_, err := db.conn.Exec(`INSERT OR IGNORE INTO fork_migrations (name, applied_at) VALUES (?, ?)`, name, time.Now().Unix())
+	return err
+}
+
+// addColumn runs an ALTER TABLE ... ADD COLUMN and treats "duplicate
+// column name" as success: a fresh database already has the column from
+// CREATE TABLE, and two instances opening an old database at once race
+// the same ALTER. Unlike addColumnIfMissing's probe-then-add, this has
+// no window between the check and the write.
+func (db *DB) addColumn(stmt string) error {
+	_, err := db.conn.Exec(stmt)
+	if err != nil && strings.Contains(err.Error(), "duplicate column name") {
+		return nil
+	}
 	return err
 }

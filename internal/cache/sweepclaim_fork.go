@@ -1,38 +1,81 @@
 package cache
 
-import "time"
+import (
+	"path/filepath"
+	"time"
 
-// TryClaimThreadSweep atomically claims the right to run a workspace's
-// thread-subscription sweep. The claim lives in the shared cache.db so
-// concurrent slk instances elect one sweeper per window: the sweep
-// writes everything it learns into this same DB, so a sibling's recent
-// sweep substitutes for running another. Returns true when this caller
-// won the claim (no claim yet, or the standing one is at least window
-// old).
-func (db *DB) TryClaimThreadSweep(workspaceID string, now time.Time, window time.Duration) (bool, error) {
+	"github.com/gammons/slk/internal/filelock"
+)
+
+// ThreadSweepClaim is a claim this process holds on a workspace's
+// thread-subscription sweep. The process holds the workspace's lock
+// file from TryClaimThreadSweep until Close, so the claim cannot outlive
+// the process: the OS drops the lock at exit, however the process
+// exits, and the next sibling takes over.
+type ThreadSweepClaim struct {
+	db          *DB
+	workspaceID string
+	claimedAt   time.Time
+	lock        *filelock.Lock
+}
+
+// TryClaimThreadSweep claims the right to run a workspace's
+// thread-subscription sweep, or returns nil, nil when a sibling holds
+// it. Concurrent slk instances share cache.db and the sweep's writes
+// land there, so one sweep per window serves the fleet.
+//
+// Two things stand in the way of a claim. The workspace's lock file,
+// held for the life of the returned claim, marks a sweep in flight. The
+// thread_sweep_claims row, once Complete stamps it, marks a finished
+// sweep whose results stand for the window. A row that is uncompleted
+// while we hold the lock belongs to a holder that is gone — a live one
+// would still hold the lock — so it is taken over.
+func (db *DB) TryClaimThreadSweep(workspaceID string, now time.Time, window time.Duration) (*ThreadSweepClaim, error) {
+	lock := filelock.New(db.threadSweepLockPath(workspaceID))
+	ok, err := lock.TryLock()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
 	res, err := db.conn.Exec(`
-		INSERT INTO thread_sweep_claims (workspace_id, claimed_at) VALUES (?, ?)
-		ON CONFLICT(workspace_id) DO UPDATE SET claimed_at = excluded.claimed_at
-		WHERE excluded.claimed_at - thread_sweep_claims.claimed_at >= ?`,
+		INSERT INTO thread_sweep_claims (workspace_id, claimed_at, completed_at) VALUES (?, ?, 0)
+		ON CONFLICT(workspace_id) DO UPDATE SET claimed_at = excluded.claimed_at, completed_at = 0
+		WHERE thread_sweep_claims.completed_at = 0
+		   OR excluded.claimed_at - thread_sweep_claims.claimed_at >= ?`,
 		workspaceID, now.Unix(), int64(window.Seconds()))
 	if err != nil {
-		return false, err
+		lock.Unlock()
+		return nil, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
+		lock.Unlock()
+		return nil, err
 	}
-	return n == 1, nil
+	if n != 1 {
+		lock.Unlock()
+		return nil, nil
+	}
+	return &ThreadSweepClaim{db: db, workspaceID: workspaceID, claimedAt: now, lock: lock}, nil
 }
 
-// ReleaseThreadSweepClaim clears a claim this caller took at claimedAt
-// so a failed sweep doesn't block every sibling for the window.
-// Compare-and-clear on the claimant's own stamp: a sibling's newer
-// claim is left standing.
-func (db *DB) ReleaseThreadSweepClaim(workspaceID string, claimedAt time.Time) error {
-	_, err := db.conn.Exec(`
-		DELETE FROM thread_sweep_claims
+// Complete records that the sweep finished, so the claim paces siblings
+// for the window. Compare-and-stamp on the claimant's own claimed_at.
+func (c *ThreadSweepClaim) Complete(now time.Time) error {
+	_, err := c.db.conn.Exec(`
+		UPDATE thread_sweep_claims SET completed_at = ?
 		WHERE workspace_id = ? AND claimed_at = ?`,
-		workspaceID, claimedAt.Unix())
+		now.Unix(), c.workspaceID, c.claimedAt.Unix())
 	return err
+}
+
+// Close drops the lock. Safe to call more than once.
+func (c *ThreadSweepClaim) Close() error {
+	return c.lock.Unlock()
+}
+
+func (db *DB) threadSweepLockPath(workspaceID string) string {
+	return filepath.Join(db.dir, "thread-sweep-"+workspaceID+".lock")
 }

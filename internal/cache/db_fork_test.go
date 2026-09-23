@@ -172,3 +172,30 @@ func TestMigrateForkBlanksLossyTableCellRows(t *testing.T) {
 		t.Error("migration re-ran on a second migrateFork call; it must apply once per database")
 	}
 }
+
+// A cache.db written before completed_at existed carries the
+// two-column thread_sweep_claims; opening it must add the column.
+func TestMigrateFork_AddsCompletedAtToPreExistingSweepClaims(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims.db")
+	seed, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("opening seed db: %v", err)
+	}
+	if _, err := seed.Exec(`CREATE TABLE thread_sweep_claims (workspace_id TEXT PRIMARY KEY, claimed_at INTEGER NOT NULL DEFAULT 0)`); err != nil {
+		t.Fatalf("seeding thread_sweep_claims: %v", err)
+	}
+	seed.Close()
+
+	db, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer db.Close()
+	has, err := db.hasColumn("thread_sweep_claims", "completed_at")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Fatal("completed_at not added to a pre-existing thread_sweep_claims")
+	}
+}
