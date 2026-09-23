@@ -38,9 +38,8 @@ fork-only file would do isn't done.
    upstream file — fix the layout, not just the conflict.
 4. `tools/go.sh vet ./...` and `tools/go.sh test ./...` (never bare `go`;
    see docs/developing-on-santa-hosts.md).
-5. If the merge or its fixups touched files gofmt would reflow, revert
-   reflow-only changes (see "Never run `go fmt` across the tree" in
-   CLAUDE.md).
+5. `tools/go.sh fmt ./...`: CI's lint job fails on gofmt drift (see "Keep
+   the tree gofmt-clean" in CLAUDE.md).
 
 When upstream pure-moves a diverged file into new files (the `cmd/slk/main.go`
 split), don't merge across the refactor in one step: merge up to the commit

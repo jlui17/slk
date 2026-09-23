@@ -40,10 +40,11 @@ from the same image and checkout.
 
 Details: `docs/developing-on-santa-hosts.md`.
 
-## Never run `go fmt` across the tree
+## Keep the tree gofmt-clean
 
-`tools/go.sh` runs go 1.26 in docker, whose gofmt reflows doc comments that
-older toolchains wrote — `go fmt ./...` rewrites ~35 files it has no other
-reason to touch. This fork tracks `upstream/main`, so reformatting files we
-don't own buys nothing and conflicts with every future upstream merge. If
-`go fmt` touches a file you didn't edit, revert it.
+CI's lint job fails on any file gofmt would change, using Go stable (1.26
+today, the same gofmt `tools/go.sh` runs in docker). `upstream/main` is
+clean under it, so anything `tools/go.sh fmt ./...` touches is fork work
+that drifted: run it before committing and keep what it changes. If it
+ever touches a file you didn't edit and that matches upstream, upstream
+moved toolchains; stop and check rather than commit the reflow.
