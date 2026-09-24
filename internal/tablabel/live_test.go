@@ -31,7 +31,7 @@ func liveClient(t *testing.T) *Client {
 	if os.Getenv("SLK_TABLABEL_LIVE") == "" {
 		t.Skip("set SLK_TABLABEL_LIVE=1 to hit the real API")
 	}
-	return New("claude-haiku-4-5")
+	return New("claude-haiku-4-5", os.Getenv("ANTHROPIC_API_KEY"))
 }
 
 // TestWorkingLive pins the working judge's verdicts on the message shapes

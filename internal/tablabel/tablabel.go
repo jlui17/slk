@@ -42,10 +42,11 @@ type Client struct {
 	client anthropic.Client
 }
 
-// New returns a Client calling model with the environment's credentials
-// (ANTHROPIC_API_KEY).
-func New(model string) *Client {
-	return &Client{model: model, client: anthropic.NewClient()}
+// New returns a Client calling model with apiKey. The key is passed
+// explicitly because the SDK's default client otherwise reads
+// ANTHROPIC_API_KEY on its own.
+func New(model, apiKey string) *Client {
+	return &Client{model: model, client: anthropic.NewClient(option.WithAPIKey(apiKey))}
 }
 
 func newForTest(model, baseURL string) *Client {

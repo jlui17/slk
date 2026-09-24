@@ -86,7 +86,7 @@ func cmdRetitle(a *App, _ []string) tea.Cmd {
 		return toastWithClear(a, "No agent thread tracked", 2*time.Second)
 	}
 	if a.agentSidebar.relabelGen == nil {
-		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model)", 2*time.Second)
+		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model + anthropic_api_key)", 2*time.Second)
 	}
 	if a.threadPanel.ChannelID() != t.channelID || a.threadPanel.ThreadTS() != t.threadTS {
 		return toastWithClear(a, "Open the agent thread first", 2*time.Second)

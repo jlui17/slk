@@ -20,18 +20,19 @@ const labelTimeout = 20 * time.Second
 
 // wireAgentTabLabeler installs the model-backed assists — tab labels,
 // :retitle, and the working judge — when configured (herdr.tab_name_model)
-// and credentialed (ANTHROPIC_API_KEY). Results re-enter the program loop
+// and credentialed (anthropicAPIKey). Results re-enter the program loop
 // as ui messages; failures are logged and dropped, leaving the
 // deterministic behavior standing.
 func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	if cfg.TabNameModel == "" {
 		return
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		debuglog.Notify("tablabel: tab_name_model set but ANTHROPIC_API_KEY is missing; deterministic labels only")
+	apiKey := anthropicAPIKey(cfg)
+	if apiKey == "" {
+		debuglog.Notify("tablabel: tab_name_model set but no API key (herdr.anthropic_api_key or ANTHROPIC_API_KEY); deterministic labels only")
 		return
 	}
-	gen := tablabel.New(cfg.TabNameModel)
+	gen := tablabel.New(cfg.TabNameModel, apiKey)
 	request := func(call func(context.Context) (tea.Msg, error)) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), labelTimeout)
@@ -62,4 +63,14 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict)}, err
 		})
 	})
+}
+
+// anthropicAPIKey resolves the key every model call uses:
+// herdr.anthropic_api_key wins, the ANTHROPIC_API_KEY env var is the
+// fallback.
+func anthropicAPIKey(cfg config.Herdr) string {
+	if cfg.AnthropicAPIKey != "" {
+		return cfg.AnthropicAPIKey
+	}
+	return os.Getenv("ANTHROPIC_API_KEY")
 }

@@ -131,15 +131,20 @@ max_image_cache_mb = 200
 # "[colony-562] the flow viewer renders sta…").
 # The task-id prefix and the never-overwrite-your-labels rule still apply,
 # and any failure (no key, timeout) leaves the deterministic label in
-# place. Costs one small API call per opened agent thread; needs
-# ANTHROPIC_API_KEY in slk's environment. The label derives from the root
-# message once, at thread open; :retitle re-derives it later from the whole
-# thread, with the model judging the task id too (see Keybindings).
+# place. Costs one small API call per opened agent thread; needs an
+# Anthropic API key: anthropic_api_key here, or, when that is empty,
+# ANTHROPIC_API_KEY in slk's environment (the config value wins when both
+# are set). With the key in it this file holds a secret, so its permissions
+# matter: chmod 600 it, and slk's own saves keep the mode the file has.
+# The label derives from the root message once, at thread open; :retitle
+# re-derives it later from the whole thread, with the model judging the
+# task id too (see Keybindings).
 # tab_name_hints are freeform lines handed to the :retitle model as naming
 # guidance, e.g. what your task ids look like.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)
+anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY (default)
 tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 
 # The O keybinding opens a Slack permalink in a new herdr tab running a
