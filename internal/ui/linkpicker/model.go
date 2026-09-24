@@ -3,7 +3,9 @@
 // keybinding) or which file attachment to download (the `d`
 // keybinding). The chosen item is dispatched as ui.OpenLinkMsg or
 // ui.DownloadFileMsg by the mode handler, depending on the kind the
-// App recorded when opening the picker.
+// App recorded when opening the picker. The `O` picker that opens
+// herdr tabs also lets the user mark several rows (SetMultiSelect);
+// the mode handler dispatches those as ui.OpenLinksInHerdrTabsMsg.
 package linkpicker
 
 // Item is one selectable row.
@@ -33,6 +35,10 @@ type Model struct {
 	items    []Item
 	selected int
 	visible  bool
+
+	// Fork: row marking, see model_fork.go.
+	multiSelect bool
+	marked      map[int]bool
 }
 
 // New creates a hidden picker.
@@ -48,6 +54,7 @@ func (m *Model) Open(title string, items []Item) {
 	}
 	m.selected = 0
 	m.visible = true
+	m.resetMultiSelect()
 }
 
 // Close hides the picker and drops its items.
@@ -55,6 +62,7 @@ func (m *Model) Close() {
 	m.visible = false
 	m.items = nil
 	m.selected = 0
+	m.resetMultiSelect()
 }
 
 // IsVisible reports whether the picker is showing.

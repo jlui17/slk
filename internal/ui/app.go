@@ -520,7 +520,7 @@ type App struct {
 	// a second slk instance (the O keybinding). Blocking; routeLink
 	// calls it inside a tea.Cmd. Nil outside a herdr pane, which makes
 	// O route exactly like o. See SetHerdrTabOpener.
-	herdrTabOpener func(url, label string) error
+	herdrTabOpener func(url, label string, focus bool) error
 
 	// navHistory owns the per-workspace ctrl+h / ctrl+k browser-style
 	// jump list. See internal/ui/navhistory.go. Lazy-initialized on
@@ -956,6 +956,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceAgentWorkingVerdict,
 		reduceCacheWatermark,
 		reducePasteAsync,
+		reduceOpenLinksInHerdrTabs,
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1430,7 +1431,8 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
 // open the link picker modal. All opens converge on OpenLinkMsg,
 // the single routing point in reducer_links.go; inHerdrTab (the O
-// path) rides along as OpenLinkMsg.InHerdrTab.
+// path) rides along as OpenLinkMsg.InHerdrTab. The one exception: rows
+// marked in O's herdr-tab picker open as OpenLinksInHerdrTabsMsg.
 func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 	var text string
 	switch a.focusedPanel {
@@ -1497,6 +1499,7 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		a.pickerKind = "links"
 		a.pickerInTab = inHerdrTab
 		a.linkPicker.Open(title, items)
+		a.linkPicker.SetMultiSelect(tabOpenerActive)
 		a.SetMode(ModeLinkPicker)
 		return tea.Batch(previews...)
 	}

@@ -41,8 +41,8 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 		if openCommand == "" {
 			openCommand = "slk"
 		}
-		app.SetHerdrTabOpener(func(url, label string) error {
-			return hr.OpenTab(label, openCommand, url)
+		app.SetHerdrTabOpener(func(url, label string, focus bool) error {
+			return hr.OpenTab(label, openCommand, url, focus)
 		})
 	}
 	// A crash skips this, leaving a stale sidebar entry until herdr's

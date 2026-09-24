@@ -12,15 +12,16 @@ import (
 func TestOpenLinkInTab_SpawnsHerdrTab(t *testing.T) {
 	app, opened := linkTestApp(t)
 	var gotURL, gotLabel string
-	app.SetHerdrTabOpener(func(url, label string) error {
-		gotURL, gotLabel = url, label
+	var gotFocus bool
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error {
+		gotURL, gotLabel, gotFocus = url, label, focus
 		return nil
 	})
 	url := "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"
 	_, cmd := app.Update(OpenLinkMsg{URL: url, InHerdrTab: true})
 	drainCmd(cmd)
-	if gotURL != url || gotLabel != "general" {
-		t.Errorf("opener got (%q, %q), want (%q, \"general\")", gotURL, gotLabel, url)
+	if gotURL != url || gotLabel != "general" || !gotFocus {
+		t.Errorf("opener got (%q, %q, focus=%v), want (%q, \"general\", focus=true)", gotURL, gotLabel, gotFocus, url)
 	}
 	if app.pendingLinkNav != nil {
 		t.Errorf("pendingLinkNav armed: %+v, want in-place nav skipped", app.pendingLinkNav)
@@ -50,7 +51,7 @@ func TestOpenLinkInTab_NoOpener_RoutesInPlace(t *testing.T) {
 func TestOpenLinkInTab_NonSlackURL_OpensBrowser(t *testing.T) {
 	app, opened := linkTestApp(t)
 	openerCalled := false
-	app.SetHerdrTabOpener(func(url, label string) error {
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error {
 		openerCalled = true
 		return nil
 	})
@@ -64,9 +65,90 @@ func TestOpenLinkInTab_NonSlackURL_OpensBrowser(t *testing.T) {
 	}
 }
 
+// A batch opens every URL in order, unfocused, and keeps going past a
+// failure; one toast reports the count.
+func TestOpenLinksInHerdrTabs(t *testing.T) {
+	urls := []string{
+		"https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139",
+		"https://myteam.slack.com/archives/C054JFCBN69/p1779284734000000",
+		"https://myteam.slack.com/archives/C054JFCBN69/p1779284735000000",
+	}
+	tests := []struct {
+		name      string
+		urls      []string
+		failURL   string
+		wantToast string
+	}{
+		{"all open", urls, "", "Opened 3 herdr tabs"},
+		{"one marked", urls[:1], "", "Opened 1 herdr tab"},
+		{"a failure does not stop the batch", urls, urls[1], "Opened 2 of 3 herdr tabs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app, opened := linkTestApp(t)
+			type call struct {
+				url, label string
+				focus      bool
+			}
+			var calls []call
+			app.SetHerdrTabOpener(func(url, label string, focus bool) error {
+				calls = append(calls, call{url, label, focus})
+				if url == tt.failURL {
+					return errors.New("boom")
+				}
+				return nil
+			})
+			_, cmd := app.Update(OpenLinksInHerdrTabsMsg{URLs: tt.urls})
+			msgs := drainCmd(cmd)
+
+			if len(calls) != len(tt.urls) {
+				t.Fatalf("opener calls = %+v, want one per URL", calls)
+			}
+			for i, c := range calls {
+				if want := (call{tt.urls[i], "general", false}); c != want {
+					t.Errorf("call %d = %+v, want %+v", i, c, want)
+				}
+			}
+			if len(msgs) != 1 {
+				t.Fatalf("msgs = %#v, want one ToastMsg", msgs)
+			}
+			if toast, ok := msgs[0].(ToastMsg); !ok || toast.Text != tt.wantToast {
+				t.Errorf("got %#v, want toast %q", msgs[0], tt.wantToast)
+			}
+			if app.pendingLinkNav != nil || *opened != "" {
+				t.Errorf("batch leaked into in-place nav (%+v) or the browser (%q)", app.pendingLinkNav, *opened)
+			}
+		})
+	}
+}
+
+// The picker only lists links linkOpensInApp accepts, so this cannot
+// happen from the UI; a URL that isn't one is skipped and counted as a
+// failure rather than sent to the opener.
+func TestOpenLinksInHerdrTabs_NonNavigableURL_CountsAsFailure(t *testing.T) {
+	app, opened := linkTestApp(t)
+	var got []string
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error {
+		got = append(got, url)
+		return nil
+	})
+	ok := "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"
+	_, cmd := app.Update(OpenLinksInHerdrTabsMsg{URLs: []string{"https://github.com/foo/bar", ok}})
+	msgs := drainCmd(cmd)
+	if len(got) != 1 || got[0] != ok {
+		t.Errorf("opener got %v, want only %q", got, ok)
+	}
+	if len(msgs) != 1 || msgs[0] != (ToastMsg{Text: "Opened 1 of 2 herdr tabs"}) {
+		t.Errorf("msgs = %#v", msgs)
+	}
+	if *opened != "" {
+		t.Errorf("browser opened %q", *opened)
+	}
+}
+
 func TestOpenLinkInTab_OpenerError_Toasts(t *testing.T) {
 	app, _ := linkTestApp(t)
-	app.SetHerdrTabOpener(func(url, label string) error {
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error {
 		return errors.New("boom")
 	})
 	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdrTab: true})

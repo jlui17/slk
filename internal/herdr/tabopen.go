@@ -69,20 +69,21 @@ func (r *Reporter) CanOpenTab() bool {
 	return r.identity().WorkspaceID != ""
 }
 
-// OpenTab creates a focused tab in the pane's current herdr space labeled
-// label and runs `<openCommand> '<rawURL>'` in the tab's root-pane shell.
+// OpenTab creates a tab in the pane's current herdr space labeled label
+// and runs `<openCommand> '<rawURL>'` in the tab's root-pane shell. focus
+// moves herdr's focus to the new tab; false leaves it on the current one.
 // Blocking (several socket round-trips, waiting for the tab's shell to
 // paint its prompt); call it off the UI goroutine. Not tracked by
 // Close: quitting slk mid-open abandons the sequence, worst case
 // leaving the created tab with no command sent.
-func (r *Reporter) OpenTab(label, openCommand, rawURL string) error {
+func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error {
 	if !r.CanOpenTab() {
 		return errors.New("no herdr workspace id")
 	}
 	created, err := r.roundTrip("tab.create", tabCreateParams{
 		WorkspaceID: r.identity().WorkspaceID,
 		Label:       label,
-		Focus:       true,
+		Focus:       focus,
 	})
 	if err != nil {
 		return fmt.Errorf("tab.create: %w", err)

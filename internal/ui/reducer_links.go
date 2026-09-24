@@ -84,7 +84,7 @@ func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
 		opener, label := a.herdrTabOpener, name
 		debuglog.General("routeLink: herdr tab nav channel=%s label=%s", pl.ChannelID, name)
 		return func() tea.Msg {
-			if err := opener(rawURL, label); err != nil {
+			if err := opener(rawURL, label, true); err != nil {
 				debuglog.Notify("herdr: open tab: %v", err)
 				return ToastMsg{Text: "Failed to open herdr tab"}
 			}

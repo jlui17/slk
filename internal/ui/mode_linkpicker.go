@@ -4,7 +4,8 @@
 // keybinding (multiple links) or the `d` keybinding (multiple file
 // attachments). Enter dispatches OpenLinkMsg or DownloadFileMsg
 // depending on the kind recorded when the picker was opened; esc/q
-// closes.
+// closes. The `O` picker that opens herdr tabs also marks rows and
+// opens them as a batch: mode_linkpicker_fork.go.
 package ui
 
 import (
@@ -12,6 +13,9 @@ import (
 )
 
 func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
+	if cmd, handled := a.handleLinkPickerMarkKeys(msg); handled {
+		return cmd
+	}
 	item, chosen := a.linkPicker.HandleKey(msg.String())
 	if chosen {
 		a.SetMode(ModeNormal)

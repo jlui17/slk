@@ -22,7 +22,7 @@ func TestOpenTab(t *testing.T) {
 	r, rec := tabOpenReporter(t)
 
 	url := "https://myteam.slack.com/archives/C1/p1779284733270139?thread_ts=1779284733.270139&cid=C1"
-	if err := r.OpenTab("#general", "slk", url); err != nil {
+	if err := r.OpenTab("#general", "slk", url, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,6 +74,21 @@ func TestOpenTab(t *testing.T) {
 	}
 }
 
+func TestOpenTab_Unfocused(t *testing.T) {
+	r, rec := tabOpenReporter(t)
+
+	if err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139", false); err != nil {
+		t.Fatal(err)
+	}
+	method, params := decode(t, waitLines(t, rec, 4)[0])
+	if method != "tab.create" {
+		t.Fatalf("first method = %q, want tab.create", method)
+	}
+	if params["focus"] != false {
+		t.Errorf("tab.create focus = %v, want false", params["focus"])
+	}
+}
+
 // A failing pane.wait_for_output (older herdr without the method, or a
 // shell quiet past the timeout) degrades to the fallback delay: the
 // command is still sent and the open still succeeds.
@@ -81,7 +96,7 @@ func TestOpenTab_WaitError_StillSends(t *testing.T) {
 	r, rec := tabOpenReporter(t)
 	rec.setMethodError("pane.wait_for_output", "unknown method")
 
-	if err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139"); err != nil {
+	if err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139", true); err != nil {
 		t.Fatal(err)
 	}
 	lines := waitLines(t, rec, 4)
@@ -94,7 +109,7 @@ func TestOpenTab_CreateError_NoInputSent(t *testing.T) {
 	r, rec := tabOpenReporter(t)
 	rec.setMethodError("tab.create", "workspace_not_found")
 
-	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139")
+	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139", true)
 	if err == nil || !strings.Contains(err.Error(), "workspace_not_found") {
 		t.Fatalf("err = %v, want the server's message", err)
 	}
@@ -109,7 +124,7 @@ func TestOpenTab_SendInputError_ClosesTab(t *testing.T) {
 	r, rec := tabOpenReporter(t)
 	rec.setMethodError("pane.send_input", "pane gone")
 
-	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139")
+	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139", true)
 	if err == nil || !strings.Contains(err.Error(), "pane gone") {
 		t.Fatalf("err = %v, want the send_input message", err)
 	}
@@ -127,7 +142,7 @@ func TestOpenTab_SendInputTransportFailure_KeepsTab(t *testing.T) {
 	r, rec := tabOpenReporter(t)
 	rec.setMethodSilent("pane.send_input")
 
-	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139")
+	err := r.OpenTab("#general", "slk", "https://myteam.slack.com/archives/C1/p1779284733270139", true)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -145,7 +160,7 @@ func TestOpenTab_NoWorkspaceID(t *testing.T) {
 	if r.CanOpenTab() {
 		t.Error("CanOpenTab = true without a workspace id")
 	}
-	if err := r.OpenTab("#general", "slk", "https://x.slack.com/archives/C1/p1"); err == nil {
+	if err := r.OpenTab("#general", "slk", "https://x.slack.com/archives/C1/p1", true); err == nil {
 		t.Error("OpenTab succeeded without a workspace id")
 	}
 	if lines := rec.snapshot(); len(lines) != 0 {

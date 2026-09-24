@@ -55,7 +55,7 @@ func TestOpenLinkTabKey_Picker_EnterSetsInHerdrTab(t *testing.T) {
 // message direct-opens its single permalink, no picker.
 func TestOpenLinkTabKey_FiltersToSlackLinks(t *testing.T) {
 	app, _ := linkTestApp(t)
-	app.SetHerdrTabOpener(func(url, label string) error { return nil })
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error { return nil })
 	app.focusedPanel = PanelMessages
 	app.messagepane.SetMessages([]messages.MessageItem{
 		{TS: "1.0", Text: "<https://github.com/foo> <https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139> <https://example.com/x>"},
@@ -78,7 +78,7 @@ func TestOpenLinkTabKey_FiltersToSlackLinks(t *testing.T) {
 
 func TestOpenLinkTabKey_NoSlackLinks_Toasts(t *testing.T) {
 	app, _ := linkTestApp(t)
-	app.SetHerdrTabOpener(func(url, label string) error { return nil })
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error { return nil })
 	app.focusedPanel = PanelMessages
 	app.messagepane.SetMessages([]messages.MessageItem{
 		{TS: "1.0", Text: "<https://github.com/foo> <https://example.com/x>"},
@@ -124,7 +124,7 @@ func TestOpenLinkTabKey_Picker_TitleReflectsOpener(t *testing.T) {
 		t.Errorf("title without opener = %q, want \"Open link\"", got)
 	}
 	app.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
-	app.SetHerdrTabOpener(func(url, label string) error { return nil })
+	app.SetHerdrTabOpener(func(url, label string, focus bool) error { return nil })
 	pressShiftO(app)
 	if got := app.linkPicker.Title(); got != "Open link in herdr tab" {
 		t.Errorf("title with opener = %q, want \"Open link in herdr tab\"", got)

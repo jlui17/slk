@@ -239,7 +239,7 @@ func TestRequestsFollowAdoptedIdentity(t *testing.T) {
 		}
 	}
 
-	if err := r.OpenTab("slk", "slk", "https://example.test"); err != nil {
+	if err := r.OpenTab("slk", "slk", "https://example.test", true); err != nil {
 		t.Fatalf("OpenTab: %v", err)
 	}
 	found := false

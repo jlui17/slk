@@ -42,6 +42,7 @@ func (m *Model) renderBox(termWidth int) string {
 		Background(bg).
 		Foreground(styles.Primary).
 		Render(m.title)
+	title = m.withMarkedCounter(title, innerWidth)
 
 	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
 	mutedStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
@@ -64,6 +65,7 @@ func (m *Model) renderBox(termWidth int) string {
 			badge = " [slk]"
 		}
 		budget := innerWidth - 1 - lipgloss.Width(badge) // 1 = indicator column
+		budget -= lipgloss.Width(m.checkbox(i))
 		if budget < 1 {
 			budget = 1
 		}
@@ -87,6 +89,7 @@ func (m *Model) renderBox(termWidth int) string {
 			mainStyle = mainStyle.Foreground(styles.Primary).Bold(true)
 			indicator = lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
 		}
+		indicator += m.checkbox(i)
 		row := indicator + mainStyle.Render(text)
 		used := lipgloss.Width(text)
 		if detail != "" {
@@ -102,7 +105,7 @@ func (m *Model) renderBox(termWidth int) string {
 	footer := lipgloss.NewStyle().
 		Background(bg).
 		Foreground(styles.TextMuted).
-		Render("j/k move   enter select   esc/q close")
+		Render(m.footerText("j/k move   enter select   esc/q close"))
 
 	content := title + "\n\n" + strings.Join(rows, "\n") + "\n\n" + footer
 	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
