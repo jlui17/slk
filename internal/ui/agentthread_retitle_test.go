@@ -185,3 +185,41 @@ func TestRetitleUnconfiguredToasts(t *testing.T) {
 		t.Errorf("statusbar = %q", out)
 	}
 }
+
+func TestStripLinkTargets(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"markdown link keeps its label", "see [the triage thread](https://acme-x1658.slack.com/archives/C1/p1790) for why", "see the triage thread for why"},
+		{"markdown link labelled with a PR ref", "merged [#2079](https://git.example.com/acme/app/pulls/2079) now", "merged #2079 now"},
+		{"bare url is dropped", "root cause of issue 3 in https://docs.example.com/d/1bpw/edit?tab=t.z0 please", "root cause of issue 3 in please"},
+		{"bare url at the end", "the doc: https://docs.example.com/d/1bpw", "the doc:"},
+		{"two links in one line", "[a](https://x.example/1) and [b](http://y.example/2)", "a and b"},
+		{"brackets without a target stay", "Claude [reviewing a PR]: todo (see notes)", "Claude [reviewing a PR]: todo (see notes)"},
+		{"no link", "PROJ-123 viewer fix", "PROJ-123 viewer fix"},
+	}
+	for _, c := range cases {
+		if got := stripLinkTargets(c.in); got != c.want {
+			t.Errorf("%s: stripLinkTargets(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestRetitleTranscriptDropsLinkTargets(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer, context in <https://acme-x1658.slack.com/archives/C1/p1790>", UserID: "UHUMAN"}
+	replies := []messages.MessageItem{
+		{TS: "101.0", Text: "opened [#1170](https://git.example.com/acme/app/pulls/1170)", UserID: "UBOT"},
+	}
+	a, calls, _ := newRetitleTestApp(t, parent, replies)
+
+	_ = executeCommand(a, "retitle")
+
+	if len(*calls) != 1 {
+		t.Fatalf("want 1 relabel request, got %+v", *calls)
+	}
+	transcript := (*calls)[0].transcript
+	if strings.Contains(transcript, "http") || strings.Contains(transcript, "acme-x1658") {
+		t.Errorf("transcript still carries a link target:\n%s", transcript)
+	}
+	if !strings.Contains(transcript, "opened #1170") {
+		t.Errorf("transcript lost the link's label:\n%s", transcript)
+	}
+}

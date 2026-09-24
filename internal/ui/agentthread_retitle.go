@@ -6,6 +6,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -132,7 +133,7 @@ func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.
 // retitleLine flattens one message to "speaker: text", the speaker prefix
 // dropped when no cache can name the author.
 func (a *App) retitleLine(userID, text string, max int) string {
-	flat := truncate.StringWithTail(a.flattenRootText(text), uint(max), "…")
+	flat := truncate.StringWithTail(stripLinkTargets(a.flattenRootText(text)), uint(max), "…")
 	if flat == "" {
 		return ""
 	}
@@ -140,6 +141,18 @@ func (a *App) retitleLine(userID, text string, max int) string {
 		return name + ": " + flat
 	}
 	return flat
+}
+
+// markdownLinkRe matches a markdown link an agent wrote into its message
+// text; Slack's own <url|label> form is already flattened to its label.
+var markdownLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(https?://[^\s)]+\)`)
+
+// stripLinkTargets keeps a markdown link's label and drops every URL. A
+// link target names nothing the thread is about, and the model reads ids
+// out of one (a workspace subdomain, a PR path) when it can see it.
+func stripLinkTargets(flat string) string {
+	flat = markdownLinkRe.ReplaceAllString(flat, "$1")
+	return strings.Join(strings.Fields(urlRe.ReplaceAllString(flat, "")), " ")
 }
 
 // retitleSpeaker resolves an author name through the same two caches

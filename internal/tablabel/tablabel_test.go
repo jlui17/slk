@@ -13,7 +13,10 @@ import (
 type capturedRequest struct {
 	Model     string `json:"model"`
 	MaxTokens int    `json:"max_tokens"`
-	System    []struct {
+	Thinking  struct {
+		Type string `json:"type"`
+	} `json:"thinking"`
+	System []struct {
 		Text string `json:"text"`
 	} `json:"system"`
 	Messages []struct {
@@ -65,6 +68,9 @@ func TestLabelSendsRootAndParsesReply(t *testing.T) {
 	}
 	if got.MaxTokens <= 0 || got.MaxTokens > 1024 {
 		t.Errorf("max_tokens = %d, want small positive", got.MaxTokens)
+	}
+	if got.Thinking.Type != "disabled" {
+		t.Errorf("thinking = %q, want disabled: a model that thinks by default spends max_tokens before any text", got.Thinking.Type)
 	}
 	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "30 characters") {
 		t.Errorf("system prompt missing the length rule: %+v", got.System)

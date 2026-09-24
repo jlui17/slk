@@ -21,11 +21,29 @@ const systemPrompt = "You label terminal tabs. The user message started a Slack 
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
 	"of a Slack thread where a coding agent works on a task. Reply with exactly two " +
-	"lines. Line 1: the tracker task id or PR/issue number this whole thread is about " +
-	"(e.g. colony-123 or #1170) — judge from the full thread, a passing mention is not " +
-	"the thread's task — or the word none when it has no id. Line 2: a label naming " +
-	"what the thread is doing now: 2 to 5 words, 30 characters maximum, no emoji, " +
-	"no quotes, no trailing punctuation, no ids."
+	"lines.\n" +
+	"Line 1: the tracker task id or PR/issue number this whole thread is about " +
+	"(e.g. PROJ-123 or #1170), or the word none when it has no id. Judge from the full " +
+	"thread: a passing mention is not the thread's task. An id is text a person or the " +
+	"agent wrote as the name of the work. Never build one from other words or numbers. " +
+	"Text inside a URL or a link target is never an id. When unsure, answer none.\n" +
+	"Line 2: a short name for the work the thread is about, meaning the defect, " +
+	"feature or component (e.g. login redirect loop, csv export, rate limiter). 1 to 3 " +
+	"words, 30 characters maximum, lowercase unless a proper noun, no emoji, no quotes, " +
+	"no trailing punctuation, no ids. Prefer the words the thread's opening message " +
+	"uses for the work, so the name stays the same as the thread grows; only when the " +
+	"thread has moved on to different work, name the new work. Name the thing, not the " +
+	"activity: never the current step or a status (testing, review, waiting, done, in " +
+	"progress), and no filler like issue, fix, investigation or update.\n" +
+	"Hints from the user may follow. They take priority: where a hint conflicts with a " +
+	"rule above, follow the hint."
+
+// relabelReminder rides after the transcript: on a 30 to 90 KB thread the
+// system prompt is far from the answer, and the model drifts from its
+// format and its limits without the contract restated next to the reply.
+const relabelReminder = "That was the whole thread. Reply with exactly two lines: line 1 " +
+	"the id or the word none, line 2 the name of the work in 1 to 3 words. The rules in " +
+	"the system prompt still apply."
 
 // maxRootBytes caps the prompt: the root message carries the ask, and a
 // label needs nothing past its opening.
@@ -67,15 +85,20 @@ func (c *Client) Label(ctx context.Context, root string) (string, error) {
 }
 
 // Relabel asks the model to judge, from a whole-thread transcript, which
-// task id the thread is about and what it is doing now. hints are freeform
-// per-user guidance lines appended to the system prompt. id is "" when the
-// model judged the thread has no task id; label follows Label's contract.
+// task id the thread is about and to name the work. hints are freeform
+// per-user guidance lines, sent both with the system prompt and again
+// after the transcript: measured on 30 to 90 KB threads, the copy before
+// the transcript alone did not hold (ids and word counts drifted), and the
+// copy after it alone did worse than both. id is "" when the model judged
+// the thread has no task id; label follows Label's contract.
 func (c *Client) Relabel(ctx context.Context, transcript string, hints []string) (id, label string, err error) {
-	system := relabelSystemPrompt
+	system, reminder := relabelSystemPrompt, relabelReminder
 	if len(hints) > 0 {
-		system += "\nHints from this user about naming their tabs:\n- " + strings.Join(hints, "\n- ")
+		hintLines := "\nHints from this user about naming their tabs:\n- " + strings.Join(hints, "\n- ")
+		system += hintLines
+		reminder += hintLines
 	}
-	reply, err := c.complete(ctx, system, clip(transcript, maxTranscriptBytes))
+	reply, err := c.complete(ctx, system, clip(transcript, maxTranscriptBytes), reminder)
 	if err != nil {
 		return "", "", err
 	}
@@ -100,14 +123,20 @@ func parseRelabelReply(reply string) (id, label string, err error) {
 	return id, label, nil
 }
 
-func (c *Client) complete(ctx context.Context, system, user string) (string, error) {
+// complete sends user as the text blocks of one user message.
+func (c *Client) complete(ctx context.Context, system string, user ...string) (string, error) {
+	blocks := make([]anthropic.ContentBlockParamUnion, len(user))
+	for i, text := range user {
+		blocks[i] = anthropic.NewTextBlock(text)
+	}
 	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.model),
 		MaxTokens: 64,
-		System:    []anthropic.TextBlockParam{{Text: system}},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(user)),
-		},
+		// Models that think by default spend the whole token budget on a
+		// long thread before writing any text.
+		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
+		System:   []anthropic.TextBlockParam{{Text: system}},
+		Messages: []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
 	if err != nil {
 		return "", err

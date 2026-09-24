@@ -19,11 +19,18 @@ func TestRelabelParsesIDAndLabel(t *testing.T) {
 	if id != "#1170" || label != "Implement viewer fix" {
 		t.Errorf("id, label = %q, %q", id, label)
 	}
-	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "doing now") {
+	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "the work the thread is about") {
 		t.Errorf("system prompt not the ongoing-thread one: %+v", got.System)
 	}
-	if body := got.Messages[0].Content[0].Text; body != transcript {
-		t.Errorf("user content = %q", body)
+	content := got.Messages[0].Content
+	if len(content) != 2 {
+		t.Fatalf("user content = %+v, want the transcript then the reminder", content)
+	}
+	if content[0].Text != transcript {
+		t.Errorf("transcript block = %q", content[0].Text)
+	}
+	if content[1].Text != relabelReminder || !strings.Contains(content[1].Text, "exactly two lines") {
+		t.Errorf("reminder block = %q", content[1].Text)
 	}
 }
 
@@ -78,10 +85,20 @@ func TestRelabelSendsHints(t *testing.T) {
 	if _, _, err := c.Relabel(context.Background(), "transcript", hints); err != nil {
 		t.Fatalf("Relabel: %v", err)
 	}
+	// Hints ride in both places: after a long transcript the system
+	// prompt's copy alone is too far from the answer to hold.
 	system := got.System[0].Text
+	content := got.Messages[0].Content
+	reminder := content[len(content)-1].Text
+	if !strings.HasPrefix(reminder, relabelReminder) {
+		t.Errorf("reminder block = %q", reminder)
+	}
 	for _, h := range hints {
 		if !strings.Contains(system, h) {
 			t.Errorf("hint %q missing from system prompt:\n%s", h, system)
+		}
+		if !strings.Contains(reminder, h) {
+			t.Errorf("hint %q missing from the reminder after the transcript:\n%s", h, reminder)
 		}
 	}
 }
