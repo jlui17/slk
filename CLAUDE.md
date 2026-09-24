@@ -40,6 +40,13 @@ from the same image and checkout.
 
 Details: `docs/developing-on-santa-hosts.md`.
 
+## A UI or UX change comes with a try-it tab
+
+When a change is one Justin judges by looking or pressing keys, bring up the
+branch's slk in its own herdr tab, on a real message that exercises the
+change, as soon as the tests pass. Do it without being asked, and before
+asking for the merge word. Recipe and traps: the `try-it-tab` skill.
+
 ## Keep the tree gofmt-clean
 
 CI's lint job fails on any file gofmt would change, using Go stable (1.26
