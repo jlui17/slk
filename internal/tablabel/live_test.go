@@ -8,19 +8,23 @@ import (
 	"unicode/utf8"
 )
 
-// TestLabelLive hits the real Anthropic API; set SLK_TABLABEL_LIVE=1 (and
-// ANTHROPIC_API_KEY) to run it. tools/go.sh forwards both into the docker
-// container it runs tests in on Santa hosts.
-func TestLabelLive(t *testing.T) {
+// TestRelabelLive hits the real Anthropic API with a root-only transcript,
+// what a thread opened before anyone replied sends; set SLK_TABLABEL_LIVE=1
+// (and ANTHROPIC_API_KEY) to run it. tools/go.sh forwards both into the
+// docker container it runs tests in on Santa hosts.
+func TestRelabelLive(t *testing.T) {
 	c := liveClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	label, err := c.Label(ctx,
-		"colony-562 the flow viewer renders stale runs after a reconnect, can you fix it")
+	id, label, err := c.Relabel(ctx,
+		"justin: colony-562 the flow viewer renders stale runs after a reconnect, can you fix it", nil)
 	if err != nil {
-		t.Fatalf("Label: %v", err)
+		t.Fatalf("Relabel: %v", err)
 	}
-	t.Logf("live label: %q", label)
+	t.Logf("live id: %q label: %q", id, label)
+	if id != "colony-562" {
+		t.Errorf("id = %q, want the root's task id", id)
+	}
 	if label == "" || utf8.RuneCountInString(label) > 60 {
 		t.Errorf("label %q outside expected shape", label)
 	}

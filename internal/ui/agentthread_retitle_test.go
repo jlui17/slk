@@ -8,23 +8,13 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
-type relabelCall struct {
-	teamID     string
-	channelID  string
-	threadTS   string
-	transcript string
-}
-
 // newRetitleTestApp tracks an agent thread whose panel holds replies, with
-// both label generators installed, and returns the relabel capture and the
-// NameTab capture.
+// the label generator installed, and returns the relabel capture and the
+// NameTab capture. It tracks without setThreadPanel, so the automatic
+// open-time request stays out of the capture.
 func newRetitleTestApp(t *testing.T, parent messages.MessageItem, replies []messages.MessageItem) (*App, *[]relabelCall, *[]string) {
 	t.Helper()
-	a, _, tabNames := newLLMLabelTestApp(t)
-	calls := &[]relabelCall{}
-	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript string) {
-		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript})
-	})
+	a, calls, tabNames := newLLMLabelTestApp(t)
 	a.threadPanel.SetThread(parent, replies, "C1", parent.TS)
 	a.threadVisible = true
 	a.updateAgentThread(parent, "C1", parent.TS)
@@ -47,6 +37,9 @@ func TestRetitleRequestsRecentTranscript(t *testing.T) {
 	c := (*calls)[0]
 	if c.teamID != "T1" || c.channelID != "C1" || c.threadTS != "100.0" {
 		t.Errorf("request keyed %+v", c)
+	}
+	if c.fallbackTaskID != "" {
+		t.Errorf("fallbackTaskID = %q: on :retitle the model's none is authoritative", c.fallbackTaskID)
 	}
 	root := strings.Index(c.transcript, "brainstorm the retry design")
 	first := strings.Index(c.transcript, "Claude: sketching two options")
@@ -104,26 +97,69 @@ func TestRelabelResultAppliesModelTaskID(t *testing.T) {
 	if last != "[#1170] CI workflow optimization" {
 		t.Errorf("tab = %q, want the model id hoisted and its echo stripped", last)
 	}
-	if got := a.agentSidebar.llmLabel.taskID; got != "#1170" {
-		t.Errorf("taskID = %q", got)
-	}
 }
 
 func TestRelabelResultNoIDClearsStaleID(t *testing.T) {
-	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> sha-256 the viewer cache keys", UserID: "UHUMAN"}
 	a, _, tabNames := newRetitleTestApp(t, parent, nil)
-	a.agentSidebar.llmLabel.taskID = "issuecomment-15686"
+	if first := (*tabNames)[0]; !strings.HasPrefix(first, "[sha-256]") {
+		t.Fatalf("deterministic label = %q, want the wrongly hoisted id this test drops", first)
+	}
 
 	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "", Label: "CI workflow optimization",
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "", Label: "viewer cache keys",
 	})
 
 	last := (*tabNames)[len(*tabNames)-1]
-	if last != "CI workflow optimization" {
+	if last != "viewer cache keys" {
 		t.Errorf("tab = %q, want no id prefix", last)
 	}
-	if got := a.agentSidebar.llmLabel.taskID; got != "" {
-		t.Errorf("taskID = %q, want the stale id dropped", got)
+}
+
+func TestRelabelResultNoIDKeepsFallbackID(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> please implement colony-1620", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+
+	// The open-time request carries the root's hoisted id; a model none
+	// must not strip it off the tab.
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "", FallbackTaskID: "colony-1620", Label: "colony-1620 twin rewind",
+	})
+
+	last := (*tabNames)[len(*tabNames)-1]
+	if last != "[colony-1620] twin rewind" {
+		t.Errorf("tab = %q, want the fallback id kept and its echo stripped", last)
+	}
+}
+
+func TestRelabelResultModelIDBeatsFallbackID(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> Sim env issue 23: sha-256 mismatch on timeout", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "sim23", FallbackTaskID: "sha-256", Label: "shell timeout",
+	})
+
+	last := (*tabNames)[len(*tabNames)-1]
+	if last != "[sim23] shell timeout" {
+		t.Errorf("tab = %q, want the model's id over the hoisted one", last)
+	}
+}
+
+func TestRelabelResultUnusableLabelDropped(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> colony-562 fix the flow viewer", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+	before := len(*tabNames)
+
+	// Nothing left once the echoed id and quotes are stripped, and no id of
+	// the model's own: the deterministic label must stand, not shrink to
+	// the bare fallback id.
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: "", FallbackTaskID: "colony-562", Label: "\"colony-562\"",
+	})
+
+	if len(*tabNames) != before {
+		t.Errorf("empty-after-sanitize result renamed the tab: %+v", *tabNames)
 	}
 }
 
@@ -142,11 +178,7 @@ func TestRelabelResultThreadMismatchDropped(t *testing.T) {
 }
 
 func TestRetitleNoTrackedThreadToasts(t *testing.T) {
-	a, _, _ := newLLMLabelTestApp(t)
-	calls := &[]relabelCall{}
-	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript string) {
-		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript})
-	})
+	a, calls, _ := newLLMLabelTestApp(t)
 
 	_ = executeCommand(a, "retitle")
 
@@ -174,7 +206,7 @@ func TestRetitlePanelOnDifferentThreadToasts(t *testing.T) {
 }
 
 func TestRetitleUnconfiguredToasts(t *testing.T) {
-	a, _, _ := newLLMLabelTestApp(t)
+	a, _, _, _ := newAgentTestAppWithTab(t)
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.updateAgentThread(parent, "C1", "100.0")

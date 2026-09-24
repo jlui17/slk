@@ -22,8 +22,8 @@ func TestNewSendsTheGivenAPIKey(t *testing.T) {
 			t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 			t.Setenv("ANTHROPIC_API_KEY", envKey)
 
-			if _, err := New("claude-haiku-4-5", "from-config").Label(context.Background(), "root"); err != nil {
-				t.Fatalf("Label: %v", err)
+			if _, _, err := New("claude-haiku-4-5", "from-config").Relabel(context.Background(), "transcript", nil); err != nil {
+				t.Fatalf("Relabel: %v", err)
 			}
 			if gotKey != "from-config" {
 				t.Errorf("X-Api-Key = %q, want %q", gotKey, "from-config")

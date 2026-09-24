@@ -101,12 +101,11 @@ type agentSidebar struct {
 	userInfo     UserInfoFunc
 	thread       agentThreadState
 
-	// labelGen and llmLabel drive the model-generated tab-label
-	// refinement; see agentthread_llm.go. relabelGen is its :retitle
-	// refresh; see agentthread_retitle.go.
-	labelGen   AgentTabLabelFunc
-	relabelGen AgentTabRelabelFunc
-	llmLabel   llmLabelState
+	// relabelGen is the model-generated tab-label refinement, requested
+	// once automatically per tracked thread (labelRequested; see
+	// agentthread_llm.go) and again on :retitle (agentthread_retitle.go).
+	relabelGen     AgentTabRelabelFunc
+	labelRequested bool
 
 	// judgeGen and workingJudge drive the model working verdict for the
 	// last-message shapes the derived signal can't decide; see
@@ -197,6 +196,7 @@ func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.Mes
 	a.threadPanel.SetThread(parent, replies, channelID, threadTS)
 	a.updateAgentThread(parent, channelID, threadTS)
 	a.snapshotAgentThreadLast(parent, replies, channelID, threadTS)
+	a.maybeRequestAgentTabLabel(parent, replies, channelID, threadTS)
 	a.reportPaneState(channelID, threadTS)
 }
 
@@ -246,7 +246,6 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 		cur.agentName, cur.title = next.agentName, next.title
 		a.agentSidebar.thread = cur
 		a.reportAgentThreadState()
-		a.maybeRequestAgentTabLabel(a.flattenRootText(stripMention(parent.Text, botUserID)))
 		return
 	}
 	// herdr keys one sidebar entry per pane, so reporting a different agent
@@ -259,7 +258,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil
-	a.agentSidebar.llmLabel = llmLabelState{}
+	a.agentSidebar.labelRequested = false
 	// The initial report is idle: ai_assistant_status is edge-triggered,
 	// so a turn already in progress isn't visible until its next event.
 	// The panel snapshot that follows on the open path re-derives the
@@ -272,7 +271,6 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	if a.agentSidebar.nameTab != nil {
 		a.agentSidebar.nameTab(agentTabLabel(stripped))
 	}
-	a.maybeRequestAgentTabLabel(stripped)
 }
 
 // stripMention removes every <@userID> mention (bare or labeled) from raw

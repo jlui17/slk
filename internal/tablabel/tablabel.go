@@ -1,7 +1,7 @@
 // Package tablabel names herdr tabs after Slack agent threads with a
 // small-model API call. It is the fork's one Anthropic API dependency;
 // callers own triggering, sanitizing the reply, and every fallback (the
-// deterministic label stands whenever Label errors).
+// deterministic label stands whenever Relabel errors).
 package tablabel
 
 import (
@@ -13,11 +13,6 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
-
-const systemPrompt = "You label terminal tabs. The user message started a Slack thread " +
-	"where a coding agent was asked to do a task. Write a label naming that task: " +
-	"2 to 5 words, 30 characters maximum, no emoji, no quotes, no trailing " +
-	"punctuation, no ticket or task IDs. Reply with the label only."
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
 	"of a Slack thread where a coding agent works on a task. Reply with exactly two " +
@@ -44,10 +39,6 @@ const relabelSystemPrompt = "You label terminal tabs. The user message is a tran
 const relabelReminder = "That was the whole thread. Reply with exactly two lines: line 1 " +
 	"the id or the word none, line 2 the name of the work in 1 to 3 words. The rules in " +
 	"the system prompt still apply."
-
-// maxRootBytes caps the prompt: the root message carries the ask, and a
-// label needs nothing past its opening.
-const maxRootBytes = 2000
 
 // maxTranscriptBytes is Relabel's defensive cap; the caller owns the real
 // budget (assembled newest-first), so a prefix-keeping clip here only
@@ -77,20 +68,15 @@ func newForTest(model, baseURL string) *Client {
 	}
 }
 
-// Label asks the model for a short tab label for the thread whose root
-// message is root, flattened plain text. The reply is returned
-// whitespace-trimmed but otherwise as the model wrote it.
-func (c *Client) Label(ctx context.Context, root string) (string, error) {
-	return c.complete(ctx, systemPrompt, clip(root, maxRootBytes))
-}
-
-// Relabel asks the model to judge, from a whole-thread transcript, which
-// task id the thread is about and to name the work. hints are freeform
+// Relabel asks the model to judge, from a thread transcript (as much of the
+// thread as the caller has), which task id the thread is about and to name
+// the work. hints are freeform
 // per-user guidance lines, sent both with the system prompt and again
 // after the transcript: measured on 30 to 90 KB threads, the copy before
 // the transcript alone did not hold (ids and word counts drifted), and the
 // copy after it alone did worse than both. id is "" when the model judged
-// the thread has no task id; label follows Label's contract.
+// the thread has no task id; label is whitespace-trimmed but otherwise as
+// the model wrote it.
 func (c *Client) Relabel(ctx context.Context, transcript string, hints []string) (id, label string, err error) {
 	system, reminder := relabelSystemPrompt, relabelReminder
 	if len(hints) > 0 {

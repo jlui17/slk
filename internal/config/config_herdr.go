@@ -13,14 +13,14 @@ type Herdr struct {
 	OpenCommand string `toml:"open_command"`
 	// TabNameModel enables model-generated tab labels: the Anthropic
 	// model (e.g. "claude-haiku-4-5") asked to name the tab after the
-	// open agent thread's root message, refining the deterministic
-	// label. Empty means deterministic labels only. Needs an API key:
-	// AnthropicAPIKey, or the ANTHROPIC_API_KEY env var.
+	// open agent thread, at open and on :retitle, refining the
+	// deterministic label. Empty means deterministic labels only. Needs
+	// an API key: AnthropicAPIKey, or the ANTHROPIC_API_KEY env var.
 	TabNameModel string `toml:"tab_name_model"`
 	// AnthropicAPIKey is the key the tab_name_model calls use. Empty
 	// falls back to the ANTHROPIC_API_KEY env var. A secret: never log it.
 	AnthropicAPIKey string `toml:"anthropic_api_key"`
-	// TabNameHints are freeform per-user lines handed to the :retitle
+	// TabNameHints are freeform per-user lines handed to the tab-label
 	// model as naming guidance (e.g. "task ids look like colony-123").
 	TabNameHints []string `toml:"tab_name_hints"`
 }

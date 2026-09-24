@@ -1,8 +1,9 @@
-// The :retitle command: re-derive the tracked agent thread's tab label
-// from the whole thread. The open-time label request (agentthread_llm.go)
-// fires once, from the root only; a thread that drifts — brainstorm to
-// design to implementation, a task id filed mid-thread — keeps its stale
-// label until this manual refresh.
+// The model tab label: judge the tracked agent thread's task id and name
+// its work from the thread transcript. One request path serves both
+// triggers: the automatic one when the thread opens (agentthread_llm.go),
+// which fires once, and the :retitle command here, for a thread that has
+// drifted since (brainstorm to design to implementation, a task id filed
+// mid-thread).
 package ui
 
 import (
@@ -17,25 +18,29 @@ import (
 )
 
 // AgentTabRelabelFunc requests a model-judged task id and label from a
-// whole-thread transcript — the :retitle refresh of the open-time
-// AgentTabLabelFunc request. Answers with an AgentTabRelabelMsg into the
-// program loop, or nothing on failure, leaving the current label standing.
-type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript string)
+// thread transcript. fallbackTaskID is echoed into the result (see
+// AgentTabRelabelMsg). Answers with an AgentTabRelabelMsg into the program
+// loop, or nothing on failure, leaving the current label standing.
+type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string)
 
-// AgentTabRelabelMsg carries a :retitle result back into the program loop.
-// TaskID is the model's judgment of which task the whole thread is about;
-// empty means it judged the thread has no id, which on a refresh is
-// authoritative — a previously hoisted (possibly wrong) id is dropped, not
-// kept.
+// AgentTabRelabelMsg carries a model label result back into the program
+// loop. TaskID is the model's judgment of which task the thread is about;
+// empty means it judged the thread has no id, and FallbackTaskID decides
+// what that means. :retitle leaves it empty, so none is authoritative: a
+// previously hoisted (possibly wrong) id is dropped, not kept. The
+// open-time request sets it to the id hoisted from the root, which then
+// survives a none: that request may have seen the root alone, and the root
+// id is already on the tab.
 type AgentTabRelabelMsg struct {
-	TeamID    string
-	ChannelID string
-	ThreadTS  string
-	TaskID    string
-	Label     string
+	TeamID         string
+	ChannelID      string
+	ThreadTS       string
+	TaskID         string
+	FallbackTaskID string
+	Label          string
 }
 
-// reduceAgentTabRelabel lands a :retitle result on the tab, unless the
+// reduceAgentTabRelabel lands a model label result on the tab, unless the
 // tracked thread moved on while the request was in flight.
 var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	m, ok := msg.(AgentTabRelabelMsg)
@@ -47,27 +52,31 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 		m.ChannelID != t.channelID || m.ThreadTS != t.threadTS {
 		return nil, true
 	}
-	label := sanitizeModelLabel(m.Label, m.TaskID)
+	id := m.TaskID
+	if id == "" {
+		id = m.FallbackTaskID
+	}
+	label := sanitizeModelLabel(m.Label, id)
 	if m.TaskID == "" && label == "" {
 		return nil, true
 	}
-	a.agentSidebar.llmLabel.taskID = m.TaskID
-	if m.TaskID != "" {
-		label = withTaskID(m.TaskID, label)
+	if id != "" {
+		label = withTaskID(id, label)
 	}
 	a.agentSidebar.nameTab(label)
 	return nil, true
 }
 
-// SetAgentTabRelabeler installs the :retitle generator. Unset, :retitle
-// reports the feature unconfigured.
+// SetAgentTabRelabeler installs the model-label generator. Unset (outside a
+// herdr pane, no API key, or the feature not configured), tab naming stays
+// purely deterministic and :retitle reports the feature unconfigured.
 func (a *App) SetAgentTabRelabeler(gen AgentTabRelabelFunc) {
 	a.agentSidebar.relabelGen = gen
 }
 
 func init() { commands["retitle"] = cmdRetitle }
 
-// maxRetitleTranscript caps what :retitle sends — sized to fit whole
+// maxRetitleTranscript caps what a label request sends — sized to fit whole
 // threads (400KB ≈ 100K tokens, half of claude-haiku-4-5's window), with
 // per-message caps so one pasted log can't crowd out the rest. On
 // overflow the newest replies survive; the root always rides.
@@ -98,7 +107,7 @@ func cmdRetitle(a *App, _ []string) tea.Cmd {
 	if transcript == "" {
 		return toastWithClear(a, "Nothing to label yet", 2*time.Second)
 	}
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript)
+	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, "")
 	return toastWithClear(a, "Re-deriving tab label…", 2*time.Second)
 }
 

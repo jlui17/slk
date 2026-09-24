@@ -19,6 +19,18 @@ func TestRelabelParsesIDAndLabel(t *testing.T) {
 	if id != "#1170" || label != "Implement viewer fix" {
 		t.Errorf("id, label = %q, %q", id, label)
 	}
+	if got.Model != "claude-haiku-4-5" {
+		t.Errorf("model = %q", got.Model)
+	}
+	if got.MaxTokens <= 0 || got.MaxTokens > 1024 {
+		t.Errorf("max_tokens = %d, want small positive", got.MaxTokens)
+	}
+	if got.Thinking.Type != "disabled" {
+		t.Errorf("thinking = %q, want disabled: a model that thinks by default spends max_tokens before any text", got.Thinking.Type)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Role != "user" {
+		t.Fatalf("messages = %+v, want one user message", got.Messages)
+	}
 	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "the work the thread is about") {
 		t.Errorf("system prompt not the ongoing-thread one: %+v", got.System)
 	}

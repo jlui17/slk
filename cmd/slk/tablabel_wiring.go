@@ -18,11 +18,11 @@ import (
 // the goroutine when the API hangs.
 const labelTimeout = 20 * time.Second
 
-// wireAgentTabLabeler installs the model-backed assists — tab labels,
-// :retitle, and the working judge — when configured (herdr.tab_name_model)
-// and credentialed (anthropicAPIKey). Results re-enter the program loop
-// as ui messages; failures are logged and dropped, leaving the
-// deterministic behavior standing.
+// wireAgentTabLabeler installs the model-backed assists — tab labels (at
+// thread open and on :retitle) and the working judge — when configured
+// (herdr.tab_name_model) and credentialed (anthropicAPIKey). Results
+// re-enter the program loop as ui messages; failures are logged and
+// dropped, leaving the deterministic behavior standing.
 func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	if cfg.TabNameModel == "" {
 		return
@@ -45,16 +45,10 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			send(msg)
 		}()
 	}
-	app.SetAgentTabLabeler(func(teamID, channelID, threadTS, root string) {
-		request(func(ctx context.Context) (tea.Msg, error) {
-			label, err := gen.Label(ctx, root)
-			return ui.AgentTabLabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Label: label}, err
-		})
-	})
-	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript string) {
+	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string) {
 		request(func(ctx context.Context) (tea.Msg, error) {
 			id, label, err := gen.Relabel(ctx, transcript, cfg.TabNameHints)
-			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, Label: label}, err
+			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, Label: label}, err
 		})
 	})
 	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, fromAgent bool) {

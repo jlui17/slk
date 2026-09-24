@@ -125,22 +125,26 @@ max_image_cache_mb = 200
 # (HERDR_ENV / HERDR_PANE_ID) and is inert everywhere else.
 #
 # Optionally, tab_name_model refines that label with a model-generated one:
-# the named Anthropic model reads the thread's root message and writes a
-# short task name, which replaces the truncated snippet a moment after the
-# deterministic rename ("[colony-562] fix flow viewer rendering" instead of
-# "[colony-562] the flow viewer renders sta…").
-# The task-id prefix and the never-overwrite-your-labels rule still apply,
-# and any failure (no key, timeout) leaves the deterministic label in
-# place. Costs one small API call per opened agent thread; needs an
+# once the thread's replies have loaded, the named Anthropic model reads
+# the thread (the root alone when nobody has replied yet), judges its task
+# id and names the work, and that replaces the truncated snippet a moment
+# after the deterministic rename ("[colony-562] flow viewer stale runs"
+# instead of "[colony-562] the flow viewer renders sta…"). An id the model
+# finds wins; when it finds none, an id the deterministic rename hoisted
+# from the root stays.
+# The never-overwrite-your-labels rule still applies, and any failure (no
+# key, timeout) silently leaves the deterministic label in place. Costs
+# one API call per opened agent thread, the size of the thread (capped at
+# 400 KB of transcript). Needs an
 # Anthropic API key: anthropic_api_key here, or, when that is empty,
 # ANTHROPIC_API_KEY in slk's environment (the config value wins when both
 # are set). With the key in it this file holds a secret, so its permissions
 # matter: chmod 600 it, and slk's own saves keep the mode the file has.
-# The label derives from the root message once, at thread open; :retitle
-# re-derives it later from the whole thread, with the model judging the
-# task id too (see Keybindings).
-# tab_name_hints are freeform lines handed to the :retitle model as naming
-# guidance, e.g. what your task ids look like.
+# The label derives once, at thread open; :retitle re-derives it later the
+# same way, from the thread as it then stands (see Keybindings). On
+# :retitle the model's "no id" is final and drops a hoisted id.
+# tab_name_hints are freeform lines handed to the model as naming
+# guidance on both, e.g. what your task ids look like.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)

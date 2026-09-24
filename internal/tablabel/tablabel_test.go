@@ -51,51 +51,6 @@ func fakeAPI(t *testing.T, responseText string) (*httptest.Server, *capturedRequ
 	return srv, got
 }
 
-func TestLabelSendsRootAndParsesReply(t *testing.T) {
-	srv, got := fakeAPI(t, "fix ingest retries\n")
-	defer srv.Close()
-
-	c := newForTest("claude-haiku-4-5", srv.URL)
-	label, err := c.Label(context.Background(), "please fix the ingest retries in colony")
-	if err != nil {
-		t.Fatalf("Label: %v", err)
-	}
-	if label != "fix ingest retries" {
-		t.Errorf("label = %q, want %q", label, "fix ingest retries")
-	}
-	if got.Model != "claude-haiku-4-5" {
-		t.Errorf("model = %q", got.Model)
-	}
-	if got.MaxTokens <= 0 || got.MaxTokens > 1024 {
-		t.Errorf("max_tokens = %d, want small positive", got.MaxTokens)
-	}
-	if got.Thinking.Type != "disabled" {
-		t.Errorf("thinking = %q, want disabled: a model that thinks by default spends max_tokens before any text", got.Thinking.Type)
-	}
-	if len(got.System) == 0 || !strings.Contains(got.System[0].Text, "30 characters") {
-		t.Errorf("system prompt missing the length rule: %+v", got.System)
-	}
-	if len(got.Messages) != 1 || got.Messages[0].Role != "user" {
-		t.Fatalf("messages = %+v, want one user message", got.Messages)
-	}
-	if body := got.Messages[0].Content[0].Text; body != "please fix the ingest retries in colony" {
-		t.Errorf("user content = %q", body)
-	}
-}
-
-func TestLabelCapsPromptSize(t *testing.T) {
-	srv, got := fakeAPI(t, "big thread")
-	defer srv.Close()
-
-	c := newForTest("claude-haiku-4-5", srv.URL)
-	if _, err := c.Label(context.Background(), strings.Repeat("x", 10000)); err != nil {
-		t.Fatalf("Label: %v", err)
-	}
-	if n := len(got.Messages[0].Content[0].Text); n > maxRootBytes {
-		t.Errorf("user content is %d bytes, want capped at %d", n, maxRootBytes)
-	}
-}
-
 func TestClipNeverSplitsARune(t *testing.T) {
 	// "é" is 2 bytes; an odd cap lands mid-rune and must back off to the
 	// boundary instead of emitting invalid UTF-8.
@@ -111,12 +66,12 @@ func TestClipNeverSplitsARune(t *testing.T) {
 	}
 }
 
-func TestLabelEmptyCompletionIsError(t *testing.T) {
+func TestRelabelEmptyCompletionIsError(t *testing.T) {
 	srv, _ := fakeAPI(t, "   \n")
 	defer srv.Close()
 
 	c := newForTest("claude-haiku-4-5", srv.URL)
-	if _, err := c.Label(context.Background(), "root"); err == nil {
-		t.Fatal("Label returned no error for a blank completion")
+	if _, _, err := c.Relabel(context.Background(), "transcript", nil); err == nil {
+		t.Fatal("Relabel returned no error for a blank completion")
 	}
 }
