@@ -6,27 +6,15 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
-// todoStampRe matches the trailing "_todos as of 19:04 UTC_" stamp some of
-// Claude's Slack todo posts carry. The message's text field flattens
-// newlines to spaces, so the stamp is anchored to the end of the text, not
-// a line.
-var todoStampRe = regexp.MustCompile(`_todos as of \d{1,2}:\d{2} UTC_\s*$`)
+// todoPendingRe matches the markers of a pending or in-progress todo item
+// (✱/✳/○/◐/☐), which appear only in the agent's todo renderings. A todo
+// post with none left — all ✓ marks, with or without the "_todos as of_"
+// stamp — says nothing about what happens next, so it goes to the judge
+// like any other agent message.
+var todoPendingRe = regexp.MustCompile(`[✱✳○◐☐]`)
 
-// todoPendingRe and todoDoneRe match the todo-item markers: ✱/✳/○/◐/☐
-// mark pending or in-progress items and appear only in todo renderings,
-// while ✓/✔ also show up as ad-hoc bullets in prose, so done markers only
-// count as a todo list when at least two appear. Not every todo post
-// carries the stamp (observed live: an all-done list posted without one),
-// so markers are a first-class signal, not a fallback.
-var (
-	todoPendingRe = regexp.MustCompile(`[✱✳○◐☐]`)
-	todoDoneRe    = regexp.MustCompile(`[✓✔]`)
-)
-
-func isAgentTodoText(text string) bool {
-	return todoStampRe.MatchString(text) ||
-		todoPendingRe.MatchString(text) ||
-		len(todoDoneRe.FindAllString(text, 2)) >= 2
+func hasPendingTodo(text string) bool {
+	return todoPendingRe.MatchString(text)
 }
 
 // reactionBy reports whether userID reacted to the message with any emoji.
@@ -49,11 +37,11 @@ func reactionBy(reactions []messages.ReactionItem, userID string) bool {
 // cache yet; noteAgentThreadUserResolved corrects it when the resolver
 // lands.
 type agentLastMsg struct {
-	ts       string
-	authorID string
-	human    bool
-	todo     bool
-	acked    bool
+	ts          string
+	authorID    string
+	human       bool
+	pendingTodo bool
+	acked       bool
 	// text is the raw mrkdwn body, kept for the model working judge
 	// (agentworking_llm.go): the ambiguous shapes are judged from the
 	// newest message alone.
@@ -76,7 +64,8 @@ const (
 
 // derived is the content-derived lifecycle state and the rule that
 // decided it: a human message the agent hasn't reacted to means the agent
-// owes a response, and an agent-authored todo post means it is mid-task.
+// owes a response, and an agent-authored todo post with items still open
+// means it is mid-task.
 // The two shapes content can't decide — a plain agent reply, an
 // agent-acked human message — take the model verdict when one has landed
 // for exactly this state, and read idle otherwise.
@@ -89,7 +78,7 @@ func (g *agentSidebar) derived() (AgentState, AgentStateSource) {
 		if !l.acked {
 			return AgentWorking, SourceUnackedHuman
 		}
-	} else if l.todo {
+	} else if l.pendingTodo {
 		return AgentWorking, SourceTodoPost
 	}
 	switch workingJudgeKey(l) {
@@ -169,13 +158,13 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 	switch {
 	case msg.IsEdited:
 		// Only an edit of the newest message can change the derived
-		// state — its todo-ness and its judged text: author and
+		// state — its pending todos and its judged text: author and
 		// reactions survive an edit, but a standing model verdict
 		// answered the old text, so it is dropped and re-asked.
 		if msg.TS != last.ts {
 			return
 		}
-		last.todo = isAgentTodoText(msg.Text)
+		last.pendingTodo = hasPendingTodo(msg.Text)
 		last.text = msg.Text
 		a.agentSidebar.workingJudge = workingJudgeState{}
 	case last.ts != "" && msg.TS <= last.ts:
@@ -185,12 +174,12 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		return
 	default:
 		*last = agentLastMsg{
-			ts:       msg.TS,
-			authorID: msg.UserID,
-			human:    a.agentAuthorIsHuman(msg.UserID),
-			todo:     isAgentTodoText(msg.Text),
-			acked:    reactionBy(msg.Reactions, t.botUserID),
-			text:     msg.Text,
+			ts:          msg.TS,
+			authorID:    msg.UserID,
+			human:       a.agentAuthorIsHuman(msg.UserID),
+			pendingTodo: hasPendingTodo(msg.Text),
+			acked:       reactionBy(msg.Reactions, t.botUserID),
+			text:        msg.Text,
 		}
 	}
 	a.maybeJudgeAgentWorking()
@@ -255,12 +244,12 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	}
 	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg = agentLastMsg{
-		ts:       last.TS,
-		authorID: last.UserID,
-		human:    a.agentAuthorIsHuman(last.UserID),
-		todo:     isAgentTodoText(last.Text),
-		acked:    reactionBy(last.Reactions, t.botUserID),
-		text:     last.Text,
+		ts:          last.TS,
+		authorID:    last.UserID,
+		human:       a.agentAuthorIsHuman(last.UserID),
+		pendingTodo: hasPendingTodo(last.Text),
+		acked:       reactionBy(last.Reactions, t.botUserID),
+		text:        last.Text,
 	}
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)

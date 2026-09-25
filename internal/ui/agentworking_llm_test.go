@@ -94,7 +94,7 @@ func TestStaleVerdictIsDropped(t *testing.T) {
 	}
 }
 
-func TestTodoPostAsksNoJudge(t *testing.T) {
+func TestPendingTodoPostAsksNoJudge(t *testing.T) {
 	a, _, _ := newAgentTestApp(t)
 	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
@@ -104,6 +104,24 @@ func TestTodoPostAsksNoJudge(t *testing.T) {
 	}})
 	if len(*judged) != 0 {
 		t.Errorf("judge fired for a todo post: %+v", *judged)
+	}
+}
+
+// A list with nothing left open says nothing about what the agent does
+// next, so it is judged like any other reply instead of latching working.
+func TestAllDoneTodoPostAsksJudge(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT",
+		Text: "Reviewing the workflows. ✓ Read them. ✓ Findings posted below. _todos as of 19:20 UTC_",
+	}})
+	if len(*judged) != 1 || !(*judged)[0].fromAgent || !strings.Contains((*judged)[0].message, "Findings posted") {
+		t.Fatalf("expected one agent-side judge call for an all-done list, got %+v", *judged)
+	}
+	if got := lastReport(t, reports); got.working {
+		t.Errorf("expected idle while the verdict is in flight, got %+v", got)
 	}
 }
 

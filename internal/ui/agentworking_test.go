@@ -9,54 +9,50 @@ import (
 // The todo texts are lifted verbatim from live Claude-in-Slack threads in
 // #eng (conversations.replies, 2026-08-26): the text field flattens
 // newlines to spaces and ends with the italic stamp.
-func TestIsAgentTodoText(t *testing.T) {
+func TestHasPendingTodo(t *testing.T) {
 	cases := []struct {
-		name string
-		text string
-		todo bool
+		name    string
+		text    string
+		pending bool
 	}{
 		{
-			name: "in-progress todo post",
-			text: "Picking this up — fail-fast for the loki replay's read-back verify.  ✱ Cloning colony/colony. ○ Implement: keep retrying while the count climbs. _todos as of 19:04 UTC_",
-			todo: true,
+			name:    "in-progress todo post",
+			text:    "Picking this up — fail-fast for the loki replay's read-back verify.  ✱ Cloning colony/colony. ○ Implement: keep retrying while the count climbs. _todos as of 19:04 UTC_",
+			pending: true,
 		},
 		{
-			name: "all-done todo post still counts",
-			text: "Taking the independent review of #1183. ✓ Review skills read. ✓ Verdict posted below. _todos as of 21:20 UTC_",
-			todo: true,
+			name:    "stampless in-progress marker",
+			text:    "✱ Filing the Kaneo task and moving it in-progress. ○ Open the PR.",
+			pending: true,
+		},
+		{
+			// Synthetic.
+			name:    "one item left among done ones",
+			text:    "✓ Review skills read. ○ Verdict posted below. _todos as of 21:20 UTC_",
+			pending: true,
+		},
+		{
+			name:    "all-done todo post is for the judge",
+			text:    "Taking the independent review of #1183. ✓ Review skills read. ✓ Verdict posted below. _todos as of 21:20 UTC_",
+			pending: false,
 		},
 		{
 			// Observed live in the e2e: not every todo post carries the
 			// stamp.
-			name: "stampless all-done todo post",
-			text: "✓ Look up this channel's info ✓ Check the member list ✓ Post three facts",
-			todo: true,
+			name:    "stampless all-done todo post",
+			text:    "✓ Look up this channel's info ✓ Check the member list ✓ Post three facts",
+			pending: false,
 		},
 		{
-			name: "stampless in-progress marker",
-			text: "✱ Filing the Kaneo task and moving it in-progress. ○ Open the PR.",
-			todo: true,
-		},
-		{
-			name: "plain reply",
-			text: "No dev-VM runs for this PR by either of us.",
-			todo: false,
-		},
-		{
-			name: "single checkmark in prose is not a todo post",
-			text: "CI is green ✓ and the PR is mergeable at the reviewed head.",
-			todo: false,
-		},
-		{
-			name: "stamp mid-text alone is not a todo post",
-			text: "the _todos as of 19:04 UTC_ stamp is how I format todo posts, by the way",
-			todo: false,
+			name:    "plain reply",
+			text:    "No dev-VM runs for this PR by either of us.",
+			pending: false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isAgentTodoText(tc.text); got != tc.todo {
-				t.Errorf("isAgentTodoText() = %v, want %v", got, tc.todo)
+			if got := hasPendingTodo(tc.text); got != tc.pending {
+				t.Errorf("hasPendingTodo() = %v, want %v", got, tc.pending)
 			}
 		})
 	}

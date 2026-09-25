@@ -31,7 +31,7 @@ func TestEffectiveStateSources(t *testing.T) {
 		{"live turn wins over everything", agentSidebar{working: true, lastMsg: agentReply}, AgentWorking, SourceAssistantStatus},
 		{"no message", agentSidebar{}, AgentIdle, SourceNoMessage},
 		{"unacked human", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}}, AgentWorking, SourceUnackedHuman},
-		{"todo post", agentSidebar{lastMsg: agentLastMsg{ts: "101.0", todo: true}}, AgentWorking, SourceTodoPost},
+		{"todo post", agentSidebar{lastMsg: agentLastMsg{ts: "101.0", pendingTodo: true}}, AgentWorking, SourceTodoPost},
 		{"verdict for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "101.0|a", state: AgentBlocked}}, AgentBlocked, SourceJudge},
 		{"verdict for another key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "99.0|a", state: AgentBlocked}}, AgentIdle, SourceJudgePending},
 		{"acked human, no verdict yet", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true, acked: true}}, AgentIdle, SourceJudgePending},

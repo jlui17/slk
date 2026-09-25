@@ -1,11 +1,11 @@
 // Model-judged working state: the deterministic derived signal
-// (agentworking.go) can't read two last-message shapes — a plain non-todo
-// agent reply ("let me check that") and a human message the agent only
-// acked with a reaction — so those ask the tab-label model for a
-// verdict: working, blocked on the user, or idle. The deterministic
-// verdicts (human unacked, todo post) never consult it, and until a
-// verdict lands the ambiguous states read idle, exactly as they did
-// before this existed.
+// (agentworking.go) can't read two last-message shapes — an agent reply
+// with no pending todo ("let me check that", an all-done checklist) and a
+// human message the agent only acked with a reaction — so those ask the
+// tab-label model for a verdict: working, blocked on the user, or idle.
+// The deterministic verdicts (human unacked, pending todo) never consult
+// it, and until a verdict lands the ambiguous states read idle, exactly as
+// they did before this existed.
 package ui
 
 import tea "charm.land/bubbletea/v2"
@@ -77,7 +77,7 @@ func (a *App) maybeJudgeAgentWorking() {
 	if g.judgeGen == nil || !t.active || l.ts == "" {
 		return
 	}
-	if l.human && !l.acked || !l.human && l.todo {
+	if l.human && !l.acked || !l.human && l.pendingTodo {
 		return
 	}
 	key := workingJudgeKey(l)
