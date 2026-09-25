@@ -13,7 +13,9 @@ import (
 type capturedRequest struct {
 	Model     string `json:"model"`
 	MaxTokens int    `json:"max_tokens"`
-	Thinking  struct {
+	// Temperature is nil when the request leaves it to the API's default.
+	Temperature *float64 `json:"temperature"`
+	Thinking    struct {
 		Type string `json:"type"`
 	} `json:"thinking"`
 	System []struct {
@@ -33,6 +35,7 @@ func fakeAPI(t *testing.T, responseText string) (*httptest.Server, *capturedRequ
 	t.Helper()
 	got := &capturedRequest{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*got = capturedRequest{}
 		if err := json.NewDecoder(r.Body).Decode(got); err != nil {
 			t.Errorf("decode request: %v", err)
 		}

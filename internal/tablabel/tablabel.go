@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
@@ -84,7 +85,7 @@ func (c *Client) Relabel(ctx context.Context, transcript string, hints []string)
 		system += hintLines
 		reminder += hintLines
 	}
-	reply, err := c.complete(ctx, system, clip(transcript, maxTranscriptBytes), reminder)
+	reply, err := c.complete(ctx, param.Opt[float64]{}, system, clip(transcript, maxTranscriptBytes), reminder)
 	if err != nil {
 		return "", "", err
 	}
@@ -109,8 +110,9 @@ func parseRelabelReply(reply string) (id, label string, err error) {
 	return id, label, nil
 }
 
-// complete sends user as the text blocks of one user message.
-func (c *Client) complete(ctx context.Context, system string, user ...string) (string, error) {
+// complete sends user as the text blocks of one user message. An unset
+// temperature leaves the API's default.
+func (c *Client) complete(ctx context.Context, temperature param.Opt[float64], system string, user ...string) (string, error) {
 	blocks := make([]anthropic.ContentBlockParamUnion, len(user))
 	for i, text := range user {
 		blocks[i] = anthropic.NewTextBlock(text)
@@ -120,9 +122,10 @@ func (c *Client) complete(ctx context.Context, system string, user ...string) (s
 		MaxTokens: 64,
 		// Models that think by default spend the whole token budget on a
 		// long thread before writing any text.
-		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
-		System:   []anthropic.TextBlockParam{{Text: system}},
-		Messages: []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
+		Thinking:    anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
+		Temperature: temperature,
+		System:      []anthropic.TextBlockParam{{Text: system}},
+		Messages:    []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
 	if err != nil {
 		return "", err

@@ -46,6 +46,25 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	}
 }
 
+func TestOnlyTheJudgeSetsTemperatureZero(t *testing.T) {
+	srv, got := fakeAPI(t, "w")
+	defer srv.Close()
+
+	c := newForTest("claude-haiku-4-5", srv.URL)
+	if _, err := c.Judge(context.Background(), "on it", true); err != nil {
+		t.Fatalf("Judge: %v", err)
+	}
+	if got.Temperature == nil || *got.Temperature != 0 {
+		t.Errorf("judge temperature = %v, want an explicit 0", got.Temperature)
+	}
+	if _, _, err := c.Relabel(context.Background(), "transcript", nil); err != nil {
+		t.Fatalf("Relabel: %v", err)
+	}
+	if got.Temperature != nil {
+		t.Errorf("relabel temperature = %v, want it left to the API default", *got.Temperature)
+	}
+}
+
 func TestWorkingCapsMessageSize(t *testing.T) {
 	srv, got := fakeAPI(t, "w")
 	defer srv.Close()

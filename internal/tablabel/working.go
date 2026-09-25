@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // Verdict values are herdr's lifecycle-state names, so the caller can
@@ -73,7 +75,9 @@ func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Jud
 	text := "Newest message:\n" + clipEnds(message, maxWorkingBytes)
 	j := Judgment{Verdict: VerdictIdle, PromptHash: shortHash(system), TextHash: shortHash(text)}
 	var err error
-	if j.Reply, err = c.complete(ctx, system, text); err != nil {
+	// Temperature 0: the same message should get the same verdict every
+	// time it is asked.
+	if j.Reply, err = c.complete(ctx, anthropic.Float(0), system, text); err != nil {
 		return j, err
 	}
 	j.Verdict, err = parseVerdict(j.Reply, letters)
