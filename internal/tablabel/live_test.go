@@ -86,6 +86,7 @@ func TestWorkingLive(t *testing.T) {
 		{"pr opened", true, "PR opened: https://git.colony.camp/colony/colony/pulls/1412. CI is green. Ready for review.", VerdictIdle},
 		{"nit fixed, merge word yours", true, "The loki reader-filter nit is fixed and pushed as 0d69b1cc on #1398: the filter matches -loki.json again, exactly as before the PR. Review thread asked to re-check. Merge word is yours.", VerdictIdle},
 		{"answer to a question", true, "Yes, with one precision: the grader's shell runs outside k8s, in the problem container that hosts the k3d cluster, as root. Same container, two vantage points.", VerdictIdle},
+		{"done report with optional offer", true, "Issue 47 (the model can see the authproxy listener) is closed on the sheet. I changed 2 cells of its row: Done? is ticked, and Status has your text. My read of the 5 transcripts of Taiga job 218d9a4d passed first.\n\nThe old Status had 5 links and the new text has none. I kept the old text, so say if you want the links back.", VerdictIdle},
 		{"let me check", true, "Let me go check the workflow config.", VerdictWorking},
 		{"on it", true, "On it. Cloning main and re-verifying the six claims line by line now.", VerdictWorking},
 		{"redoing after feedback", true, "Fair on both counts. Redoing it as a diagram page that starts from why the twin exists and defines each term, no infra knowledge assumed.", VerdictWorking},
