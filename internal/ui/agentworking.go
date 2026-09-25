@@ -63,28 +63,27 @@ const (
 )
 
 // derived is the content-derived lifecycle state and the rule that
-// decided it: a human message the agent hasn't reacted to means the agent
-// owes a response, and an agent-authored todo post with items still open
-// means it is mid-task.
-// The two shapes content can't decide — a plain agent reply, an
-// agent-acked human message — take the model verdict when one has landed
-// for exactly this state, and read idle otherwise.
+// decided it. An agent-authored todo post with items still open means it is
+// mid-task; every other message takes the model verdict once one has landed
+// for exactly this state. Until then a human message the agent hasn't
+// reacted to reads working (the agent owes a response), and the rest read
+// idle.
 func (g *agentSidebar) derived() (AgentState, AgentStateSource) {
 	l := g.lastMsg
 	if l.ts == "" {
 		return AgentIdle, SourceNoMessage
 	}
-	if l.human {
-		if !l.acked {
-			return AgentWorking, SourceUnackedHuman
-		}
-	} else if l.pendingTodo {
+	if !l.human && l.pendingTodo {
 		return AgentWorking, SourceTodoPost
 	}
-	switch workingJudgeKey(l) {
-	case g.workingJudge.judgedKey:
+	key := workingJudgeKey(l)
+	if key == g.workingJudge.judgedKey {
 		return g.workingJudge.state, SourceJudge
-	case g.workingJudge.failedKey:
+	}
+	if l.human && !l.acked {
+		return AgentWorking, SourceUnackedHuman
+	}
+	if key == g.workingJudge.failedKey {
 		return AgentIdle, SourceJudgeError
 	}
 	return AgentIdle, SourceJudgePending

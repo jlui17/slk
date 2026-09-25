@@ -1,11 +1,11 @@
 // Model-judged working state: the deterministic derived signal
-// (agentworking.go) can't read two last-message shapes — an agent reply
-// with no pending todo ("let me check that", an all-done checklist) and a
-// human message the agent only acked with a reaction — so those ask the
-// tab-label model for a verdict: working, blocked on the user, or idle.
-// The deterministic verdicts (human unacked, pending todo) never consult
-// it, and until a verdict lands the ambiguous states read idle, exactly as
-// they did before this existed.
+// (agentworking.go) reads only one last-message shape for certain, an agent
+// todo post with items still open. Everything else asks the tab-label model
+// for a verdict: an agent reply ("let me check that", an all-done
+// checklist) is working, blocked on the user, or idle; a human message
+// gives the agent work to do or does not ("thanks"). Until a verdict lands
+// a human message the agent hasn't reacted to reads working and the rest
+// read idle, exactly as they did before this existed.
 package ui
 
 import tea "charm.land/bubbletea/v2"
@@ -66,10 +66,10 @@ func (a *App) SetAgentWorkingJudge(gen AgentWorkingJudgeFunc) {
 	a.agentSidebar.judgeGen = gen
 }
 
-// maybeJudgeAgentWorking fires a verdict request when the newest message is
-// one of the two ambiguous shapes and that exact state hasn't been asked
-// about yet. Every lastMsg mutation calls it; the gates make it a no-op
-// everywhere the deterministic signal already decides.
+// maybeJudgeAgentWorking fires a verdict request when the newest message
+// isn't a pending todo post and that exact state hasn't been asked about
+// yet. Every lastMsg mutation calls it; the agent's ack doesn't change the
+// key, so it never re-asks about a human message already judged.
 func (a *App) maybeJudgeAgentWorking() {
 	g := &a.agentSidebar
 	t := g.thread
@@ -77,7 +77,7 @@ func (a *App) maybeJudgeAgentWorking() {
 	if g.judgeGen == nil || !t.active || l.ts == "" {
 		return
 	}
-	if l.human && !l.acked || !l.human && l.pendingTodo {
+	if !l.human && l.pendingTodo {
 		return
 	}
 	key := workingJudgeKey(l)
@@ -116,7 +116,8 @@ var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, 
 	}
 	if a.agentSidebar.effectiveState() == prev {
 		// Nothing goes to herdr, but the log still wants the judge's
-		// answer: an idle verdict and an error both leave the state idle.
+		// answer: an idle verdict and an error leave an idle state idle,
+		// and a working verdict leaves an unacked human message working.
 		a.recordAgentState()
 		return nil, true
 	}

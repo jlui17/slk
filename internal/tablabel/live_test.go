@@ -104,6 +104,9 @@ func TestWorkingLive(t *testing.T) {
 		{"user merge it", false, "merge it", VerdictWorking},
 		{"user question", false, "why did you drop the hydrator digest check?", VerdictWorking},
 		{"user follow-up request", false, "can you also update the README while you're in there?", VerdictWorking},
+		{"user sounds good", false, "sounds good", VerdictIdle},
+		{"user note to another person", false, "@Priya fyi this is the thread I mentioned, the fix should land tomorrow", VerdictIdle},
+		{"user plain request", false, "rebase this onto main and rerun the hydration check", VerdictWorking},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {

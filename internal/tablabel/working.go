@@ -33,10 +33,10 @@ const workingAgentSystemPrompt = "You watch Slack threads where a coding agent w
 	"Reply on one line: the letter w, u, or d first, then a reason of at most 10 words."
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
-	"The newest message in the thread is from the user; the agent reacted to it with an emoji and has not replied yet, so the agent owes a response to anything it asks. " +
+	"The newest message in the thread is from the user, and the agent has not replied to it yet, so the agent owes a response to anything it asks. " +
 	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on (merge it, open the PR). " +
 	"If it does, the agent has work to do. " +
-	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
+	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), or is addressed to another person and not to the agent, the agent has nothing to do. " +
 	"Reply on one line: the letter first, y if the agent has work to do, n if not, then a reason of at most 10 words."
 
 var (
@@ -64,9 +64,9 @@ type Judgment struct {
 
 // Judge reads the thread's newest message alone. For the agent's own reply
 // (fromAgent) it asks whether the agent is working, needs the user, or is
-// done; for a user message the agent has acknowledged with a reaction but
-// not answered, it asks whether the message gives the agent anything to
-// do, which is never VerdictBlocked.
+// done; for a user message the agent has not answered (reacted to or not),
+// it asks whether the message gives the agent anything to do, which is
+// never VerdictBlocked.
 func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Judgment, error) {
 	system, letters := workingAgentSystemPrompt, agentVerdictLetters
 	if !fromAgent {

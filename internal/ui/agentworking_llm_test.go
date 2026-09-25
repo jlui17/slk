@@ -22,12 +22,8 @@ func withWorkingJudge(a *App) *[]judgeCall {
 
 func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
-	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
-	// The unacked root is deterministic working: no question to ask.
-	if len(*judged) != 0 {
-		t.Fatalf("judge fired on deterministic state: %+v", *judged)
-	}
+	judged := withWorkingJudge(a)
 
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "true, let me go check the workflows",
@@ -51,14 +47,69 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	}
 }
 
-func TestAckReactionAsksJudgeAboutAckedMessage(t *testing.T) {
+// The user's own "thanks" must not latch working until the agent happens
+// to react: it reads working only while the verdict is out.
+func TestUnackedHumanMessageAsksJudge(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	rows := withAgentStateRecorder(a)
+	openWorkingAgentThread(a, []messages.MessageItem{
+		{TS: "101.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks!"},
+	})
+	if len(*judged) != 1 {
+		t.Fatalf("expected one judge call for the unacked message, got %+v", *judged)
+	}
+	if call := (*judged)[0]; call.key != "101.0|h" || call.fromAgent || call.message != "thanks!" {
+		t.Errorf("judge call = %+v", call)
+	}
+	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceUnackedHuman {
+		t.Errorf("row while the verdict is in flight = %+v", got)
+	}
+
+	// A failed request decides nothing: still working, as without a judge.
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|h", Err: "timeout"})
+	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceUnackedHuman || got.Error != "timeout" {
+		t.Errorf("row after a judge error = %+v", got)
+	}
+
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|h", State: AgentIdle, Reply: "n only thanks"})
+	if got := lastStateReport(t, rows); got.State != AgentIdle || got.Source != SourceJudge || got.JudgeReply != "n only thanks" {
+		t.Errorf("row after an idle verdict = %+v", got)
+	}
+	if got := lastReport(t, reports); got.working {
+		t.Errorf("expected idle after the verdict, got %+v", got)
+	}
+}
+
+// The ack doesn't change the question, so a message judged before the
+// agent reacted keeps its verdict and costs no second request.
+func TestAckAfterVerdictDoesNotReask(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	rows := withAgentStateRecorder(a)
+	openWorkingAgentThread(a, nil)
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", State: AgentWorking})
+	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceJudge {
+		t.Fatalf("row after a working verdict = %+v", got)
+	}
+
+	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "rocket"})
+	if len(*judged) != 1 {
+		t.Errorf("the ack re-asked the judge: %+v", *judged)
+	}
+	if got := lastReport(t, reports); !got.working {
+		t.Errorf("expected the working verdict to stand after the ack, got %+v", got)
+	}
+}
+
+func TestAckWhileVerdictInFlightReadsIdleUntilItLands(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
 	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
 
 	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "rocket"})
 	if len(*judged) != 1 {
-		t.Fatalf("expected one judge call after agent ack, got %+v", *judged)
+		t.Fatalf("expected the one judge call from the open, got %+v", *judged)
 	}
 	call := (*judged)[0]
 	if call.key != "100.0|h" || call.fromAgent || !strings.Contains(call.message, "CI workflows") {
@@ -96,8 +147,8 @@ func TestStaleVerdictIsDropped(t *testing.T) {
 
 func TestPendingTodoPostAsksNoJudge(t *testing.T) {
 	a, _, _ := newAgentTestApp(t)
-	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT",
 		Text: "Picking this up. ✱ Reading. ○ Fixing. _todos as of 19:04 UTC_",
@@ -111,8 +162,8 @@ func TestPendingTodoPostAsksNoJudge(t *testing.T) {
 // next, so it is judged like any other reply instead of latching working.
 func TestAllDoneTodoPostAsksJudge(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
-	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT",
 		Text: "Reviewing the workflows. ✓ Read them. ✓ Findings posted below. _todos as of 19:20 UTC_",
@@ -143,8 +194,8 @@ func TestJudgeNotRefiredForSameState(t *testing.T) {
 
 func TestEditOfJudgedMessageReasks(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
-	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "On it, checking now.",
 	}})

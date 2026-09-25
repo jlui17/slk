@@ -34,6 +34,8 @@ func TestEffectiveStateSources(t *testing.T) {
 		{"todo post", agentSidebar{lastMsg: agentLastMsg{ts: "101.0", pendingTodo: true}}, AgentWorking, SourceTodoPost},
 		{"verdict for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "101.0|a", state: AgentBlocked}}, AgentBlocked, SourceJudge},
 		{"verdict for another key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "99.0|a", state: AgentBlocked}}, AgentIdle, SourceJudgePending},
+		{"unacked human, idle verdict", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}, workingJudge: workingJudgeState{judgedKey: "100.0|h", state: AgentIdle}}, AgentIdle, SourceJudge},
+		{"unacked human, judge failed", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}, workingJudge: workingJudgeState{failedKey: "100.0|h"}}, AgentWorking, SourceUnackedHuman},
 		{"acked human, no verdict yet", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true, acked: true}}, AgentIdle, SourceJudgePending},
 		{"judge failed for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{failedKey: "101.0|a"}}, AgentIdle, SourceJudgeError},
 	}
@@ -145,9 +147,9 @@ func TestIdleVerdictIsLoggedWithoutAHerdrReport(t *testing.T) {
 
 func TestJudgeErrorIsLogged(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
-	judged := withWorkingJudge(a)
 	rows := withAgentStateRecorder(a)
 	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "let me check",
 	}})

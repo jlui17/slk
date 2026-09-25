@@ -52,8 +52,9 @@ func (a *App) recordAgentState() {
 	}
 	// The key check covers a standing verdict whose answer was since
 	// replaced by a newer message's: the state still holds, its details
-	// are gone.
-	if answer := g.workingJudge.answer; (source == SourceJudge || source == SourceJudgeError) &&
+	// are gone. An unacked human message with an answer is one whose
+	// request failed.
+	if answer := g.workingJudge.answer; (source == SourceJudge || source == SourceJudgeError || source == SourceUnackedHuman) &&
 		answer.Key == workingJudgeKey(g.lastMsg) {
 		r.JudgeReply = answer.Reply
 		r.JudgeModel = answer.Model

@@ -26,7 +26,7 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	}
 }
 
-func TestWorkingFramesAckedUserMessage(t *testing.T) {
+func TestWorkingFramesUserMessage(t *testing.T) {
 	srv, got := fakeAPI(t, "n")
 	defer srv.Close()
 
@@ -39,7 +39,7 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 		t.Errorf("verdict = %v, want VerdictIdle for an n completion", v.Verdict)
 	}
 	if len(got.System) == 0 || got.System[0].Text != workingUserSystemPrompt {
-		t.Errorf("system prompt is not the acked-user prompt: %+v", got.System)
+		t.Errorf("system prompt is not the user-side prompt: %+v", got.System)
 	}
 	if body := got.Messages[0].Content[0].Text; !strings.Contains(body, "thanks!") {
 		t.Errorf("user content = %q", body)
