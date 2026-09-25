@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/muesli/reflow/truncate"
@@ -115,6 +116,13 @@ type agentSidebar struct {
 
 	// recordState feeds the agent-state log; see agentstatereport.go.
 	recordState AgentStateRecorder
+
+	// lastActivity, reported (the state herdr was last told) and
+	// expiryTickerOn back the working expiry; see agentworking_expiry.go.
+	nowFn          clock
+	lastActivity   time.Time
+	reported       AgentState
+	expiryTickerOn bool
 
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of
@@ -258,6 +266,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	a.agentSidebar.working = false
 	a.agentSidebar.lastMsg = agentLastMsg{}
 	a.agentSidebar.workingJudge = workingJudgeState{}
+	a.agentSidebar.lastActivity = time.Time{}
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil
@@ -384,6 +393,7 @@ func (a *App) dropAgentThreadTurnState(teamID string) {
 	}
 	a.agentSidebar.working = false
 	a.agentSidebar.statusText = ""
+	a.agentSidebar.noteActivity(a.agentSidebar.now())
 	if a.agentSidebar.effectiveState() != AgentIdle {
 		// The derived signal still says working or blocked: republish so
 		// the row stops showing the dead turn's status text, with no edge.
@@ -406,6 +416,7 @@ func (a *App) reportAgentThreadState() {
 	t := a.agentSidebar.thread
 	eff := a.agentSidebar.effectiveState()
 	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, a.agentSidebar.statusFor(eff))
+	a.agentSidebar.reported = eff
 	a.recordAgentState()
 }
 
@@ -611,7 +622,8 @@ func agentSidebarID(displayName string) string {
 // tracked agent thread to the sidebar, and re-asserts unread state when
 // the herdr focus watcher reports the tab was unfocused. Statuses arrive
 // workspace-wide, so everything not matching the tracked thread is
-// swallowed here.
+// swallowed here. The herdr connection also starts the working-expiry
+// tick (agentworking_expiry.go).
 var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case AssistantStatusMsg:
@@ -622,6 +634,7 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.agentSidebar.working = m.Status != ""
 		a.agentSidebar.statusText = m.Status
+		a.agentSidebar.noteActivity(a.agentSidebar.now())
 		// The working→idle report is itself the completion edge, so
 		// unread state deferred during the run lands here. A turn end
 		// while the derived signal still says working publishes working
@@ -653,7 +666,11 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if a.agentSidebar.thread.active {
 			a.reportAgentThreadState()
 		}
-		return nil, true
+		return a.claimAgentWorkingExpiryTick(), true
+
+	case agentWorkingExpiryTickMsg:
+		a.expireAgentWorking()
+		return agentWorkingExpiryTick(), true
 	}
 	return nil, false
 }

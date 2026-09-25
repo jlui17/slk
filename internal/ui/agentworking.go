@@ -60,6 +60,7 @@ const (
 	SourceJudge           AgentStateSource = "judge"
 	SourceJudgePending    AgentStateSource = "judge_pending"
 	SourceJudgeError      AgentStateSource = "judge_error"
+	SourceWorkingExpired  AgentStateSource = "working_expired"
 )
 
 // derived is the content-derived lifecycle state and the rule that
@@ -67,8 +68,18 @@ const (
 // mid-task; every other message takes the model verdict once one has landed
 // for exactly this state. Until then a human message the agent hasn't
 // reacted to reads working (the agent owes a response), and the rest read
-// idle.
+// idle. A working state the thread has been silent on for too long reads
+// idle too (agentworking_expiry.go); blocked stands, since it waits on the
+// user, not on the agent.
 func (g *agentSidebar) derived() (AgentState, AgentStateSource) {
+	state, source := g.derivedFromMessage()
+	if state == AgentWorking && g.workingExpired() {
+		return AgentIdle, SourceWorkingExpired
+	}
+	return state, source
+}
+
+func (g *agentSidebar) derivedFromMessage() (AgentState, AgentStateSource) {
 	l := g.lastMsg
 	if l.ts == "" {
 		return AgentIdle, SourceNoMessage
@@ -152,6 +163,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 	if msg.ThreadTS != t.threadTS && msg.TS != t.threadTS {
 		return
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
 	last := &a.agentSidebar.lastMsg
 	switch {
@@ -166,6 +178,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		}
 		last.pendingTodo = hasPendingTodo(msg.Text)
 		last.text = workingJudgeSource(msg)
+		a.agentSidebar.noteActivity(a.agentSidebar.now())
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
 		// fixed width, so an echo or out-of-order arrival can't
@@ -180,6 +193,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 			acked:       reactionBy(msg.Reactions, t.botUserID),
 			text:        workingJudgeSource(msg),
 		}
+		a.agentSidebar.noteActivity(slackTSTime(msg.TS))
 	}
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
@@ -193,8 +207,10 @@ func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, remo
 		ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
 		return
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg.acked = !removed
+	a.agentSidebar.noteActivity(a.agentSidebar.now())
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)
 }
@@ -209,6 +225,7 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 		userID != last.authorID || !last.human {
 		return
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
 	last.human = false
 	a.maybeJudgeAgentWorking()
@@ -224,6 +241,7 @@ func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
 		ts != a.agentSidebar.lastMsg.ts {
 		return
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg = agentLastMsg{}
 	a.publishAgentThreadDerived(prev)
@@ -241,7 +259,9 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	if len(replies) > 0 {
 		last = replies[len(replies)-1]
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
+	a.agentSidebar.noteActivity(slackTSTime(last.TS))
 	a.agentSidebar.lastMsg = agentLastMsg{
 		ts:          last.TS,
 		authorID:    last.UserID,

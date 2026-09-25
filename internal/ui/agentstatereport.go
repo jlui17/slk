@@ -52,9 +52,11 @@ func (a *App) recordAgentState() {
 	}
 	// The key check covers a standing verdict whose answer was since
 	// replaced by a newer message's: the state still holds, its details
-	// are gone. An unacked human message with an answer is one whose
-	// request failed.
-	if answer := g.workingJudge.answer; (source == SourceJudge || source == SourceJudgeError || source == SourceUnackedHuman) &&
+	// are gone. Besides the judge's own sources, an answer for this
+	// message shows on an unacked human message whose request failed and
+	// on a working verdict that silence expired; a live turn's row is
+	// about the turn, not the message.
+	if answer := g.workingJudge.answer; source != SourceAssistantStatus &&
 		answer.Key == workingJudgeKey(g.lastMsg) {
 		r.JudgeReply = answer.Reply
 		r.JudgeModel = answer.Model

@@ -155,6 +155,7 @@ var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, 
 		m.ThreadTS != t.threadTS || m.Key != workingJudgeKey(a.agentSidebar.lastMsg) {
 		return nil, true
 	}
+	a.expireAgentWorking()
 	prev := a.agentSidebar.effectiveState()
 	j := &a.agentSidebar.workingJudge
 	j.answer = m

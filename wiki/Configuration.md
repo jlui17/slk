@@ -98,6 +98,8 @@ max_image_cache_mb = 200
 # message reads as working when it asks the bot for anything (a request, a
 # question, a go-ahead), idle when it just closes the exchange ("thanks");
 # one the bot hasn't reacted to reads as working until that verdict lands.
+# Working read from content expires: after 10 minutes with no new message,
+# edit, bot reaction or composing status, the row reads idle.
 #
 # While Slack considers the thread unread, the row shows the unread reply
 # count and herdr's unseen "done" indicator, the same blue dot it shows for

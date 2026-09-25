@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
@@ -62,6 +63,9 @@ func newAgentTestAppWithTab(t *testing.T) (*App, *[]agentReportCall, *[]agentUnr
 		)
 		a.channelNames = map[string]string{"C1": "z-claude-dreams"}
 		a.currentUserID = "USELF"
+		// The test threads' messages are stamped around ts 100, so a wall
+		// clock would read every working state as expired long ago.
+		a.agentSidebar.nowFn = func() time.Time { return time.Unix(160, 0) }
 		// A real workspace id, so tracking captures one and the workspace
 		// comparison every hook makes is actually exercised rather than
 		// passing on two empty strings.

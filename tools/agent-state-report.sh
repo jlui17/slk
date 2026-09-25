@@ -88,10 +88,21 @@ WHERE state = 'working'
 ORDER BY id;
 
 .print ''
+.print '== expired, but the agent then posted again without a human'
+-- False expiries: many of these mean the expiry period is too short.
+SELECT reported, channel_id, thread_ts, message_ts, judge_reply,
+  CAST(next_ts AS INTEGER) - reported_at AS secs_expired_to_next, text_tail
+FROM report_next
+WHERE next_is_bot = 1
+  AND id IN (SELECT MIN(id) FROM agent_state_reports WHERE source = 'working_expired'
+             GROUP BY channel_id, thread_ts, message_ts)
+ORDER BY id;
+
+.print ''
 .print '== judge errors, newest 20'
 SELECT datetime(reported_at, 'unixepoch', 'localtime') AS reported,
-  channel_id, thread_ts, message_ts, judge_model, error
+  channel_id, thread_ts, message_ts, source, judge_model, error
 FROM agent_state_reports
-WHERE source = 'judge_error'
+WHERE error != ''
 ORDER BY id DESC LIMIT 20;
 SQL
