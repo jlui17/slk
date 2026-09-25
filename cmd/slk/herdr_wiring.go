@@ -36,6 +36,23 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 		}
 		return u.BestName(), u.IsBot, true
 	})
+	stateReports := newAgentStateReportWriter(db)
+	app.SetAgentStateRecorder(func(r ui.AgentStateReport) {
+		stateReports.Record(cache.AgentStateReport{
+			WorkspaceID:     r.TeamID,
+			ChannelID:       r.ChannelID,
+			ThreadTS:        r.ThreadTS,
+			MessageTS:       r.MessageTS,
+			FromAgent:       r.FromAgent,
+			State:           string(r.State),
+			Source:          string(r.Source),
+			JudgeReply:      r.JudgeReply,
+			JudgeModel:      r.JudgeModel,
+			JudgePromptHash: r.JudgePromptHash,
+			MessageTextHash: r.MessageTextHash,
+			Error:           r.Error,
+		})
+	})
 	if hr.CanOpenTab() {
 		openCommand := cfg.OpenCommand
 		if openCommand == "" {
@@ -47,7 +64,10 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	}
 	// A crash skips this, leaving a stale sidebar entry until herdr's
 	// own pane detection reclaims the pane; only clean exits release.
-	return hr, func() { hr.Close(time.Second) }
+	return hr, func() {
+		hr.Close(time.Second)
+		stateReports.Close()
+	}
 }
 
 // herdrPaneIDStore returns the reporter's pane-id cache hooks over the

@@ -110,8 +110,8 @@ func TestWorkingLive(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Judge: %v", err)
 			}
-			if got != row.want {
-				t.Errorf("verdict = %v, want %v", got, row.want)
+			if got.Verdict != row.want {
+				t.Errorf("verdict = %v, want %v", got.Verdict, row.want)
 			}
 		})
 	}

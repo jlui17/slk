@@ -33,6 +33,25 @@ func (db *DB) migrateFork() error {
 		completed_at INTEGER NOT NULL DEFAULT 0
 	);
 
+	CREATE TABLE IF NOT EXISTS agent_state_reports (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		reported_at INTEGER NOT NULL DEFAULT 0,
+		workspace_id TEXT NOT NULL,
+		channel_id TEXT NOT NULL,
+		thread_ts TEXT NOT NULL,
+		message_ts TEXT NOT NULL DEFAULT '',
+		from_agent INTEGER NOT NULL DEFAULT 0,
+		state TEXT NOT NULL,
+		source TEXT NOT NULL,
+		judge_reply TEXT NOT NULL DEFAULT '',
+		judge_model TEXT NOT NULL DEFAULT '',
+		judge_prompt_hash TEXT NOT NULL DEFAULT '',
+		message_text_hash TEXT NOT NULL DEFAULT '',
+		error TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_agent_state_reports_thread
+		ON agent_state_reports(channel_id, thread_ts);
+
 	CREATE INDEX IF NOT EXISTS idx_users_workspace_name
 		ON users(workspace_id, display_name, name);
 

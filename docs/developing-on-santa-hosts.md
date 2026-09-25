@@ -60,6 +60,14 @@ per-endpoint request tally for eyeballing. It keeps the debug log on
 failure. Near-read-only: boot sends one `conversations.mark` for the
 restored channel, nothing else.
 
+`tools/agent-state-report.sh [volume]` studies wrong agent statuses after
+the fact. slk logs every agent-thread state it shows in herdr, the rule that
+decided it, and the working judge's raw reply or error to the
+`agent_state_reports` table in `cache.db` (newest 5000 rows, no message
+text). The script copies the database out of the volume through a read-only
+mount and lists blocked verdicts the agent walked past and working verdicts
+followed by an hour of silence.
+
 ### Agent isolation
 
 Agent sessions (Claude Code shells export `CLAUDECODE`; `SLK_ROLE=agent|user`

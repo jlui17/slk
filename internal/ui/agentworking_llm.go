@@ -14,27 +14,39 @@ import tea "charm.land/bubbletea/v2"
 // tracked thread's newest message. key identifies the exact state judged
 // (message plus who owes what), so the eventual verdict can be dropped if
 // the thread moved on. Fire-and-forget: the implementation answers with an
-// AgentWorkingVerdictMsg into the program loop, or nothing on failure.
+// AgentWorkingVerdictMsg into the program loop, with Err set on failure.
 type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, fromAgent bool)
 
 // AgentWorkingVerdictMsg carries a working judgment back into the program
-// loop.
+// loop. Err is set when the request failed (API error, timeout,
+// unparseable reply); State is then meaningless. Reply, Model and the
+// hashes only feed the agent-state log (agentstatereport.go).
 type AgentWorkingVerdictMsg struct {
 	TeamID    string
 	ChannelID string
 	ThreadTS  string
 	Key       string
 	State     AgentState
+	Err       string
+
+	Reply      string
+	Model      string
+	PromptHash string
+	TextHash   string
 }
 
 // workingJudgeState tracks the model verdict machinery: the key already
 // sent (so echoes and panel reloads can't refire the same question) and
 // the key the standing verdict answers. Zero value means nothing asked,
-// nothing judged.
+// nothing judged. failedKey is the key whose request errored, which reads
+// idle like an unanswered one; answer is the message that set judgedKey or
+// failedKey, kept for the agent-state log.
 type workingJudgeState struct {
 	requestedKey string
 	judgedKey    string
 	state        AgentState
+	failedKey    string
+	answer       AgentWorkingVerdictMsg
 }
 
 // workingJudgeKey names the judged state: the message plus which side wrote
@@ -94,8 +106,20 @@ var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, 
 		return nil, true
 	}
 	prev := a.agentSidebar.effectiveState()
-	a.agentSidebar.workingJudge.judgedKey = m.Key
-	a.agentSidebar.workingJudge.state = m.State
-	a.publishAgentThreadDerived(prev)
+	j := &a.agentSidebar.workingJudge
+	j.answer = m
+	if m.Err != "" {
+		j.failedKey = m.Key
+	} else {
+		j.judgedKey = m.Key
+		j.state = m.State
+	}
+	if a.agentSidebar.effectiveState() == prev {
+		// Nothing goes to herdr, but the log still wants the judge's
+		// answer: an idle verdict and an error both leave the state idle.
+		a.recordAgentState()
+		return nil, true
+	}
+	a.reportAgentThreadState()
 	return nil, true
 }

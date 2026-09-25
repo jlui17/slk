@@ -15,8 +15,8 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
-	if v != VerdictWorking {
-		t.Errorf("verdict = %v, want VerdictWorking for a w completion", v)
+	if v.Verdict != VerdictWorking {
+		t.Errorf("verdict = %v, want VerdictWorking for a w completion", v.Verdict)
 	}
 	if len(got.System) == 0 || got.System[0].Text != workingAgentSystemPrompt {
 		t.Errorf("system prompt is not the agent-side prompt: %+v", got.System)
@@ -35,8 +35,8 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
-	if v != VerdictIdle {
-		t.Errorf("verdict = %v, want VerdictIdle for an n completion", v)
+	if v.Verdict != VerdictIdle {
+		t.Errorf("verdict = %v, want VerdictIdle for an n completion", v.Verdict)
 	}
 	if len(got.System) == 0 || got.System[0].Text != workingUserSystemPrompt {
 		t.Errorf("system prompt is not the acked-user prompt: %+v", got.System)
@@ -61,6 +61,39 @@ func TestWorkingCapsMessageSize(t *testing.T) {
 	}
 	if !strings.Contains(body, "HEAD-") || !strings.Contains(body, "-TAIL") {
 		t.Errorf("clipped content lost an end: %q…%q", body[:40], body[len(body)-20:])
+	}
+}
+
+func TestJudgeReturnsRawReplyAndHashes(t *testing.T) {
+	srv, got := fakeAPI(t, "U, it asked a question")
+	defer srv.Close()
+
+	c := newForTest("claude-haiku-4-5", srv.URL)
+	j, err := c.Judge(context.Background(), "A or B?", true)
+	if err != nil {
+		t.Fatalf("Judge: %v", err)
+	}
+	if j.Verdict != VerdictBlocked || j.Reply != "U, it asked a question" {
+		t.Errorf("judgment = %+v, want blocked with the raw reply", j)
+	}
+	if j.PromptHash != shortHash(workingAgentSystemPrompt) || j.TextHash != shortHash(got.Messages[0].Content[0].Text) {
+		t.Errorf("hashes = %q, %q; want those of the agent prompt and the sent text", j.PromptHash, j.TextHash)
+	}
+	if user, _ := c.Judge(context.Background(), "A or B?", false); user.PromptHash == j.PromptHash {
+		t.Error("the two system prompts share a hash")
+	}
+}
+
+func TestJudgeKeepsUnparseableReply(t *testing.T) {
+	srv, _ := fakeAPI(t, "maybe")
+	defer srv.Close()
+
+	j, err := newForTest("claude-haiku-4-5", srv.URL).Judge(context.Background(), "hm", true)
+	if err == nil {
+		t.Fatal("want a parse error")
+	}
+	if j.Verdict != VerdictIdle || j.Reply != "maybe" || j.PromptHash == "" || j.TextHash == "" {
+		t.Errorf("judgment on a parse error = %+v", j)
 	}
 }
 

@@ -113,6 +113,9 @@ type agentSidebar struct {
 	judgeGen     AgentWorkingJudgeFunc
 	workingJudge workingJudgeState
 
+	// recordState feeds the agent-state log; see agentstatereport.go.
+	recordState AgentStateRecorder
+
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of
 	// effectiveState (the other is the content-derived signal from
@@ -259,11 +262,12 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// it read, so tracking starts read.
 	a.agentSidebar.unread = nil
 	a.agentSidebar.labelRequested = false
-	// The initial report is idle: ai_assistant_status is edge-triggered,
-	// so a turn already in progress isn't visible until its next event.
-	// The panel snapshot that follows on the open path re-derives the
-	// content-based state immediately (snapshotAgentThreadLast).
-	a.agentSidebar.report(agentSidebarID(name), name, next.title, AgentIdle, "")
+	// The initial report is idle, everything it reads having just been
+	// reset: ai_assistant_status is edge-triggered, so a turn already in
+	// progress isn't visible until its next event. The panel snapshot that
+	// follows on the open path re-derives the content-based state
+	// immediately (snapshotAgentThreadLast).
+	a.reportAgentThreadState()
 	// The mention is dropped from the raw text, not trimmed from the
 	// flattened string: trimming by rendered name breaks when the
 	// in-memory name map and the user cache disagree on the bot's name.
@@ -402,6 +406,7 @@ func (a *App) reportAgentThreadState() {
 	t := a.agentSidebar.thread
 	eff := a.agentSidebar.effectiveState()
 	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, a.agentSidebar.statusFor(eff))
+	a.recordAgentState()
 }
 
 // reportAgentThreadUnread publishes the tracked thread's unread state as a

@@ -2,6 +2,8 @@ package tablabel
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -46,21 +48,41 @@ var (
 // the verdict.
 const maxWorkingBytes = 4000
 
+// Judgment is one Judge answer with what it takes to study it later:
+// Reply is the model's raw completion, PromptHash names the system prompt
+// used (so answers can be compared across prompt edits) and TextHash the
+// exact user text sent (so a later edit of the message is detectable).
+// The hashes are set even when Judge errors.
+type Judgment struct {
+	Verdict    Verdict
+	Reply      string
+	PromptHash string
+	TextHash   string
+}
+
 // Judge reads the thread's newest message alone. For the agent's own reply
 // (fromAgent) it asks whether the agent is working, needs the user, or is
 // done; for a user message the agent has acknowledged with a reaction but
 // not answered, it asks whether the message gives the agent anything to
 // do, which is never VerdictBlocked.
-func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Verdict, error) {
+func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Judgment, error) {
 	system, letters := workingAgentSystemPrompt, agentVerdictLetters
 	if !fromAgent {
 		system, letters = workingUserSystemPrompt, userVerdictLetters
 	}
-	reply, err := c.complete(ctx, system, "Newest message:\n"+clipEnds(message, maxWorkingBytes))
-	if err != nil {
-		return VerdictIdle, err
+	text := "Newest message:\n" + clipEnds(message, maxWorkingBytes)
+	j := Judgment{Verdict: VerdictIdle, PromptHash: shortHash(system), TextHash: shortHash(text)}
+	var err error
+	if j.Reply, err = c.complete(ctx, system, text); err != nil {
+		return j, err
 	}
-	return parseVerdict(reply, letters)
+	j.Verdict, err = parseVerdict(j.Reply, letters)
+	return j, err
+}
+
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:6])
 }
 
 // parseVerdict reads the one-letter contract leniently: any completion

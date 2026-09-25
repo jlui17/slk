@@ -60,39 +60,62 @@ type agentLastMsg struct {
 	text string
 }
 
-// derivedState is the content-derived lifecycle state: a human message
-// the agent hasn't reacted to means the agent owes a response, and an
-// agent-authored todo post means it is mid-task. The two shapes content
-// can't decide — a plain agent reply, an agent-acked human message — take
-// the model verdict when one has landed for exactly this state, and read
-// idle otherwise.
-func (g *agentSidebar) derivedState() AgentState {
+// AgentStateSource names the rule that decided a state, for the
+// agent-state log (agentstatereport.go).
+type AgentStateSource string
+
+const (
+	SourceAssistantStatus AgentStateSource = "assistant_status"
+	SourceNoMessage       AgentStateSource = "no_message"
+	SourceUnackedHuman    AgentStateSource = "unacked_human"
+	SourceTodoPost        AgentStateSource = "todo_post"
+	SourceJudge           AgentStateSource = "judge"
+	SourceJudgePending    AgentStateSource = "judge_pending"
+	SourceJudgeError      AgentStateSource = "judge_error"
+)
+
+// derived is the content-derived lifecycle state and the rule that
+// decided it: a human message the agent hasn't reacted to means the agent
+// owes a response, and an agent-authored todo post means it is mid-task.
+// The two shapes content can't decide — a plain agent reply, an
+// agent-acked human message — take the model verdict when one has landed
+// for exactly this state, and read idle otherwise.
+func (g *agentSidebar) derived() (AgentState, AgentStateSource) {
 	l := g.lastMsg
 	if l.ts == "" {
-		return AgentIdle
+		return AgentIdle, SourceNoMessage
 	}
 	if l.human {
 		if !l.acked {
-			return AgentWorking
+			return AgentWorking, SourceUnackedHuman
 		}
 	} else if l.todo {
-		return AgentWorking
+		return AgentWorking, SourceTodoPost
 	}
-	if g.workingJudge.judgedKey == workingJudgeKey(l) {
-		return g.workingJudge.state
+	switch workingJudgeKey(l) {
+	case g.workingJudge.judgedKey:
+		return g.workingJudge.state, SourceJudge
+	case g.workingJudge.failedKey:
+		return AgentIdle, SourceJudgeError
 	}
-	return AgentIdle
+	return AgentIdle, SourceJudgePending
 }
 
-// effectiveState combines the assistant's live turn state
+// effective combines the assistant's live turn state
 // (ai_assistant_status, covering the composing window) with the derived
-// signal (covering the gaps between messages). Every gate and report that
-// used to read the turn state alone reads this.
-func (g *agentSidebar) effectiveState() AgentState {
+// signal (covering the gaps between messages).
+func (g *agentSidebar) effective() (AgentState, AgentStateSource) {
 	if g.working {
-		return AgentWorking
+		return AgentWorking, SourceAssistantStatus
 	}
-	return g.derivedState()
+	return g.derived()
+}
+
+// effectiveState is what every gate and report that used to read the turn
+// state alone reads.
+func (g *agentSidebar) effectiveState() AgentState {
+	state, _ := g.effective()
+	return state
 }
 
 // statusFor is the row's status text for state: the live turn's text
