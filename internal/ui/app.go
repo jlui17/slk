@@ -1973,6 +1973,7 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
+	a.zoomThreadIfCramped()
 	a.setThreadPanel(parent, nil, channelID, threadTS)
 	a.threadCompose.SetChannel(a.threadComposeChannelName(channelID))
 	// A fresh thread must not inherit the previous thread's

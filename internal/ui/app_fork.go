@@ -40,6 +40,22 @@ func (a *App) ToggleThreadFullscreen() {
 	}
 }
 
+// crampedThreadWidth is the narrowest side-by-side thread panel worth
+// reading; a thread that would open narrower opens zoomed instead.
+const crampedThreadWidth = 40
+
+// zoomThreadIfCramped zooms the just-opened thread when the
+// side-by-side layout would give its panel fewer than
+// crampedThreadWidth columns, or auto-hide it. The question goes to a
+// scratch panelLayout: Compute stores hit-test bands, and a.layout's
+// must keep describing the frame View last drew.
+func (a *App) zoomThreadIfCramped() {
+	frame := newPanelLayout().Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, true, false)
+	if frame.ThreadAutoHidden || frame.ThreadWidth < crampedThreadWidth {
+		a.threadFullscreen = true
+	}
+}
+
 // permalinkRowText is a permalink row's fallback display: what the
 // picker shows until (or instead of, on fetch failure) the message
 // preview. In-app links decode to "#channel · Today · thread reply";
