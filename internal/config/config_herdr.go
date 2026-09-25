@@ -1,5 +1,7 @@
 package config
 
+import "os"
+
 // Herdr configures the herdr agent-sidebar integration, which activates
 // only when slk runs inside a herdr pane (HERDR_ENV/HERDR_PANE_ID set).
 type Herdr struct {
@@ -23,4 +25,14 @@ type Herdr struct {
 	// TabNameHints are freeform per-user lines handed to the tab-label
 	// model as naming guidance (e.g. "task ids look like colony-123").
 	TabNameHints []string `toml:"tab_name_hints"`
+}
+
+// ResolveAnthropicAPIKey is the key every model call uses:
+// herdr.anthropic_api_key wins, the ANTHROPIC_API_KEY env var is the
+// fallback.
+func (h Herdr) ResolveAnthropicAPIKey() string {
+	if h.AnthropicAPIKey != "" {
+		return h.AnthropicAPIKey
+	}
+	return os.Getenv("ANTHROPIC_API_KEY")
 }

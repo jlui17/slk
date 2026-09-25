@@ -4,7 +4,8 @@
 // transcripts, hints files, results) is private Slack text, so it lives in
 // the gitignored .luidocs/tab-title-eval/.
 //
-// Run, with ANTHROPIC_API_KEY in the environment (tools/go.sh forwards it):
+// Run, with the key slk itself uses (herdr.anthropic_api_key in config.toml,
+// else ANTHROPIC_API_KEY; tools/go.sh carries both into docker):
 //
 //	SLK_TABLABEL_LIVE=1 tools/go.sh test ./internal/ui -run '^TestTabHintsEval$' -count=1 -v \
 //	  -exec 'env SLK_TABHINTS_FILE=.luidocs/tab-title-eval/hints/E.txt'
@@ -23,6 +24,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,8 +33,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 const tabHintsEvalDir = "../../.luidocs/tab-title-eval"
@@ -113,6 +117,28 @@ func TestTabHintsEvalTranscripts(t *testing.T) {
 	}
 }
 
+// tabHintsEvalAPIKey finds the key where slk does, reading only what it
+// needs: config.toml is decoded without config.Load's workspace validation,
+// since an eval is not slk startup. The path restates xdgConfig (cmd/slk),
+// which can't be imported. A missing file is an empty config.
+func tabHintsEvalAPIKey(t *testing.T) string {
+	t.Helper()
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config")
+	}
+	var cfg config.Config
+	data, err := os.ReadFile(filepath.Join(dir, "slk", "config.toml"))
+	if err == nil {
+		err = toml.Unmarshal(data, &cfg)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read slk config: %v", err)
+	}
+	return cfg.Herdr.ResolveAnthropicAPIKey()
+}
+
 // TestTabHintsEval prints one TSV row per transcript and repeat: pane, mode,
 // repeat, the id the deterministic hoist finds in the root, the id and label
 // Relabel returned, and the label the tab would get from the open-time
@@ -138,7 +164,11 @@ func TestTabHintsEval(t *testing.T) {
 			}
 		}
 	}
-	client := tablabel.New(model, os.Getenv("ANTHROPIC_API_KEY"))
+	apiKey := tabHintsEvalAPIKey(t)
+	if apiKey == "" {
+		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
+	}
+	client := tablabel.New(model, apiKey)
 	dir := os.Getenv("SLK_TABHINTS_TRANSCRIPTS")
 	if dir == "" {
 		dir = "transcripts"

@@ -78,5 +78,14 @@ for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY; do
   fi
 done
 
+# The live tests take the key from slk's config first (herdr.anthropic_api_key),
+# so a live run gets that one file, read-only, where the container's root
+# user looks for it. Only a live run: every other go command keeps a
+# container with no user config in it.
+slk_config="${XDG_CONFIG_HOME:-$HOME/.config}/slk/config.toml"
+if [[ -n "${SLK_TABLABEL_LIVE:-}" && -f "$slk_config" ]]; then
+  docker_args+=(-v "$slk_config":/root/.config/slk/config.toml:ro)
+fi
+
 echo "Santa host — running go in docker (${image})" >&2
 exec docker run "${docker_args[@]}" "$image" go "$@"
