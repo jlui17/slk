@@ -159,13 +159,13 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		// Only an edit of the newest message can change the derived
 		// state — its pending todos and its judged text: author and
 		// reactions survive an edit, but a standing model verdict
-		// answered the old text, so it is dropped and re-asked.
+		// answered the old text. The new text is a new judge key, so
+		// that verdict no longer applies and the message is re-asked.
 		if msg.TS != last.ts {
 			return
 		}
 		last.pendingTodo = hasPendingTodo(msg.Text)
 		last.text = workingJudgeSource(msg)
-		a.agentSidebar.workingJudge = workingJudgeState{}
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
 		// fixed width, so an echo or out-of-order arrival can't

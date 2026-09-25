@@ -22,6 +22,11 @@ func withWorkingJudge(a *App) *[]judgeCall {
 	return calls
 }
 
+// judgeKey is the key of the tracked thread's newest message as it stands.
+func judgeKey(a *App) string {
+	return workingJudgeKey(a.agentSidebar.lastMsg)
+}
+
 func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
 	openWorkingAgentThread(a, nil)
@@ -35,7 +40,7 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	}
 	call := (*judged)[0]
 	if call.teamID != "T1" || call.channelID != "C1" || call.threadTS != "100.0" ||
-		call.key != "101.0|a" || !call.fromAgent || !strings.Contains(call.message, "go check") {
+		call.key != judgeKey(a) || !call.fromAgent || !strings.Contains(call.message, "go check") {
 		t.Errorf("judge call = %+v", call)
 	}
 	// Until the verdict lands, the plain reply reads idle as before.
@@ -43,7 +48,7 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 		t.Errorf("expected idle while verdict in flight, got %+v", got)
 	}
 
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentWorking})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
 		t.Errorf("expected working after a working verdict, got %+v", got)
 	}
@@ -61,7 +66,7 @@ func TestUnackedHumanMessageAsksJudge(t *testing.T) {
 	if len(*judged) != 1 {
 		t.Fatalf("expected one judge call for the unacked message, got %+v", *judged)
 	}
-	if call := (*judged)[0]; call.key != "101.0|h" || call.fromAgent || call.message != "thanks!" {
+	if call := (*judged)[0]; call.key != judgeKey(a) || call.fromAgent || call.message != "thanks!" {
 		t.Errorf("judge call = %+v", call)
 	}
 	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceUnackedHuman {
@@ -69,12 +74,12 @@ func TestUnackedHumanMessageAsksJudge(t *testing.T) {
 	}
 
 	// A failed request decides nothing: still working, as without a judge.
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|h", Err: "timeout"})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), Err: "timeout"})
 	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceUnackedHuman || got.Error != "timeout" {
 		t.Errorf("row after a judge error = %+v", got)
 	}
 
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|h", State: AgentIdle, Reply: "n only thanks"})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentIdle, Reply: "n only thanks"})
 	if got := lastStateReport(t, rows); got.State != AgentIdle || got.Source != SourceJudge || got.JudgeReply != "n only thanks" {
 		t.Errorf("row after an idle verdict = %+v", got)
 	}
@@ -90,7 +95,7 @@ func TestAckAfterVerdictDoesNotReask(t *testing.T) {
 	judged := withWorkingJudge(a)
 	rows := withAgentStateRecorder(a)
 	openWorkingAgentThread(a, nil)
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", State: AgentWorking})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentWorking})
 	if got := lastStateReport(t, rows); got.State != AgentWorking || got.Source != SourceJudge {
 		t.Fatalf("row after a working verdict = %+v", got)
 	}
@@ -114,13 +119,13 @@ func TestAckWhileVerdictInFlightReadsIdleUntilItLands(t *testing.T) {
 		t.Fatalf("expected the one judge call from the open, got %+v", *judged)
 	}
 	call := (*judged)[0]
-	if call.key != "100.0|h" || call.fromAgent || !strings.Contains(call.message, "CI workflows") {
+	if call.key != judgeKey(a) || call.fromAgent || !strings.Contains(call.message, "CI workflows") {
 		t.Errorf("judge call = %+v", call)
 	}
 	if got := lastReport(t, reports); got.working {
 		t.Errorf("expected idle while verdict in flight, got %+v", got)
 	}
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", State: AgentWorking})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
 		t.Errorf("expected working after a working verdict on acked ask, got %+v", got)
 	}
@@ -167,12 +172,13 @@ func TestStaleVerdictIsDropped(t *testing.T) {
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "let me check",
 	}})
+	stale := judgeKey(a)
 	// The thread moves on before the verdict lands.
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "also this",
 	}})
 	before := len(*reports)
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentIdle})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: stale, State: AgentIdle})
 	if len(*reports) != before {
 		t.Errorf("stale verdict published a report: %+v", (*reports)[before:])
 	}
@@ -235,7 +241,7 @@ func TestEditOfJudgedMessageReasks(t *testing.T) {
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "On it, checking now.",
 	}})
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentWorking})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
 		t.Fatalf("expected working after a working verdict, got %+v", got)
 	}
@@ -248,7 +254,35 @@ func TestEditOfJudgedMessageReasks(t *testing.T) {
 		t.Errorf("expected idle after edit dropped the verdict, got %+v", got)
 	}
 	if len(*judged) != 2 || !strings.Contains((*judged)[1].message, "all green") {
-		t.Errorf("expected a re-ask with the edited text, got %+v", *judged)
+		t.Fatalf("expected a re-ask with the edited text, got %+v", *judged)
+	}
+}
+
+// The request for the old text can still be in flight when the edit is
+// re-asked, and the two replies can land in either order.
+func TestVerdictForTextBeforeEditIsDropped(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "On it, checking now.",
+	}})
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", IsEdited: true, Text: "Done, all green.",
+	}})
+	if len(*judged) != 2 || (*judged)[0].key == (*judged)[1].key {
+		t.Fatalf("expected the edit to be asked under its own key, got %+v", *judged)
+	}
+	oldText, newText := (*judged)[0].key, (*judged)[1].key
+
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: newText, State: AgentIdle})
+	before := len(*reports)
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: oldText, State: AgentWorking})
+	if len(*reports) != before {
+		t.Errorf("the old text's verdict published a report: %+v", (*reports)[before:])
+	}
+	if state, source := a.agentSidebar.effective(); state != AgentIdle || source != SourceJudge {
+		t.Errorf("effective() = %v, %v; want the edited text's idle verdict", state, source)
 	}
 }
 
@@ -261,7 +295,7 @@ func TestBlockedVerdictReportsBlocked(t *testing.T) {
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "Two options here, A or B. Which do you want?",
 	}})
 	before := len(*unreads)
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentBlocked})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentBlocked})
 	// The reply itself is unread: the blocked report carries the count.
 	if got := lastReport(t, reports); got.state != AgentBlocked || got.status != "1 unread reply" {
 		t.Fatalf("expected a blocked report with the unread count, got %+v", got)

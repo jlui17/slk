@@ -9,6 +9,8 @@
 package ui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 
@@ -20,8 +22,8 @@ import (
 
 // AgentWorkingJudgeFunc requests a model working/blocked/idle verdict for the
 // tracked thread's newest message. key identifies the exact state judged
-// (message plus who owes what), so the eventual verdict can be dropped if
-// the thread moved on. Fire-and-forget: the implementation answers with an
+// (message, who owes what, and its text), so the eventual verdict can be
+// dropped if the thread moved on or the message was edited. Fire-and-forget: the implementation answers with an
 // AgentWorkingVerdictMsg into the program loop, with Err set on failure.
 type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, fromAgent bool)
 
@@ -57,14 +59,19 @@ type workingJudgeState struct {
 	answer       AgentWorkingVerdictMsg
 }
 
-// workingJudgeKey names the judged state: the message plus which side wrote
-// it. The side matters because a bots.info resolution can flip the same ts
-// from human to agent, which changes the question being asked.
+// workingJudgeKey names the judged state: the message, which side wrote it
+// and what it says. The side matters because a bots.info resolution can
+// flip the same ts from human to agent, which changes the question being
+// asked. The text matters because an edit keeps the ts: without it the
+// request still in flight for the old text carries the same key as the
+// re-ask, and whichever reply lands last wins.
 func workingJudgeKey(l agentLastMsg) string {
+	side := "a"
 	if l.human {
-		return l.ts + "|h"
+		side = "h"
 	}
-	return l.ts + "|a"
+	sum := sha256.Sum256([]byte(l.text))
+	return l.ts + "|" + side + "|" + hex.EncodeToString(sum[:6])
 }
 
 // SetAgentWorkingJudge installs the verdict generator. Unset (no herdr

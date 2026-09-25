@@ -22,6 +22,8 @@ func lastStateReport(t *testing.T, rows *[]AgentStateReport) AgentStateReport {
 
 func TestEffectiveStateSources(t *testing.T) {
 	agentReply := agentLastMsg{ts: "101.0", authorID: "UBOT"}
+	unackedHuman := agentLastMsg{ts: "100.0", human: true}
+	agentKey, humanKey := workingJudgeKey(agentReply), workingJudgeKey(unackedHuman)
 	cases := []struct {
 		name       string
 		sidebar    agentSidebar
@@ -30,14 +32,14 @@ func TestEffectiveStateSources(t *testing.T) {
 	}{
 		{"live turn wins over everything", agentSidebar{working: true, lastMsg: agentReply}, AgentWorking, SourceAssistantStatus},
 		{"no message", agentSidebar{}, AgentIdle, SourceNoMessage},
-		{"unacked human", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}}, AgentWorking, SourceUnackedHuman},
+		{"unacked human", agentSidebar{lastMsg: unackedHuman}, AgentWorking, SourceUnackedHuman},
 		{"todo post", agentSidebar{lastMsg: agentLastMsg{ts: "101.0", pendingTodo: true}}, AgentWorking, SourceTodoPost},
-		{"verdict for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "101.0|a", state: AgentBlocked}}, AgentBlocked, SourceJudge},
-		{"verdict for another key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: "99.0|a", state: AgentBlocked}}, AgentIdle, SourceJudgePending},
-		{"unacked human, idle verdict", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}, workingJudge: workingJudgeState{judgedKey: "100.0|h", state: AgentIdle}}, AgentIdle, SourceJudge},
-		{"unacked human, judge failed", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true}, workingJudge: workingJudgeState{failedKey: "100.0|h"}}, AgentWorking, SourceUnackedHuman},
+		{"verdict for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: agentKey, state: AgentBlocked}}, AgentBlocked, SourceJudge},
+		{"verdict for another key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{judgedKey: workingJudgeKey(agentLastMsg{ts: "99.0"}), state: AgentBlocked}}, AgentIdle, SourceJudgePending},
+		{"unacked human, idle verdict", agentSidebar{lastMsg: unackedHuman, workingJudge: workingJudgeState{judgedKey: humanKey, state: AgentIdle}}, AgentIdle, SourceJudge},
+		{"unacked human, judge failed", agentSidebar{lastMsg: unackedHuman, workingJudge: workingJudgeState{failedKey: humanKey}}, AgentWorking, SourceUnackedHuman},
 		{"acked human, no verdict yet", agentSidebar{lastMsg: agentLastMsg{ts: "100.0", human: true, acked: true}}, AgentIdle, SourceJudgePending},
-		{"judge failed for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{failedKey: "101.0|a"}}, AgentIdle, SourceJudgeError},
+		{"judge failed for this key", agentSidebar{lastMsg: agentReply, workingJudge: workingJudgeState{failedKey: agentKey}}, AgentIdle, SourceJudgeError},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,7 +100,7 @@ func TestJudgeVerdictRowCarriesJudgeDetails(t *testing.T) {
 	}
 
 	a.Update(AgentWorkingVerdictMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentBlocked,
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentBlocked,
 		Reply: "u", Model: "claude-haiku-4-5", PromptHash: "p1", TextHash: "t1",
 	})
 	want := AgentStateReport{
@@ -136,7 +138,7 @@ func TestIdleVerdictIsLoggedWithoutAHerdrReport(t *testing.T) {
 	}})
 	reported := len(*reports)
 
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", State: AgentIdle, Reply: "d"})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a), State: AgentIdle, Reply: "d"})
 	if got := lastStateReport(t, rows); got.State != AgentIdle || got.Source != SourceJudge || got.JudgeReply != "d" {
 		t.Errorf("row = %+v", got)
 	}
@@ -156,7 +158,7 @@ func TestJudgeErrorIsLogged(t *testing.T) {
 	reported := len(*reports)
 
 	a.Update(AgentWorkingVerdictMsg{
-		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a",
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: judgeKey(a),
 		Err: "context deadline exceeded", Model: "claude-haiku-4-5", PromptHash: "p1", TextHash: "t1",
 	})
 	want := AgentStateReport{
@@ -189,12 +191,13 @@ func TestStaleJudgeErrorIsNotLogged(t *testing.T) {
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "let me check",
 	}})
+	stale := judgeKey(a)
 	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
 		TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "also look at CI",
 	}})
 	recorded := len(*rows)
 
-	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "101.0|a", Err: "timeout"})
+	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: stale, Err: "timeout"})
 	if len(*rows) != recorded {
 		t.Errorf("a stale judge error was logged: %+v", (*rows)[recorded:])
 	}
