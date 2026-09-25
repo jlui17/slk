@@ -30,14 +30,14 @@ const workingAgentSystemPrompt = "You watch Slack threads where a coding agent w
 	"w: working, mid-task or saying it is doing or about to do something next without waiting on the user: acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now, is w. " +
 	"u: the agent has stopped and cannot continue until the user answers in this thread: it asked the user a direct question, presented options or a plan and is waiting for approval, or is stuck on something only the user can provide. A message that asks the user nothing is never u. Offering an optional follow-up after the work is finished (say if you want X, let me know if you would like Y) is d, never u. Noting that a review or merge is pending on the user, or work that continues in another thread, is not u. " +
 	"d: done, nothing pending on the agent: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
-	"Reply with exactly one letter: w, u, or d."
+	"Reply on one line: the letter w, u, or d first, then a reason of at most 10 words."
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the user; the agent reacted to it with an emoji and has not replied yet, so the agent owes a response to anything it asks. " +
 	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on (merge it, open the PR). " +
 	"If it does, the agent has work to do. " +
 	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
-	"Reply with exactly one letter: y if the agent has work to do, n if not."
+	"Reply on one line: the letter first, y if the agent has work to do, n if not, then a reason of at most 10 words."
 
 var (
 	agentVerdictLetters = map[byte]Verdict{'w': VerdictWorking, 'u': VerdictBlocked, 'd': VerdictIdle}
@@ -89,9 +89,9 @@ func shortHash(s string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
-// parseVerdict reads the one-letter contract leniently: any completion
-// leading with a known letter counts, so "yes" or "d — looks finished"
-// still parse.
+// parseVerdict reads only the leading letter. The reason after it is for
+// the agent-state log, which keeps the whole reply; any completion leading
+// with a known letter counts, so "yes" or "d — looks finished" parse too.
 func parseVerdict(reply string, letters map[byte]Verdict) (Verdict, error) {
 	s := strings.ToLower(strings.TrimSpace(reply))
 	if s != "" {
