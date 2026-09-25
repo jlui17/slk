@@ -96,6 +96,11 @@ type viewEntry struct {
 	// Model.lastReactionHits per frame so the app-level mouse handler
 	// can route clicks to a toggle-reaction command.
 	reactionHits []reactionEntryHit
+
+	// codeBlockCopyLabels locates the copy label of each fenced block in
+	// the body, in linesNormal cells (the frame reactionHits uses).
+	// CodeBlockAt reads them. See codeblocks_fork.go.
+	codeBlockCopyLabels []CodeBlockCopyLabel
 }
 
 // reactionEntryHit is one reaction-pill hit-rect, expressed in
@@ -312,6 +317,10 @@ type Model struct {
 	// HitTestReaction so the app-level mouse handler can toggle a
 	// reaction when the user clicks a pill.
 	lastReactionHits []reactionHitRect
+
+	// bodyCopyLabels is render scratch: the copy labels of the body
+	// renderMessagePlain drew last, until renderMessageEntry takes them.
+	bodyCopyLabels []CodeBlockCopyLabel
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
@@ -1737,6 +1746,8 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		sixelRows:        attachSixel,
 		imageHits:        attachHits,
 		reactionHits:     reactHits,
+
+		codeBlockCopyLabels: m.takeBodyCopyLabels(msg, avatarStr != ""),
 	}
 }
 
@@ -2008,6 +2019,8 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		EmojiFlushes: &flushes,
 		Width:        contentWidth,
 		SearchTerms:  m.searchTerms,
+
+		CodeBlockCopyLabels: m.newBodyCopyLabels(),
 	}
 	// Blocks that render the body suppress Slack's notification-fallback
 	// text and its row. See BlocksCarryBody.

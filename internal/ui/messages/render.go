@@ -633,6 +633,8 @@ type RenderSlackMarkdownOpts struct {
 	Width        int                      // display width the caller wraps to; code blocks, list items and blockquotes wrap inside their decoration first
 	SearchTerms  []string                 // folded (text.Fold) word-prefix terms; matches wear SearchHighlightSGR
 	Preview      bool                     // the caller flattens the result to one row: code blocks render as bare code rows
+
+	CodeBlockCopyLabels *[]CodeBlockCopyLabel // append-only; non-nil draws a copy label on each fenced block and reports where (codeblocks_fork.go)
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -693,7 +695,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 		result = append(result, line)
 	}
 
-	output := held.restore(strings.Join(result, "\n"))
+	output := held.restore(strings.Join(result, "\n"), opts)
 
 	// Post-process: re-apply theme background AND foreground after every
 	// ANSI reset so that inline styled text (bold, link, mention) doesn't

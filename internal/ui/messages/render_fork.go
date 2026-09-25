@@ -74,11 +74,30 @@ func (h *heldCodeBlocks) hold(rendered string) string {
 	return codeBlockMarker(len(*h) - 1)
 }
 
-func (h heldCodeBlocks) restore(s string) string {
+// Markers sit in block order, so a copy label's row is counted front to
+// back: the rows of the result once the caller has wrapped it to opts.Width.
+func (h heldCodeBlocks) restore(s string, opts RenderSlackMarkdownOpts) string {
+	var out strings.Builder
+	row := 0
 	for i, block := range h {
-		s = strings.Replace(s, codeBlockMarker(i), block, 1)
+		before, after, found := strings.Cut(s, codeBlockMarker(i))
+		if !found {
+			continue
+		}
+		out.WriteString(before)
+		out.WriteString(block)
+		if wearsCopyLabel(opts) {
+			row += strings.Count(WordWrap(before, opts.Width), "\n")
+			top, _, _ := strings.Cut(block, "\n")
+			if start, end, ok := copyLabelCols(lipgloss.Width(top)); ok {
+				*opts.CodeBlockCopyLabels = append(*opts.CodeBlockCopyLabels, CodeBlockCopyLabel{Block: i, Row: row, ColStart: start, ColEnd: end})
+			}
+			row += strings.Count(block, "\n")
+		}
+		s = after
 	}
-	return s
+	out.WriteString(s)
+	return out.String()
 }
 
 // A held block sits exactly one blank row from whatever surrounds it,
@@ -151,7 +170,11 @@ func renderCodeBlock(inner string, opts RenderSlackMarkdownOpts, hl searchHighli
 	if limit > 0 {
 		style = style.Width(opts.Width)
 	}
-	return style.Render(body)
+	rendered := style.Render(body)
+	if wearsCopyLabel(opts) {
+		rendered = withCopyLabel(rendered)
+	}
+	return rendered
 }
 
 // The gutter is two cells wider than its digits and restores the text

@@ -41,6 +41,7 @@
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
 | `y` | Normal (message) | Copy message text |
 | `Y` / `C` | Normal (message) | Copy message permalink |
+| `c` | Normal (message) | Copy a fenced code block from the message: the code only, without the fence or language tag (multiple blocks open a picker). Clicking the `copy` label on a block's top border copies that block |
 | `o` | Normal (message) | Open link in message (Slack permalinks for the active workspace navigate in-app; other links open in the browser; multiple links open a picker) |
 | `O` | Normal (message) | Open a Slack permalink from the message in a new herdr tab running a second slk; only slk-openable links are offered. With several, a picker opens: `Enter` opens the cursor row in a focused tab, or `Space` marks rows (`a` marks or clears all) and `Enter` opens every marked link in its own background tab, in list order (requires running inside herdr; otherwise behaves exactly like `o`) |
 | `d` | Normal (message) | Download file attachment (multiple files open a picker) |

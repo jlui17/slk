@@ -266,6 +266,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if !ok || panel != PanelMessages || py < 0 {
 			return nil
 		}
+		if code, hit := a.messagepane.CodeBlockAt(py, px); hit {
+			return a.copyCode(code)
+		}
 		// Hit-test reactions and inline images first: a click
 		// that lands inside a pill toggles the user's reaction;
 		// a click inside an image footprint opens the full-screen
@@ -313,6 +316,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		panel, px, py, ok := a.panelAt(m.X, m.Y)
 		if !ok || panel != PanelThread || py < 0 {
 			return nil
+		}
+		if code, hit := a.threadPanel.CodeBlockAt(py, px); hit {
+			return a.copyCode(code)
 		}
 		// Hit-test reactions first on the thread pane too.
 		// HitTestReaction's rows are pane-local (already inclusive

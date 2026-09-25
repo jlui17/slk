@@ -430,6 +430,9 @@ type App struct {
 	pickerFiles []messages.Attachment
 	pickerInTab bool
 
+	// pickerCodeBlocks backs the "code" pickerKind (copy_code_block.go).
+	pickerCodeBlocks []messages.CodeBlock
+
 	// linkPreviewGen guards the picker's async permalink previews:
 	// bumped on every links-picker open, echoed by LinkPreviewMsg.Gen,
 	// so previews from an earlier picker can't fill a later one's rows.

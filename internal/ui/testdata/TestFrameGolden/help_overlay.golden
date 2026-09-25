@@ -7,10 +7,11 @@
       │  ▾ Channels │  ctrl+o / alt+enter also send reply to channel         █ │                 ┃  
       │ ▌# general  │  esc                back                               █ │                 ┃  
       │  # incidents│  G                  bottom                             █ │                 ┃  
-      │             │  ctrl+w o / :only   close other windows                █ │                 ┃  
+      │             │  ctrl+w o / :only   close other windows                │ │                 ┃  
       │             │  q                  close thread view                  │ │                 ┃  
       │             │  ctrl+w q / :q      close window                       │ │                 ┃  
       │             │  :                  command mode                       │ │                 ┃  
+      │             │  c                  copy code block in message         │ │                 ┃  
       │             │  y                  copy message                       │ │                 ┃  
       │             │  Y/C                copy permalink                     │ │                 ┃  
       │             │  ctrl+w w           cycle windows                      │ │                 ┃  
@@ -20,7 +21,6 @@
       │             │  E                  edit message                       │ │                 ┃  
       │             │  ctrl+x             edit message in $EDITOR            │ │                 ┃  
       │             │  ctrl+w h/j/k/l     focus window in direction          │ │                 ┃  
-      │             │  ctrl+d             half page down                     │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

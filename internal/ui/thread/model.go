@@ -63,6 +63,11 @@ type viewEntry struct {
 	// Model.lastReactionHits per frame so the app-level mouse handler
 	// can route clicks to a toggle-reaction command.
 	reactionHits []reactionEntryHit
+
+	// codeBlockCopyLabels locates the copy label of each fenced block in
+	// the body, in linesNormal cells (the frame reactionHits uses).
+	// CodeBlockAt reads them. See codeblocks_fork.go.
+	codeBlockCopyLabels []messages.CodeBlockCopyLabel
 }
 
 // reactionEntryHit is one reaction-pill hit-rect, expressed in
@@ -190,6 +195,10 @@ type Model struct {
 	// rows). Consumed by HitTestReaction so the app-level mouse
 	// handler can toggle a reaction when the user clicks a pill.
 	lastReactionHits []reactionHitRect
+
+	// bodyCopyLabels is render scratch: the copy labels of the body
+	// renderThreadMessage drew last, until View takes them for the entry.
+	bodyCopyLabels []messages.CodeBlockCopyLabel
 
 	// unreadBoundaryTS is the Slack timestamp the user has already read up
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
@@ -1415,6 +1424,8 @@ func (m *Model) View(height, width int) string {
 		linesPlain:       messages.PlainLines(parentContent),
 		height:           lipgloss.Height(parentContent),
 		contentColOffset: 1,
+
+		codeBlockCopyLabels: m.takeBodyCopyLabels(),
 	}
 	// Selection border for the parent row mirrors the per-reply
 	// cache-build treatment (borderSelect / borderInvis below): thick
@@ -1560,6 +1571,8 @@ func (m *Model) View(height, width int) string {
 				contentColOffset: 1,
 				flushes:          attachFlushes,
 				reactionHits:     reactHits,
+
+				codeBlockCopyLabels: m.takeBodyCopyLabels(),
 			})
 			m.replyIDToIdx[reply.TS] = i
 		}
@@ -1930,6 +1943,8 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		Customs:      m.emojiCtx.Customs,
 		EmojiFlushes: &flushes,
 		Width:        contentWidth,
+
+		CodeBlockCopyLabels: m.newBodyCopyLabels(),
 	}
 	// Match the main pane: content-bearing blocks suppress the fallback
 	// text and its row. See messages.BlocksCarryBody.
