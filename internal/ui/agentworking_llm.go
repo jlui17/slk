@@ -8,7 +8,15 @@
 // read idle, exactly as they did before this existed.
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"regexp"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+)
 
 // AgentWorkingJudgeFunc requests a model working/blocked/idle verdict for the
 // tracked thread's newest message. key identifies the exact state judged
@@ -84,12 +92,47 @@ func (a *App) maybeJudgeAgentWorking() {
 	if key == g.workingJudge.requestedKey || key == g.workingJudge.judgedKey {
 		return
 	}
-	message := a.flattenRootText(l.text)
+	message := a.workingJudgeText(l.text)
 	if message == "" {
 		return
 	}
 	g.workingJudge.requestedKey = key
 	g.judgeGen(t.teamID, t.channelID, t.threadTS, key, message, !l.human)
+}
+
+// workingJudgeSource is the mrkdwn the working judge reads for msg. Slack's
+// text fallback for a block-built message (every agent post) flattens
+// newlines to spaces, so a heading, numbered options and the closing
+// hand-off run together; the rich_text blocks still have the lines. All of
+// them are joined, because a post with a table continues in a second
+// rich_text block after it, and that is where the hand-off sits. Tables
+// and context blocks (the todo stamp, the app's model-and-Configure
+// footer) are left out.
+func workingJudgeSource(msg messages.MessageItem) string {
+	var parts []string
+	for _, b := range msg.Blocks {
+		if rt, ok := b.(blockkit.RichTextBlock); ok {
+			if mrkdwn := blockkit.RichTextToMrkdwn(rt); mrkdwn != "" {
+				parts = append(parts, mrkdwn)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return msg.Text
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+var (
+	spaceRunRe = regexp.MustCompile(`[ \t]+`)
+	blankRunRe = regexp.MustCompile(`\n{3,}`)
+)
+
+// workingJudgeText renders mrkdwn for the judge the way flattenRootText
+// does for a label, except that lines stay lines.
+func (a *App) workingJudgeText(mrkdwn string) string {
+	text := spaceRunRe.ReplaceAllString(a.resolveMrkdwn(mrkdwn), " ")
+	return strings.TrimSpace(blankRunRe.ReplaceAllString(text, "\n\n"))
 }
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/messages/blockkit/blockkittest"
 )
 
 type judgeCall struct {
@@ -121,6 +123,40 @@ func TestAckWhileVerdictInFlightReadsIdleUntilItLands(t *testing.T) {
 	a.Update(AgentWorkingVerdictMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Key: "100.0|h", State: AgentWorking})
 	if got := lastReport(t, reports); !got.working {
 		t.Errorf("expected working after a working verdict on acked ask, got %+v", got)
+	}
+}
+
+// Numbered options and a closing question on their own lines are what the
+// judge reads a hand-off from. An agent post's Text is Slack's fallback
+// with the newlines already flattened away; its rich_text blocks keep them,
+// on both sides of a table.
+func TestJudgeTextKeepsLines(t *testing.T) {
+	a, _, _ := newAgentTestApp(t)
+	openWorkingAgentThread(a, nil)
+	judged := withWorkingJudge(a)
+
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT",
+		Text: "Two ways: 1. fail the run 2. log a WARN Which one?",
+		Blocks: []blockkit.Block{
+			blockkittest.Paragraph("Two   ways:\n1. fail the run\n2. log a WARN"),
+			blockkit.TableBlock{Rows: [][]string{{"option", "cost"}}},
+			blockkittest.Paragraph("\n\n\nWhich one?"),
+		},
+	}})
+	if len(*judged) != 1 {
+		t.Fatalf("expected one judge call, got %+v", *judged)
+	}
+	if got, want := (*judged)[0].message, "Two ways:\n1. fail the run\n2. log a WARN\n\nWhich one?"; got != want {
+		t.Errorf("agent judge text = %q, want %q", got, want)
+	}
+
+	// Without blocks the Text is judged, mentions resolved, lines kept.
+	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "<@UBOT> two things:\n- rebase\n- rerun the check",
+	}})
+	if got, want := (*judged)[len(*judged)-1].message, "@Claude two things:\n- rebase\n- rerun the check"; got != want {
+		t.Errorf("human judge text = %q, want %q", got, want)
 	}
 }
 

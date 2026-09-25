@@ -42,8 +42,8 @@ type agentLastMsg struct {
 	human       bool
 	pendingTodo bool
 	acked       bool
-	// text is the raw mrkdwn body, kept for the model working judge
-	// (agentworking_llm.go): the ambiguous shapes are judged from the
+	// text is the mrkdwn body with its lines (workingJudgeSource), kept for
+	// the model working judge (agentworking_llm.go), which judges from the
 	// newest message alone.
 	text string
 }
@@ -164,7 +164,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 			return
 		}
 		last.pendingTodo = hasPendingTodo(msg.Text)
-		last.text = msg.Text
+		last.text = workingJudgeSource(msg)
 		a.agentSidebar.workingJudge = workingJudgeState{}
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
@@ -178,7 +178,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 			human:       a.agentAuthorIsHuman(msg.UserID),
 			pendingTodo: hasPendingTodo(msg.Text),
 			acked:       reactionBy(msg.Reactions, t.botUserID),
-			text:        msg.Text,
+			text:        workingJudgeSource(msg),
 		}
 	}
 	a.maybeJudgeAgentWorking()
@@ -248,7 +248,7 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 		human:       a.agentAuthorIsHuman(last.UserID),
 		pendingTodo: hasPendingTodo(last.Text),
 		acked:       reactionBy(last.Reactions, t.botUserID),
-		text:        last.Text,
+		text:        workingJudgeSource(last),
 	}
 	a.maybeJudgeAgentWorking()
 	a.publishAgentThreadDerived(prev)

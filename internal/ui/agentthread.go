@@ -491,7 +491,13 @@ func (a *App) botUser(userID string) (string, string, bool) {
 // flattenRootText renders a root message's mrkdwn to whitespace-collapsed
 // plain text so no raw wire syntax reaches the sidebar or the tab bar.
 func (a *App) flattenRootText(rootText string) string {
-	text := messages.FlattenMrkdwn(rootText,
+	return strings.Join(strings.Fields(a.resolveMrkdwn(rootText)), " ")
+}
+
+// resolveMrkdwn renders mrkdwn entities (mentions, channels, links) to the
+// names a reader sees, leaving whitespace alone.
+func (a *App) resolveMrkdwn(text string) string {
+	return messages.FlattenMrkdwn(text,
 		func(id string) (string, bool) {
 			if name, _ := a.userNames.Get(id); name != "" {
 				return name, true
@@ -503,7 +509,6 @@ func (a *App) flattenRootText(rootText string) string {
 			name, ok := a.channelNames[id]
 			return name, ok
 		})
-	return strings.Join(strings.Fields(text), " ")
 }
 
 // agentThreadTitle labels the sidebar entry with the thread's home channel
