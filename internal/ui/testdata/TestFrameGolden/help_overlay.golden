@@ -11,7 +11,7 @@
       │             │  q                  close thread view                  │ │                 ┃  
       │             │  ctrl+w q / :q      close window                       │ │                 ┃  
       │             │  :                  command mode                       │ │                 ┃  
-      │             │  c                  copy code block in message         │ │                 ┃  
+      │             │  c                  copy code block or link in message │ │                 ┃  
       │             │  y                  copy message                       │ │                 ┃  
       │             │  Y/C                copy permalink                     │ │                 ┃  
       │             │  ctrl+w w           cycle windows                      │ │                 ┃  

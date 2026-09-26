@@ -17,7 +17,7 @@
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
 - Copy message text (`y`) and copy permalink (`Y` / `C`) to the system clipboard via OSC 52
-- Copy a fenced code block's code with `c` (a picker when the message has several) or by clicking the `copy` label on the block's top border
+- Copy a fenced code block's code or a link's URL out of a message with `c` (a picker when the message has several of either), or copy a block by clicking the `copy` label on its top border
 
 ## Compose
 

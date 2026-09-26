@@ -92,9 +92,11 @@ func (a *App) herdrTabLabel(rawURL string) (string, bool) {
 
 // applyLinkPreview fills one picker row with its fetched message
 // preview ("#channel · sender: text"). Drops stale generations and
-// results arriving after the picker closed or reopened for files.
+// results arriving after the picker closed or reopened for something
+// other than link rows (`o`/`O` open them, `c` copies one).
 func (a *App) applyLinkPreview(m LinkPreviewMsg) {
-	if m.Gen != a.linkPreviewGen || a.pickerKind != "links" || !a.linkPicker.IsVisible() {
+	linkRows := a.pickerKind == "links" || a.pickerKind == "copy"
+	if m.Gen != a.linkPreviewGen || !linkRows || !a.linkPicker.IsVisible() {
 		return
 	}
 	text := a.flattenRootText(m.Text)

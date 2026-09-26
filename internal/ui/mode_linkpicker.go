@@ -5,7 +5,8 @@
 // attachments). Enter dispatches OpenLinkMsg or DownloadFileMsg
 // depending on the kind recorded when the picker was opened; esc/q
 // closes. The `O` picker that opens herdr tabs also marks rows and
-// opens them as a batch: mode_linkpicker_fork.go.
+// opens them as a batch: mode_linkpicker_fork.go. The `c` picker
+// copies the chosen row: copy_from_message.go.
 package ui
 
 import (
@@ -19,8 +20,8 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	item, chosen := a.linkPicker.HandleKey(msg.String())
 	if chosen {
 		a.SetMode(ModeNormal)
-		if a.pickerKind == "code" {
-			return a.copyPickedCodeBlock(item.Index)
+		if a.pickerKind == "copy" {
+			return a.copyPickedCopyable(item.Index)
 		}
 		if a.pickerKind == "files" {
 			files := a.pickerFiles
@@ -41,7 +42,7 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// esc/q closed the picker.
 		a.SetMode(ModeNormal)
 		a.pickerFiles = nil
-		a.pickerCodeBlocks = nil
+		a.pickerCopyables = nil
 		a.pickerKind = ""
 		a.pickerInTab = false
 	}

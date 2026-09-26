@@ -23,10 +23,15 @@ type CodeBlock struct {
 func CodeBlocks(msg MessageItem) []CodeBlock {
 	var blocks []CodeBlock
 	for _, m := range codeBlockRe.FindAllStringSubmatch(MessageTextSource(msg), -1) {
-		language, code := splitFenceLanguage(trimFenceNewlines(m[1]))
-		blocks = append(blocks, CodeBlock{Language: language, Code: slackEntityDecoder.Replace(code)})
+		blocks = append(blocks, codeBlockOfFence(m[1]))
 	}
 	return blocks
+}
+
+// inner is what sits between the two fences.
+func codeBlockOfFence(inner string) CodeBlock {
+	language, code := splitFenceLanguage(trimFenceNewlines(inner))
+	return CodeBlock{Language: language, Code: slackEntityDecoder.Replace(code)}
 }
 
 // The same trim RenderSlackMarkdownWith applies inline (upstream code,

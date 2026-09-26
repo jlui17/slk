@@ -54,7 +54,7 @@ Last updated: 2026-08-25
 - [x] Message deletion (`D` on own message; centered confirmation overlay)
 - [x] Paste-to-upload via `Ctrl+V` in insert mode (clipboard image, file path, or text fallback) using Slack's V2 file-upload API; multiple attachments + caption send together; status-bar progress + error toasts
 - [x] OSC 52 clipboard integration for message selection, message text (`y`), and permalink copying (`Y` / `C`)
-- [x] Copy one fenced code block: `c` on the selected message (a picker when it has several) or a click on the block's `copy` label, in the messages pane and the thread panel
+- [x] Copy from a message: `c` on the selected message copies its fenced code block or its link's URL (a picker when it has several of either, in message order), and a click on a block's `copy` label copies that block, in the messages pane and the thread panel
 - [x] Open a permalink from the command line (`slk <link>`): starts in the link's workspace, jumps to the message, opens the thread panel for `thread_ts` links (cursor on the exact linked reply) and for targets that are thread parents
 - [x] In-place update on `message_changed` echoes (no duplicate row on edit)
 - [x] Live removal on `message_deleted` echoes from any client
