@@ -66,7 +66,8 @@ decided it, and the working judge's raw reply or error to the
 `agent_state_reports` table in `cache.db` (newest 5000 rows, no message
 text). The script copies the database out of the volume through a read-only
 mount and lists blocked verdicts the agent walked past and working verdicts
-followed by an hour of silence.
+followed by an hour of silence. The tuning loop built on it is the
+`tune-working-judge` skill.
 
 ### Agent isolation
 
