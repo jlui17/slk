@@ -107,10 +107,16 @@ func TestWorkingLive(t *testing.T) {
 		{"user hold off", false, "hold off on this for now, we'll revisit next week", VerdictIdle},
 		{"user go ahead", false, "go ahead with A", VerdictWorking},
 		{"user merge it", false, "merge it", VerdictWorking},
+		{"user ship it", false, "ship it", VerdictWorking},
+		{"user lgtm, merge", false, "lgtm, merge", VerdictWorking},
+		{"user lgtm", false, "lgtm", VerdictIdle},
 		{"user question", false, "why did you drop the hydrator digest check?", VerdictWorking},
 		{"user follow-up request", false, "can you also update the README while you're in there?", VerdictWorking},
 		{"user sounds good", false, "sounds good", VerdictIdle},
 		{"user note to another person", false, "@Priya fyi this is the thread I mentioned, the fix should land tomorrow", VerdictIdle},
+		{"user request to another person", false, "@Priya can you look at the diagram before standup?", VerdictIdle},
+		{"user request to the agent by name", false, "@Claude can you look at the diagram before standup?", VerdictWorking},
+		{"user request to both", false, "@Priya can you review the diagram? @Claude rebase onto main meanwhile", VerdictWorking},
 		{"user plain request", false, "rebase this onto main and rerun the hydration check", VerdictWorking},
 	}
 	for _, row := range rows {

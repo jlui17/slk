@@ -34,9 +34,11 @@ const workingAgentSystemPrompt = "You watch Slack threads where a coding agent w
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the user, and the agent has not replied to it yet, so the agent owes a response to anything it asks. " +
-	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on (merge it, open the PR). " +
+	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on, however short (merge it, open the PR). " +
+	"An approval that also tells the agent what to do next is a go-ahead. " +
 	"If it does, the agent has work to do. " +
-	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), or is addressed to another person and not to the agent, the agent has nothing to do. " +
+	"If it only closes the exchange (thanks, approval alone, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
+	"The agent's name is @Claude. A message with no @name in it is for the agent; one addressed by @name only to other people asks the agent nothing. " +
 	"Reply on one line: the letter first, y if the agent has work to do, n if not, then a reason of at most 10 words."
 
 var (
