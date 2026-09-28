@@ -21,13 +21,18 @@ const (
 // its own system prompt: one prompt covering both misreads one side or
 // the other (an agent waiting for the user's go as working, or a user's
 // "go ahead" as the agent not having started).
-const workingAgentSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
-	"The newest message in the thread is from the agent. Classify the agent's state from it. " +
-	"w: working, mid-task or saying it is doing or about to do something next without waiting on the user: acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now, is w. " +
-	"A report that also names a next step held by the agent or by another agent session, not by the user (next I'll…, I'll post again when…, will report when it finishes, the author session will merge it, the other session will pick it up), is w: work is still in flight, even when the message says the work is done and the user has nothing to do, and even when a review or merge is pending. " +
-	"A report with no such step, or whose only next step is the user's to take when they want (review it, merge it, say if you want X), stays d. " +
-	"u: the agent has stopped and cannot continue until the user answers in this thread: it asked the user a direct question, presented options or a plan and is waiting for approval, or is stuck on something only the user can provide. A message that asks the user nothing is never u. Offering an optional follow-up after the work is finished (say if you want X, let me know if you would like Y) is d, never u. Noting that a review or merge is pending on the user, or work that continues in another thread, is not u. " +
-	"d: done, nothing pending on the agent: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
+//
+// The agent-side prompt asks about the thread's work, not about the agent
+// that wrote the message: another agent session can relay into the thread
+// (a reviewer reporting that the author session will merge), and that
+// writer is finished while the thread's work is still in flight.
+const workingAgentSystemPrompt = "You watch Slack threads where coding agents work on a task for a user. " +
+	"The newest message in the thread is from an agent: the thread's own agent, or another agent session that relays into the thread (a reviewer session, for example). Classify from it whether work for this thread is still in flight. " +
+	"w: working: this agent or any other agent or agent session holds a next step and does not wait on the user. Acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now, is w. " +
+	"A report that also names a next step held by an agent, or work an agent session still has, not the user's (I'll post again at the next merge, the author session has fixes or nits in my review, the author session will run the gates and merge, the last PRs wait for the reviewers' second reads), is w, even when the message says its own part is done and the user has nothing to do, and even when a review or merge is pending. " +
+	"A report with no such step and no work left with any agent, or whose only next step is the user's to take when they want (review it, merge it, say if you want X), stays d. " +
+	"u: no agent can continue until the user answers in this thread: the message asked the user a direct question, presented options or a plan and waits for approval, or is stuck on something only the user can provide. A message that asks the user nothing is never u. Offering an optional follow-up after the work is finished (say if you want X, let me know if you would like Y) is d, never u: no agent waits for the answer. Noting that a review or merge is pending on the user, or work that continues in another thread, is not u. " +
+	"d: done, no agent has a stated next step: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
 	"Reply with exactly one letter: w, u, or d."
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
@@ -48,11 +53,12 @@ var (
 // the verdict.
 const maxWorkingBytes = 4000
 
-// Judge reads the thread's newest message alone. For the agent's own reply
-// (fromAgent) it asks whether the agent is working, needs the user, or is
-// done; for a user message the agent has acknowledged with a reaction but
-// not answered, it asks whether the message gives the agent anything to
-// do, which is never VerdictBlocked.
+// Judge reads the thread's newest message alone. For an agent's message
+// (fromAgent: the thread's agent, or another agent session relaying into
+// the thread) it asks whether the thread's work is in flight with any
+// agent, waits on the user, or is done; for a user message the agent has
+// acknowledged with a reaction but not answered, it asks whether the
+// message gives the agent anything to do, which is never VerdictBlocked.
 func (c *Client) Judge(ctx context.Context, message string, fromAgent bool) (Verdict, error) {
 	system, letters := workingAgentSystemPrompt, agentVerdictLetters
 	if !fromAgent {
