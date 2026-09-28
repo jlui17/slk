@@ -3,7 +3,8 @@
 // triggers: the automatic one when the thread opens (agentthread_llm.go),
 // which fires once, and the :retitle command here, for a thread that has
 // drifted since (brainstorm to design to implementation, a task id filed
-// mid-thread).
+// mid-thread). The automatic label never lands over a tab label something
+// else set; :retitle is the user asking by name, so its result does.
 package ui
 
 import (
@@ -18,10 +19,10 @@ import (
 )
 
 // AgentTabRelabelFunc requests a model-judged task id and label from a
-// thread transcript. fallbackTaskID is echoed into the result (see
-// AgentTabRelabelMsg). Answers with an AgentTabRelabelMsg into the program
-// loop, or nothing on failure, leaving the current label standing.
-type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string)
+// thread transcript. fallbackTaskID and force are echoed into the result
+// (see AgentTabRelabelMsg). Answers with an AgentTabRelabelMsg into the
+// program loop, or nothing on failure, leaving the current label standing.
+type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force bool)
 
 // AgentTabRelabelMsg carries a model label result back into the program
 // loop. TaskID is the model's judgment of which task the thread is about;
@@ -30,13 +31,15 @@ type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackT
 // previously hoisted (possibly wrong) id is dropped, not kept. The
 // open-time request sets it to the id hoisted from the root, which then
 // survives a none: that request may have seen the root alone, and the root
-// id is already on the tab.
+// id is already on the tab. Force lands the label over a tab label
+// something else set; only :retitle sets it.
 type AgentTabRelabelMsg struct {
 	TeamID         string
 	ChannelID      string
 	ThreadTS       string
 	TaskID         string
 	FallbackTaskID string
+	Force          bool
 	Label          string
 }
 
@@ -63,7 +66,11 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 	if id != "" {
 		label = withTaskID(id, label)
 	}
-	a.agentSidebar.nameTab(label)
+	nameTab := a.agentSidebar.nameTab
+	if m.Force && a.agentSidebar.forceNameTab != nil {
+		nameTab = a.agentSidebar.forceNameTab
+	}
+	nameTab(label)
 	return nil, true
 }
 
@@ -72,6 +79,13 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 // purely deterministic and :retitle reports the feature unconfigured.
 func (a *App) SetAgentTabRelabeler(gen AgentTabRelabelFunc) {
 	a.agentSidebar.relabelGen = gen
+}
+
+// SetAgentTabForceNamer installs the rename a :retitle result lands
+// through (see AgentTabRelabelMsg.Force). Unset, it lands through the
+// guarded rename SetAgentReporter installed.
+func (a *App) SetAgentTabForceNamer(forceNameTab AgentTabNameFunc) {
+	a.agentSidebar.forceNameTab = forceNameTab
 }
 
 func init() { commands["retitle"] = cmdRetitle }
@@ -107,7 +121,7 @@ func cmdRetitle(a *App, _ []string) tea.Cmd {
 	if transcript == "" {
 		return toastWithClear(a, "Nothing to label yet", 2*time.Second)
 	}
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, "")
+	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, "", true)
 	return toastWithClear(a, "Re-deriving tab label…", 2*time.Second)
 }
 

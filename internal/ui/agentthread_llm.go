@@ -29,7 +29,7 @@ func (a *App) maybeRequestAgentTabLabel(parent messages.MessageItem, replies []m
 	}
 	a.agentSidebar.labelRequested = true
 	root := a.flattenRootText(stripMention(parent.Text, t.botUserID))
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, hoistTaskID(root))
+	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, hoistTaskID(root), false)
 }
 
 // sanitizeModelLabel normalizes a model completion into tab-label shape:

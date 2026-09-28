@@ -431,7 +431,14 @@ const tabLabelToken = "slk_tab_label"
 // NameTab set itself, tracked via a pane-metadata token; a label the user
 // typed is never overwritten. No-op without a tab id (HERDR_TAB_ID absent
 // and the focus watcher hasn't resolved one yet) and nil-safe.
-func (r *Reporter) NameTab(label string) {
+func (r *Reporter) NameTab(label string) { r.nameTab(label, false) }
+
+// ForceNameTab is NameTab without the ownership guard, for a rename the
+// user asked for by name (:retitle): it lands over whatever label the tab
+// carries and claims the tab like any label NameTab set.
+func (r *Reporter) ForceNameTab(label string) { r.nameTab(label, true) }
+
+func (r *Reporter) nameTab(label string, force bool) {
 	if r == nil || label == "" {
 		return
 	}
@@ -460,13 +467,15 @@ func (r *Reporter) NameTab(label string) {
 			r.saveTabLabelCache(label)
 			return
 		}
-		owned, err := r.ownsTabLabel(id.PaneID, current)
-		if err != nil {
-			debuglog.Notify("herdr: pane.get: %v", err)
-			return
-		}
-		if !owned && !isDefaultTabLabel(current) && !r.cachedTabLabel(current) {
-			return
+		if !force {
+			owned, err := r.ownsTabLabel(id.PaneID, current)
+			if err != nil {
+				debuglog.Notify("herdr: pane.get: %v", err)
+				return
+			}
+			if !owned && !isDefaultTabLabel(current) && !r.cachedTabLabel(current) {
+				return
+			}
 		}
 		if err := r.call("tab.rename", tabRenameParams{TabID: id.TabID, Label: label}, nil); err != nil {
 			debuglog.Notify("herdr: tab.rename: %v", err)

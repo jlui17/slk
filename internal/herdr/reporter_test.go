@@ -476,6 +476,45 @@ func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
 	}
 }
 
+// A label something else set (another pane's process ran `herdr tab
+// rename`) stops NameTab; ForceNameTab renames over it and claims the tab,
+// so the guarded renames that follow land again.
+func TestForceNameTabOverwritesForeignLabel(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	_, rec := startServer(t, "unix", sock)
+	rec.setTabLabel("someone else's label")
+	r := newReporter("unix", sock, "pane-1", "tab-1")
+	var cached string
+	r.SetTabLabelCache(
+		func() (string, bool) { return cached, cached != "" },
+		func(label string) error { cached = label; return nil },
+	)
+
+	r.NameTab("fix ingest retries")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "someone else's label" {
+		t.Fatalf("NameTab overwrote a foreign label: %q", got)
+	}
+
+	r.ForceNameTab("fix ingest retries")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "fix ingest retries" {
+		t.Fatalf("ForceNameTab left the foreign label: %q", got)
+	}
+	if got := rec.getTokens()[tabLabelToken]; got != "fix ingest retries" {
+		t.Errorf("ownership token = %q, want the forced label", got)
+	}
+	if cached != "fix ingest retries" {
+		t.Errorf("label cache = %q, want the forced label", cached)
+	}
+
+	r.NameTab("review the deploy")
+	r.Close(time.Second)
+	if got := rec.getTabLabel(); got != "review the deploy" {
+		t.Fatalf("guarded rename after the forced one did not land: %q", got)
+	}
+}
+
 func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "herdr.sock")
 	_, rec := startServer(t, "unix", sock)

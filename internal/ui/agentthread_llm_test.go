@@ -13,6 +13,7 @@ type relabelCall struct {
 	threadTS       string
 	transcript     string
 	fallbackTaskID string
+	force          bool
 }
 
 // newLLMLabelTestApp is an agent test app with the model-label generator
@@ -20,8 +21,8 @@ type relabelCall struct {
 func newLLMLabelTestApp(t *testing.T) (*App, *[]relabelCall, *[]string) {
 	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	calls := &[]relabelCall{}
-	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string) {
-		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID})
+	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force bool) {
+		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID, force})
 	})
 	return a, calls, tabNames
 }

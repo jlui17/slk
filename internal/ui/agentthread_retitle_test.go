@@ -84,6 +84,69 @@ func TestRetitleBudgetKeepsNewestReplies(t *testing.T) {
 	}
 }
 
+// relabelResult is the result the live wiring answers a request with: the
+// request's keys and force flag echoed beside the model's label.
+func relabelResult(c relabelCall, label string) AgentTabRelabelMsg {
+	return AgentTabRelabelMsg{
+		TeamID: c.teamID, ChannelID: c.channelID, ThreadTS: c.threadTS,
+		FallbackTaskID: c.fallbackTaskID, Force: c.force, Label: label,
+	}
+}
+
+func TestRetitleResultForcesRename(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	replies := []messages.MessageItem{{TS: "101.0", Text: "on it", UserID: "UBOT"}}
+	a, calls, tabNames := newRetitleTestApp(t, parent, replies)
+	var forced []string
+	a.SetAgentTabForceNamer(func(label string) { forced = append(forced, label) })
+	before := len(*tabNames)
+
+	_ = executeCommand(a, "retitle")
+	_, _ = reduceAgentTabRelabel(a, relabelResult((*calls)[0], "Viewer stale runs"))
+
+	if len(forced) != 1 || forced[0] != "Viewer stale runs" {
+		t.Errorf("forced renames = %+v, want the :retitle label", forced)
+	}
+	if len(*tabNames) != before {
+		t.Errorf(":retitle result took the guarded rename: %+v", (*tabNames)[before:])
+	}
+}
+
+func TestOpenTimeResultKeepsGuardedRename(t *testing.T) {
+	a, calls, tabNames := newLLMLabelTestApp(t)
+	var forced []string
+	a.SetAgentTabForceNamer(func(label string) { forced = append(forced, label) })
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	replies := []messages.MessageItem{{TS: "101.0", Text: "on it", UserID: "UBOT"}}
+
+	a.setThreadPanel(parent, nil, "C1", "100.0")
+	a.setThreadPanel(parent, replies, "C1", "100.0")
+	if len(*calls) != 1 {
+		t.Fatalf("want 1 open-time request, got %+v", *calls)
+	}
+	_, _ = reduceAgentTabRelabel(a, relabelResult((*calls)[0], "Viewer stale runs"))
+
+	if len(forced) != 0 {
+		t.Errorf("an automatic label forced the rename: %+v", forced)
+	}
+	if last := (*tabNames)[len(*tabNames)-1]; last != "Viewer stale runs" {
+		t.Errorf("tab = %q, want the model label through the guarded rename", last)
+	}
+}
+
+func TestForcedResultWithoutForceNamerFallsBack(t *testing.T) {
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
+	a, _, tabNames := newRetitleTestApp(t, parent, nil)
+
+	_, _ = reduceAgentTabRelabel(a, AgentTabRelabelMsg{
+		TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", Force: true, Label: "Viewer stale runs",
+	})
+
+	if last := (*tabNames)[len(*tabNames)-1]; last != "Viewer stale runs" {
+		t.Errorf("tab = %q, want the guarded rename when no forced one is installed", last)
+	}
+}
+
 func TestRelabelResultAppliesModelTaskID(t *testing.T) {
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
 	a, _, tabNames := newRetitleTestApp(t, parent, nil)

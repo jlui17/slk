@@ -36,6 +36,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 		}
 		return u.BestName(), u.IsBot, true
 	})
+	app.SetAgentTabForceNamer(hr.ForceNameTab)
 	if hr.CanOpenTab() {
 		openCommand := cfg.OpenCommand
 		if openCommand == "" {

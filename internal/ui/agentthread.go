@@ -98,6 +98,7 @@ type agentSidebar struct {
 	report       AgentReportFunc
 	reportUnread AgentUnreadReportFunc
 	nameTab      AgentTabNameFunc
+	forceNameTab AgentTabNameFunc
 	userInfo     UserInfoFunc
 	thread       agentThreadState
 

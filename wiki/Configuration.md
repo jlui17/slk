@@ -116,7 +116,8 @@ max_image_cache_mb = 200
 # ("fix the ingest retries"; a task id anywhere in the message is hoisted
 # to the front, "[colony-562] fix the flow viewer") — but only over a
 # default tab label or one slk set itself; a label you typed is never
-# overwritten. Labels slk set stay renameable everywhere they occur: the
+# overwritten, except by :retitle (below). Labels slk set stay renameable
+# everywhere they occur: the
 # channel-name label the O keybinding gives a new tab counts (the opener
 # claims it for the slk instance it spawns), and ownership survives herdr
 # restarts (slk keeps its own record of the labels it set, since herdr
@@ -143,6 +144,8 @@ max_image_cache_mb = 200
 # The label derives once, at thread open; :retitle re-derives it later the
 # same way, from the thread as it then stands (see Keybindings). On
 # :retitle the model's "no id" is final and drops a hoisted id.
+# :retitle renames the tab even when something else set the current
+# label; the automatic label never does.
 # tab_name_hints are freeform lines handed to the model as naming
 # guidance on both, e.g. what your task ids look like.
 [herdr]
