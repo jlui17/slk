@@ -64,8 +64,10 @@ type agentLastMsg struct {
 // the agent hasn't reacted to means the agent owes a response, and an
 // agent-authored todo post means it is mid-task. The two shapes content
 // can't decide — a plain agent reply, an agent-acked human message — take
-// the model verdict when one has landed for exactly this state, and read
-// idle otherwise.
+// the model verdict when one has landed for exactly this state. While that
+// verdict is in flight they read what the request set (working for a new
+// message, see maybeJudgeAgentWorking), and with nothing asked they read
+// idle.
 func (g *agentSidebar) derivedState() AgentState {
 	l := g.lastMsg
 	if l.ts == "" {
@@ -78,8 +80,11 @@ func (g *agentSidebar) derivedState() AgentState {
 	} else if l.todo {
 		return AgentWorking
 	}
-	if g.workingJudge.judgedKey == workingJudgeKey(l) {
+	switch workingJudgeKey(l) {
+	case g.workingJudge.judgedKey:
 		return g.workingJudge.state
+	case g.workingJudge.requestedKey:
+		return g.workingJudge.inFlightState
 	}
 	return AgentIdle
 }
@@ -143,35 +148,46 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 	}
 	prev := a.agentSidebar.effectiveState()
 	last := &a.agentSidebar.lastMsg
+	inFlight := AgentWorking
 	switch {
 	case msg.IsEdited:
 		// Only an edit of the newest message can change the derived
 		// state — its todo-ness and its judged text: author and
-		// reactions survive an edit, but a standing model verdict
-		// answered the old text, so it is dropped and re-asked.
+		// reactions survive an edit. The text is part of the judge key,
+		// so new text is a new question and gets re-asked, and whatever
+		// answered the old text goes stale by its key. Until the new
+		// answer lands the thread holds what it read before the edit,
+		// so the edit publishes no edge of its own. An edit that leaves
+		// the text alone (a link unfurl) keeps the key: the standing
+		// verdict or the request in flight still answers it.
 		if msg.TS != last.ts {
 			return
 		}
+		inFlight = a.agentSidebar.derivedState()
 		last.todo = isAgentTodoText(msg.Text)
 		last.text = msg.Text
-		a.agentSidebar.workingJudge = workingJudgeState{}
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
 		// fixed width, so an echo or out-of-order arrival can't
 		// replace a newer message.
 		return
 	default:
-		*last = agentLastMsg{
-			ts:       msg.TS,
-			authorID: msg.UserID,
-			human:    a.agentAuthorIsHuman(msg.UserID),
-			todo:     isAgentTodoText(msg.Text),
-			acked:    reactionBy(msg.Reactions, t.botUserID),
-			text:     msg.Text,
-		}
+		*last = a.agentLastMsgFrom(msg)
 	}
-	a.maybeJudgeAgentWorking()
+	a.maybeJudgeAgentWorking(inFlight)
 	a.publishAgentThreadDerived(prev)
+}
+
+// agentLastMsgFrom is msg as the tracked thread's newest message.
+func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
+	return agentLastMsg{
+		ts:       msg.TS,
+		authorID: msg.UserID,
+		human:    a.agentAuthorIsHuman(msg.UserID),
+		todo:     isAgentTodoText(msg.Text),
+		acked:    reactionBy(msg.Reactions, a.agentSidebar.thread.botUserID),
+		text:     msg.Text,
+	}
 }
 
 // noteAgentThreadReaction applies a reaction change to the derived state:
@@ -184,7 +200,7 @@ func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, remo
 	}
 	prev := a.agentSidebar.effectiveState()
 	a.agentSidebar.lastMsg.acked = !removed
-	a.maybeJudgeAgentWorking()
+	a.maybeJudgeAgentWorking(AgentWorking)
 	a.publishAgentThreadDerived(prev)
 }
 
@@ -200,7 +216,7 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 	}
 	prev := a.agentSidebar.effectiveState()
 	last.human = false
-	a.maybeJudgeAgentWorking()
+	a.maybeJudgeAgentWorking(AgentWorking)
 	a.publishAgentThreadDerived(prev)
 }
 
@@ -225,21 +241,17 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	if !a.tracksThread("", channelID, threadTS) {
 		return
 	}
-	t := a.agentSidebar.thread
 	last := parent
 	if len(replies) > 0 {
 		last = replies[len(replies)-1]
 	}
 	prev := a.agentSidebar.effectiveState()
-	a.agentSidebar.lastMsg = agentLastMsg{
-		ts:       last.TS,
-		authorID: last.UserID,
-		human:    a.agentAuthorIsHuman(last.UserID),
-		todo:     isAgentTodoText(last.Text),
-		acked:    reactionBy(last.Reactions, t.botUserID),
-		text:     last.Text,
-	}
-	a.maybeJudgeAgentWorking()
+	// A snapshot is a re-read, not news: a request it fires holds what the
+	// thread read before, so opening (or restarting onto) a thread whose
+	// agent finished long ago can't read working and then complete.
+	held := a.agentSidebar.derivedState()
+	a.agentSidebar.lastMsg = a.agentLastMsgFrom(last)
+	a.maybeJudgeAgentWorking(held)
 	a.publishAgentThreadDerived(prev)
 }
 

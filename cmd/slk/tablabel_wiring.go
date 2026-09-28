@@ -20,8 +20,9 @@ const labelTimeout = 20 * time.Second
 // wireAgentTabLabeler installs the model-backed assists — tab labels (at
 // thread open and on :retitle) and the working judge — when configured
 // (herdr.tab_name_model) and credentialed (Herdr.ResolveAnthropicAPIKey). Results
-// re-enter the program loop as ui messages; failures are logged and
-// dropped, leaving the deterministic behavior standing.
+// re-enter the program loop as ui messages; a failed label request is
+// logged and dropped, leaving the deterministic label standing, and a
+// failed judge request is logged and re-enters as a failed verdict.
 func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	if cfg.TabNameModel == "" {
 		return
@@ -52,8 +53,15 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	})
 	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, fromAgent bool) {
 		request(func(ctx context.Context) (tea.Msg, error) {
+			start := time.Now()
 			verdict, err := gen.Judge(ctx, message, fromAgent)
-			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict)}, err
+			// key is the message ts, the author's side and a hash of the
+			// text; the text itself is never logged.
+			debuglog.Notify("tablabel: working judge key=%s from_agent=%t text_len=%d verdict=%s err=%v duration=%s",
+				key, fromAgent, len(message), verdict, err, time.Since(start).Round(time.Millisecond))
+			// A failure re-enters the loop too: the message reads working
+			// while the request is in flight, and only the loop can end that.
+			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict), Failed: err != nil}, nil
 		})
 	})
 }

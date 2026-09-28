@@ -302,6 +302,12 @@ func (a *App) noteAgentThreadReply(teamID, channelID string, msg messages.Messag
 		return
 	}
 	a.agentSidebar.addUnread(msg.TS)
+	if a.replyAwaitsVerdict(msg) {
+		// The verdict's report is this reply's completion, count
+		// included; the synthetic one on top would show done before the
+		// judge answered, and twice if it answers idle.
+		return
+	}
 	a.reportAgentThreadUnread()
 }
 
