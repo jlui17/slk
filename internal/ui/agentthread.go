@@ -125,6 +125,9 @@ type agentSidebar struct {
 	// newest message, maintained by the noteAgentThread* hooks and the
 	// panel snapshot (agentworking.go).
 	lastMsg agentLastMsg
+	// earlierMsgs is the judge's context: the last maxJudgeEarlierMsgs
+	// messages before lastMsg, oldest first (agentworking_llm.go).
+	earlierMsgs []agentLastMsg
 	// statusText is the working state's transient message ("is
 	// thinking…"), kept so a display refresh can republish the row
 	// without blanking it.
@@ -255,6 +258,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	a.agentSidebar.thread = next
 	a.agentSidebar.working = false
 	a.agentSidebar.lastMsg = agentLastMsg{}
+	a.agentSidebar.earlierMsgs = nil
 	a.agentSidebar.workingJudge = workingJudgeState{}
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.

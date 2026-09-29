@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -10,13 +11,14 @@ import (
 
 type judgeCall struct {
 	teamID, channelID, threadTS, key, message string
+	earlier                                   []string
 	fromAgent                                 bool
 }
 
 func withWorkingJudge(a *App) *[]judgeCall {
 	calls := &[]judgeCall{}
-	a.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, fromAgent bool) {
-		*calls = append(*calls, judgeCall{teamID, channelID, threadTS, key, message, fromAgent})
+	a.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool) {
+		*calls = append(*calls, judgeCall{teamID, channelID, threadTS, key, message, earlier, fromAgent})
 	})
 	return calls
 }
@@ -114,6 +116,95 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	a.Update(verdictFor(t, judged, 0, AgentWorking))
 	if got := lastReport(t, reports); !got.working {
 		t.Errorf("expected working after a working verdict, got %+v", got)
+	}
+}
+
+// The real case: the newest reply reads finished alone, and the reply before
+// it says the agent is still fixing something else. The judge gets both.
+func TestJudgeReadsTheMessagesBeforeTheNewest(t *testing.T) {
+	fixing := agentReply("101.0", "PR <https://example.com/pr/2|#2> is in review, I'm fixing 3 findings now.\nPR #1 merges now.")
+	merged := agentReply("102.0", "PR #1 is merged.")
+	want := []string{
+		// Flattened like the newest message, and marked with its side.
+		"user: @Claude take a look at the CI workflows",
+		"agent: PR #2 is in review, I'm fixing 3 findings now. PR #1 merges now.",
+	}
+
+	t.Run("from a panel snapshot", func(t *testing.T) {
+		a, _, _ := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, []messages.MessageItem{fixing.Message, merged.Message})
+		if len(*judged) != 1 || !slices.Equal((*judged)[0].earlier, want) {
+			t.Fatalf("judge calls = %+v, want one with earlier %q", *judged, want)
+		}
+	})
+
+	t.Run("from live replies", func(t *testing.T) {
+		a, _, _ := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		a.Update(fixing)
+		a.Update(merged)
+		if len(*judged) != 2 || !slices.Equal((*judged)[1].earlier, want) {
+			t.Fatalf("judge calls = %+v, want the second with earlier %q", *judged, want)
+		}
+		// The context is not part of the question's identity.
+		if key := (*judged)[1].key; !strings.HasPrefix(key, "102.0|a|") || strings.Count(key, "|") != 2 {
+			t.Errorf("judge key = %q", key)
+		}
+	})
+}
+
+func TestJudgeEarlierMessagesAreBounded(t *testing.T) {
+	var replies []messages.MessageItem
+	for i := 1; i <= 8; i++ {
+		replies = append(replies, agentReply(fmt.Sprintf("10%d.0", i), fmt.Sprintf("step %d", i)).Message)
+	}
+	want := []string{"agent: step 3", "agent: step 4", "agent: step 5", "agent: step 6", "agent: step 7"}
+
+	a, _, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, replies)
+	if got := (*judged)[len(*judged)-1].earlier; !slices.Equal(got, want) {
+		t.Errorf("earlier after a snapshot = %q, want %q", got, want)
+	}
+
+	a, _, _ = newAgentTestApp(t)
+	judged = withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+	for _, r := range replies {
+		a.Update(NewMessageMsg{ChannelID: "C1", Message: r})
+	}
+	if got := (*judged)[len(*judged)-1].earlier; !slices.Equal(got, want) {
+		t.Errorf("earlier after live replies = %q, want %q", got, want)
+	}
+}
+
+func TestJudgeEarlierMessagesResetOnNewThread(t *testing.T) {
+	a, _, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+	a.Update(agentReply("101.0", "On it, checking now."))
+
+	parent := messages.MessageItem{TS: "200.0", Text: "<@UBOT> and the release notes", UserID: "UHUMAN"}
+	reply := messages.MessageItem{TS: "201.0", ThreadTS: "200.0", UserID: "UBOT", Text: "Drafted, see the doc."}
+	a.setThreadPanel(parent, []messages.MessageItem{reply}, "C1", "200.0")
+	call := (*judged)[len(*judged)-1]
+	if want := []string{"user: @Claude and the release notes"}; call.threadTS != "200.0" || !slices.Equal(call.earlier, want) {
+		t.Errorf("judge call = %+v, want thread 200.0 with earlier %q", call, want)
+	}
+}
+
+// Whether an acked user message asks the agent for anything is a question
+// about that message, so it goes alone.
+func TestAckedUserMessageGoesToJudgeAlone(t *testing.T) {
+	a, _, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	ask := messages.MessageItem{TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks!",
+		Reactions: []messages.ReactionItem{{Emoji: "+1", Count: 1, UserIDs: []string{"UBOT"}}}}
+	openWorkingAgentThread(a, []messages.MessageItem{agentReply("101.0", "Done, all green.").Message, ask})
+	if len(*judged) != 1 || (*judged)[0].fromAgent || (*judged)[0].earlier != nil {
+		t.Errorf("judge calls = %+v, want one user-side call with no earlier messages", *judged)
 	}
 }
 

@@ -2,7 +2,9 @@
 // (agentworking.go) can't read two last-message shapes — a plain non-todo
 // agent reply ("let me check that") and a human message the agent only
 // acked with a reaction — so those ask the tab-label model for a
-// verdict: working, blocked on the user, or idle. The deterministic
+// verdict: working, blocked on the user, or idle. The model reads the few
+// messages before the newest one too: a reply can read finished alone while
+// the one before it says another piece is still under way. The deterministic
 // verdicts (human unacked, todo post) never consult it. While a verdict is
 // in flight a new message reads working, never idle: herdr shows every
 // working→idle edge as done, so the idle verdict has to be the only idle
@@ -21,12 +23,18 @@ import (
 )
 
 // AgentWorkingJudgeFunc requests a model working/blocked/idle verdict for the
-// tracked thread's newest message. key identifies the exact state judged
-// (message plus who owes what), so the eventual verdict can be dropped if
-// the thread moved on. Fire-and-forget: the implementation always answers
-// with an AgentWorkingVerdictMsg into the program loop, with Failed set
-// when the request errored or timed out.
-type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, fromAgent bool)
+// tracked thread as of its newest message; earlier is the messages before
+// it, oldest first, each as "agent: text" or "user: text". key identifies
+// the exact state judged (message plus who owes what), so the eventual
+// verdict can be dropped if the thread moved on. Fire-and-forget: the
+// implementation always answers with an AgentWorkingVerdictMsg into the
+// program loop, with Failed set when the request errored or timed out.
+type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool)
+
+// maxJudgeEarlierMsgs is how many messages before the newest one the judge
+// reads. A step an agent still holds sits in the last few messages; further
+// back mostly finds steps long finished.
+const maxJudgeEarlierMsgs = 5
 
 // AgentWorkingVerdictMsg carries a working judgment, or the failure to get
 // one, back into the program loop. State means nothing when Failed is set.
@@ -59,7 +67,9 @@ type workingJudgeState struct {
 // key is logged, so it carries a hash and never the text. The hash is of
 // the raw text, not the flattened form the judge reads: that form is the
 // raw text plus name caches that fill in late, and a key that moved when a
-// name resolved would drop a standing verdict.
+// name resolved would drop a standing verdict. The earlier messages the
+// judge also reads stay out of the key, so a panel reload that re-seeds
+// them asks nothing new.
 func workingJudgeKey(l agentLastMsg) string {
 	side := "a"
 	if l.human {
@@ -89,6 +99,29 @@ func (a *App) judgeMessage(l agentLastMsg) string {
 		return ""
 	}
 	return a.flattenRootText(l.text)
+}
+
+// judgeEarlier is the messages before the newest one as the judge reads
+// them: flattened like judgeMessage, and marked with the side that wrote
+// each as the user cache knows it now. None go with a user's newest message:
+// whether it asks the agent for anything is a question about that message.
+func (a *App) judgeEarlier() []string {
+	if a.agentSidebar.lastMsg.human {
+		return nil
+	}
+	var earlier []string
+	for _, m := range a.agentSidebar.earlierMsgs {
+		text := a.flattenRootText(m.text)
+		if text == "" {
+			continue
+		}
+		side := "agent"
+		if a.agentAuthorIsHuman(m.authorID) {
+			side = "user"
+		}
+		earlier = append(earlier, side+": "+text)
+	}
+	return earlier
 }
 
 // replyAwaitsVerdict reports whether msg, not yet noted as the thread's
@@ -121,7 +154,7 @@ func (a *App) maybeJudgeAgentWorking(inFlight AgentState) {
 	}
 	g.workingJudge.requestedKey = key
 	g.workingJudge.inFlightState = inFlight
-	g.judgeGen(t.teamID, t.channelID, t.threadTS, key, message, !l.human)
+	g.judgeGen(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), !l.human)
 }
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,

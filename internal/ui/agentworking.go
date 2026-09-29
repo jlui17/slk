@@ -55,8 +55,7 @@ type agentLastMsg struct {
 	todo     bool
 	acked    bool
 	// text is the raw mrkdwn body, kept for the model working judge
-	// (agentworking_llm.go): the ambiguous shapes are judged from the
-	// newest message alone.
+	// (agentworking_llm.go), which reads the ambiguous shapes.
 	text string
 }
 
@@ -172,6 +171,10 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		// replace a newer message.
 		return
 	default:
+		if last.ts != "" {
+			earlier := append(a.agentSidebar.earlierMsgs, *last)
+			a.agentSidebar.earlierMsgs = earlier[max(0, len(earlier)-maxJudgeEarlierMsgs):]
+		}
 		*last = a.agentLastMsgFrom(msg)
 	}
 	a.maybeJudgeAgentWorking(inFlight)
@@ -221,8 +224,8 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 }
 
 // noteAgentThreadDeleted forgets the newest message when it is retracted.
-// The message before it isn't tracked, so the state reads idle until the
-// next reply or panel snapshot re-establishes it.
+// The message before it is kept only as judge context (earlierMsgs), so the
+// state reads idle until the next reply or panel snapshot re-establishes it.
 func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
 	t := a.agentSidebar.thread
 	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID ||
@@ -241,16 +244,19 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	if !a.tracksThread("", channelID, threadTS) {
 		return
 	}
-	last := parent
-	if len(replies) > 0 {
-		last = replies[len(replies)-1]
+	thread := append([]messages.MessageItem{parent}, replies...)
+	newest := len(thread) - 1
+	var earlier []agentLastMsg
+	for _, m := range thread[max(0, newest-maxJudgeEarlierMsgs):newest] {
+		earlier = append(earlier, a.agentLastMsgFrom(m))
 	}
 	prev := a.agentSidebar.effectiveState()
 	// A snapshot is a re-read, not news: a request it fires holds what the
 	// thread read before, so opening (or restarting onto) a thread whose
 	// agent finished long ago can't read working and then complete.
 	held := a.agentSidebar.derivedState()
-	a.agentSidebar.lastMsg = a.agentLastMsgFrom(last)
+	a.agentSidebar.lastMsg = a.agentLastMsgFrom(thread[newest])
+	a.agentSidebar.earlierMsgs = earlier
 	a.maybeJudgeAgentWorking(held)
 	a.publishAgentThreadDerived(prev)
 }
