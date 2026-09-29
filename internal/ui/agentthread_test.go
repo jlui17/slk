@@ -85,7 +85,7 @@ func TestAgentThreadDetectedFromBotMention(t *testing.T) {
 		t.Fatalf("want 1 report, got %+v", *calls)
 	}
 	c := (*calls)[0]
-	if c.agent != "slack-claude" || c.displayName != "Claude" || c.working {
+	if c.agent != "slack-claude" || c.displayName != "@Claude" || c.working {
 		t.Errorf("unexpected report: %+v", c)
 	}
 	if want := "#z-claude-dreams @Claude please fix the ingest retries"; c.title != want {
@@ -104,7 +104,7 @@ func TestAgentThreadDetectedFromBotAuthor(t *testing.T) {
 		t.Fatalf("want 1 report, got %+v", *calls)
 	}
 	c := (*calls)[0]
-	if c.agent != "slack-claude" || c.displayName != "Claude" || c.working {
+	if c.agent != "slack-claude" || c.displayName != "@Claude" || c.working {
 		t.Errorf("unexpected report: %+v", c)
 	}
 	if want := "#z-claude-dreams kicking off the ingest retry fix"; c.title != want {
@@ -352,7 +352,7 @@ func TestAgentThreadUnreadReplies(t *testing.T) {
 	if (*unreads)[0].status != "1 unread reply" || (*unreads)[1].status != "2 unread replies" {
 		t.Errorf("unread statuses: %+v", *unreads)
 	}
-	if (*unreads)[0].agent != "slack-claude" || (*unreads)[0].displayName != "Claude" {
+	if (*unreads)[0].agent != "slack-claude" || (*unreads)[0].displayName != "@Claude" {
 		t.Errorf("unread identity: %+v", (*unreads)[0])
 	}
 }

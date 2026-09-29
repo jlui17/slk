@@ -270,7 +270,7 @@ type releaseAgentParams struct {
 
 // Report upserts this pane's agent-sidebar entry: agent is herdr's internal
 // agent id (e.g. "slack-claude"), displayName the human name shown in the
-// sidebar (e.g. "Claude"), title the pane title (channel + thread snippet),
+// sidebar (e.g. "@Claude"), title the pane title (channel + thread snippet),
 // state one of herdr's lifecycle states ("working", "idle", "blocked"),
 // statusMessage the transient status text ("is thinking…", may be empty).
 func (r *Reporter) Report(agent, displayName, title, state, statusMessage string) {

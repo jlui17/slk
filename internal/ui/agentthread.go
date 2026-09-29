@@ -264,7 +264,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	// so a turn already in progress isn't visible until its next event.
 	// The panel snapshot that follows on the open path re-derives the
 	// content-based state immediately (snapshotAgentThreadLast).
-	a.agentSidebar.report(agentSidebarID(name), name, next.title, AgentIdle, "")
+	a.agentSidebar.report(agentSidebarID(name), agentSidebarDisplayName(name), next.title, AgentIdle, "")
 	// The mention is dropped from the raw text, not trimmed from the
 	// flattened string: trimming by rendered name breaks when the
 	// in-memory name map and the user cache disagree on the bot's name.
@@ -408,7 +408,7 @@ func (a *App) reportAgentThreadState() {
 	}
 	t := a.agentSidebar.thread
 	eff := a.agentSidebar.effectiveState()
-	a.agentSidebar.report(agentSidebarID(t.agentName), t.agentName, t.title, eff, a.agentSidebar.statusFor(eff))
+	a.agentSidebar.report(agentSidebarID(t.agentName), agentSidebarDisplayName(t.agentName), t.title, eff, a.agentSidebar.statusFor(eff))
 }
 
 // reportAgentThreadUnread publishes the tracked thread's unread state as a
@@ -430,7 +430,7 @@ func (a *App) reportAgentThreadUnread() {
 		return
 	}
 	t := a.agentSidebar.thread
-	a.agentSidebar.reportUnread(agentSidebarID(t.agentName), t.agentName, t.title, unreadStatusMessage(a.agentSidebar.unreadTotal()))
+	a.agentSidebar.reportUnread(agentSidebarID(t.agentName), agentSidebarDisplayName(t.agentName), t.title, unreadStatusMessage(a.agentSidebar.unreadTotal()))
 }
 
 // addUnread, dropUnread, and unreadTotal own the unread set. A reply
@@ -602,6 +602,12 @@ func withTaskID(id, snippet string) string {
 func agentSidebarID(displayName string) string {
 	id := strings.ToLower(strings.Join(strings.Fields(displayName), "-"))
 	return "slack-" + id
+}
+
+// agentSidebarDisplayName is the name the sidebar shows for a bot: its
+// display name written as the Slack mention, "@Claude".
+func agentSidebarDisplayName(displayName string) string {
+	return "@" + displayName
 }
 
 // reduceAgentThread forwards ai_assistant_status transitions for the
