@@ -169,6 +169,7 @@ func (a *App) renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight int,
 	} else if channelView := a.compose.ChannelPickerView(msgWidth - 2); channelView != "" {
 		composeView = channelView + "\n" + composeView
 	}
+	composeView = a.withPastePreview(&a.compose, composeView, msgWidth-2, contentHeight)
 	// Background-colored spacer line above the compose box
 	// (replaces MarginTop which produced unstyled/black margin
 	// cells).

@@ -40,6 +40,9 @@ import (
 )
 
 func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
+	if cmd, handled := a.handlePasteThumbKey(msg); handled { // fork: a selected pasted-image thumbnail owns the keys
+		return cmd
+	}
 	if (a.compose.Uploading() || a.threadCompose.Uploading()) && key.Matches(msg, a.keys.Escape) {
 		return a.uploadToastCmd("Upload in progress", 2*time.Second)
 	}

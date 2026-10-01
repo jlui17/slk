@@ -254,6 +254,8 @@ type App struct {
 	// clipboard reader; see paste_async_fork.go.
 	asyncPaste asyncPasteState
 
+	pasteThumbFocus pasteThumbFocus // fork: see compose_preview_focus_fork.go
+
 	// threads is the App's ThreadService collaborator (fetch / mark /
 	// reply / list-fetch + parent-channel last-read lookup for the
 	// unread boundary). See internal/ui/services.go. Defaulted to a

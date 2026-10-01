@@ -51,6 +51,7 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 	} else if channelView := a.threadCompose.ChannelPickerView(threadWidth - 2); channelView != "" {
 		threadComposeView = channelView + "\n" + threadComposeView
 	}
+	threadComposeView = a.withPastePreview(&a.threadCompose, threadComposeView, threadWidth-2, contentHeight)
 	threadComposeSpacer := lipgloss.NewStyle().Background(styles.Background).Width(threadWidth - 2).Render("")
 	threadComposeView = threadComposeSpacer + "\n" + threadComposeView
 	threadComposeHeight := lipgloss.Height(threadComposeView)
