@@ -13,7 +13,8 @@
 //     the messages region)
 //   - message ops: y (copy message), Y/C (copy permalink), E (edit), D (delete),
 //     U (mark unread), v (open image preview), o (open link),
-//     O (open link in new herdr tab), c (copy code block or link)
+//     O (open link in new herdr tab), c (copy code block or link),
+//     z (expand or collapse long attachment cards)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -290,6 +291,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.OpenLinkTab):
 		return a.openLinksOfSelected(true)
+
+	case key.Matches(msg, a.keys.ToggleAttachmentFold):
+		a.toggleAttachmentFoldOfSelected()
 
 	case key.Matches(msg, a.keys.DownloadFile):
 		return a.downloadFilesOfSelected()

@@ -42,7 +42,7 @@ func RenderLegacy(atts []LegacyAttachment, ctx Context, width int) RenderResult 
 		if i > 0 {
 			out.Lines = append(out.Lines, "")
 		}
-		appendLegacyAttachment(&out, a, ctx, width)
+		appendCard(&out, a, ctx, width)
 		if ctx.Perf != nil {
 			ctx.Perf.attachmentCount++
 		}

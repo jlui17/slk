@@ -134,6 +134,24 @@ there and resolve them knowing what the fork wants:
   Both panes' selected-variant builders reassert the selection tint after
   every reset (`ReapplyBgAfterResets`) so bare runs from block renderers
   take the tint.
+- `internal/ui/messages/blockkit/attachments.go` (+ `attachments_test.go`,
+  `integration_test.go`, `messages/blockkit_integration_test.go`) —
+  `RenderLegacy` draws each attachment through `appendCard`
+  (`attachments_fork.go`), which wraps upstream's `appendLegacyAttachment`:
+  it takes that function's `█ ` stripe prefix back off every row and puts
+  the rows in a round box, drops the flat `Text` when the blocks carry the
+  body, heads a Slack message unfurl with author, channel and local time
+  in place of Slack's footer, and folds a long body. If upstream changes
+  the stripe, `appendCard`'s `TrimPrefix` must follow. The stripe
+  assertions in those tests now look for the frame, and the PagerDuty
+  fixture renders expanded. `LegacyAttachment` gains `AuthorName` and
+  `FromURL`, `RenderResult` `FoldRows`, `Context` `Card`; `golden_test.go`'s
+  `█ deploy` assertion and the goldens with that card are re-blessed.
+- `internal/ui/reducer_send.go` — `reduceNewMessage`'s edit-echo branch
+  calls the panes' `ReplaceMessageContent` (`model_fork.go`) where upstream
+  calls `UpdateMessageInPlace` / `UpdateParentInPlace` with the text alone:
+  a `message_changed` event also carries blocks and attachments, and it is
+  how Slack delivers a link's unfurl after the post. Upstreaming candidate.
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into

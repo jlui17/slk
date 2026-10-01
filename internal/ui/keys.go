@@ -69,6 +69,8 @@ type KeyMap struct {
 	WinOnly             key.Binding
 	ToggleBroadcast     key.Binding
 	OpenInEditor        key.Binding
+
+	ToggleAttachmentFold key.Binding // fork: attachment_fold.go
 }
 
 func DefaultKeyMap() KeyMap {
@@ -151,5 +153,7 @@ func DefaultKeyMap() KeyMap {
 		// fork: upstream binds ctrl+e, but kitty sends ctrl+e for cmd+right,
 		// so ctrl+e must reach the textarea's LineEnd.
 		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+x"), key.WithHelp("ctrl+x", "edit message in $EDITOR")),
+		// fork: attachment_fold.go
+		ToggleAttachmentFold: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "expand or collapse long cards")),
 	}
 }

@@ -159,6 +159,8 @@ type LegacyAttachment struct {
 	Footer     string
 	FooterIcon string // tiny inline image rendered before Footer
 	TS         int64  // unix seconds; 0 means absent
+	AuthorName string // with a Slack permalink in FromURL: the author of a linked message
+	FromURL    string // the URL the attachment unfurls
 	// Blocks holds Block Kit blocks nested inside the attachment.
 	// Slack's newer link-unfurl shape (Linear/Jira/GitHub issue
 	// cards, etc.) carries all visible content here while

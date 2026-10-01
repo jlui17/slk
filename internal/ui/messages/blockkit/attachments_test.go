@@ -44,7 +44,7 @@ func TestRenderLegacyHasColorStripeOnEveryRow(t *testing.T) {
 	}}, ctx, 40)
 	for i, line := range r.Lines {
 		plain := ansi.Strip(line)
-		if !strings.HasPrefix(plain, "█") {
+		if !inCardFrame(plain) {
 			t.Errorf("line %d does not start with stripe glyph: %q", i, plain)
 		}
 	}
@@ -150,7 +150,7 @@ func TestRenderLegacyFieldRowsHaveStripe(t *testing.T) {
 	}}, ctx, 60)
 	for i, line := range r.Lines {
 		plain := ansi.Strip(line)
-		if !strings.HasPrefix(plain, "█") {
+		if !inCardFrame(plain) {
 			t.Errorf("line %d does not start with stripe: %q", i, plain)
 		}
 	}
@@ -202,7 +202,7 @@ func TestRenderLegacyRendersNestedBlocks(t *testing.T) {
 		t.Errorf("missing context text: %q", plain)
 	}
 	for i, line := range r.Lines {
-		if !strings.HasPrefix(ansi.Strip(line), "█") {
+		if !inCardFrame(ansi.Strip(line)) {
 			t.Errorf("line %d missing stripe prefix: %q", i, ansi.Strip(line))
 		}
 	}

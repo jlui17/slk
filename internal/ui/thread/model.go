@@ -68,6 +68,10 @@ type viewEntry struct {
 	// the body, in linesNormal cells (the frame reactionHits uses).
 	// CodeBlockAt reads them. See codeblocks_fork.go.
 	codeBlockCopyLabels []messages.CodeBlockCopyLabel
+
+	// attachmentFoldRows are the rows of linesNormal that hold a card's
+	// fold row. See attachmentfold_fork.go.
+	attachmentFoldRows []int
 }
 
 // reactionEntryHit is one reaction-pill hit-rect, expressed in
@@ -199,6 +203,12 @@ type Model struct {
 	// bodyCopyLabels is render scratch: the copy labels of the body
 	// renderThreadMessage drew last, until View takes them for the entry.
 	bodyCopyLabels []messages.CodeBlockCopyLabel
+
+	// attachmentFoldRows is render scratch like bodyCopyLabels.
+	// expandedAttachments holds the TS of each message whose cards show
+	// in full; SetThread leaves it alone. See attachmentfold_fork.go.
+	attachmentFoldRows  []int
+	expandedAttachments map[string]bool
 
 	// unreadBoundaryTS is the Slack timestamp the user has already read up
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
@@ -1426,6 +1436,7 @@ func (m *Model) View(height, width int) string {
 		contentColOffset: 1,
 
 		codeBlockCopyLabels: m.takeBodyCopyLabels(),
+		attachmentFoldRows:  m.takeAttachmentFoldRows(),
 	}
 	// Selection border for the parent row mirrors the per-reply
 	// cache-build treatment (borderSelect / borderInvis below): thick
@@ -1573,6 +1584,7 @@ func (m *Model) View(height, width int) string {
 				reactionHits:     reactHits,
 
 				codeBlockCopyLabels: m.takeBodyCopyLabels(),
+				attachmentFoldRows:  m.takeAttachmentFoldRows(),
 			})
 			m.replyIDToIdx[reply.TS] = i
 		}
@@ -1900,6 +1912,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 		UserNames:   userNames,
 		MessageTS:   msg.TS,
 		Channel:     m.channelID,
+		Card:        messages.CardContext(m.expandedAttachments[msg.TS], channelNames),
 		RenderTextForWidth: func(s string, un map[string]string, width int) string {
 			return messages.RenderSlackMarkdownWith(s, messages.RenderSlackMarkdownOpts{
 				UserNames:    un,
@@ -1945,6 +1958,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		Width:        contentWidth,
 
 		CodeBlockCopyLabels: m.newBodyCopyLabels(),
+		PermalinkChips:      messages.PermalinkChipsOf(msg, channelNames),
 	}
 	// Match the main pane: content-bearing blocks suppress the fallback
 	// text and its row. See messages.BlocksCarryBody.
@@ -1975,6 +1989,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	}
 	if len(msg.LegacyAttachments) > 0 {
 		res := blockkit.RenderLegacy(msg.LegacyAttachments, bkCtx, contentWidth)
+		m.attachmentFoldRows = messages.OffsetAttachmentFoldRows(res.FoldRows, 1+bodyRows+len(bkLines))
 		bkLines = append(bkLines, res.Lines...)
 		flushes = append(flushes, res.Flushes...)
 		bkInteractive = bkInteractive || res.Interactive

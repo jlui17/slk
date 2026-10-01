@@ -376,6 +376,7 @@ func run(startupLink *slackurl.Permalink) error {
 	app.SetNowTimestampFormatter(func() string {
 		return time.Now().Format(tsFormat)
 	})
+	messages.SetTimestampFormat(tsFormat) // fork: linked-message card headers
 
 	// Initialize shared image cache (used for avatars and inline images).
 	imagesDir := filepath.Join(cacheDir, "images")

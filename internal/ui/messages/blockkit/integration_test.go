@@ -58,14 +58,14 @@ func TestFixture_PagerDutyAlert(t *testing.T) {
 	p := loadFixture(t, "pagerduty_alert.json")
 	atts := ParseAttachments(p.Attachments)
 	for _, w := range []int{60, 100, 140} {
-		r := RenderLegacy(atts, makeCtx(), w)
+		r := RenderLegacy(atts, expandedCtx(), w)
 		plain := ansi.Strip(strings.Join(r.Lines, "\n"))
 		for _, want := range []string{"Service down", "checkout-svc", "SEV-2", "Datadog"} {
 			if !strings.Contains(plain, want) {
 				t.Errorf("width=%d missing %q in %q", w, want, plain)
 			}
 		}
-		if !strings.Contains(plain, "█") {
+		if !strings.Contains(plain, "╭") {
 			t.Errorf("width=%d missing color stripe", w)
 		}
 	}

@@ -20,7 +20,7 @@
       │             │  d                  download file in message           │ │                 ┃  
       │             │  E                  edit message                       │ │                 ┃  
       │             │  ctrl+x             edit message in $EDITOR            │ │                 ┃  
-      │             │  ctrl+w h/j/k/l     focus window in direction          │ │                 ┃  
+      │             │  z                  expand or collapse long cards      │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

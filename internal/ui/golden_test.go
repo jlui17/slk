@@ -1222,7 +1222,7 @@ func TestNewGoldenApp_MessagePaneRendersLegacyAttachment(t *testing.T) {
 	// The stripe glyph and the title on the same line: the title alone
 	// would also match a plain-text message body, and the stripe alone
 	// is a single common character.
-	const want = "█ deploy #421 succeeded"
+	const want = "│ deploy #421 succeeded"
 	if !strings.Contains(pane, want) {
 		t.Errorf("legacy attachment not rendered; expected a line containing %q. Pane band was:\n%s", want, pane)
 	}

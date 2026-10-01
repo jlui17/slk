@@ -121,7 +121,7 @@ func TestRenderMessagePlainEmitsLegacyAttachment(t *testing.T) {
 	if !strings.Contains(plain, "Service down") {
 		t.Errorf("missing legacy title: %q", plain)
 	}
-	if !strings.Contains(plain, "█") {
+	if !strings.Contains(plain, "╭") {
 		t.Errorf("missing color stripe glyph: %q", plain)
 	}
 }

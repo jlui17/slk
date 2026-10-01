@@ -57,6 +57,7 @@ type RenderResult struct {
 	Height      int                     // == len(Lines); cached for caller's row math
 	Hits        []HitRect               // clickable image footprints
 	Interactive bool                    // any interactive element rendered
+	FoldRows    []int                   // rows of Lines that hold a card's fold row (attachments_fork.go)
 }
 
 // SixelEntry is one sixel image's pre-encoded bytes plus its
@@ -128,6 +129,8 @@ type Context struct {
 	// (stripe prefix, width measurement, truncation). Nil disables
 	// every call site's timing.
 	Perf *LegacyPerf
+
+	Card CardContext // attachments_fork.go
 }
 
 // LegacyPerf accumulates per-sub-lane wall-clock for the legacy

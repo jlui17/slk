@@ -101,6 +101,10 @@ type viewEntry struct {
 	// the body, in linesNormal cells (the frame reactionHits uses).
 	// CodeBlockAt reads them. See codeblocks_fork.go.
 	codeBlockCopyLabels []CodeBlockCopyLabel
+
+	// attachmentFoldRows are the rows of linesNormal that hold a card's
+	// fold row. See attachmentfold_fork.go.
+	attachmentFoldRows []int
 }
 
 // reactionEntryHit is one reaction-pill hit-rect, expressed in
@@ -321,6 +325,12 @@ type Model struct {
 	// bodyCopyLabels is render scratch: the copy labels of the body
 	// renderMessagePlain drew last, until renderMessageEntry takes them.
 	bodyCopyLabels []CodeBlockCopyLabel
+
+	// attachmentFoldRows is render scratch like bodyCopyLabels.
+	// expandedAttachments holds the TS of each message whose cards show
+	// in full; SetMessages leaves it alone. See attachmentfold_fork.go.
+	attachmentFoldRows  []int
+	expandedAttachments map[string]bool
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
@@ -1748,6 +1758,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		reactionHits:     reactHits,
 
 		codeBlockCopyLabels: m.takeBodyCopyLabels(msg, avatarStr != ""),
+		attachmentFoldRows:  m.takeAttachmentFoldRows(),
 	}
 }
 
@@ -1936,6 +1947,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 		UserNames:   userNames,
 		MessageTS:   msg.TS,
 		Channel:     m.channelName,
+		Card:        CardContext(m.expandedAttachments[msg.TS], channelNames),
 		// Capture channelNames in a closure so blockkit's
 		// RenderTextForWidth signature stays stable; channel-name
 		// resolution is a host concern.
@@ -2021,6 +2033,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		SearchTerms:  m.searchTerms,
 
 		CodeBlockCopyLabels: m.newBodyCopyLabels(),
+		PermalinkChips:      PermalinkChipsOf(msg, channelNames),
 	}
 	// Blocks that render the body suppress Slack's notification-fallback
 	// text and its row. See BlocksCarryBody.
@@ -2283,6 +2296,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		}
 		startInBk := len(bkLines)
 		res := blockkit.RenderLegacy(msg.LegacyAttachments, legacyCtx, contentWidth)
+		m.attachmentFoldRows = OffsetAttachmentFoldRows(res.FoldRows, preAttachmentRows+startInBk)
 		if stats != nil {
 			stats.legacyTotal += time.Since(lgT0)
 			stats.legacyCount++

@@ -635,6 +635,7 @@ type RenderSlackMarkdownOpts struct {
 	Preview      bool                     // the caller flattens the result to one row: code blocks render as bare code rows
 
 	CodeBlockCopyLabels *[]CodeBlockCopyLabel // append-only; non-nil draws a copy label on each fenced block and reports where (codeblocks_fork.go)
+	PermalinkChips      PermalinkChips        // a permalink to a message this one carries a card for shows as a short label (permalinkchip_fork.go)
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -745,6 +746,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	text = linkWithLabelRe.ReplaceAllStringFunc(text, func(match string) string {
 		parts := linkWithLabelRe.FindStringSubmatch(match)
 		url, label := parts[1], parts[2]
+		label = opts.PermalinkChips.label(url, label)
 		return osc8Hyperlink(url, linkStyle().Render(label))
 	})
 
@@ -755,6 +757,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	text = linkBareRe.ReplaceAllStringFunc(text, func(match string) string {
 		url := linkBareRe.FindStringSubmatch(match)[1]
 		visible := strings.TrimPrefix(url, "mailto:")
+		visible = opts.PermalinkChips.label(url, visible)
 		return osc8Hyperlink(url, linkStyle().Render(visible))
 	})
 

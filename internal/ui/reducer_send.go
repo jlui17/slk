@@ -247,11 +247,10 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		// since edits to messages we recently sent would otherwise
 		// be silently dropped (the TS is still in selfSentTSes).
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
-			mm.UpdateMessageInPlace(m.Message.TS, m.Message.Text)
+			mm.ReplaceMessageContent(m.Message) // fork: the event's blocks and attachments too (model_fork.go)
 		}
 		if m.ChannelID == a.threadPanel.ChannelID() {
-			a.threadPanel.UpdateMessageInPlace(m.Message.TS, m.Message.Text)
-			a.threadPanel.UpdateParentInPlace(m.Message.TS, m.Message.Text)
+			a.threadPanel.ReplaceMessageContent(m.Message)
 		}
 		return nil
 	}
