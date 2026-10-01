@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 // newRetitleTestApp tracks an agent thread whose panel holds replies, with
@@ -316,5 +317,37 @@ func TestRetitleTranscriptDropsLinkTargets(t *testing.T) {
 	}
 	if !strings.Contains(transcript, "opened #1170") {
 		t.Errorf("transcript lost the link's label:\n%s", transcript)
+	}
+}
+
+func TestRetitleTranscriptDropsSpeakerSessionLabel(t *testing.T) {
+	a, _, _ := newLLMLabelTestApp(t)
+	a.SetUserNames(usernames.FromMap(map[string]string{"B1": "Claude [reviewing bootspec PR]"}))
+	parent := messages.MessageItem{TS: "100.0", Text: "Blind judge, Justin 5", UserID: "B1", UserName: "Claude [judging Justin annotation 5]"}
+	replies := []messages.MessageItem{
+		{TS: "101.0", Text: "Blind judge run started", UserID: "B1", UserName: "Claude [judging Justin annotation 5]"},
+	}
+
+	got := a.retitleTranscript(parent, replies, "UBOT")
+
+	if want := "Claude: Blind judge, Justin 5\nClaude: Blind judge run started"; got != want {
+		t.Errorf("transcript =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(got, "bootspec") {
+		t.Errorf("transcript carries the cached session label:\n%s", got)
+	}
+}
+
+func TestStripSessionLabel(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"plain name unchanged", "Claude", "Claude"},
+		{"trailing label stripped", "Claude [reviewing bootspec PR]", "Claude"},
+		{"label alone unchanged", "[x]", "[x]"},
+		{"bracket not at the end unchanged", "Claude [beta] bot", "Claude [beta] bot"},
+	}
+	for _, c := range cases {
+		if got := stripSessionLabel(c.in); got != c.want {
+			t.Errorf("%s: stripSessionLabel(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
 	}
 }

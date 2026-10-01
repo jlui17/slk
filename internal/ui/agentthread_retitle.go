@@ -178,18 +178,30 @@ func stripLinkTargets(flat string) string {
 	return strings.Join(strings.Fields(urlRe.ReplaceAllString(flat, "")), " ")
 }
 
+// stripSessionLabel drops a trailing " [label]" from a speaker name: a bot's
+// per-message username carries a session label, the id-keyed cache keeps the
+// first one seen, and the model titles the thread from it.
+func stripSessionLabel(name string) string {
+	bare, _, found := strings.Cut(name, " [")
+	bare = strings.TrimSpace(bare)
+	if !found || bare == "" || !strings.HasSuffix(name, "]") {
+		return name
+	}
+	return bare
+}
+
 // retitleSpeaker resolves an author name through the same two caches
-// flattenRootText resolves mentions with.
+// flattenRootText resolves mentions with, session label dropped.
 func (a *App) retitleSpeaker(userID string) string {
 	if userID == "" {
 		return ""
 	}
 	if name, _ := a.userNames.Get(userID); name != "" {
-		return name
+		return stripSessionLabel(name)
 	}
 	if a.agentSidebar.userInfo != nil {
 		if name, _, ok := a.agentSidebar.userInfo(userID); ok {
-			return name
+			return stripSessionLabel(name)
 		}
 	}
 	return ""
