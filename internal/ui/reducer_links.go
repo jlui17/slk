@@ -49,6 +49,11 @@ type pendingLinkNav struct {
 	// the fresh buffer; it must not re-yank focus or close a thread
 	// panel the user opened in the meantime.
 	delivered bool
+	// Fork: openEmptyThread opens the thread panel of a target nobody
+	// has replied to as well, parent row only, ready for the first
+	// reply. True for O and for a startup link (`slk <link>`, which is
+	// what O runs in its herdr tab); needs openParentThread.
+	openEmptyThread bool
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -96,6 +101,7 @@ func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
 		messageTS:        string(pl.MessageTS),
 		threadTS:         string(pl.ThreadTS),
 		openParentThread: true,
+		openEmptyThread:  inHerdrTab,
 	}
 	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
 		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
@@ -174,12 +180,21 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 				if m.TS != p.messageTS {
 					continue
 				}
-				if m.ReplyCount > 0 {
+				// Fork: under openEmptyThread the count decides nothing,
+				// so the thread opens on the first pass that holds the
+				// target, a stale cached count included.
+				if m.ReplyCount > 0 || p.openEmptyThread {
 					debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
 					if authoritative {
 						a.pendingLinkNav = nil
 					}
-					return a.openThreadForPermalink(p.channelID, p.messageTS, p.messageTS)
+					// Fork: a reply that was also sent to the channel has
+					// no replies either; its thread is its parent's.
+					threadTS := p.messageTS
+					if m.ThreadTS != "" {
+						threadTS = m.ThreadTS
+					}
+					return a.openThreadForPermalink(p.channelID, threadTS, p.messageTS)
 				}
 				break
 			}
