@@ -439,6 +439,9 @@ type App struct {
 	// bumped on every links-picker open, echoed by LinkPreviewMsg.Gen,
 	// so previews from an earlier picker can't fill a later one's rows.
 	linkPreviewGen uint64
+	// linkPreviewAsked holds the picker rows whose preview has been
+	// fetched for this linkPreviewGen, see linkPreviewsInView.
+	linkPreviewAsked map[int]bool
 
 	// Reaction picker
 	reactionPicker *reactionpicker.Model
@@ -1014,7 +1017,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if changed {
 			a.forceSixelRepaint = true
 		}
-		return a, nil
+		return a, a.linkPreviewsInView()
 
 	case scrollFlushMsg:
 		if cmd := a.applyScrollFlush(); cmd != nil {
@@ -1438,24 +1441,24 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 // path) rides along as OpenLinkMsg.InHerdrTab. The one exception: rows
 // marked in O's herdr-tab picker open as OpenLinksInHerdrTabsMsg.
 func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
-	var text string
+	var selected messages.MessageItem
 	switch a.focusedPanel {
 	case PanelMessages:
 		msg, ok := a.messagepane.SelectedMessage()
 		if !ok {
 			return nil
 		}
-		text = msg.Text
+		selected = msg
 	case PanelThread:
 		reply := a.threadPanel.SelectedReply()
 		if reply == nil {
 			return nil
 		}
-		text = reply.Text
+		selected = *reply
 	default:
 		return nil
 	}
-	links := messages.ExtractLinks(text)
+	links := messages.MessageLinks(selected)
 	hadLinks := len(links) > 0
 	// When O will actually open a herdr tab, offer only the links it
 	// can, and say so in the picker title: a browser fallback under a
@@ -1482,30 +1485,7 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		url := links[0].URL
 		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inHerdrTab} }
 	default:
-		a.linkPreviewGen++
-		items := make([]linkpicker.Item, len(links))
-		var previews []tea.Cmd
-		for i, l := range links {
-			item := linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
-			if pl, ok := slackurl.Parse(l.URL); ok {
-				item.Display = a.permalinkRowText(pl, item.InApp)
-				item.Detail = l.URL
-				if item.InApp {
-					previews = append(previews, a.fetchLinkPreview(a.linkPreviewGen, i, pl))
-				}
-			}
-			items[i] = item
-		}
-		title := "Open link"
-		if tabOpenerActive {
-			title = "Open link in herdr tab"
-		}
-		a.pickerKind = "links"
-		a.pickerInTab = inHerdrTab
-		a.linkPicker.Open(title, items)
-		a.linkPicker.SetMultiSelect(tabOpenerActive)
-		a.SetMode(ModeLinkPicker)
-		return tea.Batch(previews...)
+		return a.openLinkPicker(links, inHerdrTab, tabOpenerActive)
 	}
 }
 

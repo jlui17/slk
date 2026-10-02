@@ -1091,32 +1091,20 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 			Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
 				chIDStr, tsStr := string(channelID), string(ts)
-				if userID, text, found := cachedMessagePreview(db, chIDStr, tsStr); found {
-					return userID, text, nil
-				}
-				if userID, text, ok := linkPreviews.Get(chIDStr, tsStr); ok {
-					return userID, text, nil
-				}
 				wctx := router.Active()
 				if wctx == nil {
 					return "", "", nil
 				}
-				var m *slack.Message
-				var err error
-				if threadTS != "" && string(threadTS) != tsStr {
-					m, err = wctx.Client.GetReplyAt(ctx, chIDStr, string(threadTS), tsStr)
-				} else {
-					m, err = wctx.Client.GetMessageAt(ctx, chIDStr, tsStr)
+				if sender, text, found := cachedMessagePreview(db, wctx.UserNames, router, chIDStr, tsStr); found {
+					return sender, text, nil
 				}
-				if err != nil {
-					return "", "", err
+				fetch := func() (*slack.Message, error) {
+					if threadTS != "" && string(threadTS) != tsStr {
+						return wctx.Client.GetReplyAt(ctx, chIDStr, string(threadTS), tsStr)
+					}
+					return wctx.Client.GetMessageAt(ctx, chIDStr, tsStr)
 				}
-				userID, text := "", ""
-				if m != nil {
-					userID, text = m.User, m.Text
-				}
-				linkPreviews.Put(chIDStr, tsStr, userID, text)
-				return userID, text, nil
+				return fetchedMessagePreview(linkPreviews, fetch, wctx.UserNames, db, router, chIDStr, tsStr)
 			},
 		}))
 

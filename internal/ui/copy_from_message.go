@@ -50,25 +50,24 @@ func (a *App) copyFromSelectedMessage() tea.Cmd {
 	case 1:
 		return a.copyCopyable(copyables[0])
 	default:
-		a.linkPreviewGen++
 		items := make([]linkpicker.Item, len(copyables))
-		var previews []tea.Cmd
+		links := make([]messages.Link, len(copyables))
+		for i, c := range copyables {
+			links[i] = c.Link
+		}
+		labels, whole := linkPickerLabels(links, a.plainMrkdwn)
 		for i, c := range copyables {
 			if c.Kind == messages.CopyableCodeBlock {
 				items[i] = codeBlockPickerItem(c.CodeBlock)
 				continue
 			}
-			var preview tea.Cmd
-			items[i], preview = a.copyLinkPickerItem(i, c.Link)
-			if preview != nil {
-				previews = append(previews, preview)
-			}
+			items[i] = a.linkPickerItem(c.Link, labels[i], whole[i])
 		}
 		a.pickerKind = "copy"
 		a.pickerCopyables = copyables
 		a.linkPicker.Open("Copy from message", items)
 		a.SetMode(ModeLinkPicker)
-		return tea.Batch(previews...)
+		return a.startLinkPreviews()
 	}
 }
 
@@ -90,21 +89,21 @@ func codeBlockPickerItem(b messages.CodeBlock) linkpicker.Item {
 	return item
 }
 
-// A link row reads as it does in the `o` picker (openLinksOfSelected):
-// a permalink shows its decoded fallback text with the URL as detail,
-// and an in-app one fetches its message preview, addressed to row.
-func (a *App) copyLinkPickerItem(row int, l messages.Link) (linkpicker.Item, tea.Cmd) {
-	item := linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
-	pl, ok := slackurl.Parse(l.URL)
-	if !ok {
-		return item, nil
+// linkPickerItem is a link's row in the `o`, `O` and `c` pickers: a
+// permalink shows its decoded fallback text, and where it points in the
+// Side column, until linkPreviewsInView fills an in-app one with its
+// message. The
+// filter reads whole, the label before linkPickerLabels cut it, and the
+// permalink's channel, or the URL of a row that draws its URL: text
+// that is known now and never changes.
+func (a *App) linkPickerItem(l messages.Link, label, whole string) linkpicker.Item {
+	item := linkpicker.Item{URL: l.URL, Label: label, FilterText: whole + " " + l.URL, InApp: a.linkOpensInApp(l.URL)}
+	if pl, ok := slackurl.Parse(l.URL); ok {
+		item.Display = permalinkRowText(pl)
+		item.Side = a.permalinkPlace(pl, item.InApp)
+		item.FilterText = whole + " " + item.Side
 	}
-	item.Display = a.permalinkRowText(pl, item.InApp)
-	item.Detail = l.URL
-	if !item.InApp {
-		return item, nil
-	}
-	return item, a.fetchLinkPreview(a.linkPreviewGen, row, pl)
+	return item
 }
 
 // copyPickedCopyable is the copy picker's Enter.

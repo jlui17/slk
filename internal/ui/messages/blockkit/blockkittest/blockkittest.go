@@ -3,6 +3,7 @@
 package blockkittest
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -59,4 +60,14 @@ func RunesWithoutBackground(line string) string {
 		i += size
 	}
 	return bare.String()
+}
+
+// FromJSON parses a message's "blocks" array as it arrives from Slack, so
+// a fixture can hold elements slack-go has no type for.
+func FromJSON(blocksJSON string) []blockkit.Block {
+	var blocks slack.Blocks
+	if err := json.Unmarshal([]byte(blocksJSON), &blocks); err != nil {
+		panic(err)
+	}
+	return blockkit.Parse(blocks)
 }

@@ -136,11 +136,11 @@ type MessageService interface {
 	// avoid blocking the Update loop.
 	Permalink(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS) (string, error)
 
-	// Preview resolves the sender ID and raw mrkdwn text of the
+	// Preview resolves the sender's name and raw mrkdwn text of the
 	// message identified by (channelID, ts), for the link picker's
 	// permalink preview rows. Synchronous (SQLite, then HTTP on a
 	// cache miss); callers wrap in a tea.Cmd.
-	Preview(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (userID, text string, err error)
+	Preview(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (sender, text string, err error)
 }
 
 // ChannelService is the App's interface to the Slack channels API,

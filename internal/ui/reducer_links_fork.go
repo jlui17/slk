@@ -91,9 +91,10 @@ func (a *App) herdrTabLabel(rawURL string) (string, bool) {
 }
 
 // applyLinkPreview fills one picker row with its fetched message
-// preview ("#channel · sender: text"). Drops stale generations and
-// results arriving after the picker closed or reopened for something
-// other than link rows (`o`/`O` open them, `c` copies one).
+// preview: the text, and "#channel · sender" in the Side column. Drops
+// stale generations and results arriving after the picker closed or
+// reopened for something other than link rows (`o`/`O` open them, `c`
+// copies one).
 func (a *App) applyLinkPreview(m LinkPreviewMsg) {
 	linkRows := a.pickerKind == "links" || a.pickerKind == "copy"
 	if m.Gen != a.linkPreviewGen || !linkRows || !a.linkPicker.IsVisible() {
@@ -102,15 +103,13 @@ func (a *App) applyLinkPreview(m LinkPreviewMsg) {
 	text := a.flattenRootText(m.Text)
 	if text == "" {
 		// Raw mrkdwn that flattens to nothing (whitespace, bare
-		// entity tokens): the date-bearing fallback row beats a
-		// dangling "sender: ".
+		// entity tokens): the date-bearing fallback row beats an
+		// empty one.
 		return
 	}
-	if sender := a.userNameFor(m.UserID); sender != "" {
-		text = sender + ": " + text
-	}
-	if name, chType, found := a.channels.Lookup(ids.ChannelID(m.ChannelID)); found {
-		text = channelDisplayName(name, chType) + " · " + text
-	}
 	a.linkPicker.SetDisplay(m.Index, text)
+	name, chType, found := a.channels.Lookup(ids.ChannelID(m.ChannelID))
+	if found && m.Sender != "" {
+		a.linkPicker.SetSide(m.Index, channelDisplayName(name, chType)+" · "+m.Sender)
+	}
 }

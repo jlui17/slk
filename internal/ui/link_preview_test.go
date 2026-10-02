@@ -14,10 +14,11 @@ func dateLabel(ts string) string {
 	return messages.FormatDateSeparator(messages.DateFromTS(ts))
 }
 
-// Permalink rows open with a decoded fallback display: channel + date
-// for in-app links, subdomain + date for foreign workspaces, "thread
-// reply" marker when the permalink carries a thread_ts. Non-permalink
-// rows keep showing their URL (empty Display).
+// Permalink rows open with a decoded fallback: the date as the text,
+// with a "thread reply" marker when the permalink carries a thread_ts,
+// and the channel of an in-app link or the subdomain of a foreign
+// workspace in the Side column. Non-permalink rows keep showing their
+// URL (empty Display, no Side).
 func TestOpenLinkKey_PermalinkRows_DecodedDisplay(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.focusedPanel = PanelMessages
@@ -32,17 +33,22 @@ func TestOpenLinkKey_PermalinkRows_DecodedDisplay(t *testing.T) {
 	if len(items) != 4 {
 		t.Fatalf("items = %#v, want 4", items)
 	}
-	if want := "#general · " + dateLabel("1779284733.270139"); items[0].Display != want {
-		t.Errorf("in-app Display = %q, want %q", items[0].Display, want)
+	if want := dateLabel("1779284733.270139"); items[0].Display != want || items[0].Side != "#general" {
+		t.Errorf("in-app Display = %q, Side = %q; want %q and #general", items[0].Display, items[0].Side, want)
 	}
-	if want := "#general · " + dateLabel("1779284734.000000") + " · thread reply"; items[1].Display != want {
-		t.Errorf("thread-reply Display = %q, want %q", items[1].Display, want)
+	if want := dateLabel("1779284734.000000") + " · thread reply"; items[1].Display != want || items[1].Side != "#general" {
+		t.Errorf("thread-reply Display = %q, Side = %q; want %q and #general", items[1].Display, items[1].Side, want)
 	}
-	if want := "otherteam.slack.com · " + dateLabel("1779284733.270139"); items[2].Display != want {
-		t.Errorf("foreign Display = %q, want %q", items[2].Display, want)
+	if want := dateLabel("1779284733.270139"); items[2].Display != want || items[2].Side != "otherteam.slack.com" {
+		t.Errorf("foreign Display = %q, Side = %q; want %q and otherteam.slack.com", items[2].Display, items[2].Side, want)
 	}
-	if items[3].Display != "" {
-		t.Errorf("non-permalink Display = %q, want empty", items[3].Display)
+	if items[3].Display != "" || items[3].Side != "" {
+		t.Errorf("non-permalink Display = %q, Side = %q; want both empty", items[3].Display, items[3].Side)
+	}
+	for _, it := range items {
+		if it.Detail != "" {
+			t.Errorf("Detail = %q, want none: a permalink row no longer draws its URL", it.Detail)
+		}
 	}
 }
 
@@ -53,7 +59,7 @@ func linkPreviewTestApp(t *testing.T) *App {
 	app.channelNames = map[string]string{"C054JFCBN69": "general"}
 	app.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{
 		Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
-			return "U1", "deploy is done\nsee <#C054JFCBN69> for details", nil
+			return "matt", "deploy is done\nsee <#C054JFCBN69> for details", nil
 		},
 	}))
 	app.focusedPanel = PanelMessages
@@ -65,7 +71,8 @@ func linkPreviewTestApp(t *testing.T) *App {
 }
 
 // Opening the picker fetches previews for in-app permalink rows only;
-// each result fills its row with "#channel · sender: flattened text".
+// each result fills its row with the flattened text, and its Side with
+// "#channel · sender".
 func TestLinkPicker_PreviewFillsRow(t *testing.T) {
 	app := linkPreviewTestApp(t)
 	cmd := pressO(app)
@@ -79,9 +86,9 @@ func TestLinkPicker_PreviewFillsRow(t *testing.T) {
 	}
 	app.Update(pm)
 	items := app.linkPicker.Items()
-	want := "#general · matt: deploy is done see #general for details"
-	if items[0].Display != want {
-		t.Errorf("Display = %q, want %q", items[0].Display, want)
+	want := "deploy is done see #general for details"
+	if items[0].Display != want || items[0].Side != "#general · matt" {
+		t.Errorf("Display = %q, Side = %q; want %q and \"#general · matt\"", items[0].Display, items[0].Side, want)
 	}
 	if items[1].Display != "" {
 		t.Errorf("non-permalink Display = %q, want empty", items[1].Display)
@@ -96,20 +103,33 @@ func TestLinkPicker_StalePreviewDropped(t *testing.T) {
 	pm := msgs[0].(LinkPreviewMsg)
 	pm.Gen--
 	app.Update(pm)
-	if got := app.linkPicker.Items()[0].Display; got != "#general · "+dateLabel("1779284733.270139") {
-		t.Errorf("Display = %q, want untouched fallback", got)
+	if got := app.linkPicker.Items()[0]; got.Display != dateLabel("1779284733.270139") || got.Side != "#general" {
+		t.Errorf("Display = %q, Side = %q; want untouched fallback", got.Display, got.Side)
 	}
 }
 
 // Raw text that flattens to nothing must keep the fallback row, not
-// overwrite it with a dangling "sender: ".
+// overwrite it with an empty one.
 func TestLinkPicker_EmptyFlattenKeepsFallback(t *testing.T) {
 	app := linkPreviewTestApp(t)
 	msgs := drainCmd(pressO(app))
 	pm := msgs[0].(LinkPreviewMsg)
 	pm.Text = "   \n\t "
 	app.Update(pm)
-	if got := app.linkPicker.Items()[0].Display; got != "#general · "+dateLabel("1779284733.270139") {
-		t.Errorf("Display = %q, want untouched fallback", got)
+	if got := app.linkPicker.Items()[0]; got.Display != dateLabel("1779284733.270139") || got.Side != "#general" {
+		t.Errorf("Display = %q, Side = %q; want untouched fallback", got.Display, got.Side)
+	}
+}
+
+// A preview whose message names no sender leaves the column as the
+// channel alone, not "#general · ".
+func TestLinkPicker_PreviewWithoutSender(t *testing.T) {
+	app := linkPreviewTestApp(t)
+	msgs := drainCmd(pressO(app))
+	pm := msgs[0].(LinkPreviewMsg)
+	pm.Sender = ""
+	app.Update(pm)
+	if row := app.linkPicker.Items()[0]; row.Display != "deploy is done see #general for details" || row.Side != "#general" {
+		t.Errorf("Display = %q, Side = %q; want the preview and the channel alone", row.Display, row.Side)
 	}
 }

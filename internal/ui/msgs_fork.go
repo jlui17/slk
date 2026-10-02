@@ -5,12 +5,12 @@ package ui
 // picker row; Gen echoes App.linkPreviewGen at dispatch time (stamped
 // UI-side in fetchLinkPreview) and the reducer drops stale
 // generations. ChannelID is the permalink's channel (for the row's
-// channel prefix); UserID and Text are the target message's sender
-// and raw mrkdwn.
+// channel prefix); Sender and Text are the target message's sender,
+// by the name the message pane shows for it, and raw mrkdwn.
 type LinkPreviewMsg struct {
 	Index     int
 	Gen       uint64
 	ChannelID string
-	UserID    string
+	Sender    string
 	Text      string
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/muesli/reflow/truncate"
 )
 
 // ViewOverlay renders the picker centered on a dimmed copy of
@@ -16,6 +15,7 @@ func (m *Model) ViewOverlay(termWidth, termHeight int, background string) string
 	if !m.visible {
 		return background
 	}
+	m.termHeight = termHeight
 	box := m.renderBox(termWidth)
 	if box == "" {
 		return background
@@ -34,6 +34,7 @@ func (m *Model) renderBox(termWidth int) string {
 	if overlayWidth > termWidth-2 {
 		overlayWidth = termWidth - 2
 	}
+	overlayWidth = m.widenForRows(overlayWidth, termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
 	bg := styles.Background
@@ -42,35 +43,28 @@ func (m *Model) renderBox(termWidth int) string {
 		Background(bg).
 		Foreground(styles.Primary).
 		Render(m.title)
-	title = m.withMarkedCounter(title, innerWidth)
+	title = m.withTitleStatus(title, innerWidth)
 
 	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
 	mutedStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
 
 	var rows []string
-	for i, it := range m.items {
-		var parts []string
-		if it.Label != "" {
-			parts = append(parts, it.Label)
-		}
-		switch {
-		case it.Display != "":
-			parts = append(parts, it.Display)
-		case it.URL != "" && it.URL != it.Label:
-			parts = append(parts, it.URL)
-		}
-		text := strings.Join(parts, "  ")
+	for _, i := range m.window() {
+		it := m.items[i]
+		text := m.drawnText(it, innerWidth)
 		badge := ""
 		if it.InApp {
 			badge = " [slk]"
 		}
 		budget := innerWidth - 1 - lipgloss.Width(badge) // 1 = indicator column
 		budget -= lipgloss.Width(m.checkbox(i))
+		side := m.sideColumn(it, innerWidth)
+		budget -= lipgloss.Width(side)
 		if budget < 1 {
 			budget = 1
 		}
 		if lipgloss.Width(text) > budget {
-			text = truncate.StringWithTail(text, uint(budget), "\u2026")
+			text = Cut(text, budget)
 		}
 		// Detail rides muted in whatever space the main text leaves;
 		// dropped entirely when the row is too tight for it to help.
@@ -78,7 +72,7 @@ func (m *Model) renderBox(termWidth int) string {
 		detailBudget := budget - lipgloss.Width(text) - 2
 		if detail != "" && detailBudget >= 4 {
 			if lipgloss.Width(detail) > detailBudget {
-				detail = truncate.StringWithTail(detail, uint(detailBudget), "\u2026")
+				detail = Cut(detail, detailBudget)
 			}
 		} else {
 			detail = ""
@@ -99,15 +93,15 @@ func (m *Model) renderBox(termWidth int) string {
 		if used < budget {
 			row += mainStyle.Render(strings.Repeat(" ", budget-used))
 		}
-		rows = append(rows, row+badgeStyle.Render(badge))
+		rows = append(rows, row+side+badgeStyle.Render(badge))
 	}
 
 	footer := lipgloss.NewStyle().
 		Background(bg).
 		Foreground(styles.TextMuted).
-		Render(m.footerText("j/k move   enter select   esc/q close"))
+		Render(m.footerText(innerWidth))
 
-	content := title + "\n\n" + strings.Join(rows, "\n") + "\n\n" + footer
+	content := title + "\n" + m.filterLine() + "\n" + strings.Join(rows, "\n") + "\n\n" + footer
 	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
 
 	return lipgloss.NewStyle().

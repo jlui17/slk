@@ -270,8 +270,8 @@ func TestCopyFromMessagePicker_PermalinkRowsMatchTheOpenPicker(t *testing.T) {
 		t.Fatalf("preview msgs = %#v, want 1 (in-app row only)", msgs)
 	}
 	app.Update(msgs[0])
-	if display := app.linkPicker.Items()[0].Display; display != "#general · matt: deploy is done see #general for details" {
-		t.Errorf("Display = %q, want the fetched preview", display)
+	if row := app.linkPicker.Items()[0]; row.Display != "deploy is done see #general for details" || row.Side != "#general · matt" {
+		t.Errorf("Display = %q, Side = %q; want the fetched preview", row.Display, row.Side)
 	}
 	assertLinkCopied(t, app.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter}), copied, "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139")
 }

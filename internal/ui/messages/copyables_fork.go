@@ -1,7 +1,5 @@
 package messages
 
-import "strings"
-
 type CopyableKind int
 
 const (
@@ -19,33 +17,38 @@ type Copyable struct {
 	Link      Link      // set when Kind is CopyableLink
 }
 
-// Copyables returns msg's fenced code blocks and links in body order.
-// Both come from the text the panes render (MessageTextSource), not
-// msg.Text, so one set of positions orders them. A link inside a fence
-// is not an item of its own: copying the block carries it. Links are
-// deduplicated by URL as ExtractLinks does, first occurrence outside a
-// fence winning.
+// Copyables returns msg's fenced code blocks and links in body order,
+// then the links of the blocks drawn below the body (blockLinks), so c
+// offers the block links o does, each with the Context o gives it. The body ones come from the text the
+// panes render (MessageTextSource), not msg.Text, so one set of
+// positions orders them. A link inside a fence is not an item of its
+// own: copying the block carries it. Links are deduplicated by URL as
+// MessageLinks does, first occurrence outside a fence winning.
 func Copyables(msg MessageItem) []Copyable {
 	text := MessageTextSource(msg)
 	var items []Copyable
-	seen := map[string]bool{}
-	addLinks := func(outsideFences string) {
-		for _, l := range ExtractLinks(outsideFences) {
-			if seen[l.URL] {
+	at := map[string]int{}
+	collect := func(links []Link) {
+		for _, l := range links {
+			if i, ok := at[linkKey(l.URL)]; ok {
+				items[i].Link.learn(l)
 				continue
 			}
-			seen[l.URL] = true
+			at[linkKey(l.URL)] = len(items)
 			// Slack sends & inside a URL as &amp;.
-			items = append(items, Copyable{Kind: CopyableLink, Text: strings.ReplaceAll(l.URL, "&amp;", "&"), Link: l})
+			items = append(items, Copyable{Kind: CopyableLink, Text: linkKey(l.URL), Link: l})
 		}
 	}
 	end := 0
 	for _, m := range codeBlockRe.FindAllStringSubmatchIndex(text, -1) {
-		addLinks(text[end:m[0]])
+		collect(ExtractLinks(text[end:m[0]]))
 		block := codeBlockOfFence(text[m[2]:m[3]])
 		items = append(items, Copyable{Kind: CopyableCodeBlock, Text: block.Code, CodeBlock: block})
 		end = m[1]
 	}
-	addLinks(text[end:])
+	collect(ExtractLinks(text[end:]))
+	body, below := blockLinks(msg.Blocks)
+	collect(body)
+	collect(below)
 	return items
 }

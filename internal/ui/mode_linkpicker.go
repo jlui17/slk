@@ -46,5 +46,5 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.pickerKind = ""
 		a.pickerInTab = false
 	}
-	return nil
+	return a.linkPreviewsInView()
 }

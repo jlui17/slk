@@ -14,6 +14,9 @@ import (
 type Link struct {
 	URL   string
 	Label string // empty for bare <url> links
+	// Fork: what the link sits with in the message, as mrkdwn: the
+	// first cell of its table row or its list item, see links_fork.go.
+	Context string
 }
 
 // ExtractLinks returns the links in text in order of appearance,

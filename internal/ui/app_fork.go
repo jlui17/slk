@@ -56,17 +56,12 @@ func (a *App) zoomThreadIfCramped() {
 	}
 }
 
-// permalinkRowText is a permalink row's fallback display: what the
-// picker shows until (or instead of, on fetch failure) the message
-// preview. In-app links decode to "#channel · Today · thread reply";
-// foreign-workspace links to "sub.slack.com · Today".
-func (a *App) permalinkRowText(pl slackurl.Permalink, inApp bool) string {
-	parts := []string{pl.Subdomain + ".slack.com"}
-	if inApp {
-		// inApp implies the Lookup succeeds (linkOpensInApp requires it).
-		name, chType, _ := a.channels.Lookup(pl.ChannelID)
-		parts[0] = channelDisplayName(name, chType)
-	}
+// permalinkRowText is a permalink row's fallback text: what the picker
+// shows until (or instead of, on fetch failure) the message preview,
+// "Today · thread reply". Where the link points is the row's Side
+// column, permalinkPlace.
+func permalinkRowText(pl slackurl.Permalink) string {
+	var parts []string
 	if date := messages.DateFromTS(string(pl.MessageTS)); date != "" {
 		parts = append(parts, messages.FormatDateSeparator(date))
 	}
@@ -74,6 +69,17 @@ func (a *App) permalinkRowText(pl slackurl.Permalink, inApp bool) string {
 		parts = append(parts, "thread reply")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// permalinkPlace is where a permalink points: "#channel" for an in-app
+// link, "sub.slack.com" for a foreign workspace.
+func (a *App) permalinkPlace(pl slackurl.Permalink, inApp bool) string {
+	if !inApp {
+		return pl.Subdomain + ".slack.com"
+	}
+	// inApp implies the Lookup succeeds (linkOpensInApp requires it).
+	name, chType, _ := a.channels.Lookup(pl.ChannelID)
+	return channelDisplayName(name, chType)
 }
 
 func channelDisplayName(name, chType string) string {
@@ -88,7 +94,7 @@ func (a *App) fetchLinkPreview(gen uint64, index int, pl slackurl.Permalink) tea
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		userID, text, err := messageSvc.Preview(ctx, pl.ChannelID, pl.MessageTS, pl.ThreadTS)
+		sender, text, err := messageSvc.Preview(ctx, pl.ChannelID, pl.MessageTS, pl.ThreadTS)
 		if err != nil {
 			debuglog.General("linkPreview: %s/%s: %v", pl.ChannelID, pl.MessageTS, err)
 			return nil
@@ -96,7 +102,7 @@ func (a *App) fetchLinkPreview(gen uint64, index int, pl slackurl.Permalink) tea
 		if text == "" {
 			return nil
 		}
-		return LinkPreviewMsg{Index: index, Gen: gen, ChannelID: string(pl.ChannelID), UserID: userID, Text: text}
+		return LinkPreviewMsg{Index: index, Gen: gen, ChannelID: string(pl.ChannelID), Sender: sender, Text: text}
 	}
 }
 

@@ -16,13 +16,21 @@ type Item struct {
 	// decoded permalink description, later the fetched message
 	// snippet). URL stays the open target either way.
 	Display string
-	// Detail is trailing muted info: the file size for file rows, the
-	// raw URL for permalink rows still showing their decoded fallback
-	// (SetDisplay clears it once a preview fills the row).
+	// Detail is trailing muted info right after the text: the file size
+	// for file rows, the line count for code-block rows.
 	Detail string
 	// InApp marks links that the router will navigate inside slk
 	// (active-workspace archive permalinks); rendered with a badge.
 	InApp bool
+	// Fork: Side is muted text in an aligned column of its own, right
+	// of the row's text: where a permalink points and, once its preview
+	// has landed, who wrote it. See view_fork.go.
+	Side string
+	// Fork: previewed is set once SetDisplay has filled the row.
+	previewed bool
+	// Fork: FilterText is all the filter reads of the row. Open sets
+	// it to the row's text when the opener left it empty.
+	FilterText string
 	// Index is the item's position in the slice passed to Open,
 	// assigned by Open so the dispatcher can map the chosen row back
 	// to its source data.
@@ -36,9 +44,15 @@ type Model struct {
 	selected int
 	visible  bool
 
-	// Fork: row marking, see model_fork.go.
+	// Fork: row marking, the filter and the scroll window, see
+	// model_fork.go.
 	multiSelect bool
 	marked      map[int]bool
+	filter      string
+	filtering   bool
+	termHeight  int
+	top         int
+	rowWidth    int
 }
 
 // New creates a hidden picker.
@@ -54,7 +68,7 @@ func (m *Model) Open(title string, items []Item) {
 	}
 	m.selected = 0
 	m.visible = true
-	m.resetMultiSelect()
+	m.resetFork()
 }
 
 // Close hides the picker and drops its items.
@@ -62,7 +76,7 @@ func (m *Model) Close() {
 	m.visible = false
 	m.items = nil
 	m.selected = 0
-	m.resetMultiSelect()
+	m.resetFork()
 }
 
 // IsVisible reports whether the picker is showing.
@@ -81,6 +95,9 @@ func (m *Model) Selected() int { return m.selected }
 // chose a row with enter (the picker closes itself); (Item{}, false)
 // otherwise. esc/q close without choosing.
 func (m *Model) HandleKey(key string) (Item, bool) {
+	if m.handleForkKey(key) {
+		return Item{}, false
+	}
 	switch key {
 	case "esc", "q":
 		m.Close()
