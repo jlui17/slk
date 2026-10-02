@@ -98,6 +98,8 @@ max_image_cache_mb = 200
 # question, a plan for approval), and idle when it is finished. An acked
 # human message reads as working when it asks the bot for anything (a
 # request, a question, a go-ahead), idle when it just closes the exchange.
+# A bot todo-list post is judged too, and reads blocked when it asks you
+# for a word (a merge ask above its list); otherwise it stays working.
 #
 # While Slack considers the thread unread, the row shows the unread reply
 # count and herdr's unseen "done" indicator, the same blue dot it shows for

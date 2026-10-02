@@ -251,16 +251,115 @@ func TestStaleVerdictIsDropped(t *testing.T) {
 	}
 }
 
-func TestTodoPostAsksNoJudge(t *testing.T) {
+// The real case: the todo list under a merge ask still has open items.
+const todoPostWithAsk = "#2382 is ready for a merge. *Type \"merge 2382\" and I merge it.* ✓ Review clean. ○ Your merge word for #2382. _todos as of 02:38 UTC_"
+
+func TestTodoPostAsksJudge(t *testing.T) {
 	a, _, _ := newAgentTestApp(t)
 	judged := withWorkingJudge(a)
 	openWorkingAgentThread(a, nil)
-	a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
-		TS: "101.0", ThreadTS: "100.0", UserID: "UBOT",
-		Text: "Picking this up. ✱ Reading. ○ Fixing. _todos as of 19:04 UTC_",
-	}})
-	if len(*judged) != 0 {
-		t.Errorf("judge fired for a todo post: %+v", *judged)
+	a.Update(agentReply("101.0", todoPostWithAsk))
+	if len(*judged) != 1 {
+		t.Fatalf("expected one judge call for the todo post, got %+v", *judged)
+	}
+	if call := (*judged)[0]; !call.fromAgent || !strings.Contains(call.message, "Your merge word") {
+		t.Errorf("judge call = %+v", call)
+	}
+}
+
+func TestTodoPostReadsBlockedOnlyOnABlockedVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(*testing.T, *[]judgeCall) AgentWorkingVerdictMsg
+		want   AgentState
+	}{
+		{"blocked verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentBlocked) }, AgentBlocked},
+		{"working verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentWorking) }, AgentWorking},
+		{"idle verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentIdle) }, AgentWorking},
+		{"failed request", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return failureFor(t, c, 0) }, AgentWorking},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, reports, unreads := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			seq := withHerdrSequence(a, reports, unreads)
+
+			// The thread read working before the todo post and reads
+			// working while its verdict is in flight: nothing to publish.
+			a.Update(agentReply("101.0", todoPostWithAsk))
+			assertHerdrSequence(t, seq)
+			if got := a.agentSidebar.effectiveState(); got != AgentWorking {
+				t.Fatalf("expected working while the verdict is in flight, got %q", got)
+			}
+
+			a.Update(tc.answer(t, judged))
+			if got := a.agentSidebar.effectiveState(); got != tc.want {
+				t.Errorf("state = %q, want %q", got, tc.want)
+			}
+			if tc.want == AgentWorking {
+				assertHerdrSequence(t, seq)
+				return
+			}
+			assertHerdrSequence(t, seq, AgentBlocked)
+			if got := lastReport(t, reports); got.status != "1 unread reply" {
+				t.Errorf("expected the blocked report to carry the unread count, got %+v", got)
+			}
+		})
+	}
+}
+
+// A todo post's verdict is no completion: only blocked can come of it. So
+// the reply keeps the synthetic completion it had on an idle thread before
+// todo posts went to the judge, and no verdict adds a second one.
+func TestTodoPostOnIdleThreadCompletesOnce(t *testing.T) {
+	for _, verdict := range []AgentState{AgentBlocked, AgentWorking, AgentIdle} {
+		t.Run(string(verdict), func(t *testing.T) {
+			a, reports, unreads := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			a.Update(agentReply("101.0", "Done, all green."))
+			a.Update(verdictFor(t, judged, 0, AgentIdle))
+			seq := withHerdrSequence(a, reports, unreads)
+
+			a.Update(agentReply("102.0", todoPostWithAsk))
+			assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking)
+			a.Update(verdictFor(t, judged, 1, verdict))
+			if verdict == AgentBlocked {
+				assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking, AgentBlocked)
+				return
+			}
+			assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking)
+		})
+	}
+}
+
+// An edit of a todo post (a refreshed stamp) is a new question. Until its
+// answer lands the post holds what it read before, like any other edit.
+func TestEditOfTodoPostReasksAndHoldsItsState(t *testing.T) {
+	for _, held := range []AgentState{AgentBlocked, AgentWorking} {
+		t.Run(string(held), func(t *testing.T) {
+			a, reports, unreads := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			a.Update(agentReply("101.0", todoPostWithAsk))
+			a.Update(verdictFor(t, judged, 0, held))
+			seq := withHerdrSequence(a, reports, unreads)
+
+			a.Update(editedAgentReply("101.0", strings.Replace(todoPostWithAsk, "02:38", "02:50", 1)))
+			if len(*judged) != 2 {
+				t.Fatalf("expected the edit to re-ask, got %+v", *judged)
+			}
+			assertHerdrSequence(t, seq)
+			if got := a.agentSidebar.effectiveState(); got != held {
+				t.Errorf("state while the re-ask is in flight = %q, want %q", got, held)
+			}
+
+			// A failed re-ask drops the held verdict: back to the default.
+			a.Update(failureFor(t, judged, 1))
+			if got := a.agentSidebar.effectiveState(); got != AgentWorking {
+				t.Errorf("state after the failed re-ask = %q, want working", got)
+			}
+		})
 	}
 }
 

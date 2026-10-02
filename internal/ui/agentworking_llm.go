@@ -4,8 +4,9 @@
 // acked with a reaction — so those ask the tab-label model for a
 // verdict: working, blocked on the user, or idle. The model reads the few
 // messages before the newest one too: a reply can read finished alone while
-// the one before it says another piece is still under way. The deterministic
-// verdicts (human unacked, todo post) never consult it. While a verdict is
+// the one before it says another piece is still under way. An unacked human
+// message never consults it. An agent todo post does, and stays working
+// unless the verdict is blocked (derivedState). While a verdict is
 // in flight a new message reads working, never idle: herdr shows every
 // working→idle edge as done, so the idle verdict has to be the only idle
 // published for a judged message. With no judge installed, or once a
@@ -88,14 +89,15 @@ func (a *App) SetAgentWorkingJudge(gen AgentWorkingJudgeFunc) {
 }
 
 // judgeMessage is the text the judge is asked about when l is the newest
-// message, or "" when l never goes to the judge: none installed, a state
-// the deterministic signal already decides, or nothing to read.
+// message, or "" when l never goes to the judge: none installed, a human
+// message the agent has not acked, or nothing to read. An agent todo post
+// goes too, for the one verdict that moves it (see derivedState).
 func (a *App) judgeMessage(l agentLastMsg) string {
 	g := &a.agentSidebar
 	if g.judgeGen == nil || !g.thread.active || l.ts == "" {
 		return ""
 	}
-	if l.human && !l.acked || !l.human && l.todo {
+	if l.human && !l.acked {
 		return ""
 	}
 	return a.flattenRootText(l.text)
@@ -125,12 +127,15 @@ func (a *App) judgeEarlier() []string {
 }
 
 // replyAwaitsVerdict reports whether msg, not yet noted as the thread's
-// newest message, goes to the judge once it is. Such a reply reads working
-// until the verdict lands and that verdict's report is its completion
-// signal, so noteAgentThreadReply leaves the synthetic one out.
+// newest message, goes to the judge once it is and takes its state from
+// the verdict. Such a reply reads working until the verdict lands and that
+// verdict's report is its completion signal, so noteAgentThreadReply leaves
+// the synthetic one out. A todo post is not such a reply: no verdict makes
+// it idle, so no verdict's report is its completion.
 func (a *App) replyAwaitsVerdict(msg messages.MessageItem) bool {
 	last := a.agentSidebar.lastMsg
-	return (last.ts == "" || msg.TS > last.ts) && a.judgeMessage(a.agentLastMsgFrom(msg)) != ""
+	l := a.agentLastMsgFrom(msg)
+	return (last.ts == "" || msg.TS > last.ts) && (l.human || !l.todo) && a.judgeMessage(l) != ""
 }
 
 // maybeJudgeAgentWorking fires a verdict request when the newest message is

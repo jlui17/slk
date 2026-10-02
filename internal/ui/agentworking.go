@@ -67,25 +67,30 @@ type agentLastMsg struct {
 // verdict is in flight they read what the request set (working for a new
 // message, see maybeJudgeAgentWorking), and with nothing asked they read
 // idle.
+//
+// The todo rule is an assumption: a todo list means work goes on. It fails
+// for a post that asks the user for a word above a list that still has open
+// items ("○ Your merge word"), so a todo post goes to the judge too, and a
+// blocked verdict wins. Any other verdict, or none, leaves it working.
 func (g *agentSidebar) derivedState() AgentState {
 	l := g.lastMsg
 	if l.ts == "" {
 		return AgentIdle
 	}
-	if l.human {
-		if !l.acked {
-			return AgentWorking
-		}
-	} else if l.todo {
+	if l.human && !l.acked {
 		return AgentWorking
 	}
+	state := AgentIdle
 	switch workingJudgeKey(l) {
 	case g.workingJudge.judgedKey:
-		return g.workingJudge.state
+		state = g.workingJudge.state
 	case g.workingJudge.requestedKey:
-		return g.workingJudge.inFlightState
+		state = g.workingJudge.inFlightState
 	}
-	return AgentIdle
+	if !l.human && l.todo && state != AgentBlocked {
+		return AgentWorking
+	}
+	return state
 }
 
 // effectiveState combines the assistant's live turn state
