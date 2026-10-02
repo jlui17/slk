@@ -39,6 +39,18 @@ func TestThreadPermalinkSelectsLinkedReply(t *testing.T) {
 		t.Errorf("want linked reply 300.000003 selected, got %+v", sel)
 	}
 
+	// A live reply to the open thread lands in the panel without taking
+	// the cursor off the linked reply.
+	_, _ = a.Update(NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: "500.000005", ThreadTS: "100.000001", Text: "four",
+	}})
+	if got := a.threadPanel.Replies(); len(got) != 4 {
+		t.Fatalf("want the live reply in the panel, got %d replies", len(got))
+	}
+	if sel := a.threadPanel.SelectedReply(); sel == nil || sel.TS != "300.000003" {
+		t.Errorf("live reply: want linked reply 300.000003 still selected, got %+v", sel)
+	}
+
 	// A link to the thread parent (thread_ts == message ts) lands on
 	// the parent row rather than the newest reply.
 	a.CloseThread()

@@ -152,6 +152,9 @@ there and resolve them knowing what the fork wants:
   calls `UpdateMessageInPlace` / `UpdateParentInPlace` with the text alone:
   a `message_changed` event also carries blocks and attachments, and it is
   how Slack delivers a link's unfurl after the post. Upstreaming candidate.
+  A live reply to the open thread goes through the thread panel's
+  `AddIncomingReply` (`thread/select.go`) where upstream calls `AddReply`:
+  the cursor follows only from the newest reply.
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into

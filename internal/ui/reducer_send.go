@@ -317,7 +317,7 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		m.ChannelID == a.threadPanel.ChannelID() &&
 		m.Message.ThreadTS == a.threadPanel.ThreadTS()
 	if inOpenThreadPanel {
-		a.threadPanel.AddReply(m.Message)
+		a.threadPanel.AddIncomingReply(m.Message)
 	}
 	isThreadReply := m.Message.ThreadTS != "" && m.Message.ThreadTS != m.Message.TS
 	isBroadcast := m.Message.Subtype == "thread_broadcast"

@@ -1,5 +1,7 @@
 package thread
 
+import "github.com/gammons/slk/internal/ui/messages"
+
 // SetPendingSelectTS arms a one-shot cursor pin for a permalink open:
 // the next SetThread of the current thread whose content contains ts
 // selects it, then the pin disarms so later reloads (reconnect
@@ -92,4 +94,18 @@ func (m *Model) SelectByTS(ts string) bool {
 	m.viewCacheValid = false
 	m.dirty()
 	return true
+}
+
+// AddIncomingReply is AddReply for a reply that arrives live: the
+// cursor follows to the new reply only when it was already on the newest
+// one (or the thread had none), so a reader on an older reply keeps
+// their place. An unmoved cursor leaves snappedSelection == selected, so
+// View() doesn't re-snap the viewport either.
+func (m *Model) AddIncomingReply(msg messages.MessageItem) {
+	prev := m.selected
+	wasOnNewest := prev == len(m.replies)-1
+	m.AddReply(msg)
+	if !wasOnNewest {
+		m.selected = prev
+	}
 }

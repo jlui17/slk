@@ -1,9 +1,12 @@
 package thread
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/styles"
 )
 
 func threadFixture() (*Model, messages.MessageItem, []messages.MessageItem) {
@@ -160,5 +163,88 @@ func TestSameThreadReloadKeepsCursor(t *testing.T) {
 	m.SetThread(parent, shrunk, "C1", parent.TS)
 	if sel := m.SelectedReply(); sel == nil || sel.TS != "300.000003" {
 		t.Errorf("cursor message gone: want newest reply, got %+v", sel)
+	}
+}
+
+// TestAddIncomingReplyKeepsCursorOnOlderReply pins the reading case: a
+// live reply lands while the cursor sits on an older reply (a permalink
+// open of a busy thread), and neither the cursor nor the viewport moves.
+func TestAddIncomingReplyKeepsCursorOnOlderReply(t *testing.T) {
+	m, parent, _ := threadFixture()
+	m.SelectByTS("200.000002")
+
+	m.AddIncomingReply(messages.MessageItem{TS: "500.000005", Text: "four"})
+	if sel := m.SelectedReply(); sel == nil || sel.TS != "200.000002" {
+		t.Errorf("want cursor kept on 200.000002, got %+v", sel)
+	}
+	if got := m.Replies(); len(got) != 4 || got[3].TS != "500.000005" {
+		t.Errorf("want the reply appended, got %+v", got)
+	}
+
+	// Cursor on the parent row of a thread with replies stays there too.
+	m.SelectByTS(parent.TS)
+	m.AddIncomingReply(messages.MessageItem{TS: "600.000006", Text: "five"})
+	if sel := m.SelectedReply(); sel == nil || sel.TS != parent.TS {
+		t.Errorf("on parent: want parent kept, got %+v", sel)
+	}
+}
+
+// TestAddIncomingReplyFollowsFromNewest: a cursor already on the newest
+// reply follows the thread, and so does a reply-less thread's.
+func TestAddIncomingReplyFollowsFromNewest(t *testing.T) {
+	m, parent, _ := threadFixture()
+	m.AddIncomingReply(messages.MessageItem{TS: "500.000005", Text: "four"})
+	if sel := m.SelectedReply(); sel == nil || sel.TS != "500.000005" {
+		t.Errorf("on newest: want cursor on 500.000005, got %+v", sel)
+	}
+
+	m.SetThread(parent, nil, "C2", parent.TS)
+	m.AddIncomingReply(messages.MessageItem{TS: "200.000002", Text: "one"})
+	if sel := m.SelectedReply(); sel == nil || sel.TS != "200.000002" {
+		t.Errorf("no replies: want cursor on the first reply, got %+v", sel)
+	}
+}
+
+// TestAddIncomingReplyDuplicateTS: AddReply drops a ts it already holds,
+// so the cursor and the replies stay as they were.
+func TestAddIncomingReplyDuplicateTS(t *testing.T) {
+	m, _, _ := threadFixture()
+	m.SelectByTS("200.000002")
+	m.AddIncomingReply(messages.MessageItem{TS: "400.000004", Text: "three again"})
+	if sel := m.SelectedReply(); sel == nil || sel.TS != "200.000002" {
+		t.Errorf("want cursor kept on 200.000002, got %+v", sel)
+	}
+	if got := len(m.Replies()); got != 3 {
+		t.Errorf("want 3 replies, got %d", got)
+	}
+}
+
+// TestAddIncomingReplyKeepsViewport: with the cursor on an older reply of
+// a thread taller than the pane, a live reply leaves the viewport where
+// the reader had it.
+func TestAddIncomingReplyKeepsViewport(t *testing.T) {
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+
+	replies := make([]messages.MessageItem, 25)
+	for i := range replies {
+		replies[i] = messages.MessageItem{TS: fmt.Sprintf("%d.000000", 200+i), UserName: "bob", Text: "reply"}
+	}
+	const h, w = 12, 80
+	m := New()
+	m.SetThread(messages.MessageItem{TS: "100.000001", Text: "parent"}, replies, "C1", "100.000001")
+	m.View(h, w)
+	bottom := m.vp.YOffset()
+	m.SelectByTS("210.000000")
+	m.View(h, w)
+	before := m.vp.YOffset()
+	if before == 0 || before == bottom {
+		t.Fatalf("test setup: want the viewport mid-thread, got YOffset=%d (bottom %d)", before, bottom)
+	}
+
+	m.AddIncomingReply(messages.MessageItem{TS: "300.000000", UserName: "eve", Text: "new"})
+	m.View(h, w)
+	if got := m.vp.YOffset(); got != before {
+		t.Errorf("viewport moved on an incoming reply: YOffset %d -> %d", before, got)
 	}
 }
