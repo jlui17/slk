@@ -238,8 +238,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			// this does not move the image — it decides how many
 			// pixels the terminal has to work with when it scales the
 			// image across those cells. See measuredCellPixels.
-			pxW := target.X * cw
-			pxH := target.Y * ch
+			pxW, pxH := kittyUploadPixels(target, cw, ch)
 			resized := image.NewRGBA(image.Rect(0, 0, pxW, pxH))
 			draw.BiLinear.Scale(resized, resized.Bounds(), src, src.Bounds(), draw.Over, nil)
 			var pngBuf bytes.Buffer

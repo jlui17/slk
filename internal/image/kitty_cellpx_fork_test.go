@@ -60,6 +60,32 @@ func TestKitty_PayloadMemoDiscriminatesCellMetrics(t *testing.T) {
 	}
 }
 
+// A full-pane preview of a wide image is the largest raster slk uploads:
+// a 1400x888 image in a 244x65 terminal fits a 195x62 cell box, which is
+// 3315x2294 px (29 MiB decoded) at a 17x37 cell. The upload must stay
+// within maxKittyUploadBytes, and keep the cell box's shape so the
+// terminal's stretch over c=<cols>,r=<rows> does not distort it.
+func TestKitty_PayloadBoundedForFullPanePreview(t *testing.T) {
+	t.Setenv("TMUX", "")
+	resetCellPixels(t)
+	t.Cleanup(func() { resetCellPixels(t) })
+	SetCellPixels(17, 37)
+
+	target := fitInto(1400, 888, 205, 62)
+	r := NewKittyRenderer(NewRegistry())
+	r.SetSource("wide", makeSolid(1400, 888, imgcolor.RGBA{1, 2, 3, 255}))
+
+	w, h := kittyPayloadDims(t, r.RenderKey("wide", target))
+	if decoded := w * h * 4; decoded > maxKittyUploadBytes {
+		t.Errorf("payload = %dx%d px, %d bytes decoded, want at most %d",
+			w, h, decoded, maxKittyUploadBytes)
+	}
+	boxW, boxH := target.X*17, target.Y*37
+	if got, want := float64(w)/float64(h), float64(boxW)/float64(boxH); got < want*0.99 || got > want*1.01 {
+		t.Errorf("payload %dx%d has aspect %.4f, want the cell box's %.4f", w, h, got, want)
+	}
+}
+
 // kittyPayloadDims flushes r and reports the pixel dimensions of the PNG
 // carried by the emitted kitty upload.
 func kittyPayloadDims(t *testing.T, r Render) (int, int) {
