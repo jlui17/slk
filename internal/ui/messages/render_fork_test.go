@@ -1,7 +1,9 @@
 package messages
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -77,6 +79,43 @@ func TestBlockquote_BlockKitTextWrapsInsideBar(t *testing.T) {
 	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil)
 	out := ctx.RenderTextForWidth("&gt; "+strings.Repeat("word ", 20), nil, 30)
 	requireBarredRows(t, "blockkit text", strippedRows(out), 3)
+}
+
+// The bar runs down the quote and the bordered lists that follow it as
+// one quote, wrapped rows included, and stops before the plain text.
+func TestBlockquote_BorderedRichTextListsWearTheBar(t *testing.T) {
+	data, err := os.ReadFile("blockkit/testdata/quote_then_bordered_lists.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Blocks slack.Blocks `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	md := blockkit.RichTextToMrkdwn(blockkit.Parse(payload.Blocks)[0].(blockkit.RichTextBlock))
+	m := New(nil, "general")
+	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil).RenderTextForWidth(md, nil, 60)
+	rows := strippedRows(out)
+	t.Logf("render at width 60:\n%s", strings.Join(rows, "\n"))
+	gap := slices.IndexFunc(rows, func(r string) bool { return strings.TrimSpace(r) == "" })
+	if gap < 0 {
+		t.Fatalf("expected a blank row between the quote and the plain text: %q", rows)
+	}
+	requireBarredRows(t, "quote and its lists", rows[:gap], 14)
+	requireRowsWithin(t, "quote and its lists", rows[:gap], 60)
+	if !strings.Contains(rows[gap-1], "asked for the page.") {
+		t.Errorf("the quote should end with the last list item, got %q", rows[gap-1])
+	}
+	if !strings.HasPrefix(rows[2], quoteBar+" • A reader") || !strings.HasPrefix(rows[3], quoteBar+"   ") {
+		t.Errorf("a wrapped list item should hang under its marker inside the bar, got %q then %q", rows[2], rows[3])
+	}
+	for _, r := range rows[gap:] {
+		if strings.Contains(r, quoteBar) {
+			t.Errorf("row after the quote wears the bar: %q", r)
+		}
+	}
 }
 
 func searchHighlightSGRForTest(t *testing.T) (start, end string) {

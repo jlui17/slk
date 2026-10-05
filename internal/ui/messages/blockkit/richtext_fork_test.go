@@ -2,6 +2,7 @@ package blockkit
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -115,6 +116,37 @@ func TestRichTextToMrkdwn_MessageMentionIsABareLink(t *testing.T) {
 	}
 	rt := Parse(p.Blocks)[0].(RichTextBlock)
 	if got, want := RichTextToMrkdwn(rt), "<https://x.slack.com/archives/C1/p1788296622155919>"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Slack does not nest a list in a rich_text_quote: the lists of a quote
+// follow it as siblings that carry border 1. Shape as seen 2026-10 in a
+// Claude-in-Slack reply; the text is made up.
+func TestRichTextToMrkdwn_BorderedListsContinueTheQuote(t *testing.T) {
+	rt := Parse(loadFixture(t, "quote_then_bordered_lists.json").Blocks)[0].(RichTextBlock)
+	quoted, rest, _ := strings.Cut(RichTextToMrkdwn(rt), "\n\n")
+	lines := strings.Split(quoted, "\n")
+	if len(lines) != 11 {
+		t.Fatalf("expected the quote and its 10 list items, got %d lines: %q", len(lines), lines)
+	}
+	for i, l := range lines {
+		if !strings.HasPrefix(l, "> ") {
+			t.Errorf("line %d is outside the quote: %q", i, l)
+		}
+	}
+	if lines[0] != "> [label]" || lines[1] != "> 1. The first point" || !strings.HasPrefix(lines[6], "> • Writing it without reading `Chapter`") {
+		t.Errorf("quote lines lost their text: %q", lines)
+	}
+	if !strings.HasPrefix(rest, "Source message: ") {
+		t.Errorf("the text after the lists should sit outside the quote, got %q", rest)
+	}
+}
+
+func TestRichTextToMrkdwn_ListWithoutBorderIsNotQuoted(t *testing.T) {
+	rt := richTextFromJSON(t, `[{"type":"rich_text_list","style":"bullet","indent":0,"border":0,
+		"elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"item"}]}]}]`)
+	if got, want := RichTextToMrkdwn(rt), "• item"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

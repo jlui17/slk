@@ -1,0 +1,265 @@
+{
+  "blocks": [
+    {
+      "type": "rich_text",
+      "block_id": "b1",
+      "elements": [
+        {
+          "type": "rich_text_quote",
+          "elements": [
+            {
+              "type": "text",
+              "text": "[label]"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "The first point"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0,
+          "border": 1,
+          "offset": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "A reader opened the long report on a quiet morning, to check the summary, the part that lists what each page holds."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "The writer agreed and said: \"a summary page is one more thing every report should include\"."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "The writer noted that it fits the parts that exist: Title, Outline, Chapter."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0,
+          "border": 1,
+          "offset": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "The second point"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0,
+          "border": 1,
+          "offset": 1
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Writing it without reading "
+                },
+                {
+                  "type": "text",
+                  "text": "Chapter",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " again from the start is risky, because the summary describes what "
+                },
+                {
+                  "type": "text",
+                  "text": "Chapter",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " says, and the same report notes that the editor \"already holds every section's heading list when Chapter is done\"."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "A separate page makes a report with a summary repeat text after "
+                },
+                {
+                  "type": "text",
+                  "text": "Chapter",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " and drift from it over a few edits."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0,
+          "border": 1,
+          "offset": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "The third point, with a longer heading"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0,
+          "border": 1,
+          "offset": 2
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Compare the separate page with "
+                },
+                {
+                  "type": "text",
+                  "text": "Chapter",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " holding the summary before choosing."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Recommend "
+                },
+                {
+                  "type": "text",
+                  "text": "Chapter",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " holding the summary, even though the reader asked for the page."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0,
+          "border": 1,
+          "offset": 0
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "Source message: "
+            },
+            {
+              "type": "link",
+              "url": "https://example.slack.com/archives/C00000000/p1700000000000000",
+              "text": "the reply about the summary page"
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "Result: accepted. Certainty: high (80%)."
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "The reviewer found the quotes exact and three phrases loose (\"each page\", \"another way\", \"the list of parts\"); the text above has them tightened as noted, with nothing else changed."
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "emoji",
+              "name": "point_right",
+              "unicode": "1f449"
+            },
+            {
+              "type": "text",
+              "text": " Next step: reply \"yes\" to keep this text, \"mine\" to keep the first draft, or \"drop\"."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

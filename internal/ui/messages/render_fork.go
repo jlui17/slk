@@ -49,6 +49,18 @@ func renderInlineLine(text string, opts RenderSlackMarkdownOpts, hl searchHighli
 	return hl.highlight(slackEntityDecoder.Replace(renderInlineFormattingWith(text, opts)))
 }
 
+// A list item in a quote hangs its wrapped rows under its marker, inside
+// the bar.
+func renderQuoteLine(body string, opts RenderSlackMarkdownOpts, hl searchHighlighter) string {
+	insideBar := opts
+	insideBar.Width -= blockquoteStyle().GetHorizontalFrameSize()
+	line, isItem := renderListItem(body, insideBar, hl)
+	if !isItem {
+		line = renderInlineLine(body, opts, hl)
+	}
+	return renderBlockquote(line, opts.Width, hl)
+}
+
 func renderBlockquote(body string, width int, hl searchHighlighter) string {
 	style := blockquoteStyle()
 	body = ReapplyBgAfterResets(body, fgANSIFor(style.GetForeground()))

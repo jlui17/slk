@@ -29,6 +29,17 @@ func withFenceLanguage(fence, language string) string {
 	return "```<" + language + ">" + strings.TrimPrefix(fence, "```")
 }
 
+// Slack does not nest a list in a rich_text_quote: the lists of a quote
+// follow it as siblings that carry border 1. They join the quote's "> "
+// lines, so the renderer draws one quote. A bordered rich_text_preformatted
+// is left as it is: a "> " on each fence line would stop it being a fence.
+func withQuoteBorder(mrkdwn string, border int) string {
+	if border == 0 {
+		return mrkdwn
+	}
+	return "> " + strings.ReplaceAll(mrkdwn, "\n", "\n> ")
+}
+
 // Slack links a message inline as a message_mention element, which
 // slack-go does not model, so it arrives with only its raw JSON.
 // Slack's own text fallback spells it as a bare <url>.

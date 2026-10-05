@@ -687,7 +687,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	var result []string
 	for _, line := range lines {
 		if body, isQuote := stripQuotePrefix(line); isQuote {
-			line = renderBlockquote(renderInlineLine(body, opts, hl), opts.Width, hl)
+			line = renderQuoteLine(body, opts, hl)
 		} else if item, ok := renderListItem(line, opts, hl); ok {
 			line = item
 		} else {

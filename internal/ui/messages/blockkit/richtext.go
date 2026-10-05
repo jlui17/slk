@@ -26,7 +26,7 @@ func RichTextToMrkdwn(rt RichTextBlock) string {
 		case *slack.RichTextSection:
 			parts = append(parts, sectionToMrkdwn(v.Elements))
 		case *slack.RichTextList:
-			parts = append(parts, listToMrkdwn(v))
+			parts = append(parts, withQuoteBorder(listToMrkdwn(v), v.Border))
 		case *slack.RichTextPreformatted:
 			parts = append(parts, withFenceLanguage(preformattedToMrkdwn(v.Elements), v.Language))
 		case *slack.RichTextQuote:
