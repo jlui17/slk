@@ -91,7 +91,7 @@ func (a *App) SetAgentTabForceNamer(forceNameTab AgentTabNameFunc) {
 func init() { commands["retitle"] = cmdRetitle }
 
 // maxRetitleTranscript caps what a label request sends — sized to fit whole
-// threads (400KB ≈ 100K tokens, half of claude-haiku-4-5's window), with
+// threads (400KB ≈ 100K tokens, a tenth of claude-sonnet-5-5's window), with
 // per-message caps so one pasted log can't crowd out the rest. On
 // overflow the newest replies survive; the root always rides.
 const (

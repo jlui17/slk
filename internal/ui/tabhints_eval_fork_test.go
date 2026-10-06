@@ -13,7 +13,7 @@
 // Knobs (pass through -exec 'env K=V ...'):
 //
 //	SLK_TABHINTS_FILE         hints file, repo-relative
-//	SLK_TABHINTS_MODEL        default claude-haiku-4-5
+//	SLK_TABHINTS_MODEL        default claude-sonnet-5-5
 //	SLK_TABHINTS_TRANSCRIPTS  transcripts dir under the eval dir, default transcripts
 //	SLK_TABHINTS_REPEATS      calls per transcript, default 1
 //	SLK_TABHINTS_ROOT_ONLY    1 sends only each transcript's first line (the
@@ -149,7 +149,7 @@ func TestTabHintsEval(t *testing.T) {
 	}
 	model := os.Getenv("SLK_TABHINTS_MODEL")
 	if model == "" {
-		model = "claude-haiku-4-5"
+		model = "claude-sonnet-5-5"
 	}
 	var hints []string
 	if path := os.Getenv("SLK_TABHINTS_FILE"); path != "" {

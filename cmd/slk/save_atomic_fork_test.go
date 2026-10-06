@@ -59,7 +59,7 @@ func TestConfigSavers_SaveWhenTheLockCannotBeTaken(t *testing.T) {
 // or on the pass that updates it.
 func TestConfigSavers_LeaveTheHerdrAPIKeyInPlace(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	const herdr = "[herdr]\ntab_name_model = \"claude-haiku-4-5\"\nanthropic_api_key = \"sk-ant-secret\"   # mine\n"
+	const herdr = "[herdr]\ntab_name_model = \"claude-sonnet-5-5\"\nanthropic_api_key = \"sk-ant-secret\"   # mine\n"
 	if err := os.WriteFile(path, []byte("[general]\n\n"+herdr), 0600); err != nil {
 		t.Fatal(err)
 	}

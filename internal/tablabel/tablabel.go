@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
@@ -31,6 +30,7 @@ const relabelSystemPrompt = "You label terminal tabs. The user message is a tran
 	"thread has moved on to different work, name the new work. Name the thing, not the " +
 	"activity: never the current step or a status (testing, review, waiting, done, in " +
 	"progress), and no filler like issue, fix, investigation or update.\n" +
+	"The reply is those two lines alone, with no reasoning before or after them.\n" +
 	"Hints from the user may follow. They take priority: where a hint conflicts with a " +
 	"rule above, follow the hint."
 
@@ -85,7 +85,7 @@ func (c *Client) Relabel(ctx context.Context, transcript string, hints []string)
 		system += hintLines
 		reminder += hintLines
 	}
-	reply, err := c.complete(ctx, param.Opt[float64]{}, system, clip(transcript, maxTranscriptBytes), reminder)
+	reply, err := c.complete(ctx, system, clip(transcript, maxTranscriptBytes), reminder)
 	if err != nil {
 		return "", "", err
 	}
@@ -111,20 +111,20 @@ func parseRelabelReply(reply string) (id, label string, err error) {
 }
 
 // complete sends user as the text blocks of one user message.
-func (c *Client) complete(ctx context.Context, temperature param.Opt[float64], system string, user ...string) (string, error) {
+func (c *Client) complete(ctx context.Context, system string, user ...string) (string, error) {
 	blocks := make([]anthropic.ContentBlockParamUnion, len(user))
 	for i, text := range user {
 		blocks[i] = anthropic.NewTextBlock(text)
 	}
 	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:       anthropic.Model(c.model),
-		MaxTokens:   64,
-		Temperature: temperature,
-		// Models that think by default spend the whole token budget on a
-		// long thread before writing any text.
-		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
-		System:   []anthropic.TextBlockParam{{Text: system}},
-		Messages: []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
+		Model: anthropic.Model(c.model),
+		// Thinking stays on, at low effort, with room for it before the
+		// text: with thinking off (between_tools) the model wrote its
+		// reasoning into the reply, and a 64-token cap cut the answer off.
+		MaxTokens:    1024,
+		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow},
+		System:       []anthropic.TextBlockParam{{Text: system}},
+		Messages:     []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
 	if err != nil {
 		return "", err

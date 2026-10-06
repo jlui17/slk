@@ -10,7 +10,7 @@ func TestRelabelParsesIDAndLabel(t *testing.T) {
 	srv, got := fakeAPI(t, "#1170\nImplement viewer fix\n")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	transcript := "justin: brainstorm the design\nClaude: implementing option two"
 	id, label, err := c.Relabel(context.Background(), transcript, nil)
 	if err != nil {
@@ -19,14 +19,17 @@ func TestRelabelParsesIDAndLabel(t *testing.T) {
 	if id != "#1170" || label != "Implement viewer fix" {
 		t.Errorf("id, label = %q, %q", id, label)
 	}
-	if got.Model != "claude-haiku-4-5" {
+	if got.Model != "claude-sonnet-5-5" {
 		t.Errorf("model = %q", got.Model)
 	}
 	if got.MaxTokens <= 0 || got.MaxTokens > 1024 {
 		t.Errorf("max_tokens = %d, want small positive", got.MaxTokens)
 	}
-	if got.Thinking.Type != "disabled" {
-		t.Errorf("thinking = %q, want disabled: a model that thinks by default spends max_tokens before any text", got.Thinking.Type)
+	if got.Thinking.Type != "" || got.OutputConfig.Effort != "low" {
+		t.Errorf("thinking = %q, effort = %q; want thinking unset at low effort: with thinking off the model writes its reasoning into the reply", got.Thinking.Type, got.OutputConfig.Effort)
+	}
+	if got.Temperature != nil {
+		t.Errorf("temperature = %v, want none: the model rejects any temperature", *got.Temperature)
 	}
 	if len(got.Messages) != 1 || got.Messages[0].Role != "user" {
 		t.Fatalf("messages = %+v, want one user message", got.Messages)
@@ -50,7 +53,7 @@ func TestRelabelNoneMeansNoID(t *testing.T) {
 	srv, _ := fakeAPI(t, "None\nBrainstorming retry design")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	id, label, err := c.Relabel(context.Background(), "transcript", nil)
 	if err != nil {
 		t.Fatalf("Relabel: %v", err)
@@ -64,7 +67,7 @@ func TestRelabelSingleLineIsLabelOnly(t *testing.T) {
 	srv, _ := fakeAPI(t, "Implement viewer fix")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	id, label, err := c.Relabel(context.Background(), "transcript", nil)
 	if err != nil {
 		t.Fatalf("Relabel: %v", err)
@@ -78,7 +81,7 @@ func TestRelabelBracketedIDUnwrapped(t *testing.T) {
 	srv, _ := fakeAPI(t, "[colony-123]\nFix the viewer")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	id, _, err := c.Relabel(context.Background(), "transcript", nil)
 	if err != nil {
 		t.Fatalf("Relabel: %v", err)
@@ -92,7 +95,7 @@ func TestRelabelSendsHints(t *testing.T) {
 	srv, got := fakeAPI(t, "none\nlabel")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	hints := []string{"task ids look like colony-123", "prefer the PR number over the branch"}
 	if _, _, err := c.Relabel(context.Background(), "transcript", hints); err != nil {
 		t.Fatalf("Relabel: %v", err)
@@ -119,7 +122,7 @@ func TestRelabelCapsPromptSize(t *testing.T) {
 	srv, got := fakeAPI(t, "none\nbig thread")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	if _, _, err := c.Relabel(context.Background(), strings.Repeat("x", maxTranscriptBytes+50000), nil); err != nil {
 		t.Fatalf("Relabel: %v", err)
 	}

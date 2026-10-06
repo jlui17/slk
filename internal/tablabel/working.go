@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // Verdict values are herdr's lifecycle-state names, so the caller can
@@ -35,14 +33,14 @@ const workingAgentSystemPrompt = "You watch Slack threads where coding agents wo
 	"A report with no such step and no work left with any agent, or whose only next step is the user's to take when they want (review it, merge it, say if you want X), stays d. " +
 	"u: no agent can continue until the user answers in this thread: the message asked the user a direct question, presented options or a plan and waits for approval, or is stuck on something only the user can provide. A message that asks the user nothing is never u. Offering an optional follow-up after the work is finished (say if you want X, let me know if you would like Y) is d, never u: no agent waits for the answer. Noting that a review or merge is pending on the user without asking for it now (the merge word is yours, the merge stays your typed word), or work that continues in another thread, is not u. Announcing that an agent session will start, align with the user or debrief them, or that later work will wait for the user's word, asks nothing now either: the session holds the next step, so it is w. Asking the user now for the word or the answer that a piece of work waits on (type merge and I will merge it, does your go-ahead include the merge?), or saying again that it still waits for a word they have not typed yet (the PR still waits for your typed merge), is different from both: it is u, not w, even when other work continues, an agent holds another step, or the message says what happens with no answer. " +
 	"d: done, no agent has a stated next step: a result, a report, an answer or explanation that asks nothing back, or work handed over for the user to review or merge, even if it invites feedback. " +
-	"Reply with exactly one letter: w, u, or d."
+	"Reply with exactly one letter: w, u, or d. The reply is that letter alone, with no reasoning before or after it."
 
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the user; the agent reacted to it with an emoji and has not replied yet, so the agent owes a response to anything it asks. " +
 	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on (merge it, open the PR). " +
 	"If it does, the agent has work to do. " +
 	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
-	"Reply with exactly one letter: y if the agent has work to do, n if not."
+	"Reply with exactly one letter: y if the agent has work to do, n if not. The reply is that letter alone, with no reasoning before or after it."
 
 // The earlier messages get questions of their own, asked only when the
 // newest agent message reads d alone: a w or u newest message decides alone.
@@ -60,7 +58,7 @@ const workingOpenAskSystemPrompt = "You watch Slack threads where coding agents 
 	"A direct ask is a sentence that tells the user that a piece of work waits on them now: a word for them to type (type merge and I will merge it), a question that they must answer before an agent goes on, an approval of a plan, a choice between options. " +
 	"These are not direct asks: a request that the user made of the agent, an acknowledgement (on it, I'll report back), an optional offer (say if you want X), a question that states its own default or that the user need not answer (narrow default: only you; you only need to answer if you want it wider), an ask that the agent says it will make later (I'll ask you for the merge after the review), a question that one agent session tells another to put to the user, and anything that only the newest message says. " +
 	"The ask is open when no later user message answers it and no later agent message withdraws it or reports that piece of work finished. The word itself, yes, no, hold off, or a choice between the options are answers. A question back from the user (to clarify, does this mean X?) is not an answer, and an agent message that answers that question leaves the ask open. " +
-	"Reply on one line: first the opening five words of the direct ask, copied from the agent message, in quotes, or the word none; then one letter, y when that ask is still open, n when there is none or it is closed."
+	"Reply on one line: first the opening five words of the direct ask, copied from the agent message, in quotes, or the word none; then one letter, y when that ask is still open, n when there is none or it is closed. The reply is that one line alone, with no reasoning before or after it."
 
 // openAskNewestHeading tells the open-ask question what the newest message is
 // there for. Under the plain heading the model counted what the newest
@@ -73,12 +71,7 @@ const workingEarlierStepSystemPrompt = "You watch Slack threads where coding age
 	"The thread's messages before it come first, oldest first, each marked agent or user. Decide whether they leave a piece of work with an agent that the newest message does not cover. " +
 	"y: you can name a specific piece of work (a PR, a fix, a check) that an earlier agent message says an agent or agent session is doing or will do (I'm fixing those now, I'll ask you for the merge after the review, the author session will push the fixes), and the newest message is about a different piece and says nothing that finishes this one. " +
 	"n: in every other case. The newest message covers a piece when it reports that piece finished, merged, opened for review, handed to the user, or stopped at the user's word (on hold, nothing more on it until you say so), or when it says all of the work is finished (both PRs are merged now, all 5 are merged). A message between the two can cover it too. An earlier acknowledgement that names no piece of work of its own (on it, will do, I'll report back here when it's done) never counts, whatever the newest message reports: the newest message is what it promised. An earlier plan for the work that the newest message reports (cloning main and checking now) is covered by that report. A step that is the user's to take (review it, merge it, answer if you want) is never such a piece, and neither is work that the user called off or put on hold, or that an agent will do only after a word the user has not given. " +
-	"Reply with exactly one letter: y or n."
-
-// judgeTemperature makes a verdict repeatable. At the API's default of 1 a
-// message near a boundary read one way on most calls and the other way on
-// the rest: the live rows flaked, and so did the same message in a thread.
-var judgeTemperature = anthropic.Float(0)
+	"Reply with exactly one letter: y or n. The reply is that letter alone, with no reasoning before or after it."
 
 var (
 	agentVerdictLetters       = map[byte]Verdict{'w': VerdictWorking, 'u': VerdictBlocked, 'd': VerdictIdle}
@@ -113,7 +106,7 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, fr
 	}
 	clipped := clipEnds(message, maxWorkingBytes)
 	newest := "Newest message:\n" + clipped
-	reply, err := c.complete(ctx, judgeTemperature, system, newest)
+	reply, err := c.complete(ctx, system, newest)
 	if err != nil {
 		return VerdictIdle, err
 	}
@@ -127,7 +120,7 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, fr
 		content.WriteString(clipEnds(m, maxEarlierBytes) + "\n")
 	}
 	content.WriteString("\n")
-	reply, err = c.complete(ctx, judgeTemperature, workingOpenAskSystemPrompt, content.String()+openAskNewestHeading+clipped)
+	reply, err = c.complete(ctx, workingOpenAskSystemPrompt, content.String()+openAskNewestHeading+clipped)
 	if err != nil {
 		return VerdictIdle, err
 	}
@@ -138,7 +131,7 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, fr
 	if open {
 		return VerdictBlocked, nil
 	}
-	reply, err = c.complete(ctx, judgeTemperature, workingEarlierStepSystemPrompt, content.String()+newest)
+	reply, err = c.complete(ctx, workingEarlierStepSystemPrompt, content.String()+newest)
 	if err != nil {
 		return VerdictIdle, err
 	}
@@ -149,9 +142,13 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, fr
 // then y or n. The quote is what makes a y checkable: the model also quotes
 // what only the newest message says ("Merge word is yours." y), whatever the
 // prompt tells it, so a y counts only when an earlier agent message holds
-// the quoted words.
+// the quoted words. A bare none, the model leaving off the n that follows
+// it, names no ask.
 func parseOpenAsk(reply string, earlier []string) (bool, error) {
 	s := strings.TrimRight(strings.ToLower(strings.TrimSpace(reply)), ".")
+	if s == "none" {
+		return false, nil
+	}
 	letter := s[strings.LastIndexAny(s, " \"")+1:]
 	if letter != "y" && letter != "n" {
 		return false, fmt.Errorf("unparseable open-ask verdict %q", reply)

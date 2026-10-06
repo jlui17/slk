@@ -13,7 +13,7 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	srv, got := fakeAPI(t, "w")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	v, err := c.Judge(context.Background(), "let me go check the workflow config", nil, true)
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
@@ -29,18 +29,12 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	}
 }
 
-// judgeRequest is a captured request plus the field only the judge sets.
-type judgeRequest struct {
-	capturedRequest
-	Temperature *float64 `json:"temperature"`
-}
-
 // fakeJudgeAPI answers the nth request with replies[n] and records each one.
-func fakeJudgeAPI(t *testing.T, replies ...string) (*httptest.Server, *[]judgeRequest) {
+func fakeJudgeAPI(t *testing.T, replies ...string) (*httptest.Server, *[]capturedRequest) {
 	t.Helper()
-	got := &[]judgeRequest{}
+	got := &[]capturedRequest{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req judgeRequest
+		var req capturedRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
@@ -53,7 +47,7 @@ func fakeJudgeAPI(t *testing.T, replies ...string) (*httptest.Server, *[]judgeRe
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": "msg_1", "type": "message", "role": "assistant",
-			"model":       "claude-haiku-4-5",
+			"model":       "claude-sonnet-5-5",
 			"content":     []map[string]any{{"type": "text", "text": replies[len(*got)-1]}},
 			"stop_reason": "end_turn",
 			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
@@ -95,7 +89,7 @@ func TestWorkingAsksAboutEarlierMessagesOnlyAfterADoneVerdict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, got := fakeJudgeAPI(t, tc.replies...)
 			defer srv.Close()
-			c := newForTest("claude-haiku-4-5", srv.URL)
+			c := newForTest("claude-sonnet-5-5", srv.URL)
 			v, err := c.Judge(context.Background(), message, tc.earlier, tc.fromAgent)
 			if err != nil || v != tc.want {
 				t.Fatalf("Judge = %v, %v; want %v", v, err, tc.want)
@@ -114,8 +108,8 @@ func TestWorkingAsksAboutEarlierMessagesOnlyAfterADoneVerdict(t *testing.T) {
 				if body := req.Messages[0].Content[0].Text; body != want.content {
 					t.Errorf("request %d user content = %q, want %q", i, body, want.content)
 				}
-				if req.Temperature == nil || *req.Temperature != 0 {
-					t.Errorf("request %d temperature = %v, want 0", i, req.Temperature)
+				if req.Thinking.Type != "" || req.OutputConfig.Effort != "low" || req.Temperature != nil {
+					t.Errorf("request %d thinking = %q, effort = %q, temperature = %v; want thinking unset, low effort, no temperature", i, req.Thinking.Type, req.OutputConfig.Effort, req.Temperature)
 				}
 			}
 		})
@@ -134,6 +128,8 @@ func TestParseOpenAsk(t *testing.T) {
 		{reply: `"Type "merge 7" and I'll merge it." n`},
 		{reply: "none n"},
 		{reply: "none, n"},
+		{reply: "none"},
+		{reply: " None.\n"},
 		// Words from the newest message or from the user are no agent ask.
 		{reply: `"Merge word is yours." y`},
 		{reply: `"ship it" y`},
@@ -154,7 +150,7 @@ func TestWorkingCapsEachEarlierMessage(t *testing.T) {
 	srv, got := fakeJudgeAPI(t, "d", "none n", "y")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	long := "agent: HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
 	if _, err := c.Judge(context.Background(), "done", []string{long, long}, true); err != nil {
 		t.Fatalf("Judge: %v", err)
@@ -174,7 +170,7 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	srv, got := fakeAPI(t, "n")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	v, err := c.Judge(context.Background(), "thanks!", nil, false)
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
@@ -194,7 +190,7 @@ func TestWorkingCapsMessageSize(t *testing.T) {
 	srv, got := fakeAPI(t, "w")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	long := "HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
 	if _, err := c.Judge(context.Background(), long, nil, true); err != nil {
 		t.Fatalf("Judge: %v", err)

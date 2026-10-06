@@ -16,13 +16,13 @@ func TestNewSendsTheGivenAPIKey(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotKey = r.Header.Get("X-Api-Key")
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"label"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+				w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[{"type":"text","text":"label"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 			}))
 			defer srv.Close()
 			t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 			t.Setenv("ANTHROPIC_API_KEY", envKey)
 
-			if _, _, err := New("claude-haiku-4-5", "from-config").Relabel(context.Background(), "transcript", nil); err != nil {
+			if _, _, err := New("claude-sonnet-5-5", "from-config").Relabel(context.Background(), "transcript", nil); err != nil {
 				t.Fatalf("Relabel: %v", err)
 			}
 			if gotKey != "from-config" {

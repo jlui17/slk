@@ -14,7 +14,7 @@ type Herdr struct {
 	// host-side launch command. Empty means "slk".
 	OpenCommand string `toml:"open_command"`
 	// TabNameModel enables model-generated tab labels: the Anthropic
-	// model (e.g. "claude-haiku-4-5") asked to name the tab after the
+	// model (e.g. "claude-sonnet-5-5") asked to name the tab after the
 	// open agent thread, at open and on :retitle, refining the
 	// deterministic label. Empty means deterministic labels only. Needs
 	// an API key: AnthropicAPIKey, or the ANTHROPIC_API_KEY env var.

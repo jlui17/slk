@@ -152,7 +152,7 @@ max_image_cache_mb = 200
 # guidance on both, e.g. what your task ids look like.
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
-tab_name_model = ""   # e.g. "claude-haiku-4-5"; empty disables (default)
+tab_name_model = ""   # e.g. "claude-sonnet-5-5"; empty disables (default)
 anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY (default)
 tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 

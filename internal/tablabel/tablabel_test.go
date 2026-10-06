@@ -11,11 +11,15 @@ import (
 )
 
 type capturedRequest struct {
-	Model     string `json:"model"`
-	MaxTokens int    `json:"max_tokens"`
-	Thinking  struct {
+	Model       string   `json:"model"`
+	MaxTokens   int      `json:"max_tokens"`
+	Temperature *float64 `json:"temperature"`
+	Thinking    struct {
 		Type string `json:"type"`
 	} `json:"thinking"`
+	OutputConfig struct {
+		Effort string `json:"effort"`
+	} `json:"output_config"`
 	System []struct {
 		Text string `json:"text"`
 	} `json:"system"`
@@ -39,7 +43,7 @@ func fakeAPI(t *testing.T, responseText string) (*httptest.Server, *capturedRequ
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{
 			"id": "msg_1", "type": "message", "role": "assistant",
-			"model":       "claude-haiku-4-5",
+			"model":       "claude-sonnet-5-5",
 			"content":     []map[string]any{{"type": "text", "text": responseText}},
 			"stop_reason": "end_turn",
 			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
@@ -70,7 +74,7 @@ func TestRelabelEmptyCompletionIsError(t *testing.T) {
 	srv, _ := fakeAPI(t, "   \n")
 	defer srv.Close()
 
-	c := newForTest("claude-haiku-4-5", srv.URL)
+	c := newForTest("claude-sonnet-5-5", srv.URL)
 	if _, _, err := c.Relabel(context.Background(), "transcript", nil); err == nil {
 		t.Fatal("Relabel returned no error for a blank completion")
 	}

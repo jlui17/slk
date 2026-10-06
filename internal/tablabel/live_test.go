@@ -46,7 +46,7 @@ func liveClient(t *testing.T) *Client {
 	if apiKey == "" {
 		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
 	}
-	return New("claude-haiku-4-5", apiKey)
+	return New("claude-sonnet-5-5", apiKey)
 }
 
 // liveAPIKey finds the key where slk does, reading only what it needs:
