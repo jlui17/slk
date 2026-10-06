@@ -4,7 +4,9 @@
 #
 # Config and cached tokens are seeded ONCE from the host into the role's
 # state volume (never the live cache.db: copying a WAL database mid-write can
-# tear it, and slk rebuilds the cache from the API). Every pane that runs this
+# tear it, and slk rebuilds the cache from the API). The one exception is the
+# config's anthropic_api_key, which every launch copies in again
+# (tools/sync-host-api-key.sh). Every pane that runs this
 # script in the same role shares that volume, and the containers share the
 # docker VM's kernel, so cross-process flocks are exercised for real.
 # Reseed with: docker volume rm slk-test-state (or slk-agent-state)
@@ -206,6 +208,12 @@ if [ -n "${SLK_LOG_DIR:-}" ]; then
 fi
 cmd=(/src/bin/"$bin_name")
 [ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout -s INT "$SLK_TIMEOUT" "${cmd[@]}")
+# A key rotated in the host config reaches the volume's copy before slk
+# starts. The key rides in by name, so argv stays secret-free; exec keeps
+# slk PID 1, and a failed copy never blocks the launch.
+SLK_HOST_ANTHROPIC_API_KEY=$(sed -n 's/^anthropic_api_key *= *"\(.*\)"$/\1/p' "$HOME/.config/slk/config.toml" 2>/dev/null || true)
+export SLK_HOST_ANTHROPIC_API_KEY
+cmd=(sh -c '/src/tools/sync-host-api-key.sh || true; exec "$@"' sh "${cmd[@]}")
 # GOMEMLIMIT: image-decode bursts on a warm cache measured a 974MB RSS
 # peak per instance from GC lazily returning pages; the soft ceiling
 # trades brief GC pressure during those bursts for a bounded footprint
@@ -224,6 +232,7 @@ docker run --rm "${tty_args[@]}" \
   ${tz:+-e TZ="$tz"} \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \
+  ${SLK_HOST_ANTHROPIC_API_KEY:+-e SLK_HOST_ANTHROPIC_API_KEY} \
   ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
   ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
   ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \

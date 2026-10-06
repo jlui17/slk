@@ -35,6 +35,8 @@ Builds a linux binary of this checkout (cached, rebuilt when sources change)
 and runs it with the TUI attached to your terminal. Your config and cached
 workspace tokens are seeded **once** from the host into a `slk-test-state`
 docker volume — never the live `cache.db`, which slk rebuilds from the API.
+Only `anthropic_api_key` is copied in again on every launch, so a key rotated
+in the host config reaches a session when it restarts.
 slk's keyring re-mint fails inside linux and falls back to the cached tokens,
 so auth just works.
 
