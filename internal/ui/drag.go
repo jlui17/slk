@@ -64,6 +64,7 @@ type dragState struct {
 	moved            bool
 	autoScrollActive bool
 	clickedMessage   bool
+	link             string // URL under the press; see openPressedLink
 
 	pendingX, pendingY int
 	hasPending         bool
@@ -335,6 +336,9 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				a.threadPanel.ExtendSelectionAt(d.pendingY, d.pendingX)
 			}
 			d.hasPending = false
+		}
+		if cmd := d.openPressedLink(a); cmd != nil {
+			return cmd, true
 		}
 		moved, panel, clickedMessage := d.Finish()
 		if !moved {

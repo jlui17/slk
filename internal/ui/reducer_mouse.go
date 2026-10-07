@@ -306,6 +306,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			}
 		}
 		a.drag.Begin(PanelMessages, px, py)
+		a.drag.link = a.messagepane.LinkURLAt(py, px)
 		a.messagepane.BeginSelectionAt(py, px)
 		// Remember whether this press actually landed on a message
 		// row -- MouseReleaseMsg uses this to decide whether a
@@ -337,6 +338,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			}
 		}
 		a.drag.Begin(PanelThread, px, py)
+		a.drag.link = a.threadPanel.LinkURLAt(py, px)
 		a.threadPanel.BeginSelectionAt(py, px)
 		a.threadPanel.ClickAt(py)
 		return nil

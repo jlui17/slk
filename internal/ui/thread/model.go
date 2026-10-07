@@ -1453,6 +1453,7 @@ func (m *Model) View(height, width int) string {
 			BorderForeground(styles.Background).BorderBackground(styles.Background).
 			Render(parentContent)
 	}
+	m.parentEntry.linesNormal = strings.Split(parentContent, "\n")
 	parentSeparator := lipgloss.NewStyle().
 		Width(width).
 		Background(styles.Background).
