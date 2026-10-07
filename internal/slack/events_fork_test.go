@@ -1,7 +1,10 @@
 package slackclient
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/slack-go/slack"
 )
 
 type assistantStatusRecord struct {
@@ -53,5 +56,53 @@ func TestDispatch_ThreadMarked_WireCapture_SubscribedOnFullyReadThread(t *testin
 	}
 	if !got.subscribed {
 		t.Error("expected subscribed=true passed through verbatim")
+	}
+}
+
+type ephemeralRecord struct {
+	channelID, userID, ts, text, threadTS, subtype, botID string
+	blocks                                                int
+}
+
+func (m *mockEventHandler) OnEphemeralMessage(channelID, userID, ts, text, threadTS, subtype string, files []slack.File, blocks slack.Blocks, attachments []slack.Attachment, botID, username string) {
+	m.ephemerals = append(m.ephemerals, ephemeralRecord{channelID, userID, ts, text, threadTS, subtype, botID, len(blocks.BlockSet)})
+}
+
+// A message Slack shows to this user alone arrives with is_ephemeral and
+// goes to OnEphemeralMessage, never OnMessage, which persists what it
+// gets. The frame is the shape of the Colony app's chat.postEphemeral in
+// a thread.
+func TestDispatchEphemeralMessage(t *testing.T) {
+	handler := &mockEventHandler{}
+	data := []byte(`{"type":"message","subtype":"bot_message","is_ephemeral":true,"channel":"C1","user":"U0BOT","bot_id":"B1","text":"Your annotation was sent.","ts":"1787400000.000200","thread_ts":"1787300000.000100",
+		"blocks":[{"type":"actions","block_id":"review","elements":[{"type":"button","action_id":"open_review","text":{"type":"plain_text","text":"Complete review"},"url":"https://x.slack.com/archives/C1/p1787300000000100"}]}]}`)
+	dispatchWebSocketEvent(data, handler)
+
+	if len(handler.messages) != 0 {
+		t.Errorf("OnMessage got %q; an ephemeral must not reach it", handler.messages)
+	}
+	want := []ephemeralRecord{{"C1", "U0BOT", "1787400000.000200", "Your annotation was sent.", "1787300000.000100", "bot_message", "B1", 1}}
+	if !reflect.DeepEqual(handler.ephemerals, want) {
+		t.Errorf("OnEphemeralMessage got %+v, want %+v", handler.ephemerals, want)
+	}
+}
+
+// An app replacing its ephemeral (replace_original) arrives as
+// message_changed; it goes to OnEphemeralMessage, with the ts it
+// replaces, whichever level carries is_ephemeral.
+func TestDispatchEphemeralMessageChanged(t *testing.T) {
+	for _, frame := range []string{
+		`{"type":"message","subtype":"message_changed","channel":"C1","message":{"is_ephemeral":true,"bot_id":"B1","text":"replaced","ts":"1787400000.000200"}}`,
+		`{"type":"message","subtype":"message_changed","is_ephemeral":true,"channel":"C1","message":{"bot_id":"B1","text":"replaced","ts":"1787400000.000200"}}`,
+	} {
+		handler := &mockEventHandler{}
+		dispatchWebSocketEvent([]byte(frame), handler)
+		if len(handler.messages) != 0 {
+			t.Errorf("%s: OnMessage got %q; an ephemeral must not reach it", frame, handler.messages)
+		}
+		want := []ephemeralRecord{{channelID: "C1", ts: "1787400000.000200", text: "replaced", botID: "B1"}}
+		if !reflect.DeepEqual(handler.ephemerals, want) {
+			t.Errorf("%s: OnEphemeralMessage got %+v, want %+v", frame, handler.ephemerals, want)
+		}
 	}
 }

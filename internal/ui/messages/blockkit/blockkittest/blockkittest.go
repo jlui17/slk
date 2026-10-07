@@ -71,3 +71,14 @@ func FromJSON(blocksJSON string) []blockkit.Block {
 	}
 	return blockkit.Parse(blocks)
 }
+
+// ColonyEphemeral is the blocks of the ephemeral the Colony app posts
+// after an annotation: the section links the annotated message, and the
+// actions block's one button links the review to complete.
+func ColonyEphemeral(messageURL, reviewURL string) []blockkit.Block {
+	return FromJSON(`[
+		{"type":"section","block_id":"sent","text":{"type":"mrkdwn","text":"*Your annotation was sent.*\nFor <` + messageURL + `|this message>. Label: *negative*.\n> note text"}},
+		{"type":"context","elements":[{"type":"mrkdwn","text":"A judge is reading the thread now. It tags you in the review when it has a verdict."}]},
+		{"type":"actions","block_id":"review","elements":[
+			{"type":"button","action_id":"open_review","text":{"type":"plain_text","text":"Complete review"},"style":"primary","url":"` + reviewURL + `"}]}]`)
+}

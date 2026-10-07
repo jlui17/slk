@@ -567,6 +567,8 @@ type App struct {
 	// returns) and TS-level exact-match suppression (after).
 	selfSend *selfSendDedup
 
+	ephemerals ephemerals // fork: ephemeral_fork.go
+
 	// nowTimestampFormatter renders "now" using the same format used
 	// for message timestamps elsewhere (configured via
 	// cfg.Appearance.TimestampFormat in main.go). Used by the optimistic

@@ -6,6 +6,8 @@ import "github.com/gammons/slk/internal/core/blocks"
 // implements; the interface's method is unexported.
 type TableBlock = blocks.TableBlock
 
+type ButtonFields = blocks.ButtonFields
+
 func (ctx Context) renderText(s string, width int) string {
 	if ctx.RenderTextForWidth != nil {
 		return ctx.RenderTextForWidth(s, ctx.UserNames, width)

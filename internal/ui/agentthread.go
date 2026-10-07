@@ -197,7 +197,7 @@ func (a *App) SetAgentReporter(report AgentReportFunc, reportUnread AgentUnreadR
 // agent-thread detection and pane-state recording ride on it so no present or
 // future open path can skip them.
 func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
-	a.threadPanel.SetThread(parent, replies, channelID, threadTS)
+	a.threadPanel.SetThread(parent, a.ephemerals.inThread(channelID, threadTS, replies), channelID, threadTS)
 	a.updateAgentThread(parent, channelID, threadTS)
 	a.snapshotAgentThreadLast(parent, replies, channelID, threadTS)
 	a.maybeRequestAgentTabLabel(parent, replies, channelID, threadTS)

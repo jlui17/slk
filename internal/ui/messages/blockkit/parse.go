@@ -60,6 +60,7 @@ func parseSection(s *slack.SectionBlock) SectionBlock {
 	}
 	if s.Accessory != nil {
 		out.Accessory = parseAccessory(s.Accessory)
+		out.Accessory = withAccessoryButtonFields(out.Accessory, s) // fork: parse_fork.go
 	}
 	return out
 }
@@ -92,6 +93,7 @@ func parseActions(a *slack.ActionBlock) ActionsBlock {
 	for _, e := range a.Elements.ElementSet {
 		out.Elements = append(out.Elements, actionElementOf(e))
 	}
+	fillButtonFields(out.Elements, a) // fork: parse_fork.go
 	return out
 }
 

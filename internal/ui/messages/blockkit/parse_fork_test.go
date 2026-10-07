@@ -79,3 +79,34 @@ func TestParseAttachmentKeepsTheLinkedMessage(t *testing.T) {
 		t.Error("an attachment with no author is not a linked message")
 	}
 }
+
+// A button carries the ids a block_actions payload sends back and the URL
+// of a link button, in an actions block and as a section accessory; the
+// block's block_id rides on each of its buttons. Elements that are not
+// buttons carry none of it.
+func TestParseButtonsCarryActionFields(t *testing.T) {
+	var in slack.Blocks
+	if err := json.Unmarshal([]byte(`[
+		{"type":"section","block_id":"pick","text":{"type":"mrkdwn","text":"Ready?"},
+			"accessory":{"type":"button","action_id":"approve","value":"yes","text":{"type":"plain_text","text":"Approve"}}},
+		{"type":"actions","block_id":"review","elements":[
+			{"type":"button","action_id":"open_review","text":{"type":"plain_text","text":"Complete review"},"style":"primary","url":"https://x.slack.com/archives/C1/p2"},
+			{"type":"static_select","action_id":"label","placeholder":{"type":"plain_text","text":"Label"},"options":[{"text":{"type":"plain_text","text":"a"},"value":"a"}]}]}]`), &in); err != nil {
+		t.Fatal(err)
+	}
+	got := Parse(in)
+
+	acc := got[0].(SectionBlock).Accessory.(LabelAccessory)
+	wantAcc := LabelAccessory{Kind: "button", Label: "Approve", ButtonFields: ButtonFields{ActionID: "approve", BlockID: "pick", Value: "yes"}}
+	if !reflect.DeepEqual(acc, wantAcc) {
+		t.Errorf("accessory:\n got %+v\nwant %+v", acc, wantAcc)
+	}
+
+	want := []ActionElement{
+		{Kind: "button", Label: "Complete review", ButtonFields: ButtonFields{ActionID: "open_review", BlockID: "review", URL: "https://x.slack.com/archives/C1/p2"}},
+		{Kind: "static_select", Label: "Label"},
+	}
+	if els := got[1].(ActionsBlock).Elements; !reflect.DeepEqual(els, want) {
+		t.Errorf("actions:\n got %+v\nwant %+v", els, want)
+	}
+}

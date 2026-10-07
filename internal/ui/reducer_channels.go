@@ -125,7 +125,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			// window its own copy — two same-channel windows must not
 			// alias one slice (in-place model writes would cross-leak).
 			if m.Messages != nil {
-				mm.SetMessages(cloneMessageItems(m.Messages))
+				mm.SetMessages(a.ephemerals.inChannel(m.ChannelID, cloneMessageItems(m.Messages))) // fork: ephemeral_fork.go
 			}
 		}
 		// Authoritative permalink completion: this is the freshest
@@ -203,7 +203,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 			return func() tea.Msg { return ToastMsg{Text: "Message not found in loaded history"} }, true
 		}
-		a.messagepane.SetMessages(m.Messages)
+		a.messagepane.SetMessages(a.ephemerals.inChannel(m.ChannelID, m.Messages)) // fork: ephemeral_fork.go
 		if navMatches {
 			// The landed window finishes the nav through the single
 			// completion path: close/focus for a jump that hasn't
@@ -420,6 +420,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	a.applyCachedLastRead(m.ID)
 
 	cached := a.channels.ReadCache(ids.ChannelID(m.ID))
+	shown := a.ephemerals.inChannel(m.ID, cached) // fork: ephemeral_fork.go; the tier reads cached
 	syncedAt := a.channels.SyncedAt(ids.ChannelID(m.ID))
 	age := time.Duration(0)
 	if syncedAt > 0 {
@@ -442,7 +443,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		// -- e.g., a channel verified empty within the last 30s).
 		// Mark-as-read if non-empty. No fetch.
 		a.messagepane.SetLoading(false)
-		a.messagepane.SetMessages(cached)
+		a.messagepane.SetMessages(shown)
 		a.statusbar.SetSyncing(false)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=1_fresh", m.ID)
 		tier = "1_fresh"
@@ -469,7 +470,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		//     render + fire fetch + show indicator so the user
 		//     knows it's being checked.
 		a.messagepane.SetLoading(false)
-		a.messagepane.SetMessages(cached)
+		a.messagepane.SetMessages(shown)
 		a.statusbar.SetSyncing(true)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=2_verify", m.ID)
 		tier = "2_verify"

@@ -1936,6 +1936,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 
 func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit) {
 	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + messages.AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	line += messages.EphemeralMark(msg) // fork: messages/ephemeral_fork.go
 
 	contentWidth := width - 4
 	if contentWidth < 20 {
@@ -1995,7 +1996,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		bkInteractive = bkInteractive || res.Interactive
 	}
 	if bkInteractive {
-		bkLines = append(bkLines, styles.Timestamp.Render("↗ open in Slack to interact"))
+		bkLines = append(bkLines, styles.Timestamp.Render(messages.InteractHint(msg))) // fork: messages/links_fork.go
 	}
 	bkBlock := ""
 	bkLineCount := len(bkLines)

@@ -32,6 +32,10 @@ type MessageItem struct {
 	// `attachments` field (color stripe + title + fields style bot
 	// cards). Rendered after Blocks.
 	LegacyAttachments []blocks.LegacyAttachment
+
+	// Fork: Slack showed this message to the user alone, for this
+	// session; slk keeps it in memory only (internal/ui/ephemeral_fork.go).
+	IsEphemeral bool
 }
 
 // Attachment represents a file or image attached to a message.

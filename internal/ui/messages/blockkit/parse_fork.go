@@ -32,3 +32,28 @@ func tableCellMrkdwn(cell slack.TableCell) string {
 	}
 	return ""
 }
+
+// fillButtonFields gives each button of elems, parsed from a's elements
+// in order, its ButtonFields.
+func fillButtonFields(elems []ActionElement, a *slack.ActionBlock) {
+	for i, e := range a.Elements.ElementSet {
+		if b, ok := e.(*slack.ButtonBlockElement); ok {
+			elems[i].ButtonFields = buttonFields(b, a.BlockID)
+		}
+	}
+}
+
+// withAccessoryButtonFields returns acc, parsed from s's accessory, with
+// its ButtonFields when the accessory is a button.
+func withAccessoryButtonFields(acc AccessoryElement, s *slack.SectionBlock) AccessoryElement {
+	label, ok := acc.(LabelAccessory)
+	if !ok || s.Accessory.ButtonElement == nil {
+		return acc
+	}
+	label.ButtonFields = buttonFields(s.Accessory.ButtonElement, s.BlockID)
+	return label
+}
+
+func buttonFields(b *slack.ButtonBlockElement, blockID string) ButtonFields {
+	return ButtonFields{ActionID: b.ActionID, BlockID: blockID, Value: b.Value, URL: b.URL}
+}

@@ -134,6 +134,8 @@ func (ImageAccessory) accessoryKind() string { return "image" }
 type LabelAccessory struct {
 	Kind  string
 	Label string // best-effort human label (button text, placeholder, current value)
+
+	ButtonFields // fork: blocks_fork.go
 }
 
 func (LabelAccessory) accessoryKind() string { return "label" }
@@ -143,6 +145,8 @@ func (LabelAccessory) accessoryKind() string { return "label" }
 type ActionElement struct {
 	Kind  string
 	Label string
+
+	ButtonFields // fork: blocks_fork.go
 }
 
 // LegacyAttachment is one entry in Slack's legacy `attachments` array.

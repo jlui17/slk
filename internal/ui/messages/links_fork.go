@@ -47,7 +47,8 @@ func (l *Link) learn(again Link) {
 // the body, and of the blocks RenderMessageBlocks draws below it. A link
 // carries what it sits with as its Context, as mrkdwn, for the app to
 // name the row with the names only it can resolve: the first cell of a
-// table row, a list item without its links.
+// table row, a list item without its links. A link button is a link
+// named by its text.
 func blockLinks(blocks []blockkit.Block) (body, below []Link) {
 	bodySeen := false
 	for _, b := range blocks {
@@ -64,6 +65,15 @@ func blockLinks(blocks []blockkit.Block) (body, below []Link) {
 			below = append(below, ExtractLinks(v.Text)...)
 			for _, f := range v.Fields {
 				below = append(below, ExtractLinks(f)...)
+			}
+			if acc, ok := v.Accessory.(blockkit.LabelAccessory); ok && acc.URL != "" {
+				below = append(below, Link{URL: acc.URL, Label: acc.Label})
+			}
+		case blockkit.ActionsBlock:
+			for _, e := range v.Elements {
+				if e.URL != "" {
+					below = append(below, Link{URL: e.URL, Label: e.Label})
+				}
 			}
 		case blockkit.ContextBlock:
 			for _, e := range v.Elements {
@@ -83,4 +93,44 @@ func blockLinks(blocks []blockkit.Block) (body, below []Link) {
 		}
 	}
 	return body, below
+}
+
+// InteractHint is the line drawn under a message's interactive Block
+// Kit elements. When every one of them is a link button, o opens them,
+// so the hint says that; a control in a card is never one o offers.
+func InteractHint(msg MessageItem) string {
+	all, links := controls(msg.Blocks)
+	for _, a := range msg.LegacyAttachments {
+		n, _ := controls(a.Blocks)
+		all += n
+	}
+	if all > 0 && all == links {
+		return "o to open"
+	}
+	return "↗ open in Slack to interact"
+}
+
+// controls counts the controls blocks draw, a section's non-image
+// accessory or an actions block's element, and the link buttons among
+// them.
+func controls(blocks []blockkit.Block) (all, links int) {
+	count := func(kind, url string) {
+		all++
+		if kind == "button" && url != "" {
+			links++
+		}
+	}
+	for _, b := range blocks {
+		switch v := b.(type) {
+		case blockkit.SectionBlock:
+			if acc, ok := v.Accessory.(blockkit.LabelAccessory); ok {
+				count(acc.Kind, acc.URL)
+			}
+		case blockkit.ActionsBlock:
+			for _, e := range v.Elements {
+				count(e.Kind, e.URL)
+			}
+		}
+	}
+	return all, links
 }

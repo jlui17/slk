@@ -63,6 +63,9 @@ import (
 var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case NewMessageMsg:
+		if m.Message.IsEphemeral {
+			return reduceEphemeral(a, m), true // fork: ephemeral_fork.go
+		}
 		// Ahead of the background skip: the tracked agent thread is
 		// exactly the thread-scoped consumer those messages are carried
 		// for, and it follows its own workspace, not the active one.
@@ -190,6 +193,7 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}, true
 
 	case WSMessageDeletedMsg:
+		a.ephemerals.forget(m.ChannelID, m.TS) // fork: ephemeral_fork.go
 		// Ahead of the background skip, like the reply and read-mark
 		// hooks: a retracted reply stops counting toward the tracked
 		// thread's unread state wherever it was retracted, or the row

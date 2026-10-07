@@ -70,9 +70,14 @@ there and resolve them knowing what the fork wants:
   `ThreadNewestActivity`) and dispatches `ThreadMarkedRemoteMsg`
   `TeamID`-tagged for every workspace, where upstream dispatches active-only.
 - `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
-  `OriginalW/H`, `MessageService.Preview`, and the `Preview` member of
-  `MessageServiceFuncs`; the adapter method and `TableBlock` live in
-  `adapters_fork.go` and `blocks/blocks_fork.go`.
+  `OriginalW/H`, `MessageItem.IsEphemeral`, `MessageService.Preview`, and
+  the `Preview` member of `MessageServiceFuncs`; the adapter method and
+  `TableBlock` live in `adapters_fork.go` and `blocks/blocks_fork.go`.
+- `internal/core/blocks/blocks.go`, `internal/ui/messages/blockkit/parse.go`
+  — `LabelAccessory` and `ActionElement` embed `ButtonFields`
+  (`blocks_fork.go`: a button's action_id, value, url and block_id), which
+  one-line hooks in `parseSection` and `parseActions` fill
+  (`parse_fork.go`).
 - `internal/ui/boundary_test.go` — the slack-go import check consults
   `tuiForkExempt` (`boundary_fork_test.go`), whose one entry is
   `blockkittest.go` → slack-go. The fork's other outside-world code lives in
@@ -87,12 +92,22 @@ there and resolve them knowing what the fork wants:
 - `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
   bindings and reducer switch arms; the usernames-store migration's
   mechanical call-site edits.
+- `internal/ui/messages/model.go` — `PrependMessages` and `OldestTS` read
+  past ephemerals (`ephemeral_fork.go`): paging anchors on the oldest
+  message that is not one, the boundary guard compares against it, and the
+  older page is merged by ts with the ephemerals ahead of it, the selection
+  kept on its message. Here and in `thread/model.go`, the header row ends in
+  `EphemeralMark` and the interact hint is `InteractHint` (`links_fork.go`),
+  where upstream always says to open Slack.
 - `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
   matches within one segment. Upstreaming candidate.
-- `internal/slack/events.go` — `OnAssistantStatus` on `EventHandler` and
-  the `ai_assistant_status` dispatch arm.
+- `internal/slack/events.go` — `OnAssistantStatus` and
+  `OnEphemeralMessage` on `EventHandler`, the `ai_assistant_status`
+  dispatch arm, and `is_ephemeral` on `wsMessageEvent` and `wsSubMsg`, with
+  which the `message` and `message_changed` arms hand an ephemeral to
+  `OnEphemeralMessage` in place of `OnMessage`.
 - `internal/slack/client.go` — boot-path calls made cancellable in
   place: SlackAPI's `AuthTest`/`GetConversationsForUser` swapped for
   their `Context` variants, `GetUnreadCounts` takes a ctx, and the
@@ -111,7 +126,9 @@ there and resolve them knowing what the fork wants:
 - `cmd/slk/thread_subscriptions.go` — `sync` call routed through the
   cross-instance sweep-claim hook (`syncIfUnclaimed`).
 - `internal/ui/reducer_channels.go` — tier-1 freshness additionally
-  requires `syncedAfterWatermark`.
+  requires `syncedAfterWatermark`; every load into the channel pane (fetch,
+  channel switch, jump to a message) lays the session's ephemerals in
+  (`ephemeral_fork.go`), and the cache tier is chosen before that.
 - `internal/ui/mode_insert.go` (+ its test in `app_test.go`) — the
   Ctrl+U clear-compose intercept removed so Ctrl+U (kitty's
   cmd+backspace) falls through to the textarea's delete-before-cursor;

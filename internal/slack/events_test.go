@@ -50,6 +50,7 @@ type mockEventHandler struct {
 	memberLeft   []memberEventRecord
 
 	assistantStatuses []assistantStatusRecord
+	ephemerals        []ephemeralRecord
 
 	userStatusChanges []userStatusRecord
 	userInvalidated   []string

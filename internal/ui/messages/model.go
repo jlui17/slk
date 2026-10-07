@@ -1002,8 +1002,7 @@ func (m *Model) PrependMessages(msgs []MessageItem) {
 	// "seconds.micros" strings. A "local:" optimistic placeholder at
 	// the head compares greater than any numeric TS, so the guard
 	// degrades to keep-everything there — never a wrong drop.
-	if len(m.messages) > 0 {
-		head := m.messages[0].TS
+	if head := oldestNonEphemeralTS(m.messages); head != "" { // fork: ephemeral_fork.go
 		kept := make([]MessageItem, 0, len(msgs))
 		for _, item := range msgs {
 			if item.TS < head {
@@ -1020,8 +1019,8 @@ func (m *Model) PrependMessages(msgs []MessageItem) {
 		debuglog.Cache("messages.Model.PrependMessages: channel=%q count_before=%d count_added=%d added=[%s]",
 			m.channelName, len(m.messages), count, summarizeMessageItems(msgs))
 	}
-	m.messages = append(msgs, m.messages...)
-	m.selected += count
+	// fork: ephemeral_fork.go
+	m.prependOlder(msgs)
 	m.cache = nil // invalidate cache
 	m.dirty()
 }
@@ -1550,7 +1549,7 @@ func (m *Model) OldestTS() string {
 	if len(m.messages) == 0 {
 		return ""
 	}
-	return m.messages[0].TS
+	return oldestNonEphemeralTS(m.messages) // fork: ephemeral_fork.go
 }
 
 // cacheStyles bundles the lipgloss styles and pre-rendered strings that
@@ -2002,6 +2001,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	content string, flushes []func(io.Writer) error, sixelRows map[int]sixelEntry, hits []entryHit, reactionHits []reactionEntryHit,
 ) {
 	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	line += EphemeralMark(msg) // fork: ephemeral_fork.go
 
 	// If we have an avatar, reserve space on the left for it
 	contentWidth := width - 4
@@ -2333,7 +2333,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		bkInteractive = bkInteractive || res.Interactive
 	}
 	if bkInteractive {
-		hint := styles.Timestamp.Render("↗ open in Slack to interact")
+		hint := styles.Timestamp.Render(InteractHint(msg)) // fork: links_fork.go
 		bkLines = append(bkLines, hint)
 	}
 	preAttachmentRows += len(bkLines)
