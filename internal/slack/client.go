@@ -36,6 +36,7 @@ type SlackAPI interface {
 	GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
 	GetUsersInConversationContext(ctx context.Context, params *slack.GetUsersInConversationParameters) ([]string, string, error)
 	GetUserInfo(user string) (*slack.User, error)
+	GetUserInfoContext(ctx context.Context, user string) (*slack.User, error) // fork: client_fork.go
 	GetBotInfoContext(ctx context.Context, parameters slack.GetBotInfoParameters) (*slack.Bot, error)
 	GetEmojiContext(ctx context.Context) (map[string]string, error)
 	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)

@@ -103,6 +103,11 @@ there and resolve them knowing what the fork wants:
   kept on its message. Here and in `thread/model.go`, the header row ends in
   `EphemeralMark` and the interact hint is `InteractHint` (`links_fork.go`),
   where upstream always says to open Slack.
+- `internal/ui/messages/render.go` — a user mention is drawn inside an OSC 8
+  link to the user's profile when `RenderSlackMarkdownOpts.WorkspaceDomain`
+  is set (`profilelink_fork.go`), as the messages pane and thread panel set
+  it, so a click on it opens the profile card (`profilecard.go`); upstream
+  draws the mention plain.
 - `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
@@ -118,7 +123,9 @@ there and resolve them knowing what the fork wants:
   their `Context` variants, `GetUnreadCounts` takes a ctx, and the
   inline 429 retry sleeps route through `rateLimitWait`
   (ratelimit_fork.go); plus WebSocket conn-pointer locking under
-  `wsMu` and the test-injectable `wsDialer` field.
+  `wsMu`, the test-injectable `wsDialer` field, and `GetUserInfoContext`
+  on `SlackAPI` for the profile card's bounded users.info
+  (`client_fork.go`).
 - `internal/slack/auth.go` — atomic token save.
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
 - `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:
@@ -198,7 +205,7 @@ there and resolve them knowing what the fork wants:
   `internal/ui/seams_test.go`, `threadsview/model_test.go` (fixtures built
   on the stores); `internal/ui/mode_normal_keys_test.go` (`O` is
   OpenLinkTab here, image preview is `v` only); `modekeys_test.go` (the pinned
-  mode list includes `ModeAppShortcuts`); `mode_insert_keys_test.go`
+  mode list includes `ModeAppShortcuts` and `ModeProfileCard`); `mode_insert_keys_test.go`
   (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
   bordered code box); `golden_test.go`, `mode_linkpicker_test.go` (extra
   argument on `layout.Compute` / `openLinksOfSelected`); seven

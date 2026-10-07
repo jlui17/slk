@@ -70,6 +70,9 @@ var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 // routeLink decides between in-app navigation, a new herdr tab, and
 // the browser.
 func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
+	if cmd, ok := a.routeProfileLink(rawURL, inHerdrTab); ok { // fork: profilecard.go
+		return cmd
+	}
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
 		debuglog.General("routeLink: not a permalink, browser: %s", rawURL)

@@ -51,3 +51,12 @@ func (c *Client) GetReplyAt(ctx context.Context, channelID, threadTS, ts string)
 	}
 	return nil, nil
 }
+
+// GetUserProfileContext is GetUserProfile bounded by ctx.
+func (c *Client) GetUserProfileContext(ctx context.Context, userID string) (*slack.User, error) {
+	user, err := c.api.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("getting user info: %w", err)
+	}
+	return user, nil
+}

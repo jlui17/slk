@@ -21,6 +21,7 @@ const (
 	ModeLinkPicker
 	ModeWorkspaceSearch
 	ModeAppShortcuts // fork: appshortcuts.go
+	ModeProfileCard  // fork: profilecard.go
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
@@ -44,7 +45,8 @@ func (m Mode) IsModalOverlay() bool {
 		ModeNewMessage,
 		ModeReactionsView,
 		ModeLinkPicker,
-		ModeWorkspaceSearch:
+		ModeWorkspaceSearch,
+		ModeProfileCard:
 		return true
 	default:
 		return false
@@ -87,6 +89,8 @@ func (m Mode) String() string {
 		return "WS-SEARCH"
 	case ModeAppShortcuts:
 		return "SHORTCUTS"
+	case ModeProfileCard:
+		return "PROFILE"
 	default:
 		return "UNKNOWN"
 	}

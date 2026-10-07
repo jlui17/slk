@@ -258,6 +258,8 @@ type App struct {
 
 	appShortcuts appShortcutsState // fork: appshortcuts.go
 
+	profileCard profileCardState // fork: profilecard.go
+
 	// threads is the App's ThreadService collaborator (fetch / mark /
 	// reply / list-fetch + parent-channel last-read lookup for the
 	// unread boundary). See internal/ui/services.go. Defaulted to a
@@ -969,6 +971,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceCacheWatermark,
 		reducePasteAsync,
 		reduceOpenLinksInHerdrTabs,
+		reduceProfileCard, // fork: profilecard.go
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)

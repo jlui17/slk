@@ -25,6 +25,7 @@ func (a *App) newWindowModel(chName string) *messages.Model {
 	m.SetUserStatuses(a.presence.peers)
 	m.SetChannelNames(a.channelNames)
 	m.SetUserGroups(a.userGroups)
+	m.SetWorkspaceDomain(a.activeWorkspaceDomain()) // fork: profilecard.go
 	m.SetEmojiContext(a.emojiCtx)
 	if a.emojiCustoms != nil {
 		// SetCustomEmoji ran after SetEmojiContext: its customs map

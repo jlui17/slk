@@ -1338,6 +1338,7 @@ func run(startupLink *slackurl.Permalink) error {
 		}
 		app.SetPresenceService(core.NewPresenceService(setStatus, sendTyping))
 		app.SetAppShortcutService(appShortcutService{router}) // fork: appshortcuts_wiring.go
+		app.SetProfileService(profileService{router})         // fork: profilecard_wiring.go
 
 	}
 

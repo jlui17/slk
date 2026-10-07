@@ -54,6 +54,7 @@
 | `h` / `←` | Preview | Previous image (when message has multiple) |
 | `l` / `→` | Preview | Next image (when message has multiple) |
 | Click | Any (on image) | Open full-screen preview |
+| Click | Normal (on an `@person` mention) | Open the person's profile card: name, display name and title, Active or Away, their local time, their status. In the card, `m` opens the DM with them, `o` opens their profile in the browser, `Esc`, `q` or a click outside closes it |
 | `:retitle` | Normal (agent thread open) | Re-derive the herdr tab label: `tab_name_model` reads the whole thread and judges the task id and names the work the thread is about (`tab_name_hints` steers the naming). It renames the tab even when something else set the current label; the automatic label never does |
 | `Ctrl+r` / `:reload` | Normal | Reload: force every workspace's websocket to reconnect and catch up, and refetch the open thread panel (the Slack app's `Cmd+R` analog) |
 | `Ctrl+y` | Any | Switch theme |

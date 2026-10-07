@@ -636,6 +636,7 @@ type RenderSlackMarkdownOpts struct {
 
 	CodeBlockCopyLabels *[]CodeBlockCopyLabel // append-only; non-nil draws a copy label on each fenced block and reports where (codeblocks_fork.go)
 	PermalinkChips      PermalinkChips        // a permalink to a message this one carries a card for shows as a short label (permalinkchip_fork.go)
+	WorkspaceDomain     string                // non-empty: a user mention links to the user's profile in this workspace (profilelink_fork.go)
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -816,7 +817,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 				name = resolved
 			}
 		}
-		return mentionStyle().Render("@" + name)
+		return profileLink(opts.WorkspaceDomain, userID, mentionStyle().Render("@"+name))
 	})
 
 	// Emoji resolution.

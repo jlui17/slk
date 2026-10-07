@@ -204,6 +204,8 @@ type Model struct {
 	channelNames map[string]string            // channel ID -> name for bare <#CID> resolution
 	userGroups   map[string]string            // usergroup ID -> handle for bare subteam resolution
 
+	workspaceDomain string // fork: profilelink_fork.go
+
 	// searchTerms are folded word-prefix terms of the active in-channel
 	// search; non-empty enables highlight rendering. nil = no search.
 	searchTerms []string
@@ -1970,6 +1972,8 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 				EmojiFlushes: nil,
 				Width:        width,
 				SearchTerms:  m.searchTerms,
+
+				WorkspaceDomain: m.workspaceDomain,
 			})
 		},
 		WrapText: WordWrap,
@@ -2034,6 +2038,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 
 		CodeBlockCopyLabels: m.newBodyCopyLabels(),
 		PermalinkChips:      PermalinkChipsOf(msg, channelNames),
+		WorkspaceDomain:     m.workspaceDomain,
 	}
 	// Blocks that render the body suppress Slack's notification-fallback
 	// text and its row. See BlocksCarryBody.

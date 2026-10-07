@@ -73,10 +73,15 @@ func drag(a *App, x, y, dx int) {
 	release(a, x+dx, y)
 }
 
+// release also runs the commands the release's own messages return, one
+// level down: the opened link's, such as the profile card's fetch.
 func release(a *App, x, y int) {
 	_, cmd := a.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
 	for _, msg := range drainCmds(cmd) {
-		_, _ = a.Update(msg)
+		_, next := a.Update(msg)
+		for _, msg := range drainCmds(next) {
+			_, _ = a.Update(msg)
+		}
 	}
 }
 

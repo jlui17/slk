@@ -177,6 +177,8 @@ type Model struct {
 	channelNamesV uint64
 	userGroups    map[string]string
 
+	workspaceDomain string // fork: profilelink_fork.go
+
 	// Mouse selection state. selRange is the user's drag selection.
 	// replyIDToIdx maps reply TS -> entry index in m.cache for O(1)
 	// anchor resolution; rebuilt on every cache build. lastViewHeight is
@@ -1924,6 +1926,8 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 				Customs:      m.emojiCtx.Customs,
 				EmojiFlushes: nil,
 				Width:        width,
+
+				WorkspaceDomain: m.workspaceDomain,
 			})
 		},
 		WrapText: messages.WordWrap,
@@ -1961,6 +1965,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 
 		CodeBlockCopyLabels: m.newBodyCopyLabels(),
 		PermalinkChips:      messages.PermalinkChipsOf(msg, channelNames),
+		WorkspaceDomain:     m.workspaceDomain,
 	}
 	// Match the main pane: content-bearing blocks suppress the fallback
 	// text and its row. See messages.BlocksCarryBody.

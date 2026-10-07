@@ -9,6 +9,11 @@ it, as in Slack, even though slk could have kept the click for itself. When a
 change would give up something Slack can do, or make it behave differently
 from Slack, ask Justin before building it.
 
+## Status colors
+
+A color that carries meaning (presence, state) is blue against yellow or
+orange, never red against green, and always sits beside a label or shape.
+
 ## Fork layout: fork code lives in fork-only files
 
 This repo is a fork of gammons/slk that tracks `upstream/main`. Fork-added

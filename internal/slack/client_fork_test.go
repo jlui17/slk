@@ -11,6 +11,22 @@ import (
 	"github.com/slack-go/slack"
 )
 
+func (m *mockSlackAPI) GetUserInfoContext(ctx context.Context, user string) (*slack.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return m.GetUserInfo(user)
+}
+
+func TestGetUserProfileContext_HonorsTheContext(t *testing.T) {
+	c := &Client{api: &mockSlackAPI{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.GetUserProfileContext(ctx, "U1"); !errors.Is(err, context.Canceled) {
+		t.Errorf("GetUserProfileContext on a cancelled ctx: %v, want context.Canceled", err)
+	}
+}
+
 func TestGetReplyAt(t *testing.T) {
 	mock := &mockSlackAPI{
 		getConversationRepliesFn: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {

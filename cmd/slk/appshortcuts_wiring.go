@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
@@ -25,16 +24,8 @@ func (h *rtmEventHandler) OnView(evt slackclient.ViewEvent) {
 // to the workspace the overlay was opened in.
 type appShortcutService struct{ router *workspaceRouter }
 
-func (s appShortcutService) client(teamID string) (*slackclient.Client, error) {
-	wctx := s.router.ByID(teamID)
-	if wctx == nil || wctx.Client == nil {
-		return nil, fmt.Errorf("workspace %s is not connected", teamID)
-	}
-	return wctx.Client, nil
-}
-
 func (s appShortcutService) List(ctx context.Context, teamID string) ([]appshortcuts.Shortcut, error) {
-	c, err := s.client(teamID)
+	c, err := s.router.Client(teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +41,7 @@ func (s appShortcutService) List(ctx context.Context, teamID string) ([]appshort
 }
 
 func (s appShortcutService) Run(ctx context.Context, teamID string, sc appshortcuts.Shortcut, channelID, messageTS, clientToken string) error {
-	c, err := s.client(teamID)
+	c, err := s.router.Client(teamID)
 	if err != nil {
 		return err
 	}
@@ -58,7 +49,7 @@ func (s appShortcutService) Run(ctx context.Context, teamID string, sc appshortc
 }
 
 func (s appShortcutService) Close(ctx context.Context, teamID, viewID, rootViewID, clientToken string) error {
-	c, err := s.client(teamID)
+	c, err := s.router.Client(teamID)
 	if err != nil {
 		return err
 	}
@@ -66,7 +57,7 @@ func (s appShortcutService) Close(ctx context.Context, teamID, viewID, rootViewI
 }
 
 func (s appShortcutService) Submit(ctx context.Context, teamID, viewID, clientToken, state string) (appshortcuts.SubmitResult, error) {
-	c, err := s.client(teamID)
+	c, err := s.router.Client(teamID)
 	if err != nil {
 		return appshortcuts.SubmitResult{}, err
 	}
