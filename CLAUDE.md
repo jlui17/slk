@@ -1,5 +1,14 @@
 # slk
 
+## slk does what the Slack app does
+
+slk is built around Slack: a key, click, or view that has a counterpart in
+the Slack app behaves the way Slack's does, as far as a terminal allows, and
+slk takes away none of Slack's functionality. A plain click on a link opens
+it, as in Slack, even though slk could have kept the click for itself. When a
+change would give up something Slack can do, or make it behave differently
+from Slack, ask Justin before building it.
+
 ## Fork layout: fork code lives in fork-only files
 
 This repo is a fork of gammons/slk that tracks `upstream/main`. Fork-added
