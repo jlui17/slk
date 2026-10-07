@@ -328,7 +328,7 @@ func TestRetitleTranscriptDropsSpeakerSessionLabel(t *testing.T) {
 		{TS: "101.0", Text: "Blind judge run started", UserID: "B1", UserName: "Claude [judging Justin annotation 5]"},
 	}
 
-	got := a.retitleTranscript(parent, replies, "UBOT")
+	got := a.retitleTranscript(parent, replies, "UBOT", "")
 
 	if want := "Claude: Blind judge, Justin 5\nClaude: Blind judge run started"; got != want {
 		t.Errorf("transcript =\n%s\nwant\n%s", got, want)

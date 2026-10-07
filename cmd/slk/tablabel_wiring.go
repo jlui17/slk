@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -45,10 +46,10 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			send(msg)
 		}()
 	}
-	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force bool) {
+	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool) {
 		request(func(ctx context.Context) (tea.Msg, error) {
-			id, label, err := gen.Relabel(ctx, transcript, cfg.TabNameHints)
-			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, Force: force, Label: label}, err
+			id, label, err := gen.Relabel(ctx, transcript, relabelHints(cfg.TabNameHints, reviewOpen))
+			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, Force: force, ReviewOpen: reviewOpen, Label: label}, err
 		})
 	})
 	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool) {
@@ -64,4 +65,15 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict), Failed: err != nil}, nil
 		})
 	})
+}
+
+// relabelHints is the user's tab_name_hints, followed by
+// tablabel.ReviewOpenHints for a !review-open thread's request. The
+// review-open list is a fresh slice: requests run concurrently and must not
+// append into the config's backing array.
+func relabelHints(userHints []string, reviewOpen bool) []string {
+	if !reviewOpen {
+		return userHints
+	}
+	return slices.Concat(userHints, tablabel.ReviewOpenHints)
 }

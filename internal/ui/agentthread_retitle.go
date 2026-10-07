@@ -19,10 +19,12 @@ import (
 )
 
 // AgentTabRelabelFunc requests a model-judged task id and label from a
-// thread transcript. fallbackTaskID and force are echoed into the result
-// (see AgentTabRelabelMsg). Answers with an AgentTabRelabelMsg into the
-// program loop, or nothing on failure, leaving the current label standing.
-type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force bool)
+// thread transcript. reviewOpen marks a !review-open thread's request, which
+// the generator sends with the review-open hints. fallbackTaskID, force and
+// reviewOpen are echoed into the result (see AgentTabRelabelMsg). Answers
+// with an AgentTabRelabelMsg into the program loop, or nothing on failure,
+// leaving the current label standing.
+type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool)
 
 // AgentTabRelabelMsg carries a model label result back into the program
 // loop. TaskID is the model's judgment of which task the thread is about;
@@ -32,7 +34,8 @@ type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackT
 // open-time request sets it to the id hoisted from the root, which then
 // survives a none: that request may have seen the root alone, and the root
 // id is already on the tab. Force lands the label over a tab label
-// something else set; only :retitle sets it.
+// something else set; only :retitle sets it. ReviewOpen renders the
+// "!review ..." label instead (see reviewOpenTabLabel).
 type AgentTabRelabelMsg struct {
 	TeamID         string
 	ChannelID      string
@@ -40,12 +43,17 @@ type AgentTabRelabelMsg struct {
 	TaskID         string
 	FallbackTaskID string
 	Force          bool
+	ReviewOpen     bool
 	Label          string
 }
 
 // reduceAgentTabRelabel lands a model label result on the tab, unless the
 // tracked thread moved on while the request was in flight.
 var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
+	if m, ok := msg.(agentTabAnnotationMsg); ok {
+		a.sendAnnotatedAgentTabLabel(m)
+		return nil, true
+	}
 	m, ok := msg.(AgentTabRelabelMsg)
 	if !ok {
 		return nil, false
@@ -56,14 +64,16 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 		return nil, true
 	}
 	id := m.TaskID
-	if id == "" {
+	if id == "" && !m.ReviewOpen {
 		id = m.FallbackTaskID
 	}
 	label := sanitizeModelLabel(m.Label, id)
 	if m.TaskID == "" && label == "" {
 		return nil, true
 	}
-	if id != "" {
+	if m.ReviewOpen {
+		label = reviewOpenTabLabel(id, label)
+	} else if id != "" {
 		label = withTaskID(id, label)
 	}
 	nameTab := a.agentSidebar.nameTab
@@ -117,20 +127,21 @@ func cmdRetitle(a *App, _ []string) tea.Cmd {
 	}
 	parent := a.threadPanel.ParentMsg()
 	replies := a.threadPanel.Replies()
-	transcript := a.retitleTranscript(parent, replies, t.botUserID)
+	transcript := a.retitleTranscript(parent, replies, t.botUserID, "")
 	if transcript == "" {
 		return toastWithClear(a, "Nothing to label yet", 2*time.Second)
 	}
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, "", true)
-	return toastWithClear(a, "Re-deriving tab label…", 2*time.Second)
+	return tea.Batch(a.requestAgentTabLabel(parent, replies, transcript, "", true),
+		toastWithClear(a, "Re-deriving tab label…", 2*time.Second))
 }
 
 // retitleTranscript renders the thread as speaker-prefixed lines: the root
-// (bot mention stripped, like every label path), then as many of the
-// newest replies as fit the budget, in chronological order.
-func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.MessageItem, botUserID string) string {
+// (bot mention stripped, like every label path), then extra when set (see
+// agentthread_reviewopen.go), then as many of the newest replies as fit
+// the budget, in chronological order.
+func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.MessageItem, botUserID, extra string) string {
 	root := a.retitleLine(parent.UserID, stripMention(parent.Text, botUserID), maxRetitleRoot)
-	budget := maxRetitleTranscript - len(root)
+	budget := maxRetitleTranscript - len(root) - len(extra)
 	var kept []string
 	for i := len(replies) - 1; i >= 0; i-- {
 		line := a.retitleLine(replies[i].UserID, replies[i].Text, maxRetitleReply)
@@ -143,9 +154,12 @@ func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.
 		budget -= len(line) + 1
 		kept = append(kept, line)
 	}
-	lines := make([]string, 0, len(kept)+1)
+	lines := make([]string, 0, len(kept)+2)
 	if root != "" {
 		lines = append(lines, root)
+	}
+	if extra != "" {
+		lines = append(lines, extra)
 	}
 	for i := len(kept) - 1; i >= 0; i-- {
 		lines = append(lines, kept[i])
@@ -156,11 +170,16 @@ func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.
 // retitleLine flattens one message to "speaker: text", the speaker prefix
 // dropped when no cache can name the author.
 func (a *App) retitleLine(userID, text string, max int) string {
+	return a.speakerRetitleLine(a.retitleSpeaker(userID), text, max)
+}
+
+// speakerRetitleLine is retitleLine for an author already named.
+func (a *App) speakerRetitleLine(name, text string, max int) string {
 	flat := truncate.StringWithTail(stripLinkTargets(a.flattenRootText(text)), uint(max), "…")
 	if flat == "" {
 		return ""
 	}
-	if name := a.retitleSpeaker(userID); name != "" {
+	if name != "" {
 		return name + ": " + flat
 	}
 	return flat

@@ -107,6 +107,9 @@ type agentSidebar struct {
 	// agentthread_llm.go) and again on :retitle (agentthread_retitle.go).
 	relabelGen     AgentTabRelabelFunc
 	labelRequested bool
+	// labelFetchGen numbers label requests that wait on a fetch, so only
+	// the latest one sends (agentthread_reviewopen.go).
+	labelFetchGen uint64
 
 	// judgeGen and workingJudge drive the model working verdict for the
 	// last-message shapes the derived signal can't decide; see
@@ -195,13 +198,14 @@ func (a *App) SetAgentReporter(report AgentReportFunc, reportUnread AgentUnreadR
 
 // setThreadPanel is the single path that changes the thread panel's content;
 // agent-thread detection and pane-state recording ride on it so no present or
-// future open path can skip them.
-func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
+// future open path can skip them. The cmd is the tab label's fetch, if any.
+func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) tea.Cmd {
 	a.threadPanel.SetThread(parent, a.ephemerals.inThread(channelID, threadTS, replies), channelID, threadTS)
 	a.updateAgentThread(parent, channelID, threadTS)
 	a.snapshotAgentThreadLast(parent, replies, channelID, threadTS)
-	a.maybeRequestAgentTabLabel(parent, replies, channelID, threadTS)
+	labelCmd := a.maybeRequestAgentTabLabel(parent, replies, channelID, threadTS)
 	a.reportPaneState(channelID, threadTS)
+	return labelCmd
 }
 
 // updateAgentThread re-evaluates agent-thread detection against the thread

@@ -14,6 +14,7 @@ type relabelCall struct {
 	transcript     string
 	fallbackTaskID string
 	force          bool
+	reviewOpen     bool
 }
 
 // newLLMLabelTestApp is an agent test app with the model-label generator
@@ -21,8 +22,8 @@ type relabelCall struct {
 func newLLMLabelTestApp(t *testing.T) (*App, *[]relabelCall, *[]string) {
 	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	calls := &[]relabelCall{}
-	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force bool) {
-		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID, force})
+	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool) {
+		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID, force, reviewOpen})
 	})
 	return a, calls, tabNames
 }
@@ -54,7 +55,7 @@ func TestLLMLabelRequestedOnceWhenRepliesLoad(t *testing.T) {
 		t.Errorf("request keyed %+v", c)
 	}
 	// The same transcript :retitle sends for this panel.
-	if want := a.retitleTranscript(parent, replies, "UBOT"); c.transcript != want {
+	if want := a.retitleTranscript(parent, replies, "UBOT", ""); c.transcript != want {
 		t.Errorf("transcript = %q, want %q", c.transcript, want)
 	}
 	for _, want := range []string{"justin: colony-562 fix the ingest retries", "Claude: the backoff never resets", "justin: go with the jittered one"} {

@@ -148,7 +148,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				parentMsg = cached[0]
 			}
 		}
-		a.setThreadPanel(parentMsg, m.Replies, channelID, m.ThreadTS)
+		labelCmd := a.setThreadPanel(parentMsg, m.Replies, channelID, m.ThreadTS)
 
 		// Mark the thread as read now that the user has actually
 		// seen the replies. Server-side: subscriptions.thread.mark
@@ -201,7 +201,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
 		}
 		a.markAgentThreadRead(a.activeTeamID, channelID, m.ThreadTS)
-		return cmd, true
+		return tea.Batch(cmd, labelCmd), true
 
 	case ThreadsViewActivatedMsg:
 		_ = m

@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -16,20 +18,21 @@ import (
 // non-nil page and sends its root. Silent where :retitle toasts: with
 // nothing configured or nothing to send, the deterministic label stands.
 // The id hoisted from the root rides along as the fallback for a model
-// that answers none.
-func (a *App) maybeRequestAgentTabLabel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
+// that answers none. A !review-open thread's request waits for the
+// returned fetch (agentthread_reviewopen.go).
+func (a *App) maybeRequestAgentTabLabel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) tea.Cmd {
 	if a.agentSidebar.relabelGen == nil || a.agentSidebar.nameTab == nil ||
 		a.agentSidebar.labelRequested || replies == nil || !a.tracksThread("", channelID, threadTS) {
-		return
+		return nil
 	}
 	t := a.agentSidebar.thread
-	transcript := a.retitleTranscript(parent, replies, t.botUserID)
+	transcript := a.retitleTranscript(parent, replies, t.botUserID, "")
 	if transcript == "" {
-		return
+		return nil
 	}
 	a.agentSidebar.labelRequested = true
 	root := a.flattenRootText(stripMention(parent.Text, t.botUserID))
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, hoistTaskID(root), false)
+	return a.requestAgentTabLabel(parent, replies, transcript, hoistTaskID(root), false)
 }
 
 // sanitizeModelLabel normalizes a model completion into tab-label shape:
