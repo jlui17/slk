@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/ui/cellwidth"
 	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/rivo/uniseg"
 )
 
 // checkbox renders row i's mark column, "" outside multi-select. The
@@ -22,29 +22,6 @@ func (m *Model) checkbox(i int) string {
 	}
 	x := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.Accent).Render("x")
 	return muted.Render("[") + x + muted.Render("] ")
-}
-
-// Cut ends s in … when it is wider than width cells, as lipgloss.Width
-// counts them: the rows and columns are padded by that measure, so a cut
-// by any other can come out wider than its column. reflow's truncate
-// counts ❤️ as one cell and x/ansi's counts 1️⃣ as one; both are two. s
-// must be unstyled text: the cut does not skip escape sequences, it
-// would count their bytes as cells and could split one.
-func Cut(s string, width int) string {
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	if width < 1 {
-		return ""
-	}
-	kept, used := "", 1 // the …
-	for g := uniseg.NewGraphemes(s); g.Next(); {
-		if used += lipgloss.Width(g.Str()); used > width {
-			break
-		}
-		kept += g.Str()
-	}
-	return kept + "\u2026"
 }
 
 // maxWindowRows caps the scroll window on a tall terminal. The app
@@ -112,7 +89,7 @@ func (m *Model) sideColumn(it Item, innerWidth int) string {
 	if it.Side == "" || width == 0 {
 		return ""
 	}
-	side := Cut(it.Side, width)
+	side := cellwidth.Cut(it.Side, width)
 	if !it.InApp {
 		width += lipgloss.Width(" [slk]")
 	}
@@ -192,5 +169,5 @@ func (m *Model) footerText(innerWidth int) string {
 	} else if m.filter != "" {
 		text = strings.Replace(text, "esc close", "esc clear", 1)
 	}
-	return Cut(text, innerWidth)
+	return cellwidth.Cut(text, innerWidth)
 }

@@ -133,6 +133,10 @@ type EventHandler interface {
 	// assistant's turn is in progress; an empty status clears it.
 	OnAssistantStatus(channelID, threadTS, botUserID, status string)
 
+	// OnView is delivered for view_opened and view_updated: an app's
+	// modal for this user (appactions_fork.go).
+	OnView(evt ViewEvent)
+
 	// OnUserStatusChange is delivered for user_change and
 	// user_status_changed, which carry a full user record. Measured on
 	// a real workspace, the socket sends these only for the
@@ -570,6 +574,9 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		debuglog.WS("ai_assistant_status: channel=%s thread_ts=%s bot_user=%s status=%q",
 			evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
 		handler.OnAssistantStatus(evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
+
+	case "view_opened", "view_updated":
+		dispatchViewEvent(data, evt.Type, handler)
 
 	case "member_joined_channel":
 		var evt wsMemberChannelEvent

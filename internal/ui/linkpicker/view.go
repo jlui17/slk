@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/ui/cellwidth"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -64,7 +65,7 @@ func (m *Model) renderBox(termWidth int) string {
 			budget = 1
 		}
 		if lipgloss.Width(text) > budget {
-			text = Cut(text, budget)
+			text = cellwidth.Cut(text, budget)
 		}
 		// Detail rides muted in whatever space the main text leaves;
 		// dropped entirely when the row is too tight for it to help.
@@ -72,7 +73,7 @@ func (m *Model) renderBox(termWidth int) string {
 		detailBudget := budget - lipgloss.Width(text) - 2
 		if detail != "" && detailBudget >= 4 {
 			if lipgloss.Width(detail) > detailBudget {
-				detail = Cut(detail, detailBudget)
+				detail = cellwidth.Cut(detail, detailBudget)
 			}
 		} else {
 			detail = ""

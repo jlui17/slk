@@ -71,6 +71,7 @@ type KeyMap struct {
 	OpenInEditor        key.Binding
 
 	ToggleAttachmentFold key.Binding // fork: attachment_fold.go
+	MessageActions       key.Binding // fork: appshortcuts.go
 }
 
 func DefaultKeyMap() KeyMap {
@@ -155,5 +156,7 @@ func DefaultKeyMap() KeyMap {
 		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+x"), key.WithHelp("ctrl+x", "edit message in $EDITOR")),
 		// fork: attachment_fold.go
 		ToggleAttachmentFold: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "expand or collapse long cards")),
+		// fork: appshortcuts.go
+		MessageActions: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "run an app's shortcut on message")),
 	}
 }

@@ -89,6 +89,10 @@ there and resolve them knowing what the fork wants:
   `recordThreadMark` + `scheduleMarkFlush` is the single issuer; the fork
   adds a `PaneViewed` gate at the top of `flushPendingMarks` and a
   `scheduleMarkFlush` call on herdr refocus (`agentthread.go`).
+- `internal/ui/app.go`, `mode_confirm.go` (quit prompt) — `openQuitConfirm`
+  notes whether the prompt opens over the `.` overlay, and a closed prompt
+  hands the keys back to the overlay (`appshortcuts.go`), where upstream
+  always lands in normal mode.
 - `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
   bindings and reducer switch arms; the usernames-store migration's
   mechanical call-site edits.
@@ -103,11 +107,12 @@ there and resolve them knowing what the fork wants:
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
   matches within one segment. Upstreaming candidate.
-- `internal/slack/events.go` — `OnAssistantStatus` and
-  `OnEphemeralMessage` on `EventHandler`, the `ai_assistant_status`
-  dispatch arm, and `is_ephemeral` on `wsMessageEvent` and `wsSubMsg`, with
-  which the `message` and `message_changed` arms hand an ephemeral to
-  `OnEphemeralMessage` in place of `OnMessage`.
+- `internal/slack/events.go` — `OnAssistantStatus`, `OnEphemeralMessage`
+  and `OnView` on `EventHandler`; the `ai_assistant_status` and
+  `view_opened`/`view_updated` dispatch arms; and `is_ephemeral` on
+  `wsMessageEvent` and `wsSubMsg`, with which the `message` and
+  `message_changed` arms hand an ephemeral to `OnEphemeralMessage` in place
+  of `OnMessage`.
 - `internal/slack/client.go` — boot-path calls made cancellable in
   place: SlackAPI's `AuthTest`/`GetConversationsForUser` swapped for
   their `Context` variants, `GetUnreadCounts` takes a ctx, and the
@@ -192,7 +197,8 @@ there and resolve them knowing what the fork wants:
   `cmd/slk/on_message_mention_test.go`, `rail_unread_test.go`,
   `internal/ui/seams_test.go`, `threadsview/model_test.go` (fixtures built
   on the stores); `internal/ui/mode_normal_keys_test.go` (`O` is
-  OpenLinkTab here, image preview is `v` only); `mode_insert_keys_test.go`
+  OpenLinkTab here, image preview is `v` only); `modekeys_test.go` (the pinned
+  mode list includes `ModeAppShortcuts`); `mode_insert_keys_test.go`
   (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
   bordered code box); `golden_test.go`, `mode_linkpicker_test.go` (extra
   argument on `layout.Compute` / `openLinksOfSelected`); seven

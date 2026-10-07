@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/slackurl"
+	"github.com/gammons/slk/internal/ui/cellwidth"
 	"github.com/gammons/slk/internal/ui/linkpicker"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -93,9 +94,9 @@ func linkPickerLabels(links []messages.Link, plain func(mrkdwn string) string) (
 				text = " " + l.Label // "5. release notes", as the list draws it
 			}
 			room := max(linkLabelWidth-lipgloss.Width(name), lipgloss.Width(" · ")+10)
-			labels[i] = linkpicker.Cut(text, room)
+			labels[i] = cellwidth.Cut(text, room)
 		}
-		labels[i] = linkpicker.Cut(name, linkLabelWidth-lipgloss.Width(labels[i])) + labels[i]
+		labels[i] = cellwidth.Cut(name, linkLabelWidth-lipgloss.Width(labels[i])) + labels[i]
 		whole[i] = name + text
 	}
 	if !anyContext {
@@ -103,7 +104,7 @@ func linkPickerLabels(links []messages.Link, plain func(mrkdwn string) string) (
 	}
 	column := 0
 	for i, label := range labels {
-		labels[i] = linkpicker.Cut(label, linkLabelWidth)
+		labels[i] = cellwidth.Cut(label, linkLabelWidth)
 		column = max(column, lipgloss.Width(labels[i]))
 	}
 	for i, label := range labels {

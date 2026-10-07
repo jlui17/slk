@@ -295,6 +295,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.ToggleAttachmentFold):
 		a.toggleAttachmentFoldOfSelected()
 
+	case key.Matches(msg, a.keys.MessageActions):
+		return a.openAppShortcuts()
+
 	case key.Matches(msg, a.keys.DownloadFile):
 		return a.downloadFilesOfSelected()
 

@@ -24,7 +24,7 @@ func handleConfirmMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	res := a.confirmPrompt.HandleKey(keyStr)
 	if !a.confirmPrompt.IsVisible() {
-		a.SetMode(ModeNormal)
+		a.SetMode(a.modeAfterConfirm()) // fork: appshortcuts.go
 	}
 	return res.Cmd
 }

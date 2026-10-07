@@ -1,0 +1,124 @@
+{
+  "app_id": "A00000APP01",
+  "app_installed_team_id": "T00000TEAM1",
+  "channel_id": null,
+  "client_token": "web-1700000000000",
+  "close": {
+    "emoji": true,
+    "text": "Cancel",
+    "type": "plain_text"
+  },
+  "event_ts": "1700000001.000200",
+  "previous_view_id": null,
+  "root_view_id": "V00000VIEW1",
+  "submit": {
+    "emoji": true,
+    "text": "Submit",
+    "type": "plain_text"
+  },
+  "timeout_range": 10000,
+  "title": {
+    "emoji": true,
+    "text": "Annotate Claude's work",
+    "type": "plain_text"
+  },
+  "type": "view_opened",
+  "view": {
+    "app_id": "A00000APP01",
+    "app_installed_team_id": "T00000TEAM1",
+    "blocks": [
+      {
+        "block_id": "note",
+        "dispatch_action": false,
+        "element": {
+          "action_id": "text",
+          "dispatch_action_config": {
+            "trigger_actions_on": [
+              "on_enter_pressed"
+            ]
+          },
+          "min_length": 1,
+          "multiline": true,
+          "placeholder": {
+            "emoji": true,
+            "text": "Write annotation here",
+            "type": "plain_text"
+          },
+          "type": "plain_text_input"
+        },
+        "label": {
+          "emoji": true,
+          "text": "Annotation",
+          "type": "plain_text"
+        },
+        "optional": false,
+        "type": "input"
+      },
+      {
+        "block_id": "sign",
+        "dispatch_action": false,
+        "element": {
+          "action_id": "pick",
+          "options": [
+            {
+              "text": {
+                "emoji": true,
+                "text": "Positive",
+                "type": "plain_text"
+              },
+              "value": "positive"
+            },
+            {
+              "text": {
+                "emoji": true,
+                "text": "Negative",
+                "type": "plain_text"
+              },
+              "value": "negative"
+            }
+          ],
+          "type": "radio_buttons"
+        },
+        "label": {
+          "emoji": true,
+          "text": "Label",
+          "type": "plain_text"
+        },
+        "optional": false,
+        "type": "input"
+      }
+    ],
+    "bot_id": "B00000BOT01",
+    "callback_id": "annotate_submit",
+    "clear_on_close": false,
+    "close": {
+      "emoji": true,
+      "text": "Cancel",
+      "type": "plain_text"
+    },
+    "external_id": "",
+    "hash": "1700000001.AbCdEfGh",
+    "id": "V00000VIEW1",
+    "notify_on_close": false,
+    "previous_view_id": null,
+    "private_metadata": "",
+    "root_view_id": "V00000VIEW1",
+    "state": {
+      "values": {}
+    },
+    "submit": {
+      "emoji": true,
+      "text": "Submit",
+      "type": "plain_text"
+    },
+    "team_id": "T00000TEAM1",
+    "title": {
+      "emoji": true,
+      "text": "Annotate Claude's work",
+      "type": "plain_text"
+    },
+    "type": "modal"
+  },
+  "view_id": "V00000VIEW1",
+  "view_type": "modal"
+}

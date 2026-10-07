@@ -1,0 +1,23 @@
+{
+  "app_actions": [
+    {
+      "actions": [
+        {
+          "action_id": "10000000000001",
+          "description": "Annotate a message.",
+          "name": "Annotate",
+          "type": "message_action"
+        }
+      ],
+      "app_id": "A00000APP01",
+      "app_name": "Colony",
+      "icons": {
+        "image_32": "https://example.com/icon_32.png",
+        "image_48": "https://example.com/icon_48.png",
+        "image_64": "https://example.com/icon_64.png",
+        "image_72": "https://example.com/icon_72.png"
+      }
+    }
+  ],
+  "ok": true
+}

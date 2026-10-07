@@ -256,6 +256,8 @@ type App struct {
 
 	pasteThumbFocus pasteThumbFocus // fork: see compose_preview_focus_fork.go
 
+	appShortcuts appShortcutsState // fork: appshortcuts.go
+
 	// threads is the App's ThreadService collaborator (fetch / mark /
 	// reply / list-fetch + parent-channel last-read lookup for the
 	// unread boundary). See internal/ui/services.go. Defaulted to a
@@ -942,6 +944,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// types are disjoint across reducers — but stable order keeps
 	// the trace predictable.
 	if cmd, handled := dispatchReducers(a, msg,
+		reduceAppShortcuts, // fork: first, to hold clicks and pastes while open; not an IsModalOverlay mode, whose click-outside esc would drop a half-filled form
 		a.presence,
 		a.preview,
 		a.drag,
@@ -1858,6 +1861,7 @@ func (a *App) maybeFetchOlderHistory(atTop bool) tea.Cmd {
 // both lowercase `q` and Ctrl+C (the latter intercepted globally so an
 // accidental Ctrl+C in any mode never silently kills the app).
 func (a *App) openQuitConfirm() {
+	a.noteQuitPrompt() // fork: appshortcuts.go
 	a.confirmPrompt.Open(
 		"Quit slk?",
 		"All workspace connections will close.",

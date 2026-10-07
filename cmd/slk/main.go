@@ -1337,6 +1337,7 @@ func run(startupLink *slackurl.Permalink) error {
 			_ = wctx.Client.SendTyping(channelID)
 		}
 		app.SetPresenceService(core.NewPresenceService(setStatus, sendTyping))
+		app.SetAppShortcutService(appShortcutService{router}) // fork: appshortcuts_wiring.go
 
 	}
 

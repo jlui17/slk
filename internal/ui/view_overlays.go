@@ -49,6 +49,7 @@ func (a *App) applyOverlays(screen string) string {
 	if a.reactionPicker.IsVisible() {
 		screen = a.reactionPicker.ViewOverlay(a.width, a.height, screen)
 	}
+	screen = a.appShortcutsOverlay(screen) // fork: under the confirm prompt (ctrl+c)
 	if a.confirmPrompt.IsVisible() {
 		screen = a.confirmPrompt.ViewOverlay(a.width, a.height, screen)
 	}
@@ -95,6 +96,7 @@ func (a *App) overlayActive() bool {
 		a.help.IsVisible() ||
 		a.reactionsView.IsVisible() ||
 		a.linkPicker.IsVisible() ||
+		a.appShortcuts.model.IsVisible() ||
 		a.mode == ModePresenceCustomSnooze ||
 		a.bootstrap.IsLoading()
 }
