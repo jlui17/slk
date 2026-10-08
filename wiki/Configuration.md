@@ -92,7 +92,8 @@ max_image_cache_mb = 200
 # (any emoji counts as its ack), or a bot todo-list post (the ones ending
 # with a "todos as of HH:MM UTC" stamp). With tab_name_model set, the two
 # shapes content can't decide — a plain bot reply, a human message the bot
-# only acked — are judged by that model. A bot reply reads as working
+# only acked — are judged by a model: agent_status_judge_model, or
+# tab_name_model when that is empty. A bot reply reads as working
 # when the bot is doing something next on its own, blocked (herdr's
 # needs-input state) when it is waiting on you to answer in the thread (a
 # question, a plan for approval), and idle when it is finished. An acked
@@ -153,6 +154,9 @@ max_image_cache_mb = 200
 [herdr]
 disabled = false   # set true to opt out of agent-sidebar reporting
 tab_name_model = ""   # e.g. "claude-sonnet-5-5"; empty disables (default)
+tab_name_effort = ""   # low, medium, high, xhigh or max; empty means low (default)
+agent_status_judge_model = ""   # the working-state judge; empty means tab_name_model (default)
+agent_status_judge_effort = ""   # same values as tab_name_effort; empty means low (default)
 anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY (default)
 tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 

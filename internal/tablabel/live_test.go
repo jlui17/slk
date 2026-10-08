@@ -16,11 +16,11 @@ import (
 
 // TestRelabelLive hits the real Anthropic API with a root-only transcript,
 // what a thread opened before anyone replied sends; set SLK_TABLABEL_LIVE=1
-// to run it. The key is the one slk itself uses (see liveClient); tools/go.sh
-// carries the gate, the config file and the env key into the docker
-// container it runs tests in on Santa hosts.
+// to run it. The model, effort and key are the ones slk itself uses (see
+// liveClients); tools/go.sh carries the gate, the config file and the env
+// key into the docker container it runs tests in on Santa hosts.
 func TestRelabelLive(t *testing.T) {
-	c := liveClient(t)
+	c, _ := liveClients(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	id, label, err := c.Relabel(ctx,
@@ -37,23 +37,31 @@ func TestRelabelLive(t *testing.T) {
 	}
 }
 
-func liveClient(t *testing.T) *Client {
+// liveClients returns the tab labeler and the working judge slk builds
+// from its config.toml.
+func liveClients(t *testing.T) (labeler, judge *Client) {
 	t.Helper()
 	if os.Getenv("SLK_TABLABEL_LIVE") == "" {
 		t.Skip("set SLK_TABLABEL_LIVE=1 to hit the real API")
 	}
-	apiKey := liveAPIKey(t)
+	cfg := liveConfig(t)
+	if cfg.TabNameModel == "" {
+		t.Fatal("no model: set herdr.tab_name_model in slk's config.toml")
+	}
+	apiKey := cfg.ResolveAnthropicAPIKey()
 	if apiKey == "" {
 		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
 	}
-	return New("claude-sonnet-5-5", apiKey)
+	return New(cfg.TabNameModel, cfg.ResolveTabNameEffort(), apiKey),
+		New(cfg.ResolveAgentStatusJudgeModel(), cfg.ResolveAgentStatusJudgeEffort(), apiKey)
 }
 
-// liveAPIKey finds the key where slk does, reading only what it needs:
-// config.toml is decoded without config.Load's workspace validation, since
-// a live test is not slk startup. The path restates xdgConfig (cmd/slk),
-// which can't be imported. A missing file is an empty config.
-func liveAPIKey(t *testing.T) string {
+// liveConfig reads the model, effort and key where slk does, reading only
+// what it needs: config.toml is decoded without config.Load's workspace
+// validation, since a live test is not slk startup. The path restates
+// xdgConfig (cmd/slk), which can't be imported. A missing file is an
+// empty config.
+func liveConfig(t *testing.T) config.Herdr {
 	t.Helper()
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
@@ -68,13 +76,13 @@ func liveAPIKey(t *testing.T) string {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read slk config: %v", err)
 	}
-	return cfg.Herdr.ResolveAnthropicAPIKey()
+	return cfg.Herdr
 }
 
 // TestWorkingLive pins the working judge's verdicts on the message shapes
 // the deterministic signal can't read, against the real model.
 func TestWorkingLive(t *testing.T) {
-	c := liveClient(t)
+	_, c := liveClients(t)
 	rows := []struct {
 		name      string
 		fromAgent bool

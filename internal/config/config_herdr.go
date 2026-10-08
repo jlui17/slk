@@ -19,6 +19,16 @@ type Herdr struct {
 	// deterministic label. Empty means deterministic labels only. Needs
 	// an API key: AnthropicAPIKey, or the ANTHROPIC_API_KEY env var.
 	TabNameModel string `toml:"tab_name_model"`
+	// TabNameEffort is the effort the tab-label calls run at: low,
+	// medium, high, xhigh or max. Empty means low.
+	TabNameEffort string `toml:"tab_name_effort"`
+	// AgentStatusJudgeModel is the model the agent status judge asks whether the
+	// agent in a thread is working, idle or blocked on the user. Empty
+	// means tab_name_model. The judge runs only when tab_name_model is set.
+	AgentStatusJudgeModel string `toml:"agent_status_judge_model"`
+	// AgentStatusJudgeEffort is the effort the agent status judge runs at, with the
+	// same values as tab_name_effort. Empty means low.
+	AgentStatusJudgeEffort string `toml:"agent_status_judge_effort"`
 	// AnthropicAPIKey is the key the tab_name_model calls use. Empty
 	// falls back to the ANTHROPIC_API_KEY env var. A secret: never log it.
 	AnthropicAPIKey string `toml:"anthropic_api_key"`
@@ -35,4 +45,31 @@ func (h Herdr) ResolveAnthropicAPIKey() string {
 		return h.AnthropicAPIKey
 	}
 	return os.Getenv("ANTHROPIC_API_KEY")
+}
+
+// ResolveTabNameEffort is the effort the tab-label calls run at:
+// herdr.tab_name_effort, or low when unset.
+func (h Herdr) ResolveTabNameEffort() string {
+	if h.TabNameEffort != "" {
+		return h.TabNameEffort
+	}
+	return "low"
+}
+
+// ResolveAgentStatusJudgeModel is the model the agent status judge calls:
+// herdr.agent_status_judge_model, or herdr.tab_name_model when unset.
+func (h Herdr) ResolveAgentStatusJudgeModel() string {
+	if h.AgentStatusJudgeModel != "" {
+		return h.AgentStatusJudgeModel
+	}
+	return h.TabNameModel
+}
+
+// ResolveAgentStatusJudgeEffort is the effort the agent status judge runs at:
+// herdr.agent_status_judge_effort, or low when unset.
+func (h Herdr) ResolveAgentStatusJudgeEffort() string {
+	if h.AgentStatusJudgeEffort != "" {
+		return h.AgentStatusJudgeEffort
+	}
+	return "low"
 }

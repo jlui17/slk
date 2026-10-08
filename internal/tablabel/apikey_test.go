@@ -22,7 +22,7 @@ func TestNewSendsTheGivenAPIKey(t *testing.T) {
 			t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 			t.Setenv("ANTHROPIC_API_KEY", envKey)
 
-			if _, _, err := New("claude-sonnet-5-5", "from-config").Relabel(context.Background(), "transcript", nil); err != nil {
+			if _, _, err := New("claude-sonnet-5-5", "low", "from-config").Relabel(context.Background(), "transcript", nil); err != nil {
 				t.Fatalf("Relabel: %v", err)
 			}
 			if gotKey != "from-config" {

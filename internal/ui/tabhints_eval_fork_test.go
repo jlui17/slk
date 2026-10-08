@@ -14,6 +14,7 @@
 //
 //	SLK_TABHINTS_FILE         hints file, repo-relative
 //	SLK_TABHINTS_MODEL        default claude-sonnet-5-5
+//	SLK_TABHINTS_EFFORT       default low
 //	SLK_TABHINTS_TRANSCRIPTS  transcripts dir under the eval dir, default transcripts
 //	SLK_TABHINTS_REPEATS      calls per transcript, default 1
 //	SLK_TABHINTS_ROOT_ONLY    1 sends only each transcript's first line (the
@@ -151,6 +152,10 @@ func TestTabHintsEval(t *testing.T) {
 	if model == "" {
 		model = "claude-sonnet-5-5"
 	}
+	effort := os.Getenv("SLK_TABHINTS_EFFORT")
+	if effort == "" {
+		effort = "low"
+	}
 	var hints []string
 	if path := os.Getenv("SLK_TABHINTS_FILE"); path != "" {
 		raw, err := os.ReadFile(filepath.Join("../..", path))
@@ -168,7 +173,7 @@ func TestTabHintsEval(t *testing.T) {
 	if apiKey == "" {
 		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
 	}
-	client := tablabel.New(model, apiKey)
+	client := tablabel.New(model, effort, apiKey)
 	dir := os.Getenv("SLK_TABHINTS_TRANSCRIPTS")
 	if dir == "" {
 		dir = "transcripts"

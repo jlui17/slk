@@ -46,22 +46,24 @@ const relabelReminder = "That was the whole thread. Reply with exactly two lines
 // guards against a caller that didn't.
 const maxTranscriptBytes = 400000
 
-// Client labels threads via one fixed model.
+// Client labels threads via one fixed model at one fixed effort.
 type Client struct {
 	model  string
+	effort string
 	client anthropic.Client
 }
 
-// New returns a Client calling model with apiKey. The key is passed
-// explicitly because the SDK's default client otherwise reads
+// New returns a Client calling model at effort with apiKey. The key is
+// passed explicitly because the SDK's default client otherwise reads
 // ANTHROPIC_API_KEY on its own.
-func New(model, apiKey string) *Client {
-	return &Client{model: model, client: anthropic.NewClient(option.WithAPIKey(apiKey))}
+func New(model, effort, apiKey string) *Client {
+	return &Client{model: model, effort: effort, client: anthropic.NewClient(option.WithAPIKey(apiKey))}
 }
 
 func newForTest(model, baseURL string) *Client {
 	return &Client{
-		model: model,
+		model:  model,
+		effort: "low",
 		client: anthropic.NewClient(
 			option.WithBaseURL(baseURL),
 			option.WithAPIKey("test"),
@@ -118,11 +120,11 @@ func (c *Client) complete(ctx context.Context, system string, user ...string) (s
 	}
 	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model: anthropic.Model(c.model),
-		// Thinking stays on, at low effort, with room for it before the
-		// text: with thinking off (between_tools) the model wrote its
-		// reasoning into the reply, and a 64-token cap cut the answer off.
+		// Thinking stays on, with room for it before the text: with
+		// thinking off (between_tools) the model wrote its reasoning into
+		// the reply, and a 64-token cap cut the answer off.
 		MaxTokens:    1024,
-		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow},
+		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(c.effort)},
 		System:       []anthropic.TextBlockParam{{Text: system}},
 		Messages:     []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
