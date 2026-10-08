@@ -19,6 +19,20 @@ func (m *mockSlackAPI) GetUserInfoContext(ctx context.Context, user string) (*sl
 	return m.GetUserInfo(user)
 }
 
+// The upload stubs only satisfy SlackAPI: upload_fork_test.go exercises
+// UploadFileUnshared and ShareFiles against slacktest, through slack-go.
+func (m *mockSlackAPI) GetUploadURLExternalContext(ctx context.Context, params slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error) {
+	return &slack.GetUploadURLExternalResponse{}, nil
+}
+
+func (m *mockSlackAPI) UploadToURL(ctx context.Context, params slack.UploadToURLParameters) error {
+	return nil
+}
+
+func (m *mockSlackAPI) CompleteUploadExternalContext(ctx context.Context, params slack.CompleteUploadExternalParameters) (*slack.CompleteUploadExternalResponse, error) {
+	return &slack.CompleteUploadExternalResponse{}, nil
+}
+
 func TestGetUserProfileContext_HonorsTheContext(t *testing.T) {
 	c := &Client{api: &mockSlackAPI{}}
 	ctx, cancel := context.WithCancel(context.Background())

@@ -1118,6 +1118,7 @@ func run(startupLink *slackurl.Permalink) error {
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				defer cancel()
 
+				files := make([]slack.FileSummary, 0, len(attachments))
 				for i, att := range attachments {
 					p.Send(ui.UploadProgressMsg{Done: i, Total: len(attachments)})
 
@@ -1133,14 +1134,14 @@ func run(startupLink *slackurl.Permalink) error {
 						reader = f
 					}
 
-					currentCaption := ""
-					if i == len(attachments)-1 {
-						currentCaption = caption
-					}
-
-					if _, err := client.UploadFile(ctx, channelID, threadTS, att.Filename, reader, att.Size, currentCaption); err != nil {
+					file, err := client.UploadFileUnshared(ctx, att.Filename, reader, att.Size)
+					if err != nil {
 						return ui.UploadResultMsg{Err: fmt.Errorf("uploading %s (%d/%d): %w", att.Filename, i+1, len(attachments), err)}
 					}
+					files = append(files, file)
+				}
+				if err := client.ShareFiles(ctx, channelID, threadTS, files, caption); err != nil {
+					return ui.UploadResultMsg{Err: err}
 				}
 				p.Send(ui.UploadProgressMsg{Done: len(attachments), Total: len(attachments)})
 				return ui.UploadResultMsg{Err: nil}

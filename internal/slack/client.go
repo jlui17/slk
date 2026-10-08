@@ -57,6 +57,9 @@ type SlackAPI interface {
 	// users slk renders a DND marker for, never the whole team.
 	GetDNDTeamInfoContext(ctx context.Context, users []string, options ...slack.ParamOption) (map[string]slack.DNDStatus, error)
 	UploadFileContext(ctx context.Context, params slack.UploadFileParameters) (*slack.FileSummary, error)
+	GetUploadURLExternalContext(ctx context.Context, params slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error)       // fork: upload_fork.go
+	UploadToURL(ctx context.Context, params slack.UploadToURLParameters) error                                                                       // fork: upload_fork.go
+	CompleteUploadExternalContext(ctx context.Context, params slack.CompleteUploadExternalParameters) (*slack.CompleteUploadExternalResponse, error) // fork: upload_fork.go
 	OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
 	GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error)
 }
