@@ -55,6 +55,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if a.focusedPanel == PanelThread && a.threadPanel.ReactionNavActive() {
 		return a.handleThreadReactionNav(msg)
 	}
+	if cmd, ok := a.appHomeKey(msg); ok { // fork: apphome.go
+		return cmd
+	}
 
 	switch {
 	case key.Matches(msg, a.keys.InsertMode):

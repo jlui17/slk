@@ -1,0 +1,263 @@
+{
+ "ok": true,
+ "app_home": {
+  "app_id": "A00000APP01",
+  "app_installed_team_id": "T00000TEAM1",
+  "conversation_id": "D00000COLONY",
+  "home_tab_enabled": true,
+  "messages_tab_enabled": true,
+  "messages_tab_read_only_enabled": true,
+  "agent_tasks_enabled": true,
+  "home_view_id": "V00000HOME1"
+ },
+ "home_view": {
+  "id": "V00000HOME1",
+  "team_id": "T00000TEAM1",
+  "type": "home",
+  "blocks": [
+   {
+    "type": "header",
+    "block_id": "qRlcV",
+    "text": {
+     "type": "plain_text",
+     "text": "Annotations",
+     "emoji": true
+    }
+   },
+   {
+    "type": "divider",
+    "block_id": "rbb95"
+   },
+   {
+    "type": "header",
+    "block_id": "PYngT",
+    "text": {
+     "type": "plain_text",
+     "text": "In Progress · 6",
+     "emoji": true
+    }
+   },
+   {
+    "type": "section",
+    "block_id": "open_review/C0BS6HBB3R6/1788218799.815259",
+    "text": {
+     "type": "mrkdwn",
+     "text": "*“annotation text 1”*\n<#C0BS6HBB3R6> · review opened <!date^1791343906^{ago}|7 Oct> · <https://example.slack.com/archives/C0BS6HBB3R6/p1788218799815259?thread_ts=1788192437.821869&amp;cid=C0BS6HBB3R6|open message>",
+     "verbatim": false
+    },
+    "accessory": {
+     "type": "button",
+     "text": {
+      "type": "plain_text",
+      "text": "Open review",
+      "emoji": true
+     },
+     "action_id": "open_review",
+     "url": "https://example.slack.com/archives/C0C6ZMJJT1U/p1791343906925689"
+    }
+   },
+   {
+    "type": "divider",
+    "block_id": "cbAju"
+   },
+   {
+    "type": "header",
+    "block_id": "b92Zd",
+    "text": {
+     "type": "plain_text",
+     "text": "Needs a review · 89",
+     "emoji": true
+    }
+   },
+   {
+    "type": "actions",
+    "block_id": "WbJB6",
+    "elements": [
+     {
+      "type": "static_select",
+      "action_id": "sort_order",
+      "initial_option": {
+       "text": {
+        "type": "plain_text",
+        "text": "Newest first",
+        "emoji": true
+       },
+       "value": "newest"
+      },
+      "options": [
+       {
+        "text": {
+         "type": "plain_text",
+         "text": "Newest first",
+         "emoji": true
+        },
+        "value": "newest"
+       },
+       {
+        "text": {
+         "type": "plain_text",
+         "text": "Oldest first",
+         "emoji": true
+        },
+        "value": "oldest"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "section",
+    "block_id": "start_review/C0BCG30UGEP/1790723734.808739",
+    "text": {
+     "type": "mrkdwn",
+     "text": "*“(<https://example.slack.com/archives/C0BCG30UGEP/p1790723072993359?thread_ts=1790621488.033109&amp;cid=C0BCG30UGEP|message>) annotation text 2”*\n<#C0BCG30UGEP> · 29 Sep · <https://example.slack.com/archives/C0BCG30UGEP/p1790723734808739?thread_ts=1790621488.033109&amp;cid=C0BCG30UGEP|open message>",
+     "verbatim": false
+    },
+    "accessory": {
+     "type": "button",
+     "style": "primary",
+     "text": {
+      "type": "plain_text",
+      "text": "Start review",
+      "emoji": true
+     },
+     "action_id": "start_review",
+     "value": "C0BCG30UGEP/1790723734.808739"
+    }
+   },
+   {
+    "type": "section",
+    "block_id": "start_review/C0BCG30UGEP/1790286917.514879",
+    "text": {
+     "type": "mrkdwn",
+     "text": "*“annotation text 3”*\n<#C0BCG30UGEP> · 24 Sep · <https://example.slack.com/archives/C0BCG30UGEP/p1790286917514879?thread_ts=1790285210.548779&amp;cid=C0BCG30UGEP|open message>",
+     "verbatim": false
+    },
+    "accessory": {
+     "type": "button",
+     "style": "primary",
+     "text": {
+      "type": "plain_text",
+      "text": "Start review",
+      "emoji": true
+     },
+     "action_id": "start_review",
+     "value": "C0BCG30UGEP/1790286917.514879"
+    }
+   },
+   {
+    "type": "actions",
+    "block_id": "iepno",
+    "elements": [
+     {
+      "type": "button",
+      "action_id": "start_next_3",
+      "text": {
+       "type": "plain_text",
+       "text": "Review the next 3",
+       "emoji": true
+      },
+      "value": "C0BCG30UGEP/1790723734.808739,C0BCG30UGEP/1790634108.677599,C0BCG30UGEP/1790631614.574189",
+      "confirm": {
+       "title": {
+        "type": "plain_text",
+        "text": "Start 3 reviews?",
+        "emoji": true
+       },
+       "text": {
+        "type": "plain_text",
+        "text": "The judge will tag you three times over the next half hour.",
+        "emoji": true
+       },
+       "confirm": {
+        "type": "plain_text",
+        "text": "Start",
+        "emoji": true
+       },
+       "deny": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": true
+       }
+      }
+     },
+     {
+      "type": "button",
+      "action_id": "next_page",
+      "text": {
+       "type": "plain_text",
+       "text": "Next",
+       "emoji": true
+      },
+      "value": "newest/2"
+     }
+    ]
+   },
+   {
+    "type": "context",
+    "block_id": "VtC42",
+    "elements": [
+     {
+      "type": "mrkdwn",
+      "text": "Page 1 of 9",
+      "verbatim": false
+     }
+    ]
+   },
+   {
+    "type": "divider",
+    "block_id": "UCnFP"
+   },
+   {
+    "type": "header",
+    "block_id": "m7Z14",
+    "text": {
+     "type": "plain_text",
+     "text": "Progress",
+     "emoji": true
+    }
+   }
+  ],
+  "private_metadata": "",
+  "callback_id": "",
+  "state": {
+   "values": {
+    "WbJB6": {
+     "sort_order": {
+      "type": "static_select",
+      "selected_option": {
+       "text": {
+        "type": "plain_text",
+        "text": "Newest first",
+        "emoji": true
+       },
+       "value": "newest"
+      }
+     }
+    }
+   }
+  },
+  "hash": "1791415521.vy3zvQ1M",
+  "title": {
+   "type": "plain_text",
+   "text": "View Title",
+   "emoji": true
+  },
+  "clear_on_close": false,
+  "notify_on_close": false,
+  "close": null,
+  "submit": null,
+  "previous_view_id": null,
+  "root_view_id": "V00000HOME1",
+  "app_id": "A00000APP01",
+  "external_id": "",
+  "app_installed_team_id": "T00000TEAM1",
+  "bot_id": "B00000BOT01"
+ },
+ "channel": {
+  "id": "D00000COLONY",
+  "is_im": true,
+  "user": "U00000BOTU1",
+  "is_open": true
+ }
+}

@@ -72,6 +72,7 @@ type KeyMap struct {
 
 	ToggleAttachmentFold key.Binding // fork: attachment_fold.go
 	MessageActions       key.Binding // fork: appshortcuts.go
+	AppHomeTab           key.Binding // fork: apphome.go
 }
 
 func DefaultKeyMap() KeyMap {
@@ -158,5 +159,7 @@ func DefaultKeyMap() KeyMap {
 		ToggleAttachmentFold: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "expand or collapse long cards")),
 		// fork: appshortcuts.go
 		MessageActions: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "run an app's shortcut on message")),
+		// fork: apphome.go
+		AppHomeTab: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "app's Home or Messages tab")),
 	}
 }

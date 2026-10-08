@@ -227,6 +227,7 @@ type Model struct {
 	chromeChannel     string
 	chromeTopic       string
 	chromeChannelType string
+	headerRow         func(width int) string // fork: apphome_fork.go
 	chromeCacheValid  bool
 
 	// Cumulative line offsets, computed in buildCache (only when content
@@ -645,6 +646,8 @@ func ChannelGlyph(chType string) string {
 		return "\u25c6" // ◆
 	case "dm", "group_dm":
 		return "\u25cf" // ●
+	case "app": // fork: the sidebar's app glyph
+		return "\u25a3" // ▣
 	default:
 		return "#"
 	}
@@ -2951,6 +2954,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			Bold(true).
 			Padding(0, 1)
 		header := headerStyle.Render(fmt.Sprintf("%s %s", ChannelGlyph(m.channelType), m.channelName))
+		header += m.headerRowLine(width) // fork: apphome_fork.go
 		if m.channelTopic != "" {
 			// Width(width) pads every wrapped topic line to the full pane
 			// width. This keeps the invariant that EVERY chrome line is

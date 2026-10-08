@@ -231,8 +231,12 @@ func (a *App) closeAppViewCmd(teamID, viewID, rootID string) tea.Cmd {
 }
 
 // openMessageInBrowser opens the message's permalink in the browser,
-// for a form slk can't fill.
+// for a form slk can't fill; for a form from an app's Home tab, which
+// has no message, the app's DM in Slack's web client.
 func (a *App) openMessageInBrowser(channelID, ts string) tea.Cmd {
+	if ts == "" {
+		return a.openURLCmd("https://app.slack.com/client/" + a.appShortcuts.teamID + "/" + channelID)
+	}
 	messageSvc := a.messageSvc
 	if messageSvc == nil {
 		return nil

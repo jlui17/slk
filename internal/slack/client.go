@@ -1640,6 +1640,7 @@ type starsListResponse struct {
 type starsListItem struct {
 	Type    string `json:"type"`
 	Channel string `json:"channel"` // populated when Type == "channel" or "im"
+	Group   string `json:"group"`   // fork: populated when Type == "group"
 }
 
 type starsListPaging struct {
@@ -1685,8 +1686,8 @@ func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
 	}
 	var ids []string
 	for _, it := range slr.Items {
-		if it.Type == "channel" && it.Channel != "" {
-			ids = append(ids, it.Channel)
+		if id, ok := starredConversationID(it); ok { // fork: client_fork.go
+			ids = append(ids, id)
 		}
 	}
 	return ids, nil

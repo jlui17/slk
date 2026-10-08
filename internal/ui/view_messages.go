@@ -100,6 +100,9 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	if a.view == ViewThreads {
 		return a.renderThreadsViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
 	}
+	if a.view == ViewAppHome { // fork: apphome.go
+		return a.renderAppHomePanel(msgWidth, msgBorder, contentHeight, msgFocused)
+	}
 	return a.renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight, msgFocused, composeFocused, msgLayoutKey)
 }
 

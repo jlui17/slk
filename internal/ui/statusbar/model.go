@@ -33,6 +33,7 @@ type Model struct {
 	attempt     int       // 1-based reconnect attempt; meaningful only in StateReconnecting
 	inThread    bool
 	toast       string // "" == no toast; otherwise rendered verbatim in the right slot
+	warnToast   string // fork: model_fork.go
 	presence    string // "active", "away", or "" (unknown — segment hidden)
 	dndEnabled  bool
 	dndEndTS    time.Time // zero if not in DND
@@ -90,6 +91,8 @@ func (m Model) channelGlyph() string {
 		return "\u25c6 "
 	case "dm", "group_dm":
 		return "\u25cf "
+	case "app": // fork: the sidebar's app glyph
+		return "\u25a3 "
 	default:
 		return "#"
 	}
@@ -260,7 +263,7 @@ func (m Model) View(width int) string {
 	if m.toast != "" {
 		rightParts = append(rightParts,
 			lipgloss.NewStyle().
-				Foreground(styles.Accent).
+				Foreground(m.toastColor()). // fork: model_fork.go
 				Background(styles.SurfaceDark).
 				Bold(true).
 				Render(m.toast))

@@ -170,3 +170,10 @@ func unsupportedStyle() lipgloss.Style {
 		Foreground(styles.Background).
 		Background(styles.Warning)
 }
+
+// ControlText is the unstyled label the renderer draws for a section
+// accessory or actions element of kind, for a host that styles it
+// itself (an App Home's focus and button styles).
+func ControlText(kind, label string) string {
+	return ansi.Strip(renderControlLabel(kind, label))
+}

@@ -96,6 +96,16 @@ there and resolve them knowing what the fork wants:
 - `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
   bindings and reducer switch arms; the usernames-store migration's
   mechanical call-site edits.
+- App Home (`apphome.go`, `internal/ui/apphome/`) — a `ViewAppHome` value
+  on `View`, and one-line hooks where upstream branches on `ViewThreads`:
+  `renderMessagesRegion`, the mouse wheel and click arms of
+  `reducer_mouse.go` (plus a click guard while its confirm box is up),
+  `handleNormalMode`, the `ChannelSelectedMsg` arm, `applyOverlays` and
+  `reduceWorkspaceSwitched`. `messages/model.go` draws a `headerRow` under
+  the channel name (`apphome_fork.go`, the app DM's tab row);
+  `statusbar/model.go` colors the toast through `toastColor`
+  (`model_fork.go`, the warning toast); `ChannelGlyph` and the status
+  bar's glyph gain an `app` arm (▣), where upstream draws `#`.
 - `internal/ui/messages/model.go` — `PrependMessages` and `OldestTS` read
   past ephemerals (`ephemeral_fork.go`): paging anchors on the oldest
   message that is not one, the boundary guard compares against it, and the
@@ -126,6 +136,12 @@ there and resolve them knowing what the fork wants:
   `wsMu`, the test-injectable `wsDialer` field, and `GetUserInfoContext`
   on `SlackAPI` for the profile card's bounded users.info
   (`client_fork.go`).
+- `internal/slack/client.go` (+ `client_test.go`) — `GetStarredChannels`
+  keeps every conversation star (`starredConversationID` in
+  `client_fork.go`: channel and im under `channel`, group under the
+  `Group` member `starsListItem` gains), so a starred DM, app, private
+  channel or group DM sits in Starred as in Slack; upstream keeps channel
+  stars only, and its parse test now expects the DM.
 - `internal/slack/auth.go` — atomic token save.
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
 - `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:

@@ -50,6 +50,7 @@ func (a *App) applyOverlays(screen string) string {
 		screen = a.reactionPicker.ViewOverlay(a.width, a.height, screen)
 	}
 	screen = a.appShortcutsOverlay(screen) // fork: under the confirm prompt (ctrl+c)
+	screen = a.appHomeOverlay(screen)      // fork: apphome.go
 	screen = a.profileCardOverlay(screen)  // fork: profilecard.go
 	if a.confirmPrompt.IsVisible() {
 		screen = a.confirmPrompt.ViewOverlay(a.width, a.height, screen)

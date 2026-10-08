@@ -65,6 +65,7 @@ type View int
 const (
 	ViewChannels View = iota
 	ViewThreads
+	ViewAppHome // fork: apphome.go, an app DM's Home tab
 )
 
 const (
@@ -257,6 +258,7 @@ type App struct {
 	pasteThumbFocus pasteThumbFocus // fork: see compose_preview_focus_fork.go
 
 	appShortcuts appShortcutsState // fork: appshortcuts.go
+	appHome      appHomeState      // fork: apphome.go
 
 	profileCard profileCardState // fork: profilecard.go
 
@@ -946,6 +948,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// types are disjoint across reducers — but stable order keeps
 	// the trace predictable.
 	if cmd, handled := dispatchReducers(a, msg,
+		reduceAppHome,      // fork: apphome.go; before reduceAppShortcuts, which takes every AppViewMsg
 		reduceAppShortcuts, // fork: first, to hold clicks and pastes while open; not an IsModalOverlay mode, whose click-outside esc would drop a half-filled form
 		a.presence,
 		a.preview,

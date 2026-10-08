@@ -86,9 +86,16 @@ func (c *Client) RunAppAction(ctx context.Context, appID, actionID, channelID, m
 	if err != nil {
 		return err
 	}
+	return refusalOf("apps.actions.v2.execute", raw)
+}
+
+// refusalOf reads an answer of method that carries only ok: nil when
+// ok, else a slack.SlackErrorResponse whose text is Slack's bare error
+// code, "refused" when Slack sends ok false without one.
+func refusalOf(method string, raw []byte) error {
 	var resp slack.SlackResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return fmt.Errorf("parsing apps.actions.v2.execute: %w (body=%s)", err, truncateForLog(raw))
+		return fmt.Errorf("parsing %s: %w (body=%s)", method, err, truncateForLog(raw))
 	}
 	if !resp.Ok {
 		return slack.SlackErrorResponse{Err: cmp.Or(resp.Error, "refused")}

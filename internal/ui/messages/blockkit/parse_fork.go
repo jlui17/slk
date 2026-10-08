@@ -1,6 +1,7 @@
 package blockkit
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"github.com/slack-go/slack"
@@ -56,4 +57,14 @@ func withAccessoryButtonFields(acc AccessoryElement, s *slack.SectionBlock) Acce
 
 func buttonFields(b *slack.ButtonBlockElement, blockID string) ButtonFields {
 	return ButtonFields{ActionID: b.ActionID, BlockID: blockID, Value: b.Value, URL: b.URL}
+}
+
+// ParseJSON parses one block from its JSON, as a Home view carries it.
+// A block that doesn't parse is an UnknownBlock of typ.
+func ParseJSON(raw []byte, typ string) Block {
+	var set slack.Blocks
+	if err := json.Unmarshal([]byte("["+string(raw)+"]"), &set); err != nil || len(set.BlockSet) != 1 {
+		return UnknownBlock{Type: typ}
+	}
+	return Parse(set)[0]
 }

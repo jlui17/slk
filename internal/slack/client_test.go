@@ -1096,8 +1096,9 @@ func TestGetStarredChannels_ParsesItems(t *testing.T) {
 	if gotPath != "/api/stars.list" {
 		t.Errorf("path = %q, want %q", gotPath, "/api/stars.list")
 	}
-	// Only type=="channel" items count; message/im stars are not sidebar channels.
-	want := []string{"C1", "C2"}
+	// Conversation items count (fork: a starred DM sits in Starred, as in
+	// Slack); message stars are not sidebar channels.
+	want := []string{"C1", "C2", "D1"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -142,5 +143,28 @@ func TestGetUnreadCounts_HonorsContext(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("returned after %s; the ctx cap did not take effect", elapsed)
+	}
+}
+
+// stars.list puts a starred private channel's or group DM's id under
+// "group": it is returned with the channel and DM stars, in order.
+func TestGetStarredChannels_ReadsGroupStars(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"items":[
+			{"type":"channel","channel":"C1"},
+			{"type":"group","group":"G1"},
+			{"type":"im","channel":"D1"},
+			{"type":"file","file":{"id":"F1"}}
+		]}`))
+	}))
+	defer srv.Close()
+	c := &Client{token: "xoxc-test", cookie: "d", apiBaseURL: srv.URL + "/api/"}
+
+	got, err := c.GetStarredChannels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"C1", "G1", "D1"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -5,8 +5,9 @@
       │  ○ alice    │                                                          │                 ┃  
       │             │ ▌r                  add reaction                       █ │                 ┃  
       │  ▾ Channels │  ctrl+o / alt+enter also send reply to channel         █ │                 ┃  
-      │ ▌# general  │  esc                back                               █ │                 ┃  
-      │  # incidents│  G                  bottom                             █ │                 ┃  
+      │ ▌# general  │  m                  app's Home or Messages tab         █ │                 ┃  
+      │  # incidents│  esc                back                               █ │                 ┃  
+      │             │  G                  bottom                             │ │                 ┃  
       │             │  ctrl+w o / :only   close other windows                │ │                 ┃  
       │             │  q                  close thread view                  │ │                 ┃  
       │             │  ctrl+w q / :q      close window                       │ │                 ┃  
@@ -20,7 +21,6 @@
       │             │  d                  download file in message           │ │                 ┃  
       │             │  E                  edit message                       │ │                 ┃  
       │             │  ctrl+x             edit message in $EDITOR            │ │                 ┃  
-      │             │  z                  expand or collapse long cards      │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

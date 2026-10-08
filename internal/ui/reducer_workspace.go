@@ -373,6 +373,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 	var batch []tea.Cmd
 	batch = append(batch, a.dismissAppShortcuts()) // fork: appshortcuts.go
+	a.closeAppHome()                               // fork: apphome.go
 	batch = append(batch, a.applyActiveConnState())
 	// Apply per-workspace theme. Must run on Update goroutine so
 	// the component cache invalidations and compose-style refreshes

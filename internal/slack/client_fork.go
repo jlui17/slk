@@ -60,3 +60,19 @@ func (c *Client) GetUserProfileContext(ctx context.Context, userID string) (*sla
 	}
 	return user, nil
 }
+
+// starredConversationID is the id of a stars.list item that is a
+// starred conversation: a channel or a DM (im), under "channel", or a
+// private channel or group DM (group), under "group". Slack lists all
+// three in its Starred section, so GetStarredChannels returns them all,
+// not only the channel stars its doc names; message and file stars are
+// not sidebar rows.
+func starredConversationID(it starsListItem) (string, bool) {
+	switch it.Type {
+	case "channel", "im":
+		return it.Channel, it.Channel != ""
+	case "group":
+		return it.Group, it.Group != ""
+	}
+	return "", false
+}

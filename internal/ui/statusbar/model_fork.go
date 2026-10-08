@@ -2,6 +2,7 @@ package statusbar
 
 import (
 	"fmt"
+	"image/color"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -75,3 +76,18 @@ func formatReconnect(retryAt time.Time, attempt int) string {
 // reconnect-wait ConnectionStateMsg and reschedules from the tick
 // handler while the segment remains in StateReconnecting.
 type ReconnectTickMsg struct{}
+
+// SetWarningToast shows s in the toast slot in the warning color, for a
+// toast that reports something went wrong; s carries a "!" so the color
+// is never the only sign.
+func (m *Model) SetWarningToast(s string) {
+	m.warnToast = s
+	m.SetToast(s)
+}
+
+func (m Model) toastColor() color.Color {
+	if m.toast == m.warnToast {
+		return styles.Warning
+	}
+	return styles.Accent
+}

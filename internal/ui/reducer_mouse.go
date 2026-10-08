@@ -105,6 +105,10 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 		}
 		return nil
 	case x < a.layout.MsgEnd():
+		if a.view == ViewAppHome { // fork: apphome.go
+			a.appHomeWheel(up, wheelLinesPerNotch)
+			return nil
+		}
 		if a.view == ViewThreads {
 			if up {
 				a.threadsView.ScrollUp(wheelLinesPerNotch)
@@ -247,6 +251,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			return nil
 		}
 		a.focusedPanel = PanelMessages
+		if a.view == ViewAppHome { // fork: apphome.go
+			_, px, py, _ := a.panelAt(m.X, m.Y)
+			return a.appHomeClick(px, py)
+		}
 		// In the threads-list view, the messages-pane region
 		// renders threadsView, not the channel messages. Route
 		// the click through threadsView.ClickAt so the cursor
