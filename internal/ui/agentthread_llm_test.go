@@ -13,7 +13,8 @@ type relabelCall struct {
 	threadTS       string
 	transcript     string
 	fallbackTaskID string
-	force          bool
+	retitleGen     uint64
+	force          bool // retitleGen != 0: a :retitle request
 	reviewOpen     bool
 }
 
@@ -22,8 +23,8 @@ type relabelCall struct {
 func newLLMLabelTestApp(t *testing.T) (*App, *[]relabelCall, *[]string) {
 	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	calls := &[]relabelCall{}
-	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool) {
-		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID, force, reviewOpen})
+	a.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, retitleGen uint64, reviewOpen bool) {
+		*calls = append(*calls, relabelCall{teamID, channelID, threadTS, transcript, fallbackTaskID, retitleGen, retitleGen != 0, reviewOpen})
 	})
 	return a, calls, tabNames
 }

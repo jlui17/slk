@@ -188,13 +188,14 @@ func TestReviewOpenResultRendersReviewLabel(t *testing.T) {
 		{"no id", AgentTabRelabelMsg{Label: "phantom composer job"}, "!review phantom composer job"},
 		{"hoisted id ignored", AgentTabRelabelMsg{FallbackTaskID: "batch-10", Label: "phantom composer job"}, "!review phantom composer job"},
 		{"id alone", AgentTabRelabelMsg{TaskID: "#1808", Label: "\"#1808\""}, "!review #1808"},
-		{":retitle", AgentTabRelabelMsg{TaskID: "#1334", Force: true, Label: "stale merge status"}, "!review #1334 stale merge status"},
+		{":retitle", AgentTabRelabelMsg{TaskID: "#1334", RetitleGen: 1, Label: "stale merge status"}, "!review #1334 stale merge status"},
 	}
 	for _, r := range rows {
 		parent, _ := reviewOpenThread()
 		a, _, tabNames := newRetitleTestApp(t, parent, nil)
 		m := r.msg
 		m.TeamID, m.ChannelID, m.ThreadTS, m.ReviewOpen = "T1", "C1", "500.0", true
+		a.agentSidebar.retitleGen = m.RetitleGen // the :retitle row's is the latest
 
 		_, _ = reduceAgentTabRelabel(a, m)
 

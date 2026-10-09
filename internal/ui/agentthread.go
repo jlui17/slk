@@ -106,12 +106,16 @@ type agentSidebar struct {
 
 	// relabelGen is the model-generated tab-label refinement, requested
 	// once automatically per tracked thread (labelRequested; see
-	// agentthread_llm.go) and again on :retitle (agentthread_retitle.go).
+	// agentthread_llm.go) and on :retitle for the thread the panel shows
+	// (agentthread_retitle.go).
 	relabelGen     AgentTabRelabelFunc
 	labelRequested bool
 	// labelFetchGen numbers label requests that wait on a fetch, so only
 	// the latest one sends (agentthread_reviewopen.go).
 	labelFetchGen uint64
+	// retitleGen numbers :retitle requests, so only the latest one's
+	// result lands (agentthread_retitle.go).
+	retitleGen uint64
 
 	// judgeGen and workingJudge drive the model working verdict for the
 	// last-message shapes the derived signal can't decide; see

@@ -102,7 +102,7 @@ func TestTabHintsEvalTranscripts(t *testing.T) {
 		}
 		a, _ := tabHintsEvalApp(t, users)
 		var transcript string
-		a.SetAgentTabRelabeler(func(_, _, _, tr, _ string, _, _ bool) { transcript = tr })
+		a.SetAgentTabRelabeler(func(_, _, _, tr, _ string, _ uint64, _ bool) { transcript = tr })
 		a.threadPanel.SetThread(items[0], items[1:], "C1", items[0].TS)
 		a.threadVisible = true
 		a.updateAgentThread(items[0], nil, "C1", items[0].TS)

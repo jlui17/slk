@@ -37,37 +37,44 @@ func reviewOpenAnnotation(rootText string) (slackurl.Permalink, bool) {
 	return slackurl.Parse(m[1])
 }
 
+// labelTarget names the thread a label request is for, and the bot whose
+// mention its root line drops (empty when none is known).
+type labelTarget struct {
+	teamID    string
+	channelID string
+	threadTS  string
+	botUserID string
+}
+
 // agentTabAnnotationMsg carries a fetched annotated message back into the
 // loop, with the label request it was fetched for. Empty Text means the
 // fetch failed or found nothing: the request goes out without the line.
 type agentTabAnnotationMsg struct {
 	gen            uint64
-	teamID         string
-	channelID      string
-	threadTS       string
+	target         labelTarget
 	parent         messages.MessageItem
 	replies        []messages.MessageItem
 	fallbackTaskID string
-	force          bool
+	retitleGen     uint64
 	sender         string
 	text           string
 }
 
-// requestAgentTabLabel sends transcript, the tracked thread's label
-// transcript, to the generator. For a !review-open root it instead
-// returns the fetch of the annotated message; sendAnnotatedAgentTabLabel
-// sends the transcript rebuilt with it.
-func (a *App) requestAgentTabLabel(parent messages.MessageItem, replies []messages.MessageItem, transcript, fallbackTaskID string, force bool) tea.Cmd {
-	t := a.agentSidebar.thread
+// requestAgentTabLabel sends transcript, target's label transcript, to the
+// generator; retitleGen numbers a :retitle request and is zero for the
+// automatic one. For a !review-open root it instead returns the fetch of the
+// annotated message; sendAnnotatedAgentTabLabel sends the transcript
+// rebuilt with it.
+func (a *App) requestAgentTabLabel(target labelTarget, parent messages.MessageItem, replies []messages.MessageItem, transcript, fallbackTaskID string, retitleGen uint64) tea.Cmd {
 	pl, ok := reviewOpenAnnotation(parent.Text)
 	if !ok {
-		a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, fallbackTaskID, force, false)
+		a.agentSidebar.relabelGen(target.teamID, target.channelID, target.threadTS, transcript, fallbackTaskID, retitleGen, false)
 		return nil
 	}
 	a.agentSidebar.labelFetchGen++
 	msg := agentTabAnnotationMsg{
-		gen: a.agentSidebar.labelFetchGen, teamID: t.teamID, channelID: t.channelID, threadTS: t.threadTS,
-		parent: parent, replies: replies, fallbackTaskID: fallbackTaskID, force: force,
+		gen: a.agentSidebar.labelFetchGen, target: target,
+		parent: parent, replies: replies, fallbackTaskID: fallbackTaskID, retitleGen: retitleGen,
 	}
 	messageSvc := a.messageSvc
 	return func() tea.Msg {
@@ -84,17 +91,20 @@ func (a *App) requestAgentTabLabel(parent messages.MessageItem, replies []messag
 }
 
 // sendAnnotatedAgentTabLabel sends the label request a fetch was for,
-// unless the tracked thread moved on or a later request superseded it.
+// unless its result would be dropped (see labelStillWanted) or, for the
+// automatic request, a later fetch superseded it. A :retitle fetch answers
+// to the :retitle numbering alone, so an agent thread opened meanwhile
+// can't cancel it.
 func (a *App) sendAnnotatedAgentTabLabel(m agentTabAnnotationMsg) {
-	t := a.agentSidebar.thread
-	if m.gen != a.agentSidebar.labelFetchGen || a.agentSidebar.relabelGen == nil ||
-		!t.active || m.teamID != t.teamID || m.channelID != t.channelID || m.threadTS != t.threadTS {
+	t := m.target
+	if (m.retitleGen == 0 && m.gen != a.agentSidebar.labelFetchGen) || a.agentSidebar.relabelGen == nil ||
+		!a.labelStillWanted(t.teamID, t.channelID, t.threadTS, m.retitleGen) {
 		return
 	}
 	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(m.text), "!annotate"))
 	line := a.speakerRetitleLine(stripSessionLabel(m.sender), strings.TrimPrefix(text, "-"), maxRetitleReply)
 	transcript := a.retitleTranscript(m.parent, m.replies, t.botUserID, line)
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, m.fallbackTaskID, m.force, true)
+	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, m.fallbackTaskID, m.retitleGen, true)
 }
 
 // reviewOpenTabLabel renders a !review-open thread's tab: "!review", then

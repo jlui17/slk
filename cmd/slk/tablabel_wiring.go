@@ -48,10 +48,10 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			send(msg)
 		}()
 	}
-	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool) {
+	app.SetAgentTabRelabeler(func(teamID, channelID, threadTS, transcript, fallbackTaskID string, retitleGen uint64, reviewOpen bool) {
 		request(func(ctx context.Context) (tea.Msg, error) {
 			id, label, err := labeler.Relabel(ctx, transcript, relabelHints(cfg.TabNameHints, reviewOpen))
-			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, Force: force, ReviewOpen: reviewOpen, Label: label}, err
+			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, RetitleGen: retitleGen, ReviewOpen: reviewOpen, Label: label}, err
 		})
 	})
 	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool) {

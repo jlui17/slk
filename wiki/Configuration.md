@@ -145,8 +145,10 @@ max_image_cache_mb = 200
 # are set). With the key in it this file holds a secret, so its permissions
 # matter: chmod 600 it, and slk's own saves keep the mode the file has.
 # The label derives once, at thread open; :retitle re-derives it later the
-# same way, from the thread as it then stands (see Keybindings). On
-# :retitle the model's "no id" is final and drops a hoisted id.
+# same way, from the thread as it then stands, and names the tab after
+# any thread open in the thread panel, agent thread or not (see
+# Keybindings). On :retitle the model's "no id" is final and drops a
+# hoisted id.
 # :retitle renames the tab even when something else set the current
 # label; the automatic label never does.
 # tab_name_hints are freeform lines handed to the model as naming

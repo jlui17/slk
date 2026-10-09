@@ -1,10 +1,12 @@
-// The model tab label: judge the tracked agent thread's task id and name
-// its work from the thread transcript. One request path serves both
-// triggers: the automatic one when the thread opens (agentthread_llm.go),
-// which fires once, and the :retitle command here, for a thread that has
-// drifted since (brainstorm to design to implementation, a task id filed
-// mid-thread). The automatic label never lands over a tab label something
-// else set; :retitle is the user asking by name, so its result does.
+// The model tab label: judge a thread's task id and name its work from the
+// thread transcript. One request path serves both triggers: the automatic
+// one when the tracked agent thread opens (agentthread_llm.go), which fires
+// once, and the :retitle command here, for whatever thread the panel shows:
+// an agent thread that has drifted since (brainstorm to design to
+// implementation, a task id filed mid-thread), or any other thread the
+// user wants the tab named after. The automatic label never lands over a
+// tab label something else set; :retitle is the user asking by name, so its
+// result does.
 package ui
 
 import (
@@ -20,11 +22,11 @@ import (
 
 // AgentTabRelabelFunc requests a model-judged task id and label from a
 // thread transcript. reviewOpen marks a !review-open thread's request, which
-// the generator sends with the review-open hints. fallbackTaskID, force and
-// reviewOpen are echoed into the result (see AgentTabRelabelMsg). Answers
-// with an AgentTabRelabelMsg into the program loop, or nothing on failure,
-// leaving the current label standing.
-type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string, force, reviewOpen bool)
+// the generator sends with the review-open hints. fallbackTaskID, retitleGen
+// and reviewOpen are echoed into the result (see AgentTabRelabelMsg).
+// Answers with an AgentTabRelabelMsg into the program loop, or nothing on
+// failure, leaving the current label standing.
+type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackTaskID string, retitleGen uint64, reviewOpen bool)
 
 // AgentTabRelabelMsg carries a model label result back into the program
 // loop. TaskID is the model's judgment of which task the thread is about;
@@ -33,22 +35,24 @@ type AgentTabRelabelFunc func(teamID, channelID, threadTS, transcript, fallbackT
 // previously hoisted (possibly wrong) id is dropped, not kept. The
 // open-time request sets it to the id hoisted from the root, which then
 // survives a none: that request may have seen the root alone, and the root
-// id is already on the tab. Force lands the label over a tab label
-// something else set; only :retitle sets it. ReviewOpen renders the
-// "!review ..." label instead (see reviewOpenTabLabel).
+// id is already on the tab. RetitleGen numbers a :retitle request, zero
+// for the automatic one: a :retitle result lands over a tab label
+// something else set, unless a newer :retitle has been requested since
+// (see labelStillWanted). ReviewOpen renders the "!review ..." label
+// instead (see reviewOpenTabLabel).
 type AgentTabRelabelMsg struct {
 	TeamID         string
 	ChannelID      string
 	ThreadTS       string
 	TaskID         string
 	FallbackTaskID string
-	Force          bool
+	RetitleGen     uint64
 	ReviewOpen     bool
 	Label          string
 }
 
-// reduceAgentTabRelabel lands a model label result on the tab, unless the
-// tracked thread moved on while the request was in flight.
+// reduceAgentTabRelabel lands a model label result on the tab, unless it
+// went stale while the request was in flight (see labelStillWanted).
 var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if m, ok := msg.(agentTabAnnotationMsg); ok {
 		a.sendAnnotatedAgentTabLabel(m)
@@ -58,9 +62,7 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 	if !ok {
 		return nil, false
 	}
-	t := a.agentSidebar.thread
-	if !t.active || a.agentSidebar.nameTab == nil || m.TeamID != t.teamID ||
-		m.ChannelID != t.channelID || m.ThreadTS != t.threadTS {
+	if a.agentSidebar.nameTab == nil || !a.labelStillWanted(m.TeamID, m.ChannelID, m.ThreadTS, m.RetitleGen) {
 		return nil, true
 	}
 	id := m.TaskID
@@ -77,11 +79,25 @@ var reduceAgentTabRelabel reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool
 		label = withTaskID(id, label)
 	}
 	nameTab := a.agentSidebar.nameTab
-	if m.Force && a.agentSidebar.forceNameTab != nil {
+	if m.RetitleGen != 0 && a.agentSidebar.forceNameTab != nil {
 		nameTab = a.agentSidebar.forceNameTab
 	}
 	nameTab(label)
 	return nil, true
+}
+
+// labelStillWanted reports whether a label request's result should still
+// land. The automatic request (retitleGen zero) is for the tracked agent
+// thread, and stands until another agent thread replaces it. A :retitle
+// request stands until a newer :retitle is requested, wherever the panel
+// has gone since: the user asked for the tab to be named after that
+// thread, and :retitle then esc is the common way to ask.
+func (a *App) labelStillWanted(teamID, channelID, threadTS string, retitleGen uint64) bool {
+	if retitleGen != 0 {
+		return retitleGen == a.agentSidebar.retitleGen
+	}
+	t := a.agentSidebar.thread
+	return t.active && teamID == t.teamID && channelID == t.channelID && threadTS == t.threadTS
 }
 
 // SetAgentTabRelabeler installs the model-label generator. Unset (outside a
@@ -92,7 +108,7 @@ func (a *App) SetAgentTabRelabeler(gen AgentTabRelabelFunc) {
 }
 
 // SetAgentTabForceNamer installs the rename a :retitle result lands
-// through (see AgentTabRelabelMsg.Force). Unset, it lands through the
+// through (see AgentTabRelabelMsg.RetitleGen). Unset, it lands through the
 // guarded rename SetAgentReporter installed.
 func (a *App) SetAgentTabForceNamer(forceNameTab AgentTabNameFunc) {
 	a.agentSidebar.forceNameTab = forceNameTab
@@ -110,33 +126,41 @@ const (
 	maxRetitleReply      = 1000
 )
 
-// cmdRetitle sends the tracked agent thread's whole transcript for a
-// model-judged task id and label; reduceAgentTabRelabel lands the result.
-// The thread panel must be showing the tracked thread: its loaded
-// messages are the context source.
+// cmdRetitle sends the whole transcript of the thread open in the thread
+// panel, its loaded messages, for a model-judged task id and label;
+// reduceAgentTabRelabel lands the result. Any thread will do: on one that
+// isn't the tracked agent thread it only names the tab, and tracks
+// nothing. Only the tracked thread has a known bot, whose mention the root
+// line drops.
 func cmdRetitle(a *App, _ []string) tea.Cmd {
-	t := a.agentSidebar.thread
-	if !t.active || a.agentSidebar.nameTab == nil {
-		return toastWithClear(a, "No agent thread tracked", 2*time.Second)
+	if a.agentSidebar.nameTab == nil {
+		return toastWithClear(a, "Tab labels need slk in a herdr pane", 2*time.Second)
+	}
+	channelID, threadTS := a.threadPanel.ChannelID(), a.threadPanel.ThreadTS()
+	if threadTS == "" {
+		return toastWithClear(a, "Open a thread first", 2*time.Second)
 	}
 	if a.agentSidebar.relabelGen == nil {
 		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model + anthropic_api_key)", 2*time.Second)
 	}
-	if a.threadPanel.ChannelID() != t.channelID || a.threadPanel.ThreadTS() != t.threadTS {
-		return toastWithClear(a, "Open the agent thread first", 2*time.Second)
+	var botUserID string
+	if a.tracksThread("", channelID, threadTS) {
+		botUserID = a.agentSidebar.thread.botUserID
 	}
 	parent := a.threadPanel.ParentMsg()
 	replies := a.threadPanel.Replies()
-	transcript := a.retitleTranscript(parent, replies, t.botUserID, "")
+	transcript := a.retitleTranscript(parent, replies, botUserID, "")
 	if transcript == "" {
 		return toastWithClear(a, "Nothing to label yet", 2*time.Second)
 	}
-	return tea.Batch(a.requestAgentTabLabel(parent, replies, transcript, "", true),
+	target := labelTarget{teamID: a.activeTeamID, channelID: channelID, threadTS: threadTS, botUserID: botUserID}
+	a.agentSidebar.retitleGen++
+	return tea.Batch(a.requestAgentTabLabel(target, parent, replies, transcript, "", a.agentSidebar.retitleGen),
 		toastWithClear(a, "Re-deriving tab label…", 2*time.Second))
 }
 
 // retitleTranscript renders the thread as speaker-prefixed lines: the root
-// (bot mention stripped, like every label path), then extra when set (see
+// (botUserID's mention stripped, when set), then extra when set (see
 // agentthread_reviewopen.go), then as many of the newest replies as fit
 // the budget, in chronological order.
 func (a *App) retitleTranscript(parent messages.MessageItem, replies []messages.MessageItem, botUserID, extra string) string {
