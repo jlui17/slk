@@ -25,6 +25,24 @@ first use it builds the `slk-go` image: the stock `golang` image plus
 headers, and `-race` needs cgo. `GOOS`/`GOARCH`/`CGO_ENABLED` are forwarded,
 so cross-builds behave the same as native.
 
+### Live model tests
+
+`internal/tablabel`'s live tests call the real Anthropic API with the model,
+effort and key from slk's `config.toml`, and skip unless
+`SLK_TABLABEL_LIVE=1`. The agent status eval judges every case in
+`internal/tablabel/testdata/agent_status_eval.json` and prints a pass table:
+
+```sh
+tools/agent-status-eval.sh          # this checkout's judge
+tools/agent-status-eval.sh main     # main's judge, with this checkout's cases
+SLK_AGENT_STATUS_EVAL_RUNS=3 SLK_AGENT_STATUS_EVAL_EFFORT=low tools/agent-status-eval.sh
+```
+
+The host `config.toml` is not what live sessions use: `run-docker.sh` seeds
+the state volume's config once and syncs only the key after that, so a
+session can judge at another effort than the tests read. Set
+`SLK_AGENT_STATUS_EVAL_EFFORT` (and `_MODEL`) to test what sessions run.
+
 ## `tools/run-docker.sh` — the slk TUI itself
 
 ```sh

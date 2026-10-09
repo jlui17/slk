@@ -68,11 +68,13 @@ for var in GOOS GOARCH CGO_ENABLED; do
   fi
 done
 
-# The tablabel live test (internal/tablabel/live_test.go) is env-gated;
-# without these it silently skips inside the container. Passed by name so
-# docker reads the value from its own environment: a key on the command line
-# is visible to ps and to anything that wraps docker.
-for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY; do
+# The tablabel live tests (internal/tablabel/live_test.go,
+# agent_status_eval_test.go) are env-gated and env-tuned; without these they
+# silently skip, or run with defaults, inside the container. Passed by name
+# so docker reads the value from its own environment: a key on the command
+# line is visible to ps and to anything that wraps docker.
+for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY SLK_AGENT_STATUS_EVAL_RUNS \
+  SLK_AGENT_STATUS_EVAL_MODEL SLK_AGENT_STATUS_EVAL_EFFORT; do
   if [[ -n "${!var:-}" ]]; then
     docker_args+=(-e "$var")
   fi
