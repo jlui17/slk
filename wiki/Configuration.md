@@ -96,9 +96,11 @@ max_image_cache_mb = 200
 # tab_name_model when that is empty. A bot reply reads as working
 # when the bot is doing something next on its own, blocked (herdr's
 # needs-input state) when it is waiting on you to answer in the thread (a
-# question, a plan for approval), and idle when it is finished. An acked
-# human message reads as working when it asks the bot for anything (a
-# request, a question, a go-ahead), idle when it just closes the exchange.
+# question, a plan for approval) or to start a step only you can start (a
+# run or a steps file it hands your own Claude Code), and idle when it is
+# finished. An acked human message reads as working when it asks the bot
+# for anything (a request, a question, a go-ahead) or brings it a result
+# from your own Claude Code, idle when it just closes the exchange.
 # A bot todo-list post is judged too, and reads blocked when it asks you
 # for a word (a merge ask above its list); otherwise it stays working.
 #
