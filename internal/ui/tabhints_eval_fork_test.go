@@ -105,7 +105,7 @@ func TestTabHintsEvalTranscripts(t *testing.T) {
 		a.SetAgentTabRelabeler(func(_, _, _, tr, _ string, _, _ bool) { transcript = tr })
 		a.threadPanel.SetThread(items[0], items[1:], "C1", items[0].TS)
 		a.threadVisible = true
-		a.updateAgentThread(items[0], "C1", items[0].TS)
+		a.updateAgentThread(items[0], nil, "C1", items[0].TS)
 		_ = executeCommand(a, "retitle")
 		if transcript == "" {
 			t.Fatalf("%s: :retitle sent nothing", path)
@@ -218,7 +218,7 @@ func tabHintsEvalOne(t *testing.T, client *tablabel.Client, hints []string, pane
 
 	a, tabNames := tabHintsEvalApp(t, map[string]tabHintsEvalUser{"UBOT": {Name: "Claude", IsBot: 1}})
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> placeholder root", UserID: "UHUMAN"}
-	a.updateAgentThread(parent, "C1", "100.0")
+	a.updateAgentThread(parent, nil, "C1", "100.0")
 	before := len(*tabNames)
 	reduceAgentTabRelabel(a, AgentTabRelabelMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: id, FallbackTaskID: hoisted, Label: label})
 	final := "(label left unchanged)"

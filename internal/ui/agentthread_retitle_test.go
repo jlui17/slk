@@ -18,7 +18,7 @@ func newRetitleTestApp(t *testing.T, parent messages.MessageItem, replies []mess
 	a, calls, tabNames := newLLMLabelTestApp(t)
 	a.threadPanel.SetThread(parent, replies, "C1", parent.TS)
 	a.threadVisible = true
-	a.updateAgentThread(parent, "C1", parent.TS)
+	a.updateAgentThread(parent, nil, "C1", parent.TS)
 	return a, calls, tabNames
 }
 
@@ -273,7 +273,7 @@ func TestRetitleUnconfiguredToasts(t *testing.T) {
 	a, _, _, _ := newAgentTestAppWithTab(t)
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> fix the viewer", UserID: "UHUMAN"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
-	a.updateAgentThread(parent, "C1", "100.0")
+	a.updateAgentThread(parent, nil, "C1", "100.0")
 
 	_ = executeCommand(a, "retitle")
 

@@ -101,6 +101,8 @@ type agentSidebar struct {
 	forceNameTab AgentTabNameFunc
 	userInfo     UserInfoFunc
 	thread       agentThreadState
+	// marks holds the threads marked with :agent (agentthread_mark.go).
+	marks AgentThreadMarkStore
 
 	// relabelGen is the model-generated tab-label refinement, requested
 	// once automatically per tracked thread (labelRequested; see
@@ -145,11 +147,11 @@ type agentSidebar struct {
 
 // agentThreadState identifies the tracked agent thread — the last thread
 // opened in the thread panel whose root message mentions, or was written
-// by, a bot user. Tracking outlives the panel and the workspace:
-// navigating away, closing the panel, or switching workspaces all keep
-// the entry, so the thread's unread state still has a sidebar row to land
-// on; only a different agent thread replaces it. Zero value means no
-// agent thread has been tracked.
+// by, a bot user, or that the user marked with :agent. Tracking outlives
+// the panel and the workspace: navigating away, closing the panel, or
+// switching workspaces all keep the entry, so the thread's unread state
+// still has a sidebar row to land on; only a different agent thread
+// replaces it. Zero value means no agent thread has been tracked.
 type agentThreadState struct {
 	active    bool
 	channelID string
@@ -201,7 +203,7 @@ func (a *App) SetAgentReporter(report AgentReportFunc, reportUnread AgentUnreadR
 // future open path can skip them. The cmd is the tab label's fetch, if any.
 func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) tea.Cmd {
 	a.threadPanel.SetThread(parent, a.ephemerals.inThread(channelID, threadTS, replies), channelID, threadTS)
-	a.updateAgentThread(parent, channelID, threadTS)
+	a.updateAgentThread(parent, replies, channelID, threadTS)
 	a.snapshotAgentThreadLast(parent, replies, channelID, threadTS)
 	labelCmd := a.maybeRequestAgentTabLabel(parent, replies, channelID, threadTS)
 	a.reportPaneState(channelID, threadTS)
@@ -209,13 +211,11 @@ func (a *App) setThreadPanel(parent messages.MessageItem, replies []messages.Mes
 }
 
 // updateAgentThread re-evaluates agent-thread detection against the thread
-// panel's root message and publishes the sidebar entry. Re-entry for the
-// thread already tracked (a replies reload through setThreadPanel) only
-// refreshes the display fields, so it can't stomp a live working state or
-// a pending unread count; only a different thread resets them. A nil
-// agentReport (slk not in a herdr pane, or integration disabled) makes it
-// a no-op.
-func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS string) {
+// panel's root message and publishes the sidebar entry. A thread the user
+// marked with :agent is detected from its replies too (agentthread_mark.go).
+// A nil agentReport (slk not in a herdr pane, or integration disabled)
+// makes it a no-op.
+func (a *App) updateAgentThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	if a.agentSidebar.report == nil || a.agentSidebar.userInfo == nil {
 		return
 	}
@@ -223,12 +223,24 @@ func (a *App) updateAgentThread(parent messages.MessageItem, channelID, threadTS
 	if !ok {
 		botUserID, name, ok = a.botUser(parent.UserID)
 	}
+	if !ok && a.agentThreadMarked(channelID, threadTS) {
+		botUserID, name, ok = a.threadBot(parent, replies)
+	}
 	if !ok {
 		// A non-agent thread doesn't end tracking: the entry stays on
 		// the last agent thread so its unread state keeps a row to
 		// land on (only another agent thread replaces it).
 		return
 	}
+	a.trackAgentThread(parent, channelID, threadTS, botUserID, name)
+}
+
+// trackAgentThread makes the thread the tracked agent thread, its agent
+// botUserID, and publishes the sidebar entry. Re-entry for the thread
+// already tracked (a replies reload through setThreadPanel) only refreshes
+// the display fields, so it can't stomp a live working state or a pending
+// unread count; only a different thread resets them.
+func (a *App) trackAgentThread(parent messages.MessageItem, channelID, threadTS, botUserID, name string) {
 	flat := a.flattenRootText(parent.Text)
 	next := agentThreadState{
 		active:    true,

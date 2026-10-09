@@ -74,7 +74,7 @@ func openAgentThread(a *App, text string) {
 	parent := messages.MessageItem{TS: "100.0", Text: text, UserID: "UHUMAN"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadVisible = true
-	a.updateAgentThread(parent, "C1", "100.0")
+	a.updateAgentThread(parent, nil, "C1", "100.0")
 }
 
 func TestAgentThreadDetectedFromBotMention(t *testing.T) {
@@ -98,7 +98,7 @@ func TestAgentThreadDetectedFromBotAuthor(t *testing.T) {
 	parent := messages.MessageItem{TS: "100.0", Text: "kicking off the ingest retry fix", UserID: "UBOT"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadVisible = true
-	a.updateAgentThread(parent, "C1", "100.0")
+	a.updateAgentThread(parent, nil, "C1", "100.0")
 
 	if len(*calls) != 1 {
 		t.Fatalf("want 1 report, got %+v", *calls)
@@ -202,7 +202,7 @@ func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	stub := messages.MessageItem{TS: "100.0"}
 	a.threadPanel.SetThread(stub, nil, "C1", "100.0")
 	a.threadVisible = true
-	a.updateAgentThread(stub, "C1", "100.0")
+	a.updateAgentThread(stub, nil, "C1", "100.0")
 	if len(*calls) != 0 {
 		t.Fatalf("stub parent must not detect; calls=%+v", *calls)
 	}
@@ -288,7 +288,7 @@ func TestAgentThreadReplacedByNewAgentThread(t *testing.T) {
 	// old thread's unread count must not leak into the new one.
 	parent := messages.MessageItem{TS: "200.0", Text: "<@UBOT> next task", UserID: "UHUMAN"}
 	a.threadPanel.SetThread(parent, nil, "C1", "200.0")
-	a.updateAgentThread(parent, "C1", "200.0")
+	a.updateAgentThread(parent, nil, "C1", "200.0")
 	if len(*calls) != 1 || (*calls)[0].working || (*calls)[0].status != "" {
 		t.Fatalf("replacement must report a fresh idle entry; calls=%+v", *calls)
 	}
@@ -494,7 +494,7 @@ func TestAgentThreadDerivedFieldDriftKeepsState(t *testing.T) {
 	// working→idle edge would light the dot mid-turn.
 	a.channelNames["C1"] = "eng-agents"
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> hi", UserID: "UHUMAN"}
-	a.updateAgentThread(parent, "C1", "100.0")
+	a.updateAgentThread(parent, nil, "C1", "100.0")
 
 	if len(*unreads) != 0 {
 		t.Fatalf("a title refresh must not publish a completion; got %+v", *unreads)
