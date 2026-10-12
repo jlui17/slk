@@ -26,8 +26,8 @@ func TestOpenLinkTabKey_SingleLink_SetsInHerdrTab(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 	}
-	if msg.URL != "https://example.com/docs" || !msg.InHerdrTab {
-		t.Errorf("msg = %+v, want InHerdrTab set", msg)
+	if msg.URL != "https://example.com/docs" || msg.InHerdr != HerdrTab {
+		t.Errorf("msg = %+v, want InHerdr tab", msg)
 	}
 }
 
@@ -46,8 +46,8 @@ func TestOpenLinkTabKey_Picker_EnterSetsInHerdrTab(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 	}
-	if msg.URL != "https://a.example/1" || !msg.InHerdrTab {
-		t.Errorf("msg = %+v, want InHerdrTab set", msg)
+	if msg.URL != "https://a.example/1" || msg.InHerdr != HerdrTab {
+		t.Errorf("msg = %+v, want InHerdr tab", msg)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestOpenLinkTabKey_FiltersToSlackLinks(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 	}
-	if msg.URL != "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139" || !msg.InHerdrTab {
+	if msg.URL != "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139" || msg.InHerdr != HerdrTab {
 		t.Errorf("msg = %+v", msg)
 	}
 	if app.mode != ModeNormal {
@@ -132,7 +132,7 @@ func TestOpenLinkTabKey_Picker_TitleReflectsOpener(t *testing.T) {
 }
 
 // TestOpenLinkTabKey_FlagClearedOnClose guards the shared picker
-// state: escaping an O-opened picker must not leak InHerdrTab into a
+// state: escaping an O-opened picker must not leak InHerdr into a
 // later o-opened one.
 func TestOpenLinkTabKey_FlagClearedOnClose(t *testing.T) {
 	app := NewApp()
@@ -148,7 +148,7 @@ func TestOpenLinkTabKey_FlagClearedOnClose(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 	}
-	if msg.InHerdrTab {
-		t.Error("InHerdrTab leaked from the escaped O picker")
+	if msg.InHerdr != HerdrNone {
+		t.Error("InHerdr leaked from the escaped O picker")
 	}
 }

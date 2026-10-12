@@ -60,8 +60,8 @@ func TestShiftO_LinkButton_OpensInHerdrTab(t *testing.T) {
 	a.messagepane.SetMessages([]messages.MessageItem{colonyEphemeral()})
 
 	open := pickCompleteReview(t, a, 'O')
-	if !open.InHerdrTab {
-		t.Errorf("OpenLinkMsg = %+v, want InHerdrTab", open)
+	if open.InHerdr != HerdrTab {
+		t.Errorf("OpenLinkMsg = %+v, want InHerdr tab", open)
 	}
 	_, cmd := a.Update(open)
 	drainCmd(cmd)

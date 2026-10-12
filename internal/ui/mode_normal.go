@@ -290,10 +290,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.openImagePreviewOfSelected()
 
 	case key.Matches(msg, a.keys.OpenLink):
-		return a.openLinksOfSelected(false)
+		return a.openLinksOfSelected(HerdrNone)
 
 	case key.Matches(msg, a.keys.OpenLinkTab):
-		return a.openLinksOfSelected(true)
+		return a.openLinksOfSelected(HerdrTab)
+
+	case key.Matches(msg, a.keys.OpenLinkPane):
+		return a.openLinksOfSelected(HerdrPane)
 
 	case key.Matches(msg, a.keys.ToggleAttachmentFold):
 		a.toggleAttachmentFoldOfSelected()

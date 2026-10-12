@@ -164,8 +164,8 @@ agent_status_judge_effort = ""   # same values as tab_name_effort; empty means l
 anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY (default)
 tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 
-# The O keybinding opens a Slack permalink in a new herdr tab running a
-# second slk instance. The tab's shell runs `<open_command> '<permalink>'`;
+# The O and alt+o keybindings open a Slack permalink in a new herdr tab or
+# pane running a second slk instance. Its shell runs `<open_command> '<permalink>'`;
 # it is a host shell even when slk itself runs in a container (e.g. via
 # tools/run-docker.sh), so point this at the host-side launch command.
 # `slk herdr reboot` runs the same command in every pane with a saved state.

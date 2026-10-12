@@ -249,7 +249,7 @@ func TestLinkPicker_BigTable_FilterMarkAllOpen(t *testing.T) {
 	pickerKeys(app, tea.KeyPressMsg{Code: tea.KeyTab})
 	pickerKeys(app, typed("a")...)
 	cmds := pickerKeys(app, tea.KeyPressMsg{Code: tea.KeyEnter})
-	msg, ok := cmds[0]().(OpenLinksInHerdrTabsMsg)
+	msg, ok := cmds[0]().(OpenLinksInHerdrMsg)
 	if !ok || !slices.Equal(msg.URLs, []string{tablePermalink(7), tablePermalink(8)}) {
 		t.Errorf("enter = %#v, want row 5's two links opened as herdr tabs", msg)
 	}

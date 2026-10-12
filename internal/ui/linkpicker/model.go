@@ -3,9 +3,9 @@
 // keybinding) or which file attachment to download (the `d`
 // keybinding). The chosen item is dispatched as ui.OpenLinkMsg or
 // ui.DownloadFileMsg by the mode handler, depending on the kind the
-// App recorded when opening the picker. The `O` picker that opens
-// herdr tabs also lets the user mark several rows (SetMultiSelect);
-// the mode handler dispatches those as ui.OpenLinksInHerdrTabsMsg.
+// App recorded when opening the picker. The `O` and `alt+o` pickers
+// that open herdr tabs or panes also let the user mark several rows
+// (SetMultiSelect), dispatched as ui.OpenLinksInHerdrMsg.
 package linkpicker
 
 // Item is one selectable row.

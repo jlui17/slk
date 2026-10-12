@@ -9,9 +9,9 @@
 //     pendingLinkNav once the channel's messages are loaded (open the
 //     thread panel for thread_ts links and for targets that turn out
 //     to be thread parents, else select the target ts in-channel).
-//   - The same permalinks with InHerdrTab set (the O keybinding) go to
-//     a.herdrTabOpener instead when one is installed: a new herdr tab
-//     running a second slk instance on the link.
+//   - The same permalinks with InHerdr set (the O and alt+o keybindings)
+//     open a second slk instance on the link instead, in a new herdr tab
+//     or pane, when that target's opener is installed.
 //   - Everything else opens in the OS browser (a.browserOpener).
 //
 // LinkPreviewMsg (the picker's async permalink previews) also lands
@@ -51,15 +51,15 @@ type pendingLinkNav struct {
 	delivered bool
 	// Fork: openEmptyThread opens the thread panel of a target nobody
 	// has replied to as well, parent row only, ready for the first
-	// reply. True for O and for a startup link (`slk <link>`, which is
-	// what O runs in its herdr tab); needs openParentThread.
+	// reply. True for O, alt+o and a startup link (`slk <link>`, what O
+	// and alt+o run in their herdr tab or pane); needs openParentThread.
 	openEmptyThread bool
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case OpenLinkMsg:
-		return a.routeLink(m.URL, m.InHerdrTab), true
+		return a.routeLink(m.URL, m.InHerdr), true
 	case LinkPreviewMsg:
 		a.applyLinkPreview(m)
 		return nil, true
@@ -67,10 +67,10 @@ var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// routeLink decides between in-app navigation, a new herdr tab, and
-// the browser.
-func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
-	if cmd, ok := a.routeProfileLink(rawURL, inHerdrTab); ok { // fork: profilecard.go
+// routeLink decides between in-app navigation, a new herdr tab or pane,
+// and the browser.
+func (a *App) routeLink(rawURL string, inHerdr HerdrTarget) tea.Cmd {
+	if cmd, ok := a.routeProfileLink(rawURL, inHerdr); ok { // fork: profilecard.go
 		return cmd
 	}
 	pl, ok := slackurl.Parse(rawURL)
@@ -88,23 +88,15 @@ func (a *App) routeLink(rawURL string, inHerdrTab bool) tea.Cmd {
 		debuglog.General("routeLink: channel %s not found, browser: %s", pl.ChannelID, rawURL)
 		return a.browserOpener(rawURL)
 	}
-	if inHerdrTab && a.herdrTabOpener != nil {
-		opener, label := a.herdrTabOpener, name
-		debuglog.General("routeLink: herdr tab nav channel=%s label=%s", pl.ChannelID, name)
-		return func() tea.Msg {
-			if err := opener(rawURL, label, true); err != nil {
-				debuglog.Notify("herdr: open tab: %v", err)
-				return ToastMsg{Text: "Failed to open herdr tab"}
-			}
-			return nil
-		}
+	if cmd, ok := a.openInHerdr(inHerdr, rawURL, name); ok { // fork: reducer_links_fork.go
+		return cmd
 	}
 	a.pendingLinkNav = &pendingLinkNav{
 		channelID:        string(pl.ChannelID),
 		messageTS:        string(pl.MessageTS),
 		threadTS:         string(pl.ThreadTS),
 		openParentThread: true,
-		openEmptyThread:  inHerdrTab,
+		openEmptyThread:  inHerdr != HerdrNone,
 	}
 	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
 		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)

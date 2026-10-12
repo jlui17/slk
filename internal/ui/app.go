@@ -431,12 +431,13 @@ type App struct {
 
 	// pickerKind records what the linkpicker modal is choosing:
 	// "links" (Enter dispatches OpenLinkMsg) or "files" (Enter
-	// dispatches DownloadFileMsg from pickerFiles). pickerInTab marks a
-	// links picker opened by the O keybinding: Enter then dispatches
-	// OpenLinkMsg with InHerdrTab set.
+	// dispatches DownloadFileMsg from pickerFiles).
 	pickerKind  string
 	pickerFiles []messages.Attachment
-	pickerInTab bool
+
+	// pickerInHerdr marks a links picker opened by the O or alt+o
+	// keybinding: Enter then dispatches OpenLinkMsg with InHerdr set to it.
+	pickerInHerdr HerdrTarget
 
 	// pickerCopyables backs the "copy" pickerKind (copy_from_message.go).
 	pickerCopyables []messages.Copyable
@@ -535,6 +536,9 @@ type App struct {
 	// calls it inside a tea.Cmd. Nil outside a herdr pane, which makes
 	// O route exactly like o. See SetHerdrTabOpener.
 	herdrTabOpener func(url, label string, focus bool) error
+	// herdrPaneOpener is herdrTabOpener's alt+o twin: a new herdr pane
+	// to the right of this one. See SetHerdrPaneOpener.
+	herdrPaneOpener func(url, splitPaneID string, focus bool) (string, error)
 
 	// navHistory owns the per-workspace ctrl+h / ctrl+k browser-style
 	// jump list. See internal/ui/navhistory.go. Lazy-initialized on
@@ -973,7 +977,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceAgentWorkingVerdict,
 		reduceCacheWatermark,
 		reducePasteAsync,
-		reduceOpenLinksInHerdrTabs,
+		reduceOpenLinksInHerdr,
 		reduceProfileCard, // fork: profilecard.go
 	); handled {
 		if cmd != nil {
@@ -1444,14 +1448,14 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 	}
 }
 
-// openLinksOfSelected implements the `o` and `O` keybindings: collect
-// the links in the selected message (messages pane or thread panel).
+// openLinksOfSelected implements the `o`, `O` and `alt+o` keys: collect the
+// links in the selected message (messages pane or thread panel).
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
 // open the link picker modal. All opens converge on OpenLinkMsg,
-// the single routing point in reducer_links.go; inHerdrTab (the O
-// path) rides along as OpenLinkMsg.InHerdrTab. The one exception: rows
-// marked in O's herdr-tab picker open as OpenLinksInHerdrTabsMsg.
-func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
+// the single routing point in reducer_links.go; inHerdr (the O and
+// alt+o paths) rides along as OpenLinkMsg.InHerdr. The one exception:
+// rows marked in the herdr picker open as OpenLinksInHerdrMsg.
+func (a *App) openLinksOfSelected(inHerdr HerdrTarget) tea.Cmd {
 	var selected messages.MessageItem
 	switch a.focusedPanel {
 	case PanelMessages:
@@ -1471,12 +1475,11 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 	}
 	links := messages.MessageLinks(selected)
 	hadLinks := len(links) > 0
-	// When O will actually open a herdr tab, offer only the links it
-	// can, and say so in the picker title: a browser fallback under a
-	// title promising a tab is misleading. Outside herdr (no opener)
-	// O degrades to o, full link list included.
-	tabOpenerActive := inHerdrTab && a.herdrTabOpener != nil
-	if tabOpenerActive {
+	// When O or alt+o will actually open a herdr tab or pane, offer only
+	// the links it can, and say so in the picker title: a browser
+	// fallback under a title promising a tab is misleading. Outside herdr
+	// (no opener) both degrade to o, full link list included.
+	if a.herdrOpener(inHerdr) != nil { // fork: reducer_links_fork.go
 		navigable := links[:0]
 		for _, l := range links {
 			if a.linkOpensInApp(l.URL) {
@@ -1485,7 +1488,7 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		}
 		links = navigable
 	}
-	debuglog.General("openLinksOfSelected: %d links (inHerdrTab=%v)", len(links), inHerdrTab)
+	debuglog.General("openLinksOfSelected: %d links (inHerdr=%v)", len(links), inHerdr)
 	switch len(links) {
 	case 0:
 		if hadLinks {
@@ -1494,9 +1497,9 @@ func (a *App) openLinksOfSelected(inHerdrTab bool) tea.Cmd {
 		return func() tea.Msg { return ToastMsg{Text: "No links in message"} }
 	case 1:
 		url := links[0].URL
-		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inHerdrTab} }
+		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdr: inHerdr} }
 	default:
-		return a.openLinkPicker(links, inHerdrTab, tabOpenerActive)
+		return a.openLinkPicker(links, inHerdr)
 	}
 }
 

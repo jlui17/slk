@@ -41,10 +41,11 @@ func (a *App) setWorkspaceDomain() {
 
 // routeProfileLink opens the card for a link to a user's profile in the
 // active workspace: what a click on a mention opens. ok is false for any
-// other link, and for O, which opens links in herdr tabs.
-func (a *App) routeProfileLink(rawURL string, inHerdrTab bool) (tea.Cmd, bool) {
+// other link, and for O and alt+o, which open links in herdr tabs and
+// panes.
+func (a *App) routeProfileLink(rawURL string, inHerdr HerdrTarget) (tea.Cmd, bool) {
 	sub, userID, ok := slackurl.ParseProfile(rawURL)
-	if !ok || inHerdrTab || sub != a.activeWorkspaceDomain() {
+	if !ok || inHerdr != HerdrNone || sub != a.activeWorkspaceDomain() {
 		return nil, false
 	}
 	return a.openProfileCard(userID), true

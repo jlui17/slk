@@ -11,12 +11,12 @@ import (
 	"github.com/gammons/slk/internal/ui"
 )
 
-// wireHerdr connects app's agent-thread reporting and the O
-// keybinding's tab opener to the herdr pane slk is running in, when
-// there is one. The returned reporter is for wiring that must wait for
-// the tea program (the focus watcher's Send); the close func releases
-// the pane's sidebar entry and must be deferred by the caller. Both are
-// nil when herdr is absent or disabled.
+// wireHerdr connects app's agent-thread reporting, the O keybinding's
+// tab opener and alt+o's pane opener to the herdr pane slk is running
+// in, when there is one. The returned reporter is for wiring that must
+// wait for the tea program (the focus watcher's Send); the close func
+// releases the pane's sidebar entry and must be deferred by the caller.
+// Both are nil when herdr is absent or disabled.
 func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, func()) {
 	hr := herdr.NewReporterFromEnv()
 	if hr == nil || cfg.Disabled {
@@ -38,15 +38,19 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	})
 	app.SetAgentThreadMarks(db)
 	app.SetAgentTabForceNamer(hr.ForceNameTab)
+	openCommand := cfg.OpenCommand
+	if openCommand == "" {
+		openCommand = "slk"
+	}
 	if hr.CanOpenTab() {
-		openCommand := cfg.OpenCommand
-		if openCommand == "" {
-			openCommand = "slk"
-		}
 		app.SetHerdrTabOpener(func(url, label string, focus bool) error {
 			return hr.OpenTab(label, openCommand, url, focus)
 		})
 	}
+	// A split needs only slk's own pane id, which every reporter has.
+	app.SetHerdrPaneOpener(func(url, splitPaneID string, focus bool) (string, error) {
+		return hr.OpenPane(splitPaneID, openCommand, url, focus)
+	})
 	// A crash skips this, leaving a stale sidebar entry until herdr's
 	// own pane detection reclaims the pane; only clean exits release.
 	return hr, func() { hr.Close(time.Second) }

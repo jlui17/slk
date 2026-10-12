@@ -4,9 +4,9 @@
 // keybinding (multiple links) or the `d` keybinding (multiple file
 // attachments). Enter dispatches OpenLinkMsg or DownloadFileMsg
 // depending on the kind recorded when the picker was opened; esc/q
-// closes. The `O` picker that opens herdr tabs also marks rows and
-// opens them as a batch: mode_linkpicker_fork.go. The `c` picker
-// copies the chosen row: copy_from_message.go.
+// closes. The `O` and `alt+o` pickers that open herdr tabs or panes
+// also mark rows and open them as a batch: mode_linkpicker_fork.go.
+// The `c` picker copies the chosen row: copy_from_message.go.
 package ui
 
 import (
@@ -34,9 +34,9 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			return func() tea.Msg { return DownloadFileMsg{Attachment: att} }
 		}
 		url := item.URL
-		inTab := a.pickerInTab
-		a.pickerInTab = false
-		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdrTab: inTab} }
+		inHerdr := a.pickerInHerdr
+		a.pickerInHerdr = HerdrNone
+		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdr: inHerdr} }
 	}
 	if !a.linkPicker.IsVisible() {
 		// esc/q closed the picker.
@@ -44,7 +44,7 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.pickerFiles = nil
 		a.pickerCopyables = nil
 		a.pickerKind = ""
-		a.pickerInTab = false
+		a.pickerInHerdr = HerdrNone
 	}
 	return a.linkPreviewsInView()
 }

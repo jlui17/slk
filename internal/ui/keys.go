@@ -44,6 +44,7 @@ type KeyMap struct {
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
 	OpenLinkTab         key.Binding
+	OpenLinkPane        key.Binding
 	DownloadFile        key.Binding
 	MarkUnread          key.Binding
 	NextUnread          key.Binding
@@ -117,6 +118,7 @@ func DefaultKeyMap() KeyMap {
 		OpenPreview:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
 		OpenLinkTab:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open link in new herdr tab (inside herdr)")),
+		OpenLinkPane:    key.NewBinding(key.WithKeys("alt+o"), key.WithHelp("alt+o", "open link in herdr pane to the right (inside herdr)")),
 		DownloadFile:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download file in message")),
 		MarkUnread:      key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "mark unread")),
 		NextUnread:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),

@@ -166,11 +166,11 @@ func startServer(t *testing.T, network, addr string) (net.Listener, *recorder) {
 							rec.setToken(k, v)
 						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
+					case "tab.create":
+						conn.Write([]byte(`{"id":"x","result":{"type":"tab_created","tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}` + "\n"))
+					case "pane.split":
+						conn.Write([]byte(`{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"w1:p10"}}}` + "\n"))
 					default:
-						if req.Method == "tab.create" {
-							conn.Write([]byte(`{"id":"x","result":{"type":"tab_created","tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}` + "\n"))
-							break
-						}
 						conn.Write([]byte(`{"id":"x","result":{"type":"ok"}}` + "\n"))
 					}
 				}

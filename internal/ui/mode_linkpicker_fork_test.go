@@ -65,15 +65,15 @@ func TestLinkPickerMarks_EnterOpensMarkedInListOrder(t *testing.T) {
 			if cmd == nil {
 				t.Fatal("expected cmd")
 			}
-			msg, ok := cmd().(OpenLinksInHerdrTabsMsg)
+			msg, ok := cmd().(OpenLinksInHerdrMsg)
 			if !ok {
-				t.Fatalf("expected OpenLinksInHerdrTabsMsg, got %#v", cmd())
+				t.Fatalf("expected OpenLinksInHerdrMsg, got %#v", cmd())
 			}
 			if !slices.Equal(msg.URLs, tt.want) {
 				t.Errorf("URLs = %v, want %v", msg.URLs, tt.want)
 			}
-			if app.mode != ModeNormal || app.linkPicker.IsVisible() || app.pickerInTab {
-				t.Errorf("picker state not cleared: mode=%v visible=%v pickerInTab=%v", app.mode, app.linkPicker.IsVisible(), app.pickerInTab)
+			if app.mode != ModeNormal || app.linkPicker.IsVisible() || app.pickerInHerdr != HerdrNone {
+				t.Errorf("picker state not cleared: mode=%v visible=%v pickerInHerdr=%v", app.mode, app.linkPicker.IsVisible(), app.pickerInHerdr)
 			}
 		})
 	}
@@ -99,8 +99,8 @@ func TestLinkPickerMarks_EnterWithoutMarks_OpensCursorRowFocused(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 			}
-			if msg.URL != threePermalinks[1] || !msg.InHerdrTab {
-				t.Errorf("msg = %+v, want the cursor row with InHerdrTab", msg)
+			if msg.URL != threePermalinks[1] || msg.InHerdr != HerdrTab {
+				t.Errorf("msg = %+v, want the cursor row with InHerdr tab", msg)
 			}
 		})
 	}
@@ -110,13 +110,13 @@ func TestLinkPickerMarks_EnterWithoutMarks_OpensCursorRowFocused(t *testing.T) {
 // picker and an opener-less O's picker keep today's single-choice keys.
 func TestLinkPickerMarks_OffOutsideHerdrTabPicker(t *testing.T) {
 	tests := []struct {
-		name       string
-		withOpener bool
-		open       func(*App) tea.Cmd
-		wantInTab  bool
+		name        string
+		withOpener  bool
+		open        func(*App) tea.Cmd
+		wantInHerdr HerdrTarget
 	}{
-		{"o with opener", true, pressO, false},
-		{"O without opener", false, pressShiftO, true},
+		{"o with opener", true, pressO, HerdrNone},
+		{"O without opener", false, pressShiftO, HerdrTab},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestLinkPickerMarks_OffOutsideHerdrTabPicker(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected OpenLinkMsg, got %#v", cmd())
 			}
-			if msg.URL != threePermalinks[0] || msg.InHerdrTab != tt.wantInTab {
+			if msg.URL != threePermalinks[0] || msg.InHerdr != tt.wantInHerdr {
 				t.Errorf("msg = %+v", msg)
 			}
 		})
@@ -146,8 +146,8 @@ func TestLinkPickerMarks_EscClears(t *testing.T) {
 	app := markPickerApp(t, true)
 	pressShiftO(app)
 	pressPickerKeys(app, keySpace, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if app.mode != ModeNormal || app.pickerInTab {
-		t.Errorf("mode=%v pickerInTab=%v after esc", app.mode, app.pickerInTab)
+	if app.mode != ModeNormal || app.pickerInHerdr != HerdrNone {
+		t.Errorf("mode=%v pickerInHerdr=%v after esc", app.mode, app.pickerInHerdr)
 	}
 	pressO(app)
 	if app.linkPicker.MultiSelect() || len(app.linkPicker.Marked()) != 0 {

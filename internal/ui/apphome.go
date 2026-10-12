@@ -271,7 +271,7 @@ func (a *App) appHomePage(msg tea.KeyMsg) bool {
 func (a *App) homeSwallows(msg tea.KeyMsg) bool {
 	k := a.keys
 	for _, b := range []key.Binding{k.InsertMode, k.Edit, k.Delete, k.CopyMessage, k.CopyPermalink, k.CopyFromMessage,
-		k.OpenPreview, k.OpenLink, k.OpenLinkTab, k.DownloadFile, k.MarkUnread, k.Reaction, k.ReactionNav, k.ListReactions,
+		k.OpenPreview, k.OpenLink, k.OpenLinkTab, k.OpenLinkPane, k.DownloadFile, k.MarkUnread, k.Reaction, k.ReactionNav, k.ListReactions,
 		k.SaveThread, k.ToggleAttachmentFold, k.MessageActions, k.ZoomThread, k.SearchMode, k.SearchNext, k.SearchPrev} {
 		if key.Matches(msg, b) {
 			return true
@@ -317,7 +317,7 @@ func (a *App) openAppHomeLink(url string, inTab bool) tea.Cmd {
 	case inTab && a.herdrTabOpener == nil:
 		return a.browserOpener(url)
 	case inTab:
-		return a.routeLink(url, true)
+		return a.routeLink(url, HerdrTab)
 	}
 	return a.routeHomeLink(url)
 }
@@ -330,7 +330,7 @@ func (a *App) routeHomeLink(url string) tea.Cmd {
 	if ok && string(pl.ChannelID) == a.appHome.channelID && pl.Subdomain == a.activeWorkspaceDomain() && !a.appHome.model.HomeOnly() {
 		a.showMessagesTab()
 	}
-	return a.routeLink(url, false)
+	return a.routeLink(url, HerdrNone)
 }
 
 func (a *App) appHomeClickCmd(in apphome.Intent) tea.Cmd {

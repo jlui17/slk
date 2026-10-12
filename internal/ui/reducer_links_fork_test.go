@@ -18,7 +18,7 @@ func TestOpenLinkInTab_SpawnsHerdrTab(t *testing.T) {
 		return nil
 	})
 	url := "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"
-	_, cmd := app.Update(OpenLinkMsg{URL: url, InHerdrTab: true})
+	_, cmd := app.Update(OpenLinkMsg{URL: url, InHerdr: HerdrTab})
 	drainCmd(cmd)
 	if gotURL != url || gotLabel != "general" || !gotFocus {
 		t.Errorf("opener got (%q, %q, focus=%v), want (%q, \"general\", focus=true)", gotURL, gotLabel, gotFocus, url)
@@ -31,12 +31,12 @@ func TestOpenLinkInTab_SpawnsHerdrTab(t *testing.T) {
 	}
 }
 
-// InHerdrTab without an opener installed (slk outside a herdr pane)
+// InHerdr tab without an opener installed (slk outside a herdr pane)
 // degrades to the plain o route: in-place navigation.
 func TestOpenLinkInTab_NoOpener_RoutesInPlace(t *testing.T) {
 	app, opened := linkTestApp(t)
 	app.activeChannelID = "CELSEWHERE"
-	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdrTab: true})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdr: HerdrTab})
 	drainCmd(cmd)
 	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "1779284733.270139" {
 		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
@@ -55,7 +55,7 @@ func TestOpenLinkInTab_NonSlackURL_OpensBrowser(t *testing.T) {
 		openerCalled = true
 		return nil
 	})
-	_, cmd := app.Update(OpenLinkMsg{URL: "https://github.com/foo/bar", InHerdrTab: true})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://github.com/foo/bar", InHerdr: HerdrTab})
 	drainCmd(cmd)
 	if *opened != "https://github.com/foo/bar" {
 		t.Errorf("browser opened %q", *opened)
@@ -98,7 +98,7 @@ func TestOpenLinksInHerdrTabs(t *testing.T) {
 				}
 				return nil
 			})
-			_, cmd := app.Update(OpenLinksInHerdrTabsMsg{URLs: tt.urls})
+			_, cmd := app.Update(OpenLinksInHerdrMsg{URLs: tt.urls, Target: HerdrTab})
 			msgs := drainCmd(cmd)
 
 			if len(calls) != len(tt.urls) {
@@ -133,7 +133,7 @@ func TestOpenLinksInHerdrTabs_NonNavigableURL_CountsAsFailure(t *testing.T) {
 		return nil
 	})
 	ok := "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"
-	_, cmd := app.Update(OpenLinksInHerdrTabsMsg{URLs: []string{"https://github.com/foo/bar", ok}})
+	_, cmd := app.Update(OpenLinksInHerdrMsg{Target: HerdrTab, URLs: []string{"https://github.com/foo/bar", ok}})
 	msgs := drainCmd(cmd)
 	if len(got) != 1 || got[0] != ok {
 		t.Errorf("opener got %v, want only %q", got, ok)
@@ -151,7 +151,7 @@ func TestOpenLinkInTab_OpenerError_Toasts(t *testing.T) {
 	app.SetHerdrTabOpener(func(url, label string, focus bool) error {
 		return errors.New("boom")
 	})
-	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdrTab: true})
+	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdr: HerdrTab})
 	msgs := drainCmd(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("msgs = %#v, want one ToastMsg", msgs)

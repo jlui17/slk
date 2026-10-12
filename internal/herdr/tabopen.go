@@ -106,12 +106,23 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 	// the slk instance about to boot there may refine it (NameTab treats
 	// an unowned label as user-typed and never renames over it).
 	r.recordTabLabel(parsed.RootPane.PaneID, label)
+	return r.sendOpenCommand(parsed.RootPane.PaneID, openCommand, rawURL, func() {
+		if parsed.Tab.TabID != "" {
+			_, _ = r.roundTrip("tab.close", tabCloseParams{TabID: parsed.Tab.TabID})
+		}
+	})
+}
+
+// sendOpenCommand runs `<openCommand> '<rawURL>'` in the shell of
+// paneID, a pane just created for it. rollback removes that pane (or
+// its tab) and runs only when herdr definitively rejected the send.
+func (r *Reporter) sendOpenCommand(paneID, openCommand, rawURL string, rollback func()) error {
 	// Send only once the shell is reading input: wait for its first
 	// visible output (the prompt). Any wait failure — the method absent
 	// on an older herdr, or a shell quiet past the timeout — degrades
 	// to the fixed fallback delay rather than aborting the open.
 	if _, err := r.roundTrip("pane.wait_for_output", paneWaitForOutputParams{
-		PaneID:    parsed.RootPane.PaneID,
+		PaneID:    paneID,
 		Source:    "visible",
 		Match:     outputMatch{Type: "regex", Value: `\S`},
 		TimeoutMS: shellReadyTimeout.Milliseconds(),
@@ -119,19 +130,15 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 		time.Sleep(shellStartupDelay)
 	}
 	command := openCommand + " '" + strings.ReplaceAll(rawURL, "'", `'\''`) + "'"
-	if _, err := r.roundTrip("pane.send_input", paneSendInputParams{
-		PaneID: parsed.RootPane.PaneID,
-		Text:   command,
-		Keys:   []string{"Enter"},
-	}); err != nil {
-		// Roll back the empty tab only when herdr definitively
+	if err := r.RunInPane(paneID, command); err != nil {
+		// Roll back the empty pane only when herdr definitively
 		// rejected the send; on a transport failure (timeout, dropped
 		// reply) the input may have been delivered, and closing would
 		// kill a successful open. Residue beats destruction.
-		if parsed.Tab.TabID != "" && errors.As(err, &serverError{}) {
-			_, _ = r.roundTrip("tab.close", tabCloseParams{TabID: parsed.Tab.TabID})
+		if errors.As(err, &serverError{}) {
+			rollback()
 		}
-		return fmt.Errorf("pane.send_input: %w", err)
+		return err
 	}
 	return nil
 }

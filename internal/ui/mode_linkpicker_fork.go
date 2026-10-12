@@ -15,20 +15,21 @@ import (
 )
 
 // openLinkPicker is the arm of openLinksOfSelected for two or more links.
-func (a *App) openLinkPicker(links []messages.Link, inHerdrTab, tabOpenerActive bool) tea.Cmd {
+func (a *App) openLinkPicker(links []messages.Link, inHerdr HerdrTarget) tea.Cmd {
+	openerActive := a.herdrOpener(inHerdr) != nil
 	labels, whole := linkPickerLabels(links, a.plainMrkdwn)
 	items := make([]linkpicker.Item, len(links))
 	for i, l := range links {
 		items[i] = a.linkPickerItem(l, labels[i], whole[i])
 	}
 	title := "Open link"
-	if tabOpenerActive {
-		title = "Open link in herdr tab"
+	if openerActive {
+		title = "Open link in herdr " + inHerdr.String()
 	}
 	a.pickerKind = "links"
-	a.pickerInTab = inHerdrTab
+	a.pickerInHerdr = inHerdr
 	a.linkPicker.Open(title, items)
-	a.linkPicker.SetMultiSelect(tabOpenerActive)
+	a.linkPicker.SetMultiSelect(openerActive)
 	a.SetMode(ModeLinkPicker)
 	return a.startLinkPreviews()
 }
@@ -133,8 +134,8 @@ func (a *App) plainMrkdwn(mrkdwn string) string {
 // handleLinkPickerMarkKeys owns the keys a multi-select link picker
 // adds: space marks the cursor row, a marks or clears all the rows its
 // filter shows, and enter with anything marked opens the marked links
-// as a batch of herdr tabs. While the filter is being typed, space and
-// a are its text.
+// as a batch of herdr tabs or panes. While the filter is being typed,
+// space and a are its text.
 // Everything else (enter with nothing marked included) reports
 // unhandled and takes handleLinkPickerMode's single-choice path.
 func (a *App) handleLinkPickerMarkKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -157,10 +158,11 @@ func (a *App) handleLinkPickerMarkKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 		for i, it := range marked {
 			urls[i] = it.URL
 		}
+		target := a.pickerInHerdr
 		a.linkPicker.Close()
 		a.SetMode(ModeNormal)
-		a.pickerInTab = false
-		return func() tea.Msg { return OpenLinksInHerdrTabsMsg{URLs: urls} }, true
+		a.pickerInHerdr = HerdrNone
+		return func() tea.Msg { return OpenLinksInHerdrMsg{URLs: urls, Target: target} }, true
 	}
 	return nil, false
 }
