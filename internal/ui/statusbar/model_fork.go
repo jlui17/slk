@@ -31,6 +31,12 @@ func (m Model) syncPill() string {
 		Render("◌ cached · syncing")
 }
 
+// Syncing reports whether the "cached · syncing" pill is up.
+func (m Model) Syncing() bool { return m.syncing || m.bootSyncing }
+
+// ConnectionState is the connection segment's current state.
+func (m Model) ConnectionState() ConnectionState { return m.connState }
+
 // SetReconnectWait switches the connection segment to the reconnect
 // countdown. retryAt is the redial deadline; attempt is the 1-based
 // retry number (rendered from the second attempt on).
