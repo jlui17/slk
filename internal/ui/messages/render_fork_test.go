@@ -76,7 +76,7 @@ func TestBlockquote_NoWidthLeavesLineIntact(t *testing.T) {
 
 func TestBlockquote_BlockKitTextWrapsInsideBar(t *testing.T) {
 	m := New(nil, "general")
-	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil)
+	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil)
 	out := ctx.RenderTextForWidth("&gt; "+strings.Repeat("word ", 20), nil, 30)
 	requireBarredRows(t, "blockkit text", strippedRows(out), 3)
 }
@@ -96,7 +96,7 @@ func TestBlockquote_BorderedRichTextListsWearTheBar(t *testing.T) {
 	}
 	md := blockkit.RichTextToMrkdwn(blockkit.Parse(payload.Blocks)[0].(blockkit.RichTextBlock))
 	m := New(nil, "general")
-	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil).RenderTextForWidth(md, nil, 60)
+	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil).RenderTextForWidth(md, nil, 60)
 	rows := strippedRows(out)
 	t.Logf("render at width 60:\n%s", strings.Join(rows, "\n"))
 	gap := slices.IndexFunc(rows, func(r string) bool { return strings.TrimSpace(r) == "" })
@@ -204,7 +204,7 @@ func TestBlockKitText_HighlightsSearchTerms(t *testing.T) {
 	hlStart, hlEnd := searchHighlightSGRForTest(t)
 	m := New(nil, "general")
 	m.SetSearchTerms([]string{"deploy"})
-	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil)
+	ctx := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil)
 	if out := ctx.RenderTextForWidth("deploy went fine", nil, 30); !strings.Contains(out, hlStart+"deploy"+hlEnd) {
 		t.Errorf("block kit text not highlighted: %q", out)
 	}
@@ -317,7 +317,7 @@ func TestListItem_RichTextListWrapsUnderMarker(t *testing.T) {
 	}
 	md := blockkit.RichTextToMrkdwn(blockkit.RichTextBlock{Elements: []slack.RichTextElement{list}})
 	m := New(nil, "general")
-	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil).RenderTextForWidth(md, nil, 30)
+	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil).RenderTextForWidth(md, nil, 30)
 	requireHangingIndent(t, "rich_text list", strippedRows(out), "  1. ", "     ", 30)
 }
 
@@ -478,7 +478,7 @@ func TestBlockquote_RichTextQuoteRendersInline(t *testing.T) {
 		}},
 	}}
 	m := New(nil, "general")
-	r := blockkit.Render([]blockkit.Block{rt}, m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil), 40)
+	r := blockkit.Render([]blockkit.Block{rt}, m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil), 40)
 	if len(r.Lines) != 1 {
 		t.Fatalf("expected one row, got %q", r.Lines)
 	}

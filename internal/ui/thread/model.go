@@ -1426,12 +1426,17 @@ func (m *Model) View(height, width int) string {
 
 	// Render the parent message once -- it now lives at the top of the
 	// scrollable viewContent (chrome only carries the header + separator).
-	// We discard the parent's image flushes and reaction-hit rects in v1:
-	// parent attachments are rare and threading flushes through the cache
-	// lifecycle adds complexity; reply flushes and hit rects ARE captured
-	// in the per-reply loop below.
+	// The parent renders on every View, so its image uploads go out here
+	// rather than with the replies' on a cache rebuild. We discard the
+	// parent's reaction-hit rects in v1; reply hit rects ARE captured in
+	// the per-reply loop below.
 	parentIsSelected := m.selected == parentSelected
-	parentContent, _, _ := m.renderThreadMessage(m.parent, width, m.userNames.Current(), m.channelNames, parentIsSelected)
+	parentContent, parentFlushes, _ := m.renderThreadMessage(m.parent, width, m.userNames.Current(), m.channelNames, parentIsSelected)
+	for _, fl := range parentFlushes {
+		if fl != nil {
+			_ = fl(imgpkg.KittyOutput)
+		}
+	}
 	m.parentEntry = viewEntry{
 		linesPlain:       messages.PlainLines(parentContent),
 		height:           lipgloss.Height(parentContent),
@@ -1899,7 +1904,7 @@ func (m *Model) HitTestReaction(row, col int) (replyIdx int, emoji string, ok bo
 // blockkit.Context. Mirrors messages.Model.blockkitContext so Block
 // Kit blocks and legacy attachments render identically in the thread
 // panel and the main message pane.
-func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelNames map[string]string) blockkit.Context {
+func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelNames map[string]string, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
 	var imgCtx imgrender.ImageContext
 	if m.imgRenderer != nil {
 		imgCtx = m.imgRenderer.Context()
@@ -1924,7 +1929,7 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 				PlaceCtx:     m.emojiCtx.PlaceCtx,
 				EmojiCells:   m.emojiCtx.Cells,
 				Customs:      m.emojiCtx.Customs,
-				EmojiFlushes: nil,
+				EmojiFlushes: emojiFlushes,
 				Width:        width,
 
 				WorkspaceDomain: m.workspaceDomain,
@@ -1985,7 +1990,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	// renderMessagePlain. Image flushes are aggregated into the shared
 	// `flushes` slice; per-image Hit/SixelRows are discarded (v1 thread
 	// rendering, consistent with the file-attachment path below).
-	bkCtx := m.blockkitContext(msg, userNames, channelNames)
+	bkCtx := m.blockkitContext(msg, userNames, channelNames, &flushes)
 	var bkLines []string
 	bkInteractive := false
 	if len(msg.Blocks) > 0 {

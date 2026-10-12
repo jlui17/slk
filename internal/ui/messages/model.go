@@ -1935,7 +1935,9 @@ func (m *Model) partialRebuild(width int) {
 // from the model's image context, theme, and per-message identity.
 // Wired here rather than in the constructor so it picks up runtime
 // changes to imgCtx (e.g., when image_protocol is reconfigured).
-func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[string]string) blockkit.Context {
+// Emoji placed in block text append their kitty uploads to
+// emojiFlushes, which may be nil when nothing draws the result.
+func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[string]string, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
 	var imgCtx imgrender.ImageContext
 	if m.imgRenderer != nil {
 		imgCtx = m.imgRenderer.Context()
@@ -1955,15 +1957,6 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 		// Capture channelNames in a closure so blockkit's
 		// RenderTextForWidth signature stays stable; channel-name
 		// resolution is a host concern.
-		//
-		// blockkit's RenderTextForWidth is called from inside block rendering
-		// where the per-call flush accumulator isn't accessible. Pass
-		// the emoji opts but no flush collector: warm-path emoji
-		// flushes inside rich-text blocks are best-effort in v1
-		// (they'll be re-collected on the next render when the
-		// per-message buildCache walks the entry again). Worst case:
-		// one extra frame of cold-cache spacing for a block-kit
-		// emoji on first reveal. Acceptable.
 		RenderTextForWidth: func(s string, un map[string]string, width int) string {
 			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
 				UserNames:    un,
@@ -1972,7 +1965,7 @@ func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[str
 				PlaceCtx:     m.emojiCtx.PlaceCtx,
 				EmojiCells:   m.emojiCtx.Cells,
 				Customs:      m.emojiCtx.Customs,
-				EmojiFlushes: nil,
+				EmojiFlushes: emojiFlushes,
 				Width:        width,
 				SearchTerms:  m.searchTerms,
 
@@ -2264,7 +2257,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	allSixel := map[int]sixelEntry{}
 
 	// Block Kit blocks render between the body text and file attachments.
-	bkCtx := m.blockkitContext(msg, userNames, channelNames)
+	bkCtx := m.blockkitContext(msg, userNames, channelNames, &allFlushes)
 	var bkLines []string
 	bkInteractive := false
 	if len(msg.Blocks) > 0 {
