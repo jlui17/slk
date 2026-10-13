@@ -3,7 +3,7 @@
 # they pick up the current source: stop all their containers first, then
 # relaunch each pane, letting the first relaunch rebuild bin/slk-linux while
 # nothing executes it. Judgment, gotchas, and when not to use this:
-# .claude/skills/refresh-sessions/SKILL.md
+# plugins/slk-herdr/skills/slk-herdr/SKILL.md
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,7 +44,7 @@ for ws in json.load(sys.stdin)["result"]["workspaces"]:
 if [ "${#panes[@]}" -eq 0 ]; then
   echo "no live user slk sessions found; nothing to restart" >&2
   echo "(a dead pane has no process to find; bring dead panes back with:" >&2
-  echo "  $repo/tools/run-docker.sh herdr reboot)" >&2
+  echo "  SLK_ROLE=user $repo/tools/run-docker.sh herdr reboot)" >&2
   exit 0
 fi
 

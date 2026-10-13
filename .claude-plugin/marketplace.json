@@ -1,0 +1,14 @@
+{
+  "name": "slk",
+  "description": "Claude Code plugins for working with slk, Justin's fork of the slk Slack TUI.",
+  "owner": {
+    "name": "Justin Lui"
+  },
+  "plugins": [
+    {
+      "name": "slk-herdr",
+      "source": "./plugins/slk-herdr",
+      "description": "Manage live slk sessions in herdr: find them, refresh them, relaunch idle panes, move them between spaces."
+    }
+  ]
+}

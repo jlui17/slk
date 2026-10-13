@@ -1,0 +1,8 @@
+{
+  "name": "slk-herdr",
+  "description": "Manage live slk sessions in herdr: find them, refresh them, relaunch idle panes, move them between spaces.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Justin Lui"
+  }
+}
