@@ -262,6 +262,8 @@ func TestReviewOpenAnnotation(t *testing.T) {
 		{reviewOpenRoot, "1787864174.931459", true},
 		{"  !review-open\nannotation: https://x.slack.com/archives/C1/p1787864174931459\n", "1787864174.931459", true},
 		{"!review-open\nannotation: <https://x.slack.com/archives/C1/p1787864174931459|the annotation>", "1787864174.931459", true},
+		{"!review-open annotation: <https://x.slack.com/archives/C1/p1787864174931459> author: Justin (U1)", "1787864174.931459", true},
+		{"!review-open\nwhere: <https://x.slack.com/archives/C1/p1787864174931459>\nauthor: Justin", "", false},
 		{"!review-open\nauthor: Justin", "", false},
 		{"!review-open\nannotation: <https://example.com/x>", "", false},
 		{"review this\nannotation: <https://x.slack.com/archives/C1/p1787864174931459>", "", false},
@@ -270,6 +272,54 @@ func TestReviewOpenAnnotation(t *testing.T) {
 		pl, ok := reviewOpenAnnotation(c.root)
 		if ok != c.ok || pl.MessageTS != c.wantTS {
 			t.Errorf("reviewOpenAnnotation(%q) = %+v, %t; want ts %q, %t", c.root, pl, ok, c.wantTS, c.ok)
+		}
+	}
+}
+
+// A kickoff made from the Annotate button links the clicked message with
+// where: and carries the annotation itself as its note, so no message is
+// fetched: the note goes out as the line after the root, spoken by the
+// kickoff's author. The roots are shaped as the cache holds live threads':
+// Colony's multi-line form, and the one-line form a kickoff Claude posted
+// is cached in.
+func TestReviewOpenNoteKickoffSendsNoteWithoutFetch(t *testing.T) {
+	roots := []string{
+		"!review-open\n" +
+			"where: <https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1792011220998329?thread_ts=1791839396.887669&amp;cid=C0BCG30UGEP>\n" +
+			"author: Justin (UHUMAN)\n" +
+			"judge: <@UBOT>\n" +
+			"note:\n" +
+			"&gt; [negative]\n" +
+			"&gt; claude was overcomplicating the design.\n" +
+			"&gt; the work on pr 3019 pretty much covers this.",
+		"!review-open where: <https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1792011220998329?thread_ts=1791839396.887669&amp;cid=C0BCG30UGEP> " +
+			"author: Justin (UHUMAN) judge: <@UBOT> again: <https://colony-pyo1658.slack.com/archives/C0C6ZMJJT1U/p1791935639036889> " +
+			"reason: rerun at Justin's ask note: &gt; [negative] &gt; claude was overcomplicating the design. the work on pr 3019 pretty much covers this.",
+	}
+	const wantLine = "justin: claude was overcomplicating the design. the work on pr 3019 pretty much covers this."
+	for _, root := range roots {
+		parent := messages.MessageItem{TS: "100.0", Text: root, UserID: "UHUMAN"}
+		replies := []messages.MessageItem{{TS: "101.0", Text: "Blind judge: Justified.", UserID: "UBOT"}}
+
+		a, calls, _ := newLLMLabelTestApp(t)
+		previews := withPreview(a, "", "", errors.New("must not fetch"))
+		a.setThreadPanel(parent, nil, "C1", "100.0")
+		if cmd := a.setThreadPanel(parent, replies, "C1", "100.0"); cmd != nil {
+			t.Errorf("%q: automatic path returned a cmd", root)
+		}
+		want := a.retitleTranscript(parent, replies, "UBOT", wantLine)
+		if len(*calls) != 1 || (*calls)[0].transcript != want || !(*calls)[0].reviewOpen {
+			t.Errorf("%q: automatic requests = %+v, want one review-open request with %q", root, *calls, want)
+		}
+
+		r, rcalls, _ := newRetitleTestApp(t, parent, replies)
+		rpreviews := withPreview(r, "", "", errors.New("must not fetch"))
+		_ = executeCommand(r, "retitle")
+		if len(*rcalls) != 1 || (*rcalls)[0].transcript != want || !(*rcalls)[0].reviewOpen {
+			t.Errorf("%q: :retitle requests = %+v, want one review-open request with %q", root, *rcalls, want)
+		}
+		if len(*previews)+len(*rpreviews) != 0 {
+			t.Errorf("%q: fetched %+v %+v", root, *previews, *rpreviews)
 		}
 	}
 }

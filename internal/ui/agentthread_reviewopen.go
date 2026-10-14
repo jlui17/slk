@@ -3,7 +3,10 @@
 // stripped: every such thread reads the same to the label model. Its
 // subject is the annotated message the permalink points to, so a label
 // request for one fetches that message first and sends its text as the
-// line after the root.
+// line after the root. A kickoff made from Colony's Annotate button has no
+// annotation: permalink: it links the clicked message with where: and
+// carries the annotation itself as its note, which is sent as that line
+// with no fetch.
 package ui
 
 import (
@@ -20,8 +23,43 @@ import (
 )
 
 // reviewOpenAnnotationRe captures the permalink on a !review-open root's
-// annotation line, raw (<url> or <url|label>) or bare.
-var reviewOpenAnnotationRe = regexp.MustCompile(`(?m)^annotation:\s*<?(https://[^\s>|]+)`)
+// annotation line, raw (<url> or <url|label>) or bare. A key may follow a
+// space rather than a newline: a kickoff Claude posts is cached on one line.
+var reviewOpenAnnotationRe = regexp.MustCompile(`(?:^|\s)annotation:\s*<?(https://[^\s>|]+)`)
+
+// reviewOpenNoteRe captures a kickoff's note, its last field, and
+// reviewOpenAuthorRe the author's user id ("author: Justin (U0BAY83R88M)").
+var (
+	reviewOpenNoteRe   = regexp.MustCompile(`(?s)(?:^|\s)note:\s*(.+)`)
+	reviewOpenAuthorRe = regexp.MustCompile(`(?:^|\s)author:[^\n]*?\b(U[A-Z0-9]+)\b`)
+)
+
+// reviewOpenNoteQuoteRe matches the quote marker that opens each note line,
+// and reviewOpenNoteLabelRe the [positive] or [negative] line after it,
+// with the next line's marker when the kickoff is cached on one line.
+var (
+	reviewOpenNoteQuoteRe = regexp.MustCompile(`(?m)^\s*(?:&gt;|>) ?`)
+	reviewOpenNoteLabelRe = regexp.MustCompile(`^\[(?:positive|negative)\]\s*(?:(?:&gt;|>)\s*)?`)
+)
+
+// reviewOpenNote returns the annotation a !review-open root carries as its
+// note, and its author's user id, when rootText is one.
+func reviewOpenNote(rootText string) (authorID, note string, ok bool) {
+	text := strings.TrimSpace(rootText)
+	if !strings.HasPrefix(text, "!review-open") {
+		return "", "", false
+	}
+	m := reviewOpenNoteRe.FindStringSubmatch(text)
+	if m == nil {
+		return "", "", false
+	}
+	note = reviewOpenNoteQuoteRe.ReplaceAllString(m[1], "")
+	note = strings.TrimSpace(reviewOpenNoteLabelRe.ReplaceAllString(note, ""))
+	if a := reviewOpenAuthorRe.FindStringSubmatch(text); a != nil {
+		authorID = a[1]
+	}
+	return authorID, note, note != ""
+}
 
 // reviewOpenAnnotation returns the annotated message's permalink when
 // rootText is a !review-open root.
@@ -64,11 +102,16 @@ type agentTabAnnotationMsg struct {
 // generator; retitleGen numbers a :retitle request and is zero for the
 // automatic one. For a !review-open root it instead returns the fetch of the
 // annotated message; sendAnnotatedAgentTabLabel sends the transcript
-// rebuilt with it.
+// rebuilt with it. A root that carries its annotation as a note sends the
+// transcript rebuilt with the note at once.
 func (a *App) requestAgentTabLabel(target labelTarget, parent messages.MessageItem, replies []messages.MessageItem, transcript, fallbackTaskID string, retitleGen uint64) tea.Cmd {
 	pl, ok := reviewOpenAnnotation(parent.Text)
 	if !ok {
-		a.agentSidebar.relabelGen(target.teamID, target.channelID, target.threadTS, transcript, fallbackTaskID, retitleGen, false)
+		authorID, note, reviewOpen := reviewOpenNote(parent.Text)
+		if reviewOpen {
+			transcript = a.retitleTranscript(parent, replies, target.botUserID, a.retitleLine(authorID, note, maxRetitleReply))
+		}
+		a.agentSidebar.relabelGen(target.teamID, target.channelID, target.threadTS, transcript, fallbackTaskID, retitleGen, reviewOpen)
 		return nil
 	}
 	a.agentSidebar.labelFetchGen++

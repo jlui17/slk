@@ -16,25 +16,35 @@
 //	SLK_TABHINTS_MODEL        default claude-sonnet-5-5
 //	SLK_TABHINTS_EFFORT       default low
 //	SLK_TABHINTS_TRANSCRIPTS  transcripts dir under the eval dir, default transcripts
+//	SLK_TABHINTS_CACHE        cache rows dir under the eval dir that
+//	                          TestTabHintsEvalTranscripts reads, default cache
 //	SLK_TABHINTS_REPEATS      calls per transcript, default 1
 //	SLK_TABHINTS_ROOT_ONLY    1 sends only each transcript's first line (the
 //	                          root): the open-time request's worst case, a
 //	                          thread opened before any reply exists
+//
+// A transcript with a <pane>.review-open file beside it is sent as slk sends
+// a !review-open thread's request: tablabel.ReviewOpenHints after the hints
+// file's, and the result rendered as "!review ...".
 package ui
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
 	toml "github.com/pelletier/go-toml/v2"
@@ -75,20 +85,45 @@ type tabHintsEvalUser struct {
 	IsBot       int    `json:"is_bot"`
 }
 
-// TestTabHintsEvalTranscripts turns cache/threads/<pane>.json (rows exported
-// from slk's cache.db, root first) into transcripts/<pane>.txt by running
-// :retitle itself and capturing what it would send.
+// TestTabHintsEvalTranscripts turns <cache>/threads/<pane>.json (rows
+// exported from slk's cache.db, root first) into <transcripts>/<pane>.txt by
+// running :retitle itself and capturing what it would send. <cache> is
+// SLK_TABHINTS_CACHE (default cache) and <transcripts> SLK_TABHINTS_TRANSCRIPTS
+// (default transcripts). A !review-open thread's annotated message is
+// answered from <cache>/annotated.json (rows: channel_id, ts, user_id,
+// text), and a request :retitle marks review-open also writes an empty
+// <pane>.review-open beside the transcript, which TestTabHintsEval reads.
 func TestTabHintsEvalTranscripts(t *testing.T) {
 	if os.Getenv("SLK_TABHINTS_BUILD") == "" {
 		t.Skip("set SLK_TABHINTS_BUILD=1 to rebuild the transcripts")
 	}
+	cacheDir := filepath.Join(tabHintsEvalDir, envOr("SLK_TABHINTS_CACHE", "cache"))
+	outDir := filepath.Join(tabHintsEvalDir, envOr("SLK_TABHINTS_TRANSCRIPTS", "transcripts"))
 	var userRows []tabHintsEvalUser
-	readJSON(t, filepath.Join(tabHintsEvalDir, "cache/users.json"), &userRows)
+	readJSON(t, filepath.Join(cacheDir, "users.json"), &userRows)
 	users := map[string]tabHintsEvalUser{}
 	for _, u := range userRows {
 		users[u.ID] = u
 	}
-	paths, _ := filepath.Glob(filepath.Join(tabHintsEvalDir, "cache/threads/*.json"))
+	var annotated []struct {
+		ChannelID string `json:"channel_id"`
+		TS        string `json:"ts"`
+		UserID    string `json:"user_id"`
+		Text      string `json:"text"`
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "annotated.json")); err == nil {
+		readJSON(t, filepath.Join(cacheDir, "annotated.json"), &annotated)
+	}
+	preview := func(_ context.Context, channelID ids.ChannelID, ts ids.MessageTS, _ ids.ThreadTS) (string, string, error) {
+		for _, m := range annotated {
+			if m.ChannelID == string(channelID) && m.TS == string(ts) {
+				u := users[m.UserID]
+				return cmp.Or(u.DisplayName, u.Name), m.Text, nil
+			}
+		}
+		return "", "", fmt.Errorf("%s/%s not in annotated.json", channelID, ts)
+	}
+	paths, _ := filepath.Glob(filepath.Join(cacheDir, "threads/*.json"))
 	for _, path := range paths {
 		var rows []struct {
 			TS     string `json:"ts"`
@@ -101,21 +136,43 @@ func TestTabHintsEvalTranscripts(t *testing.T) {
 			items[i] = messages.MessageItem{TS: r.TS, UserID: r.UserID, Text: r.Text, ThreadTS: rows[0].TS}
 		}
 		a, _ := tabHintsEvalApp(t, users)
+		a.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{Preview: preview}))
 		var transcript string
-		a.SetAgentTabRelabeler(func(_, _, _, tr, _ string, _ uint64, _ bool) { transcript = tr })
+		var reviewOpen bool
+		a.SetAgentTabRelabeler(func(_, _, _, tr, _ string, _ uint64, ro bool) { transcript, reviewOpen = tr, ro })
 		a.threadPanel.SetThread(items[0], items[1:], "C1", items[0].TS)
 		a.threadVisible = true
 		a.updateAgentThread(items[0], nil, "C1", items[0].TS)
-		_ = executeCommand(a, "retitle")
+		for _, msg := range drainCmds(executeCommand(a, "retitle")) {
+			if m, ok := msg.(agentTabAnnotationMsg); ok {
+				if m.text == "" {
+					t.Fatalf("%s: the annotated message was not found", path)
+				}
+				reduceAgentTabRelabel(a, m)
+			}
+		}
 		if transcript == "" {
 			t.Fatalf("%s: :retitle sent nothing", path)
 		}
-		out := filepath.Join(tabHintsEvalDir, "transcripts", strings.TrimSuffix(filepath.Base(path), ".json")+".txt")
+		out := filepath.Join(outDir, strings.TrimSuffix(filepath.Base(path), ".json")+".txt")
 		if err := os.WriteFile(out, []byte(transcript), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		fmt.Printf("%s\t%d messages\t%d bytes\tbot=%s\n", filepath.Base(out), len(items), len(transcript), a.agentSidebar.thread.botUserID)
+		marker := strings.TrimSuffix(out, ".txt") + ".review-open"
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if reviewOpen {
+			if err := os.WriteFile(marker, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fmt.Printf("%s\t%d messages\t%d bytes\tbot=%s\treview-open=%t\n", filepath.Base(out), len(items), len(transcript), a.agentSidebar.thread.botUserID, reviewOpen)
 	}
+}
+
+func envOr(key, fallback string) string {
+	return cmp.Or(os.Getenv(key), fallback)
 }
 
 // tabHintsEvalAPIKey finds the key where slk does, reading only what it
@@ -201,13 +258,19 @@ func TestTabHintsEval(t *testing.T) {
 			transcript = root
 		}
 		hoisted := hoistTaskID(root)
+		_, err = os.Stat(strings.TrimSuffix(path, ".txt") + ".review-open")
+		reviewOpen := err == nil
+		threadHints, threadMode := hints, mode
+		if reviewOpen {
+			threadHints, threadMode = slices.Concat(hints, tablabel.ReviewOpenHints), mode+",review-open"
+		}
 		for r := 1; r <= repeats; r++ {
-			tabHintsEvalOne(t, client, hints, pane, mode, r, transcript, hoisted)
+			tabHintsEvalOne(t, client, threadHints, pane, threadMode, r, transcript, hoisted, reviewOpen)
 		}
 	}
 }
 
-func tabHintsEvalOne(t *testing.T, client *tablabel.Client, hints []string, pane, mode string, r int, transcript, hoisted string) {
+func tabHintsEvalOne(t *testing.T, client *tablabel.Client, hints []string, pane, mode string, r int, transcript, hoisted string, reviewOpen bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	id, label, err := client.Relabel(ctx, transcript, hints)
 	cancel()
@@ -220,7 +283,7 @@ func tabHintsEvalOne(t *testing.T, client *tablabel.Client, hints []string, pane
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> placeholder root", UserID: "UHUMAN"}
 	a.updateAgentThread(parent, nil, "C1", "100.0")
 	before := len(*tabNames)
-	reduceAgentTabRelabel(a, AgentTabRelabelMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: id, FallbackTaskID: hoisted, Label: label})
+	reduceAgentTabRelabel(a, AgentTabRelabelMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", TaskID: id, FallbackTaskID: hoisted, ReviewOpen: reviewOpen, Label: label})
 	final := "(label left unchanged)"
 	if len(*tabNames) > before {
 		final = (*tabNames)[len(*tabNames)-1]
