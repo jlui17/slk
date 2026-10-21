@@ -865,10 +865,10 @@ func (m *Model) IsAtBottom() bool {
 	return m.selected >= len(m.replies)-1
 }
 
-// GoToTop moves the selection to the first reply.
+// GoToTop moves the selection to the parent, the topmost row.
 func (m *Model) GoToTop() {
-	if m.selected != 0 {
-		m.selected = 0
+	if m.selected != parentSelected {
+		m.selected = parentSelected
 		m.dirty()
 	}
 }

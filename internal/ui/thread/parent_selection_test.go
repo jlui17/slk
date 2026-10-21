@@ -28,7 +28,7 @@ func newThreadWithReplies(replyCount int) *Model {
 
 func TestMoveUpFromFirstReplySelectsParent(t *testing.T) {
 	m := newThreadWithReplies(2)
-	m.GoToTop()
+	m.MoveUp() // first reply
 	m.MoveUp()
 	sel := m.SelectedReply()
 	if sel == nil || sel.TS != "100.0" {

@@ -200,6 +200,10 @@ there and resolve them knowing what the fork wants:
   A live reply to the open thread goes through the thread panel's
   `AddIncomingReply` (`thread/select.go`) where upstream calls `AddReply`:
   the cursor follows only from the newest reply.
+- `internal/ui/thread/model.go` (+ `TestNavigation` in `model_test.go` and
+  `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
+  selects the parent row, the thread's topmost, where upstream selects the
+  first reply; pinned in `keyrouting_fork_test.go`.
 - `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into

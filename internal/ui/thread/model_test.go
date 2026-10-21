@@ -136,10 +136,11 @@ func TestNavigation(t *testing.T) {
 	}
 
 	m.GoToTop()
-	if m.selected != 0 {
-		t.Errorf("expected selected=0 after GoToTop, got %d", m.selected)
+	if m.selected != parentSelected {
+		t.Errorf("expected selected=parentSelected after GoToTop, got %d", m.selected)
 	}
 
+	m.MoveDown()
 	m.MoveDown()
 	if m.selected != 1 {
 		t.Errorf("expected selected=1, got %d", m.selected)

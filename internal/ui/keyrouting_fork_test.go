@@ -7,10 +7,13 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
@@ -121,5 +124,40 @@ func TestKeyRouting_CtrlBTogglesSidebar(t *testing.T) {
 	pressKeys(a, tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	if !a.sidebarVisible {
 		t.Fatal("sidebarVisible after 2x ctrl+b = false, want true")
+	}
+}
+
+// gg in the thread panel selects the parent, the topmost row, and
+// scrolls it back into view, zoomed or side by side.
+func TestKeyRouting_GGSelectsThreadParent(t *testing.T) {
+	for _, zoomed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("zoomed=%v", zoomed), func(t *testing.T) {
+			a := newHarnessApp(t,
+				withHarnessSize(200, 30),
+				withApp(func(a *App) {
+					parent := messages.MessageItem{TS: "1.0", UserID: "U1", UserName: "alice", Text: "thread-parent-text"}
+					var replies []messages.MessageItem
+					for i := 0; i < 30; i++ {
+						replies = append(replies, messages.MessageItem{TS: fmt.Sprintf("2.%02d", i), UserID: "U2", UserName: "bob", Text: fmt.Sprintf("reply %d", i)})
+					}
+					a.threadPanel.SetThread(parent, replies, "C1", "1.0")
+					a.threadVisible = true
+					a.threadFullscreen = zoomed
+					a.focusedPanel = PanelThread
+				}),
+			)
+			if strings.Contains(a.View().Content, "thread-parent-text") {
+				t.Fatal("precondition: the parent should be scrolled out of view on open")
+			}
+
+			pressKeys(a, keyRune('g'), keyRune('g'))
+
+			if sel := a.threadPanel.SelectedReply(); sel == nil || sel.TS != "1.0" {
+				t.Errorf("SelectedReply after gg = %+v, want the parent (TS 1.0)", sel)
+			}
+			if !strings.Contains(a.View().Content, "thread-parent-text") {
+				t.Error("parent not visible after gg: the thread did not scroll to the top")
+			}
+		})
 	}
 }
