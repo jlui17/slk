@@ -15,7 +15,9 @@ import (
 	"github.com/gammons/slk/internal/ui/syntax"
 )
 
-var listItemRe = regexp.MustCompile(`^ *(• |\d+\. )`)
+// A lettered or roman marker ("a. ", "iv. ") only marks a nested item,
+// so it needs an indent; at the left edge it would catch prose ("etc. ").
+var listItemRe = regexp.MustCompile(`^ *([•◦▪] |\d+\. )|^ +[a-z]+\. `)
 
 type searchHighlighter struct {
 	terms      []string

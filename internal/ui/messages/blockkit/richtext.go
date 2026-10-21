@@ -21,12 +21,13 @@ func RichTextToMrkdwn(rt RichTextBlock) string {
 		return ""
 	}
 	parts := make([]string, 0, len(rt.Elements))
+	heads := listHeads(rt.Elements) // fork: richtext_lists_fork.go
 	for _, e := range rt.Elements {
 		switch v := e.(type) {
 		case *slack.RichTextSection:
 			parts = append(parts, sectionToMrkdwn(v.Elements))
 		case *slack.RichTextList:
-			parts = append(parts, withQuoteBorder(listToMrkdwn(v), v.Border))
+			parts = append(parts, withQuoteBorder(listToMrkdwn(v, heads[v]), v.Border))
 		case *slack.RichTextPreformatted:
 			parts = append(parts, withFenceLanguage(preformattedToMrkdwn(v.Elements), v.Language))
 		case *slack.RichTextQuote:
@@ -146,25 +147,16 @@ func emojiToMrkdwn(name string, skinTone int) string {
 	return out
 }
 
-// listToMrkdwn emits a rich_text_list as one line per item. Bulleted
-// lists use "• ", ordered lists use "N. " starting from Offset+1.
-// Nested lists (encoded via the Indent field rather than nesting)
-// get two leading spaces per indent level.
-func listToMrkdwn(l *slack.RichTextList) string {
+// listToMrkdwn emits a rich_text_list as one line per item, each behind
+// its head from listHeads.
+func listToMrkdwn(l *slack.RichTextList, heads []string) string {
 	lines := make([]string, 0, len(l.Elements))
-	pad := strings.Repeat("  ", l.Indent)
 	for i, child := range l.Elements {
 		body := ""
 		if sec, ok := child.(*slack.RichTextSection); ok {
 			body = sectionToMrkdwn(sec.Elements)
 		}
-		var marker string
-		if l.Style == slack.RTEListOrdered {
-			marker = strconv.Itoa(l.Offset+i+1) + ". "
-		} else {
-			marker = "• "
-		}
-		lines = append(lines, pad+marker+body)
+		lines = append(lines, heads[i]+body)
 	}
 	return strings.Join(lines, "\n")
 }

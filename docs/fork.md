@@ -179,6 +179,13 @@ there and resolve them knowing what the fork wants:
   Both panes' selected-variant builders reassert the selection tint after
   every reset (`ReapplyBgAfterResets`) so bare runs from block renderers
   take the tint.
+- `internal/ui/messages/blockkit/richtext.go` (+ `richtext_test.go`) —
+  `listToMrkdwn` draws each item behind the head `listHeads`
+  (`richtext_lists_fork.go`) gives it, as Slack draws nested lists: an
+  ordered list numbers on across the deeper lists between its parts,
+  markers cycle by indent (•, ◦, ▪ and 1., a., i.), and a nested list
+  starts where its parent item's text starts. `TestRichTextToMrkdwn_IndentedList`
+  now wants `▪` at indent 2.
 - `internal/ui/messages/blockkit/attachments.go` (+ `attachments_test.go`,
   `integration_test.go`, `messages/blockkit_integration_test.go`) —
   `RenderLegacy` draws each attachment through `appendCard`

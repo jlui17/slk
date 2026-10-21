@@ -3,7 +3,6 @@ package blockkit
 import (
 	"encoding/json"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/slack-go/slack"
@@ -78,6 +77,7 @@ type RichTextLink struct {
 // mrkdwn does not already give.
 func RichTextLinks(rt RichTextBlock) []RichTextLink {
 	var links []RichTextLink
+	heads := listHeads(rt.Elements)
 	for _, e := range rt.Elements {
 		switch v := e.(type) {
 		case *slack.RichTextSection:
@@ -87,7 +87,7 @@ func RichTextLinks(rt RichTextBlock) []RichTextLink {
 		case *slack.RichTextList:
 			for i, child := range v.Elements {
 				if sec, ok := child.(*slack.RichTextSection); ok {
-					links = append(links, sectionLinks(sec.Elements, listItemWithoutLinks(v, i, sec.Elements))...)
+					links = append(links, sectionLinks(sec.Elements, listItemWithoutLinks(v, heads[v][i], sec.Elements))...)
 				}
 			}
 		}
@@ -124,13 +124,13 @@ func inlineLink(e slack.RichTextSectionElement) (url, text string) {
 // end ("<person> - <link>", "<link>: <text>").
 const listItemEdges = " \n-–—:,"
 
-// listItemWithoutLinks is item i of l as RichTextLink.ListItem wants it.
-// The number is the one listToMrkdwn draws. Where a link is taken from
-// the start or the end of the item, the typed text beside it loses its
-// listItemEdges and the bracket the link leaves unmatched; an edge that
-// is the item's own text, or an :emoji:, stays as it is. A bracket pair
-// a link leaves empty goes too.
-func listItemWithoutLinks(l *slack.RichTextList, i int, elements []slack.RichTextSectionElement) string {
+// listItemWithoutLinks is an item of l as RichTextLink.ListItem wants it.
+// head is the item's head from listHeads, so the number is the one
+// drawn. Where a link is taken from the start or the end of the item,
+// the typed text beside it loses its listItemEdges and the bracket the
+// link leaves unmatched; an edge that is the item's own text, or an
+// :emoji:, stays as it is. A bracket pair a link leaves empty goes too.
+func listItemWithoutLinks(l *slack.RichTextList, head string, elements []slack.RichTextSectionElement) string {
 	item := ""
 	linkTaken := false // since the last element kept
 	lastTextAt := -1   // where the last element kept starts in item, when it is typed text
@@ -161,7 +161,7 @@ func listItemWithoutLinks(l *slack.RichTextList, i int, elements []slack.RichTex
 	}
 	item = strings.TrimSpace(item)
 	if l.Style == slack.RTEListOrdered {
-		item = strings.TrimSpace(strconv.Itoa(l.Offset+i+1) + ". " + item)
+		item = strings.TrimSpace(strings.TrimSpace(head) + " " + item)
 	}
 	return item
 }

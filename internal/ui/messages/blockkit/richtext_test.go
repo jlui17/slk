@@ -336,7 +336,7 @@ func TestRichTextToMrkdwn_IndentedList(t *testing.T) {
 	}}
 	// Indent of 2 means two levels deep: 4 spaces of leading
 	// padding before the bullet.
-	want := "    • deep"
+	want := "    ▪ deep"
 	if got := RichTextToMrkdwn(rt); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

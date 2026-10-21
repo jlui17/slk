@@ -1,0 +1,278 @@
+{
+  "blocks": [
+    {
+      "type": "rich_text",
+      "block_id": "b1",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "Plan for the garden this spring."
+            },
+            {
+              "type": "text",
+              "text": "\n\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_preformatted",
+          "elements": [
+            {
+              "type": "text",
+              "text": "garden\n├─ beds     three raised beds\n└─ path     gravel"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "Picks:"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Three beds, not four."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Seeds come from the shop, so the "
+                },
+                {
+                  "type": "text",
+                  "text": "tomato",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " plants arrive late."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "No greenhouse. The "
+                },
+                {
+                  "type": "text",
+                  "text": "basil",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " in "
+                },
+                {
+                  "type": "text",
+                  "text": "pots.txt",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " stays inside."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "Build order, with a check per step:"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Beds and soil, as one trip to the yard plus a second trip for compost."
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Check 1: the beds stand level."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Check 2: the soil fills every bed to the top edge, and nothing spills onto the gravel path between them."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Check 3: water drains in a minute."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 1
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Seedlings that wilted go back on the windowsill, so they recover instead of "
+                },
+                {
+                  "type": "text",
+                  "text": "compost_bin",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " taking them."
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Check 1: the seedlings stand up."
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "Check 2: the leaves turn green again."
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 1
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "A fence, so "
+                },
+                {
+                  "type": "text",
+                  "text": "rabbits",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " and "
+                },
+                {
+                  "type": "text",
+                  "text": "deer",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": " stay out. Only if you want it."
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "Pictures when it is done."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

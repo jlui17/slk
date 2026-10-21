@@ -318,7 +318,7 @@ func TestListItem_RichTextListWrapsUnderMarker(t *testing.T) {
 	md := blockkit.RichTextToMrkdwn(blockkit.RichTextBlock{Elements: []slack.RichTextElement{list}})
 	m := New(nil, "general")
 	out := m.blockkitContext(MessageItem{TS: "1.0"}, nil, nil, nil).RenderTextForWidth(md, nil, 30)
-	requireHangingIndent(t, "rich_text list", strippedRows(out), "  1. ", "     ", 30)
+	requireHangingIndent(t, "rich_text list", strippedRows(out), "  a. ", "     ", 30)
 }
 
 func TestWordWrap_KeepsFittingRowsVerbatim(t *testing.T) {
@@ -803,5 +803,54 @@ func TestCodeBlockMarker_MatchesTheCommonMarkPlaceholder(t *testing.T) {
 	}
 	if !isCodeBlockMarker(fmt.Sprintf("\x00CB%d\x00", 12)) {
 		t.Error("CommonMark-shaped placeholder not recognised as a marker")
+	}
+}
+
+// The messages pane draws Slack's nested lists the way Slack does: the
+// numbering runs on across the bullets under each item, the bullets are
+// ◦ and start where their item's text starts, and a wrapped bullet hangs
+// under its own text.
+func TestNestedRichTextListsRenderLikeSlack(t *testing.T) {
+	data, err := os.ReadFile("blockkit/testdata/ordered_list_with_nested_bullets.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Blocks slack.Blocks `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	msg := MessageItem{TS: "1.0", UserName: "bot", Blocks: blockkit.Parse(payload.Blocks)}
+	rows := strings.Split(renderedFor(t, msg, 64), "\n")
+	start := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "Build order") })
+	if start < 0 {
+		t.Fatalf("no build order row:\n%s", strings.Join(rows, "\n"))
+	}
+	left := strings.Index(rows[start], "Build order")
+	var got []string
+	for _, r := range rows[start+1:] {
+		row := strings.TrimRight(r[left:], " ")
+		if row == "" {
+			break
+		}
+		got = append(got, row)
+	}
+	want := []string{
+		"1. Beds and soil, as one trip to the yard plus a second trip",
+		"   for compost.",
+		"   ◦ Check 1: the beds stand level.",
+		"   ◦ Check 2: the soil fills every bed to the top edge, and",
+		"     nothing spills onto the gravel path between them.",
+		"   ◦ Check 3: water drains in a minute.",
+		"2. Seedlings that wilted go back on the windowsill, so they",
+		"   recover instead of compost_bin taking them.",
+		"   ◦ Check 1: the seedlings stand up.",
+		"   ◦ Check 2: the leaves turn green again.",
+		"3. A fence, so rabbits and deer stay out. Only if you want",
+		"   it.",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("build order list in the messages pane:\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
