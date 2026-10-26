@@ -854,3 +854,76 @@ func TestNestedRichTextListsRenderLikeSlack(t *testing.T) {
 		t.Errorf("build order list in the messages pane:\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// Slack sends a struck-through sentence with inline code in it as one
+// text element per style run, each with strike set. Shape as seen
+// 2026-10 in a bot's corrected reply.
+func TestStruckSentenceWithInlineCodeRendersLikeSlack(t *testing.T) {
+	var blocks slack.Blocks
+	if err := json.Unmarshal([]byte(`[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[
+		{"type":"text","text":"I didn't parse \"mdst\". I'll keep ","style":{"strike":true}},
+		{"type":"text","text":"tool_result_anomalies","style":{"strike":true,"code":true}},
+		{"type":"text","text":" and its key as they are unless you say otherwise.","style":{"strike":true}},
+		{"type":"text","text":" Noted on 2."}
+	]}]}]`), &blocks); err != nil {
+		t.Fatal(err)
+	}
+	m := New([]MessageItem{{TS: "1.0", UserName: "bot", Blocks: blockkit.Parse(blocks)}}, "general")
+	m.buildCache(50)
+	i := slices.IndexFunc(m.cache, func(e viewEntry) bool { return e.msgIdx == 0 })
+	var drawn, struck []string
+	for _, row := range m.cache[i].linesNormal[1:] {
+		drawn = append(drawn, strings.TrimRight(strings.TrimPrefix(ansi.Strip(row), "▌"), " "))
+		struck = append(struck, struckText(row))
+	}
+	wantDrawn := []string{
+		`I didn't parse "mdst". I'll keep`,
+		"tool_result_anomalies and its key as they are",
+		"unless you say otherwise. Noted on 2.",
+	}
+	wantStruck := []string{
+		`I didn't parse "mdst". I'll keep`,
+		"tool_result_anomalies and its key as they are",
+		"unless you say otherwise.",
+	}
+	if !slices.Equal(drawn, wantDrawn) || !slices.Equal(struck, wantStruck) {
+		t.Errorf("struck sentence in the messages pane:\n got rows:\n%s\n struck:\n%s\nwant rows:\n%s\n struck:\n%s",
+			strings.Join(drawn, "\n"), strings.Join(struck, "\n"), strings.Join(wantDrawn, "\n"), strings.Join(wantStruck, "\n"))
+	}
+}
+
+// struckText returns the characters s draws with strikethrough on.
+func struckText(s string) string {
+	var b strings.Builder
+	struck := false
+	rest := s
+	for rest != "" {
+		loc := sgrSeqRe.FindStringIndex(rest)
+		if loc == nil {
+			loc = []int{len(rest), len(rest)}
+		}
+		if struck {
+			b.WriteString(ansi.Strip(rest[:loc[0]]))
+		}
+		if loc[0] == len(rest) {
+			break
+		}
+		params := strings.Split(rest[loc[0]+2:loc[1]-1], ";")
+		for i := 0; i < len(params); i++ {
+			switch params[i] {
+			case "", "0", "29":
+				struck = false
+			case "9":
+				struck = true
+			case "38", "48", "58":
+				if i+1 < len(params) && params[i+1] == "2" {
+					i += 4
+				} else {
+					i += 2
+				}
+			}
+		}
+		rest = rest[loc[1]:]
+	}
+	return b.String()
+}

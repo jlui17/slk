@@ -45,8 +45,8 @@ func RichTextToMrkdwn(rt RichTextBlock) string {
 // text element as a literal newline.
 func sectionToMrkdwn(elements []slack.RichTextSectionElement) string {
 	var b strings.Builder
-	for _, e := range elements {
-		b.WriteString(inlineToMrkdwn(e))
+	for _, run := range styleRuns(elements) { // fork: richtext_runs_fork.go
+		b.WriteString(runToMrkdwn(run))
 	}
 	return b.String()
 }

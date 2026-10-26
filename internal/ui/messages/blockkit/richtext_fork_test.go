@@ -150,3 +150,27 @@ func TestRichTextToMrkdwn_ListWithoutBorderIsNotQuoted(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// A struck phrase with inline code in it arrives as one struck text
+// element per run; one marker pair goes around the phrase.
+func TestRichTextToMrkdwn_StyledPhraseWithCodeIsOneRun(t *testing.T) {
+	text := func(s string, style slack.RichTextSectionTextStyle) *slack.RichTextSectionTextElement {
+		return &slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: s, Style: &style}
+	}
+	strike := slack.RichTextSectionTextStyle{Strike: true}
+	boldStrike := slack.RichTextSectionTextStyle{Bold: true, Strike: true}
+	rt := rtSection(
+		text("keep ", strike),
+		text("a<b", slack.RichTextSectionTextStyle{Strike: true, Code: true}),
+		text(" as is.", strike),
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: " "},
+		text("Bold ", boldStrike),
+		text("x", slack.RichTextSectionTextStyle{Bold: true, Strike: true, Underline: true}),
+		text("\n", boldStrike),
+		text("y", boldStrike),
+	)
+	want := "~keep `a&lt;b` as is.~ *~Bold x~*\n*~y~*"
+	if got := RichTextToMrkdwn(rt); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

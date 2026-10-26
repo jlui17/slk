@@ -118,6 +118,10 @@ there and resolve them knowing what the fork wants:
   is set (`profilelink_fork.go`), as the messages pane and thread panel set
   it, so a click on it opens the profile card (`profilecard.go`); upstream
   draws the mention plain.
+  Strikethrough draws through `renderStrikethrough` (`strike_fork.go`),
+  which strikes a run with a styled span in it (inline code, bold) without
+  cutting the span's escape sequences apart; upstream's lipgloss render
+  prints their pieces as text.
 - `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
@@ -186,6 +190,10 @@ there and resolve them knowing what the fork wants:
   markers cycle by indent (•, ◦, ▪ and 1., a., i.), and a nested list
   starts where its parent item's text starts. `TestRichTextToMrkdwn_IndentedList`
   now wants `▪` at indent 2.
+  `sectionToMrkdwn` puts one marker pair around neighbouring text elements
+  that share bold, italic and strike (`richtext_runs_fork.go`), so a struck
+  phrase with inline code in it reads ``~keep `x` y~``; upstream wraps each
+  element in its own pair, which the renderer cannot pair up.
 - `internal/ui/messages/blockkit/attachments.go` (+ `attachments_test.go`,
   `integration_test.go`, `messages/blockkit_integration_test.go`) —
   `RenderLegacy` draws each attachment through `appendCard`

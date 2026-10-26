@@ -88,3 +88,27 @@ func strikeBoundaryBefore(runes []rune, i int) bool {
 func isStrikeWordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
+
+// renderStrikethrough strikes inner. lipgloss strikes rune by rune, which
+// cuts apart an escape sequence an earlier pass put in inner (a code
+// span's colours) and prints its pieces. Such an inner keeps its
+// sequences and gets strike turned on before each rune instead, so a
+// row the wrapper starts mid-run, which carries no open style, is struck
+// too.
+func renderStrikethrough(inner string) string {
+	if !strings.ContainsRune(inner, '\x1b') {
+		return strikethroughStyle().Render(inner)
+	}
+	var b strings.Builder
+	text := 0
+	for _, seq := range append(sgrSeqRe.FindAllStringIndex(inner, -1), []int{len(inner), len(inner)}) {
+		for _, r := range inner[text:seq[0]] {
+			b.WriteString("\x1b[9m")
+			b.WriteRune(r)
+		}
+		b.WriteString(inner[seq[0]:seq[1]])
+		text = seq[1]
+	}
+	b.WriteString("\x1b[29m")
+	return b.String()
+}
