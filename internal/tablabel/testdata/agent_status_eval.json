@@ -763,5 +763,29 @@
     "message": "Round 1 of [#2744](https://git.colony.camp/colony/colony/pulls/2744) (colony-2165, PR 3a, the upstream `gws` 0.22.5 in the pod image): looks good at `012de704`, with 0 must-fixes and 2 should-fixes that need no commit, in [review 4885](https://git.colony.camp/colony/colony/pulls/2744#issuecomment-41755). Not a merge call, and @.Justin Lui needs to do nothing now. The should-fixes: the body's \"no layer cache, every run downloads\" is false (the nightly runner bake is the new github.com dependent), and the held refusal has no Kaneo owner while colony-2165's \"done\" still lists it. Open before a merge word: the author's class 2 steps 3 to 5 on a built image. The sha256 pin is enough for 3a; before 3b I would hold for a recorded `gh attestation verify` per arch by a person, which fits into the class 2 run. Detail in [the #gitea review thread](https://colony-pyo1658.slack.com/archives/C0AJAL5UV34/p1791521690939089).",
     "from_agent": true,
     "want": "working"
+  },
+  {
+    "name": "fix in review, merges on the word the user already gave",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1793052013858569?thread_ts=1792455601.234769&cid=C0BCG30UGEP",
+    "note": "The user typed \"ok to merge\" 7 messages before it, and the agent replied that the fix merges as soon as the #gitea review has nothing left. The newest message quotes that word as given: the review and then the agent's merge hold the next step, and nothing waits on the user. The judge read the newest message alone as re-asking for a word not typed yet, blocked 8 of 8 on claude-sonnet-5-5 at low; slk's 5 earlier messages do not reach back to the word.",
+    "earlier": [],
+    "message": "The fix is up as #3428 and in #gitea review. It keeps the check and passes when the index settings are absent or are Gitea's defaults. The test builds with colony-1's real config, and CI is green. It merges on your \"ok to merge\" once the review has nothing left.",
+    "from_agent": true,
+    "want": "working"
+  },
+  {
+    "name": "fix in review, merges on the word the user already gave, after the 5 earlier messages slk sends",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1793052013858569?thread_ts=1792455601.234769&cid=C0BCG30UGEP",
+    "note": "The user typed \"ok to merge\" 7 messages before it, and the agent replied that the fix merges as soon as the #gitea review has nothing left. The newest message quotes that word as given: the review and then the agent's merge hold the next step, and nothing waits on the user. The judge read the newest message alone as re-asking for a word not typed yet, blocked 8 of 8 on claude-sonnet-5-5 at low; slk's 5 earlier messages do not reach back to the word.",
+    "earlier": [
+      "user: after it's fixed let's confirm it then re-run any jobs that failed",
+      "agent: Will do, in this order: 1. Fix merges, then the pin roll puts it on dev. 2. Your Claude Code reruns class 3 from step 1, to confirm the build passes the check and the twin boots with the index already in place. 3. Rerun what failed. That's every composer execution on dev that failed with `sets [indexer]` since `9759d394` rolled out, plus the problem rows those executions failed. Each one goes out again as a new attempt, through the same path it took the first time. For Justin's Claude Code, now, read-only: please list those failed executions and their problem rows (row id, annotation, attempt, cutoff), so the rerun list is ready when the fix lands. I'll post the go here after class 3 passes. Each rerun row auto-submits to Taiga, so these are paid runs.",
+      "user: Justin's local Claude Code: I'm building the rerun list now, read-only. It covers every composer execution on dev that failed with `sets [indexer]` since `9759d394` rolled out, and each one's problem row: row id, annotation, attempt, cutoff and current status. It also notes whether a newer attempt already exists. My class 3 test execution `composer-job-dev-rpl6h` had no problem row, so I'll list it apart. I'll post the list here when it's ready. When the fix is on dev, I'll rerun class 3 from step 1. *Sent using* @Claude",
+      "user: Justin's local Claude Code: _The rerun list is empty._ Since `9759d394` rolled out to dev (the jobs updated at 20:10Z, pin roll !3419), the only composer execution that ran is my class 3 test, `composer-job-dev-rpl6h`, and it had no problem row. So no problem row failed on `sets [indexer]`, and nothing needs a rerun. • `composer-job-dev`: since 20:00Z, `rpl6h` is the only execution. `composer-job-redacted-dev`: no executions; its newest is 10-23 14:51Z. These are the only two jobs that carry `GITEA_TWINNER_IMAGE`. • Cloud Builds since 20:00Z: 4 failed, all `rpl6h`'s. The other 5 are successful hydration builds. • `problems` rows: none were requested, wrapped, marked image-ready, or failed since 20:00Z. The newest request was at 19:25:38Z. The 21:12Z roll (`e03bb7be`) doesn't hold the fix yet, so dev is still exposed until the fix rolls out. What's left: when the fix is on dev, I rerun class 3 from step 1. Not this thread's work, but my worker saw it while reading the logs: `eventing-job-dev` has failed on every execution since at least 10-26 12:02Z, with `No space left on device (SQLSTATE 53100)` on the Postgres it extracts into. *Sent using* @Claude",
+      "agent: Thanks. No problem rows ran on the broken build, so nothing needs a rerun. The only open step is class 3, once the fix is on dev. I sent the `eventing-job-dev` disk failure to the triage thread."
+    ],
+    "message": "The fix is up as #3428 and in #gitea review. It keeps the check and passes when the index settings are absent or are Gitea's defaults. The test builds with colony-1's real config, and CI is green. It merges on your \"ok to merge\" once the review has nothing left.",
+    "from_agent": true,
+    "want": "working"
   }
 ]
