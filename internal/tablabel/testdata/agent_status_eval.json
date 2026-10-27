@@ -787,5 +787,29 @@
     "message": "The fix is up as #3428 and in #gitea review. It keeps the check and passes when the index settings are absent or are Gitea's defaults. The test builds with colony-1's real config, and CI is green. It merges on your \"ok to merge\" once the review has nothing left.",
     "from_agent": true,
     "want": "working"
+  },
+  {
+    "name": "ack of merge once tests pass, the merge words wait for PRs not up yet",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1793120038558809?thread_ts=1792650412.310189&cid=C0BCG30UGEP",
+    "note": "The user typed \"merge once tests pass\" before PR A and PR B were up, and the agent acknowledged it: it will post both PR numbers here, and a \"merge <number>\" for each then lets it merge. Writing the PRs and posting their numbers hold the next step; the merge word is for PRs that do not exist yet, so nothing waits on the user now. The judge read the newest message alone as saying again that the work waits for a word not typed yet, u 15 of 20 on claude-sonnet-5-5 at low and 20 of 20 at medium; it never read d, so the earlier messages never reached the model.",
+    "earlier": [],
+    "message": "Will do. PR A and PR B touch the hold's guard and turn it on for every run, so our merge rule needs a word typed with each PR's number, and neither PR has one yet. I'll post both numbers here when they're up. Then a \"merge <number>\" for each lets me merge it as soon as its tests pass, with no further check-in.",
+    "from_agent": true,
+    "want": "working"
+  },
+  {
+    "name": "ack of merge once tests pass, the merge words wait for PRs not up yet, after the 5 earlier messages slk sends",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1793120038558809?thread_ts=1792650412.310189&cid=C0BCG30UGEP",
+    "note": "The user typed \"merge once tests pass\" before PR A and PR B were up, and the agent acknowledged it: it will post both PR numbers here, and a \"merge <number>\" for each then lets it merge. Writing the PRs and posting their numbers hold the next step; the merge word is for PRs that do not exist yet, so nothing waits on the user now. The judge read the newest message alone as saying again that the work waits for a word not typed yet, u 15 of 20 on claude-sonnet-5-5 at low and 20 of 20 at medium; it never read d, so the earlier messages never reached the model.",
+    "earlier": [
+      "user: test plan for the prs?",
+      "agent: Here's the test plan for both PRs. PR A (controller + mcpshim, inert on its own): 1. Unit tests and CI. The mcpshim flag parses, an empty value means off, and a bad value fails startup. mcpshim strips any inherited `CONTROLLER_CUTOFF_TS`/`CONTROLLER_CLOCK` and sets the cut only under the flag. The controller holds only when the cut is set, and the cutoff, past, NTP and resume checks behave as today. 2. Covered by PR B's hand run below. 3. After merge, the next dev pipeline runs still show no clock lines, because nothing passes the flag yet. PR B (taiga-submit passes each problem's cut): 1. Unit tests and CI. A problem with a cut gets `mcpshim -clock-cutoff=<cut>`, a problem without one gets bare `mcpshim`, and the golden payload is updated. 2. Before merge: one hand Taiga run from a throwaway taiga-submit job built from main + A + B. Your Claude Code runs it from a steps file, like v3. It passes if there's one `held` line at exactly that problem's cut, offsets ≤0.05 s at setup done and at grading, every re-hold `cause=set`, no refusal or give-up, and the run completes and scores. Same cleanup as v3: delete the throwaway job, and the dev job stays unchanged. 3. After merge: one dev pipeline run plus Full Env QA shows `held` at the problem's own cut. I'm not adding a laptop or docker arm that moves a clock. The no-flag case is covered by unit tests and by every current run. *Is this the test plan you want?* If yes, I'll merge each PR once its checks pass and you've typed its merge word.",
+      "user: yes",
+      "user: Justin's local Claude Code is watching this thread to run the tests it needs. I don't need anything from this thread. When the steps file for PR B's hand Taiga run is posted here, I'll run it and post the SEND-BACK lines here, the same way as v3. *Sent using* @Claude",
+      "user: merge once tests pass"
+    ],
+    "message": "Will do. PR A and PR B touch the hold's guard and turn it on for every run, so our merge rule needs a word typed with each PR's number, and neither PR has one yet. I'll post both numbers here when they're up. Then a \"merge <number>\" for each lets me merge it as soon as its tests pass, with no further check-in.",
+    "from_agent": true,
+    "want": "working"
   }
 ]
