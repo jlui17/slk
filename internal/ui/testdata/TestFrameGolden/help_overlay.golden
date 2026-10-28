@@ -1,12 +1,13 @@
       ╭─────────────╭──────────────────────────────────────────────────────────╮━━━━━━━━━━━━━━━━━┓  
       │  ⚑ Threads  │                                                          │                 ┃  
-      │             │ Keybindings                                              │                 ┃  
-      │  ▾ Direct Me│ Press / to search                                        │                 ┃  
-      │  ○ alice    │                                                          │                 ┃  
-      │             │ ▌r                  add reaction                       █ │                 ┃  
+      │  ◉ Activity │ Keybindings                                              │                 ┃  
+      │             │ Press / to search                                        │                 ┃  
+      │  ▾ Direct Me│                                                          │                 ┃  
+      │  ○ alice    │ ▌u                  Activity: toggle unread-only       █ │                 ┃  
+      │             │  r                  add reaction                       █ │                 ┃  
       │  ▾ Channels │  ctrl+o / alt+enter also send reply to channel         █ │                 ┃  
       │ ▌# general  │  m                  app's Home or Messages tab         █ │                 ┃  
-      │  # incidents│  esc                back                               █ │                 ┃  
+      │  # incidents│  esc                back                               │ │                 ┃  
       │             │  G                  bottom                             │ │                 ┃  
       │             │  ctrl+w o / :only   close other windows                │ │                 ┃  
       │             │  q                  close thread view                  │ │                 ┃  
@@ -20,7 +21,6 @@
       │             │  j/down             down                               │ │                 ┃  
       │             │  d                  download file in message           │ │                 ┃  
       │             │  E                  edit message                       │ │                 ┃  
-      │             │  ctrl+x             edit message in $EDITOR            │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

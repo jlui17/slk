@@ -212,7 +212,41 @@ type (
 	ThreadsListDirtyMsg struct {
 		TeamID string
 	}
-	ConnectionStateMsg struct {
+	// ActivityViewActivatedMsg is dispatched when the user picks the
+	// synthetic Activity sidebar row (or runs :activity). The App
+	// switches the message pane to the Activity view and fetches the
+	// feed. Mirrors ThreadsViewActivatedMsg.
+	ActivityViewActivatedMsg struct{}
+	// ActivityListLoadedMsg carries a freshly loaded page of Activity
+	// feed items for the named workspace. The App ignores it if it
+	// doesn't match the active team. Mirrors ThreadsListLoadedMsg.
+	ActivityListLoadedMsg struct {
+		TeamID string
+		Items  []core.ActivityItem
+	}
+	// ActivitySelectedMsg is dispatched when the user presses Enter on
+	// an Activity row. The App opens the underlying thread (ThreadTS
+	// set) or channel message (jumps to TS) reusing existing helpers.
+	ActivitySelectedMsg struct {
+		ChannelID string
+		TS        string
+		ThreadTS  string
+	}
+	// ActivityBodiesLoadedMsg carries hydrated message bodies for the
+	// refs in a freshly loaded Activity page (fetched via messages.list
+	// as a second step after activity.feed, which returns refs only).
+	// Bodies are keyed by core.ActivityMsgKey(channelID, ts). Ignored
+	// if it doesn't match the active team.
+	ActivityBodiesLoadedMsg struct {
+		TeamID string
+		Bodies map[string]core.ActivityMessage
+	}
+	// ActivityToggleUnreadMsg flips the Activity view's unread-only
+	// filter and re-fetches the feed with the new flag (the server does
+	// the filtering). Dispatched by the unread-toggle key while the
+	// Activity view is focused.
+	ActivityToggleUnreadMsg struct{}
+	ConnectionStateMsg      struct {
 		// TeamID scopes the state to one workspace; the statusbar
 		// segment shows only the active workspace's state, others are
 		// cached and applied on workspace switch. "" applies directly
@@ -683,6 +717,16 @@ type WSMessageDeletedMsg struct {
 type UploadProgressMsg struct {
 	Done  int
 	Total int
+}
+
+// UserProfileLoadedMsg carries the result of the K-opened user-profile
+// dialog's fetch (core.ProfileService.Profile), successful or not.
+// reduceUserProfile applies it only when the dialog is still visible
+// and still targeting TeamID/UserID; otherwise it is dropped as stale.
+type UserProfileLoadedMsg struct {
+	TeamID, UserID string
+	Profile        core.UserProfile
+	Err            error
 }
 
 // UploadResultMsg carries the final result of an upload batch.

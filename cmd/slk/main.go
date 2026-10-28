@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,7 +44,6 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/workspace"
-	versionpkg "github.com/gammons/slk/internal/version"
 	"github.com/gammons/slk/internal/wake"
 	"github.com/slack-go/slack"
 	"golang.design/x/clipboard"
@@ -114,6 +114,19 @@ func main() {
 				os.Exit(1)
 			}
 			os.Exit(0)
+		case "--demo":
+			// Hidden: recording mode for the README GIFs. Deliberately
+			// not in printHelp. Runs before the config pre-load below,
+			// so it never reads the user's config.
+			scenario := "hero"
+			if len(os.Args) > 2 {
+				scenario = os.Args[2]
+			}
+			if err := runDemo(scenario); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "herdr":
 			os.Exit(herdrMain(os.Args[2:]))
 		}
@@ -336,8 +349,8 @@ func run(startupLink *slackurl.Permalink) error {
 	terminalOutput := imgpkg.NewFrameOutput(os.Stdout, sixelFrames)
 	imgpkg.KittyOutput = terminalOutput.SideChannel()
 	app.SetSixelFrameStore(sixelFrames)
-	app.SetHelpFooter(versionpkg.ModalFooter(version))
 	app.SetClipboardAvailable(clipboardOK)
+	app.SetClipboardWriter(newClipboardWriter(runtime.GOOS, os.Getenv, writeMacOSClipboard))
 	desktop := core.DesktopServiceFuncs{
 		Open:          browserLauncher(launchOS), // fork: $BROWSER opens URLs
 		ReadClipboard: nativeClipboardRead,
@@ -365,14 +378,6 @@ func run(startupLink *slackurl.Permalink) error {
 	// Connect to workspaces
 	ctx := context.Background()
 	tsFormat := cfg.Appearance.TimestampFormat
-
-	// Used by the optimistic instant-display path on send: the App
-	// mints a placeholder MessageItem before the chat.postMessage HTTP
-	// round-trip and needs a Timestamp string that renders identically
-	// to messages arriving through the normal load path.
-	app.SetNowTimestampFormatter(func() string {
-		return time.Now().Format(tsFormat)
-	})
 	messages.SetTimestampFormat(tsFormat) // fork: linked-message card headers
 
 	// Initialize shared image cache (used for avatars and inline images).
@@ -541,18 +546,18 @@ func run(startupLink *slackurl.Permalink) error {
 	for _, it := range wsItems {
 		railTeamIDs = append(railTeamIDs, it.ID)
 	}
-	app.SetTypingEnabled(cfg.Animations.TypingIndicators)
-	app.SetSidebarStaleThreshold(time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour)
-	app.SetMouseWheelLines(cfg.Appearance.MouseWheelLines)
-	app.SetColoredUsernames(cfg.Appearance.ColoredUsernames)
+	applyUISettings(app, uiSettings{
+		TimestampFormat:  tsFormat,
+		TypingIndicators: cfg.Animations.TypingIndicators,
+		StaleAfter:       time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour,
+		MouseWheelLines:  cfg.Appearance.MouseWheelLines,
+		ColoredUsernames: cfg.Appearance.ColoredUsernames,
+		ThemeOverrides:   cfg.Theme,
+	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {
 		app.SetComposeEditor(editor)
 	}
-
-	// Wire theme switcher
-	app.SetThemeItems(styles.ThemeNames())
-	app.SetThemeOverrides(cfg.Theme)
 
 	// AvatarFunc is wired below, after `router` is declared, because
 	// the lazy-fetch path needs router.Active().AvatarURLs to look up
@@ -1117,6 +1122,17 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 		}))
 
+		profileFetch := newProfileFetch(func(teamID string) (func(context.Context, string) (*slack.User, error), bool) {
+			wctx := router.ByID(teamID)
+			if wctx == nil || wctx.Client == nil {
+				return nil, false
+			}
+			return wctx.Client.GetUserProfileContext, true
+		})
+		app.SetProfileService(core.NewProfileService(core.ProfileServiceFuncs{
+			Profile: newProfileCache(5*time.Minute, time.Now, profileFetch).Profile,
+		}))
+
 		upload := func(channelID, threadTS, caption string, attachments []core.PendingAttachment) core.Cmd {
 			return func() core.Msg {
 				wctx := router.Active()
@@ -1301,6 +1317,11 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 		}))
 
+		app.SetActivityService(core.NewActivityService(
+			activityFetchFunc(router),
+			activityHydrateFunc(router),
+		))
+
 		app.SetReactionService(core.NewReactionService(
 			func(channelID ids.ChannelID, messageTS ids.MessageTS, emojiName string) error {
 				wctx := router.Active()
@@ -1349,7 +1370,7 @@ func run(startupLink *slackurl.Permalink) error {
 		app.SetPresenceService(core.NewPresenceService(setStatus, sendTyping))
 		app.SetAppShortcutService(appShortcutService{router}) // fork: appshortcuts_wiring.go
 		app.SetAppHomeService(appHomeService{router})         // fork: apphome_wiring.go
-		app.SetProfileService(profileService{router})         // fork: profilecard_wiring.go
+		app.SetProfileCardService(profileService{router})     // fork: profilecard_wiring.go
 
 	}
 

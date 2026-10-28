@@ -1,13 +1,13 @@
       ╭────────────────────────────╮  ╭──────────────────────────────────────────────────────────╮  
       │  ⚑ Threads                 │  │ # general                                                │  
-      │                            │  │  ⠋ Loading older messages...                             │  
-      │  ▾ Direct Messages         │  │▌alice  10:00 AM                                          │  
-      │  ○ alice                   │  │▌deploy went out clean                                    │  
-      │                            │  │                                                          │  
-      │  ▾ Channels                │  │▌bob  11:00 AM                                            │  
-      │ ▌# general                 │  │▌confirming, dashboards look flat                         │  
-      │  # incidents               │  │                                                          │  
-      │                            │  │                       ── Today ──                        │  
+      │  ◉ Activity                │  │  ⠋ Loading older messages...                             │  
+      │                            │  │▌alice  10:00 AM                                          │  
+      │  ▾ Direct Messages         │  │▌deploy went out clean                                    │  
+      │  ○ alice                   │  │                                                          │  
+      │                            │  │▌bob  11:00 AM                                            │  
+      │  ▾ Channels                │  │▌confirming, dashboards look flat                         │  
+      │ ▌# general                 │  │                                                          │  
+      │  # incidents               │  │                       ── Today ──                        │  
       │                            │  │▌alice  9:00 AM                                           │  
       │                            │  │▌retry queue is draining again                            │  
       │                            │  │                                                          │  

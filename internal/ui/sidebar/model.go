@@ -225,6 +225,7 @@ type navKind int
 
 const (
 	navThreads navKind = iota
+	navActivity
 	navHeader
 	navChannel
 )
@@ -301,7 +302,12 @@ type Model struct {
 	// is on a different row), the synthetic Threads row renders with
 	// the same orange "active" indicator used for active channels.
 	threadsActive bool
-	nowFn         func() time.Time
+	// activityActive reports that the Activity view is the currently
+	// displayed view in the message pane. Mirrors threadsActive: when
+	// true (and the cursor is on a different row), the synthetic
+	// Activity row renders with the orange "active" indicator.
+	activityActive bool
+	nowFn          func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
 	// selected row on every render. While snappedSelection == cursor,
@@ -309,6 +315,11 @@ type Model struct {
 	// preserved.
 	snappedSelection int
 	hasSnapped       bool
+
+	// lastHeight is the viewport height of the most recent View() call.
+	// PageDown/PageUp need it to know whether the viewport can still
+	// scroll before deciding where the cursor lands.
+	lastHeight int
 
 	// version increments on every state change that could alter the rendered
 	// View() output. The App layer caches the WRAPPED panel output (border +
@@ -331,6 +342,12 @@ type Model struct {
 	// the cursor sits on it, SelectedItem/SelectedID return zero / empty
 	// and the App layer activates the threads view instead.
 	threadsUnread int
+
+	// Synthetic "Activity" row state. Rendered directly below the
+	// Threads row. Like the Threads row it is selectable via j/k but is
+	// NOT a channel — when the cursor sits on it, SelectedItem/SelectedID
+	// return zero / empty and the App layer activates the Activity view.
+	activityUnread int
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the cursor "▌" glyph dims from Accent to TextMuted (via
@@ -605,6 +622,16 @@ func (m *Model) SetThreadsActive(active bool) {
 	m.dirty()
 }
 
+// SetActivityActive marks the synthetic "Activity" row as the active
+// destination in the message pane. Mirrors SetThreadsActive.
+func (m *Model) SetActivityActive(active bool) {
+	if m.activityActive == active {
+		return
+	}
+	m.activityActive = active
+	m.dirty()
+}
+
 // Version returns a counter that increments any time the View() output could
 // change. Callers can compare against a previously-seen version to know
 // whether to recompute downstream layout / wrapping.
@@ -644,6 +671,28 @@ func (m *Model) IsThreadsSelected() bool {
 func (m *Model) SelectThreadsRow() {
 	for i, n := range m.nav {
 		if n.kind == navThreads {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+// IsActivitySelected reports whether the synthetic "Activity" row is
+// the selected entry. Mirrors IsThreadsSelected.
+func (m *Model) IsActivitySelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navActivity
+}
+
+// SelectActivityRow moves the cursor to the synthetic Activity row.
+func (m *Model) SelectActivityRow() {
+	for i, n := range m.nav {
+		if n.kind == navActivity {
 			if m.cursor != i {
 				m.cursor = i
 				m.dirty()
@@ -734,6 +783,22 @@ func (m *Model) SetThreadsUnreadCount(n int) {
 
 // ThreadsUnreadCount returns the current Threads-row unread badge count.
 func (m *Model) ThreadsUnreadCount() int { return m.threadsUnread }
+
+// SetActivityUnreadCount updates the badge count shown next to the
+// Activity row. Mirrors SetThreadsUnreadCount.
+func (m *Model) SetActivityUnreadCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if m.activityUnread != n {
+		m.activityUnread = n
+		m.cacheValid = false
+		m.dirty()
+	}
+}
+
+// ActivityUnreadCount returns the current Activity-row unread badge count.
+func (m *Model) ActivityUnreadCount() int { return m.activityUnread }
 
 // SetItems replaces the sidebar's channel list. It does NOT reset the
 // cursor to the Threads row — SetItems is called on every routine
@@ -910,6 +975,106 @@ func (m *Model) ViewportAtTop() bool {
 	return m.yOffset == 0
 }
 
+// PageDown is the keyboard half-page/page scroll (ctrl+d, PgDn) with vim
+// semantics: the viewport and the cursor both move down n rows, so the
+// cursor keeps its screen position and lands on whichever row now sits
+// there. When the viewport is already at the bottom and cannot move, the
+// cursor jumps to the last navigable row instead. Contrast ScrollDown,
+// the mouse-wheel scroll, which leaves the cursor alone until it would
+// leave the window.
+func (m *Model) PageDown(n int) { m.pageBy(n) }
+
+// PageUp is PageDown's mirror (ctrl+u, PgUp): viewport and cursor move up
+// together; at the top, the cursor jumps to the first navigable row.
+func (m *Model) PageUp(n int) { m.pageBy(-n) }
+
+func (m *Model) pageBy(delta int) {
+	if delta == 0 || len(m.nav) == 0 {
+		return
+	}
+	dir := 1
+	if delta < 0 {
+		dir = -1
+	}
+
+	// Without a rendered layout (a key before the first frame) there is
+	// no row geometry to keep; step the cursor by nav items instead.
+	if !m.cacheValid || len(m.cacheRows) == 0 || m.lastHeight <= 0 {
+		m.cursor += delta
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		if m.cursor > len(m.nav)-1 {
+			m.cursor = len(m.nav) - 1
+		}
+		m.dirty()
+		return
+	}
+
+	maxOffset := len(m.cacheRows) - m.lastHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	newOffset := m.yOffset + delta
+	if newOffset < 0 {
+		newOffset = 0
+	}
+	if newOffset > maxOffset {
+		newOffset = maxOffset
+	}
+
+	var targetLine int
+	if newOffset == m.yOffset {
+		// Nothing left to scroll: jump the cursor to the end.
+		if dir > 0 {
+			targetLine = len(m.cacheRows) - 1
+		} else {
+			targetLine = 0
+		}
+	} else {
+		// Keep the cursor's screen row: shift it by exactly what the
+		// viewport moved.
+		line := -1
+		for i, r := range m.cacheRows {
+			if r.navIdx == m.cursor {
+				line = i
+				break
+			}
+		}
+		if line < 0 {
+			return
+		}
+		targetLine = line + (newOffset - m.yOffset)
+	}
+
+	// Land on a navigable row: continue in the scroll direction past
+	// blank separators, and fall back to the other direction at the
+	// list's edge.
+	newCursor := m.nearestNavigable(targetLine, dir)
+	if newCursor < 0 {
+		newCursor = m.nearestNavigable(targetLine, -dir)
+	}
+
+	m.yOffset = newOffset
+	if newCursor >= 0 {
+		m.cursor = newCursor
+	}
+	m.snappedSelection = m.cursor
+	m.hasSnapped = true
+	m.dirty()
+}
+
+// nearestNavigable returns the nav index of the first navigable cacheRow
+// at or beyond line in direction dir (+1 down, -1 up), or -1 if none.
+func (m *Model) nearestNavigable(line, dir int) int {
+	for i := line; i >= 0 && i < len(m.cacheRows); i += dir {
+		if m.cacheRows[i].navIdx >= 0 {
+			return m.cacheRows[i].navIdx
+		}
+	}
+	return -1
+}
+
 func (m *Model) GoToTop() {
 	if m.cursor != 0 && len(m.nav) > 0 {
 		m.cursor = 0
@@ -946,6 +1111,15 @@ func (m *Model) VisibleItems() []ChannelItem {
 		result = append(result, m.items[idx])
 	}
 	return result
+}
+
+// PresenceByUser returns the authoritative live presence last recorded
+// for userID via UpdatePresenceByUser, and whether one has been
+// recorded at all. Used by the user-profile dialog, which shows
+// presence only when it is known.
+func (m *Model) PresenceByUser(userID string) (string, bool) {
+	p, ok := m.presenceByUser[userID]
+	return p, ok
 }
 
 // UpdatePresenceByUser records the authoritative live presence for a user
@@ -1186,6 +1360,8 @@ func (m *Model) currentCursorKey() (cursorKey, bool) {
 	switch n.kind {
 	case navThreads:
 		return cursorKey{kind: navThreads}, true
+	case navActivity:
+		return cursorKey{kind: navActivity}, true
 	case navHeader:
 		return cursorKey{kind: navHeader, header: n.header}, true
 	case navChannel:
@@ -1211,8 +1387,9 @@ func (m *Model) rebuildNav() {
 		bucket[key] = append(bucket[key], fi)
 	}
 
-	nav := make([]navItem, 0, 1+len(sectionOrder))
+	nav := make([]navItem, 0, 2+len(sectionOrder))
 	nav = append(nav, navItem{kind: navThreads})
+	nav = append(nav, navItem{kind: navActivity})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
 		if m.IsCollapsed(name) {
@@ -1241,6 +1418,9 @@ func (m *Model) rebuildNavPreserveCursor() {
 	for i, n := range m.nav {
 		switch {
 		case key.kind == navThreads && n.kind == navThreads:
+			m.cursor = i
+			return
+		case key.kind == navActivity && n.kind == navActivity:
 			m.cursor = i
 			return
 		case key.kind == navHeader && n.kind == navHeader && n.header == key.header:
@@ -1344,6 +1524,9 @@ type renderRow struct {
 	// the `active` variant whenever m.threadsActive is true (mirroring
 	// the channelID-based check used for channels).
 	isThreadsRow bool
+	// isActivityRow flags the synthetic Activity row so View() can swap
+	// in the `active` variant whenever m.activityActive is true.
+	isActivityRow bool
 }
 
 // buildCache rebuilds m.cacheRows for the given width. Expensive; runs only
@@ -1387,10 +1570,13 @@ func (m *Model) buildCache(width int) {
 	headerNavIdx := map[string]int{}
 	channelNavIdx := map[int]int{} // filter idx -> nav idx
 	threadsIdx := -1
+	activityIdx := -1
 	for i, n := range m.nav {
 		switch n.kind {
 		case navThreads:
 			threadsIdx = i
+		case navActivity:
+			activityIdx = i
 		case navHeader:
 			headerNavIdx[n.header] = i
 		case navChannel:
@@ -1476,8 +1662,44 @@ func (m *Model) buildCache(width int) {
 		navIdx:       threadsIdx,
 		isThreadsRow: true,
 	})
-	// Blank separator between the Threads row and the first section (or below
-	// the Threads row when there are no channels at all).
+
+	// Synthetic "Activity" row, rendered directly below the Threads row.
+	// Same treatment as the Threads row (see above): the App layer
+	// activates the Activity view when IsActivitySelected() is true.
+	activityLabel := " ◉ Activity"
+	activityCursor := cursorSelected + "◉ Activity"
+	activityActiveLabel := activeBorder + "◉ Activity"
+	if m.activityUnread > 0 {
+		badge := " " + dotStyle.Render("•"+fmt.Sprintf("%d", m.activityUnread))
+		activityLabel += badge
+		activityCursor += badge
+		activityActiveLabel += badge
+	}
+	activityAttrs := bgAnsi
+	if m.activityUnread > 0 {
+		activityAttrs += "\x1b[1m"
+	}
+	activityLabel = messages.ReapplyBgAfterResets(activityLabel, activityAttrs)
+	activityCursor = messages.ReapplyBgAfterResets(activityCursor, activityAttrs)
+	activityActiveLabel = messages.ReapplyBgAfterResets(activityActiveLabel, activityAttrs)
+	activityBaseStyle := styles.ChannelNormal
+	if m.activityUnread > 0 {
+		activityBaseStyle = styles.ChannelUnread
+	}
+	activityNormal := activityBaseStyle.Width(width - 2).Render(activityLabel)
+	activitySelectedRow := styles.ChannelSelected.Width(width - 2).Render(activityCursor)
+	activityActiveRow := styles.ChannelSelected.Width(width - 2).Render(activityActiveLabel)
+	m.cacheRows = append(m.cacheRows, renderRow{
+		normal:        activityNormal,
+		selected:      activitySelectedRow,
+		active:        activityActiveRow,
+		height:        1,
+		navIdx:        activityIdx,
+		isActivityRow: true,
+	})
+
+	// Blank separator between the Threads/Activity rows and the first
+	// section (or below them when there are no channels at all).
 	m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
 
 	// Pre-build the per-section channel rows so we can flatten with
@@ -1843,6 +2065,7 @@ func (m *Model) View(height, width int) string {
 	if !m.cacheValid || m.cacheWidth != width {
 		m.buildCache(width)
 	}
+	m.lastHeight = height
 
 	// Each cacheRow is exactly one rendered line, so the line index of a
 	// row is just its slice index. Find the selected row by matching the
@@ -1879,6 +2102,38 @@ func (m *Model) View(height, width int) string {
 		m.yOffset = maxOffset
 	}
 
+	// Clamp the cursor to the visible window so it follows scrolling
+	// (mouse wheel / page keys), mirroring the messages pane: when a
+	// viewport scroll pushes the selected row off-screen, drag the cursor
+	// to the nearest still-visible navigable row -- topmost when the row
+	// went above the window, bottommost when it went below. No-op when
+	// the selected row is already on screen, so the j/k snap path above
+	// is unaffected. Rows with navIdx < 0 (blank separators, the "No
+	// channels" placeholder) are never selectable and are skipped.
+	if selectedLine >= 0 {
+		visibleTop := m.yOffset
+		visibleBottom := m.yOffset + height
+		selectionAbove := selectedLine < visibleTop
+		selectionBelow := selectedLine >= visibleBottom
+		if selectionAbove || selectionBelow {
+			newCursor := -1
+			for i := visibleTop; i < visibleBottom && i < len(m.cacheRows); i++ {
+				if m.cacheRows[i].navIdx < 0 {
+					continue
+				}
+				newCursor = m.cacheRows[i].navIdx
+				if selectionAbove {
+					break // topmost visible row
+				}
+				// selectionBelow: keep going to land on the bottommost.
+			}
+			if newCursor >= 0 && newCursor != m.cursor {
+				m.cursor = newCursor
+				m.snappedSelection = m.cursor
+			}
+		}
+	}
+
 	// Build visible window by slicing cacheRows. No lipgloss work per frame.
 	end := m.yOffset + height
 	if end > len(m.cacheRows) {
@@ -1899,6 +2154,10 @@ func (m *Model) View(height, width int) string {
 		case r.isThreadsRow && m.threadsActive && r.active != "":
 			// Threads view is the currently displayed view; mark the
 			// Threads row as active with the same orange indicator.
+			visible = append(visible, r.active)
+		case r.isActivityRow && m.activityActive && r.active != "":
+			// Activity view is the currently displayed view; mark the
+			// Activity row as active with the same orange indicator.
 			visible = append(visible, r.active)
 		case r.normal == "":
 			// Inter-section blank row -- emit a width-sized themed blank so

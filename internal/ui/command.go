@@ -25,13 +25,22 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":     cmdWorkspaceFinder,
-	"sp":     cmdSplit,
-	"vsp":    cmdVSplit,
-	"q":      cmdCloseWindow,
-	"only":   cmdOnlyWindow,
-	"on":     cmdOnlyWindow,
-	"reload": cmdReload,
+	"ws":       cmdWorkspaceFinder,
+	"sp":       cmdSplit,
+	"vsp":      cmdVSplit,
+	"q":        cmdCloseWindow,
+	"only":     cmdOnlyWindow,
+	"on":       cmdOnlyWindow,
+	"reload":   cmdReload,
+	"activity": cmdActivity,
+}
+
+// cmdActivity opens the Activity view (mentions, thread replies,
+// reactions to your messages, DMs). The sidebar ◉ Activity row is the
+// primary entry point; this command mirrors it for discoverability.
+func cmdActivity(a *App, _ []string) tea.Cmd {
+	a.sidebar.SelectActivityRow()
+	return func() tea.Msg { return ActivityViewActivatedMsg{} }
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the

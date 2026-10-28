@@ -84,10 +84,10 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 	}
 	// Lines moved per wheel notch -- configured via
 	// [appearance].mouse_wheel_lines (default 3, matches typical
-	// terminal behavior). Single-row panes (sidebar) still feel
-	// fine because real-world workspace lists are short and the
-	// snap-back on the next j/k restores the previously-selected
-	// channel.
+	// terminal behavior). Each pane's View() clamps its cursor to
+	// the visible window after a wheel scroll, so the next j/k
+	// continues from a row on screen rather than snapping back to
+	// the row selected before the scroll.
 	wheelLinesPerNotch := a.mouseWheelLines
 	if wheelLinesPerNotch < 1 {
 		wheelLinesPerNotch = 1
@@ -117,6 +117,14 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 			}
 			// No openSelectedThreadCmd here: pure viewport scroll
 			// does not change the highlighted thread card.
+			return nil
+		}
+		if a.view == ViewActivity {
+			if up {
+				a.activityView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.activityView.ScrollDown(wheelLinesPerNotch)
+			}
 			return nil
 		}
 		if up {
@@ -222,14 +230,17 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			}
 		}
 		// ClickAt returns ok=false for every row that is not a
-		// channel: the synthetic Threads row and section headers. It
-		// has still moved the sidebar's own selection to the clicked
-		// row, so dispatch on that -- in the same order as
+		// channel: the synthetic Threads and Activity rows and section
+		// headers. It has still moved the sidebar's own selection to the
+		// clicked row, so dispatch on that -- in the same order as
 		// handleEnter, which is the keyboard half of this decision.
 		// The two must stay in step: a row that responds to Enter but
 		// not to a click reads as a dead row.
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsActivitySelected() {
+			return func() tea.Msg { return ActivityViewActivatedMsg{} }
 		}
 		// Section header: expand or collapse it in place, matching the
 		// Enter behaviour. Returns false when the selected row is not
@@ -267,6 +278,22 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
 			if ok && panel == PanelMessages && py >= 0 && a.threadsView.ClickAt(py) {
 				return a.openSelectedThreadCmd(false)
+			}
+			return nil
+		}
+		// In the Activity view the messages-pane region renders
+		// activityView; route the click through activityView.ClickAt so
+		// the cursor follows, then open the highlighted item (mirrors
+		// the ViewThreads branch and the j/k/Enter paths).
+		if a.view == ViewActivity {
+			panel, _, py, ok := a.panelAt(m.X, m.Y)
+			if ok && panel == PanelMessages && py >= 0 && a.activityView.ClickAt(py) {
+				if it, ok := a.activityView.SelectedItem(); ok {
+					channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
+					return func() tea.Msg {
+						return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
+					}
+				}
 			}
 			return nil
 		}

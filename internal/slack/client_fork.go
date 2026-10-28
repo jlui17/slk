@@ -52,15 +52,6 @@ func (c *Client) GetReplyAt(ctx context.Context, channelID, threadTS, ts string)
 	return nil, nil
 }
 
-// GetUserProfileContext is GetUserProfile bounded by ctx.
-func (c *Client) GetUserProfileContext(ctx context.Context, userID string) (*slack.User, error) {
-	user, err := c.api.GetUserInfoContext(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("getting user info: %w", err)
-	}
-	return user, nil
-}
-
 // starredConversationID is the id of a stars.list item that is a
 // starred conversation: a channel or a DM (im), under "channel", or a
 // private channel or group DM (group), under "group". Slack lists all

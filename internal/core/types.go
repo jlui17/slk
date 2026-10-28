@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/ids"
 )
@@ -185,6 +188,61 @@ type ThreadSummary struct {
 	LastReplyTS  string
 	LastReplyBy  string
 	Unread       bool
+}
+
+// ActivityItem is a flattened, UI-friendly representation of a single
+// activity.feed entry. The per-type extraction happens in the Slack
+// client so the UI never touches the raw (and wildly type-dependent)
+// JSON.
+type ActivityItem struct {
+	Key       string // stable dedupe/selection id
+	Type      string // at_user, at_channel, thread_v2, message_reaction, dm, bot_dm_bundle, ...
+	IsUnread  bool
+	IsBot     bool
+	FeedTS    string // sort key (newest first)
+	ChannelID string // resolved target channel (from message OR bundle payload)
+	TS        string // resolved target message ts (may be "")
+	ThreadTS  string // set for thread_v2 (== thread root)
+	AuthorID  string // message author (mentions); "" when unknown
+	Reaction  string // emoji short name, for message_reaction only
+}
+
+// ActivityMessage is a hydrated message body for one activity ref
+// (channel + ts). The Activity feed itself returns only references; the
+// body text and author are fetched separately via messages.list.
+type ActivityMessage struct {
+	Text   string
+	UserID string
+}
+
+// ActivityMsgKey is the map key for a hydrated activity message,
+// combining channel ID and message ts. Shared by the Slack client and
+// the activity view so both sides agree on the lookup key.
+func ActivityMsgKey(channelID, ts string) string {
+	return channelID + "\x00" + ts
+}
+
+// UserProfile is a Slack user's profile, as fetched by ProfileService.
+// Handle, RealName and DisplayName are the identity fields that come
+// back from the fetch (users.info); the UI caches only display names it
+// already has locally.
+type UserProfile struct {
+	UserID, TeamID, Handle, RealName, DisplayName string
+	Title, Pronouns, Email, Phone                 string
+	TZ                                            string // IANA name; "" = unknown
+	TZAbbrev                                      string // "PDT"; "" when none or numeric
+	TZOffset                                      int    // seconds east of UTC
+	IsBot, Deleted                                bool
+}
+
+// RateLimitedError is how adapters report Slack rate limiting, so the
+// UI never imports slack-go.
+type RateLimitedError struct {
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitedError) Error() string {
+	return fmt.Sprintf("rate limited, retry after %s", e.RetryAfter)
 }
 
 // Theme holds the user's color overrides from config.

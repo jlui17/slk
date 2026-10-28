@@ -12,13 +12,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-func (m *mockSlackAPI) GetUserInfoContext(ctx context.Context, user string) (*slack.User, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return m.GetUserInfo(user)
-}
-
 // The upload stubs only satisfy SlackAPI: upload_fork_test.go exercises
 // UploadFileUnshared and ShareFiles against slacktest, through slack-go.
 func (m *mockSlackAPI) GetUploadURLExternalContext(ctx context.Context, params slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error) {
@@ -31,15 +24,6 @@ func (m *mockSlackAPI) UploadToURL(ctx context.Context, params slack.UploadToURL
 
 func (m *mockSlackAPI) CompleteUploadExternalContext(ctx context.Context, params slack.CompleteUploadExternalParameters) (*slack.CompleteUploadExternalResponse, error) {
 	return &slack.CompleteUploadExternalResponse{}, nil
-}
-
-func TestGetUserProfileContext_HonorsTheContext(t *testing.T) {
-	c := &Client{api: &mockSlackAPI{}}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := c.GetUserProfileContext(ctx, "U1"); !errors.Is(err, context.Canceled) {
-		t.Errorf("GetUserProfileContext on a cancelled ctx: %v, want context.Canceled", err)
-	}
 }
 
 func TestGetReplyAt(t *testing.T) {

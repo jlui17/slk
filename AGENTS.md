@@ -39,12 +39,14 @@ internal/core/          the ports (service interfaces) the TUI calls, and the
                         values the TUI and cmd/slk exchange through them
 internal/ui/            bubbletea App: reducers, mode key handlers, view regions
 internal/ui/<widget>/   self-contained sub-models (messages, thread, sidebar,
-                        compose, and 13 modal packages)
+                        compose, and 14 modal packages)
 internal/slack/         Slack Web API + browser-protocol WebSocket client
 internal/slack/edge/    edgeapi: conditional revalidation, server-side search
 internal/bootstrap/     startup fetch orchestration
 internal/cache/         SQLite cache (a cache, not a source of truth)
 internal/config/        TOML config
+internal/demo/          fake workspaces + services behind the hidden
+                        `slk --demo` flag; for recording README GIFs only
 ```
 
 **`wiki/Architecture.md` is stale by roughly 7× and describes a service layer
@@ -101,6 +103,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Current DND state from a Slack API result | `slack.DNDStateFromStatus` |
 | Peer custom status, DND and huddle rendering | `ui/peerstatus` (`Status`, glyph/expiry/summary methods); `messages.AuthorStatusSuffix` for author headers |
 | Usergroup map helpers | `usergroups.Copy`, `usergroups.Equal`, `usergroups.Display` |
+| Copy text to the clipboard | `App.clipboardWrite` / `SetClipboardWriter`; `cmd/slk/newClipboardWriter` selects local macOS `pbcopy` or terminal OSC 52 |
 
 ### UI chrome
 
@@ -111,7 +114,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Text selection ranges and anchors | `ui/selection` (`Range`, `Anchor`, `LessOrEqual`) |
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
 | Window tree geometry | `ui/wintree` |
-| Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` in `internal/ui/reducer_modal_click.go` |
+| Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` (list rows), `pointClickable` (a single glyph, e.g. the profile dialog's 📋) in `internal/ui/reducer_modal_click.go` |
 | Channel/DM destination picker for forwarding | `channelfinder.Model.OpenForForwarding()` (joined conversations only); `Open()` restores the normal switcher |
 
 ### Test helpers
@@ -138,7 +141,7 @@ greppable by name; no line numbers, because these files move.
 | Drive a message through the real `Update` chain and render one frame | `updateAndRender(t, a, msg)` (`internal/ui/thread_breadcrumb_test.go`) |
 | An App at a given width, resized via `WindowSizeMsg`, channel focused, for thread-layout tests | `stackedApp(t, w, extra...)` (`internal/ui/thread_stacked_test.go`) |
 | Assert which of channel / thread the last frame drew | `assertFront(t, a, wantChannel, wantThread)` (same file) |
-| Fake one service method on an `App` | `a.setChannelFetcherForTest(fn)` and its siblings, `setUploaderForTest`, `setClipboardReaderForTest`, `setReadStateReaderForTest`, `setDesktopForTest(func(*core.DesktopServiceFuncs))`, `setFilesystemForTest()`, `setEditorForTest()` (`internal/ui/services_helpers_test.go`). Calls for sibling methods of one service compose instead of replacing each other |
+| Fake one service method on an `App` | `a.setChannelFetcherForTest(fn)` and its siblings, `setUploaderForTest`, `setClipboardReaderForTest`, `setReadStateReaderForTest`, `setDesktopForTest(func(*core.DesktopServiceFuncs))`, `setFilesystemForTest()`, `setEditorForTest()`, `setProfileFetcherForTest(fn)` (`internal/ui/services_helpers_test.go`). Calls for sibling methods of one service compose instead of replacing each other |
 | Table-drive a mode handler's keys | `runKeyCases(t, mode, []keyCase{...})` (`internal/ui/modekeys_test.go`). Calls `dispatchModeKey` directly, so it **bypasses** the reducer chain and the `ctrl+c` / bootstrap / scroll-flush gates ahead of it |
 | Build a key message for such a table | `keyPress(r)` printable rune, `keyCode(c)` special key, `keyMod(c, mod)` modified key |
 | Count the rows a finder-style modal is showing | `modalRows(bs)` (`internal/ui/mode_workspace_finder_test.go`) — `h - 7`; floors at 1, and is **not** valid for `newmessagepicker` |
@@ -158,7 +161,7 @@ greppable by name; no line numbers, because these files move.
 These are tracked in the refactor plan and are being consolidated. Do not copy
 them as templates:
 
-- **11 `renderBox` implementations** and **7 `visibleWindow`** across the 13
+- **11 `renderBox` implementations** and **7 `visibleWindow`** across the 14
   modal packages. If you are building a modal, expect a shared chrome package to
   land (Phase 4); coordinate rather than adding a twelfth copy.
 - **`messages.Model` and `thread.Model`** share 377 verbatim lines and 45

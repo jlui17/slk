@@ -193,6 +193,10 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.sidebar.SetThreadsActive(false)
 		a.threadsView.SetSummaries(nil)
 		a.sidebar.SetThreadsUnreadCount(0)
+		a.sidebar.SetActivityActive(false)
+		a.activityView.SetItems(nil)
+		a.activityView.SetBodies(nil)
+		a.sidebar.SetActivityUnreadCount(0)
 		a.lastOpenedChannelID = ""
 		a.lastOpenedThreadTS = ""
 		// Apply the resolved theme for the initial active
@@ -273,6 +277,16 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 				return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
 			})
 		}
+		// Prime the sidebar Activity badge on connect (the feed is a
+		// network call scoped to the active workspace, so — unlike the
+		// per-workspace threads fetch below — fire it only for the one
+		// workspace that just became active).
+		activity := a.activity
+		team := ids.TeamID(m.TeamID)
+		unreadOnly := a.activityView.UnreadOnly()
+		batch = append(batch, func() tea.Msg {
+			return activity.Fetch(team, activityFeedPageLimit, unreadOnly)
+		})
 	}
 	// Initial threads-list fetch fires for every workspace as it
 	// becomes ready; the result is gated by ThreadsListLoadedMsg's
@@ -312,6 +326,12 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		return a.uploadToastCmd("Upload in progress", 2*time.Second)
 	}
+	if a.userProfile.IsVisible() {
+		a.userProfile.Close()
+		if a.mode == ModeUserProfile {
+			a.SetMode(ModeNormal)
+		}
+	}
 	if m.Domain != "" {
 		a.workspaceDomains[m.TeamID] = m.Domain
 	}
@@ -331,8 +351,12 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// has no channels at all.
 	a.view = ViewChannels
 	a.sidebar.SetThreadsActive(false)
+	a.sidebar.SetActivityActive(false)
 	a.threadsView.SetSummaries(nil)
 	a.sidebar.SetThreadsUnreadCount(0)
+	a.activityView.SetItems(nil)
+	a.activityView.SetBodies(nil)
+	a.sidebar.SetActivityUnreadCount(0)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	a.CloseThread()
@@ -422,6 +446,12 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	threads := a.threads
 	team := ids.TeamID(m.TeamID)
 	batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
+	// Refresh the Activity badge for the newly-active workspace too.
+	activity := a.activity
+	unreadOnly := a.activityView.UnreadOnly()
+	batch = append(batch, func() tea.Msg {
+		return activity.Fetch(team, activityFeedPageLimit, unreadOnly)
+	})
 	// Must run after ResetPresence and a.activeTeamID above, so its
 	// UserDNDChangeMsg result isn't wiped or dropped as stale.
 	if m.RefreshPeerDND != nil {

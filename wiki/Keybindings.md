@@ -30,6 +30,9 @@
 | `Ctrl+b` | Any | Toggle sidebar |
 | `Ctrl+]` | Any | Toggle thread panel |
 | `t` | Normal (thread open) | Zoom the thread over the whole message area (press again to restore) |
+| `Ctrl+a` | Normal | Toggle the Activity view (mentions, thread replies, reactions, DMs) |
+| `:activity` | Normal | Open the Activity view |
+| `u` | Normal (activity) | Toggle the Activity view's unread-only filter |
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |
 | `:ws` | Normal | Workspace picker |
 | `1`–`9` | Normal | Jump to workspace N |

@@ -1011,45 +1011,34 @@ func TestNormalModeKeys(t *testing.T) {
 		// Arm 22: ToggleSection space (mode_normal.go:174)
 		// -------------------------------------------------------------
 		{
-			// BUG?: this arm is DEAD, and not because a reducer eats the
-			// key -- the binding itself can never match. keys.go:120
-			// declares ToggleSection as key.WithKeys(" "), and
-			// key.Matches compares against tea.KeyMsg.String(). Key.String
-			// explicitly refuses to return a lone space (ultraviolet
-			// key.go:392: `if len(k.Text) > 0 && k.Text != " "`) and
-			// falls through to Keystroke, whose KeySpace arm writes
-			// "space" (:445-447, and keyTypeString at :463). So a space
-			// press arrives as "space", " " is unreachable, and the
-			// section-toggle documented at mode_normal.go:175-178 never
-			// happens. Enter on a header still toggles (app.go:1549) --
-			// see the row below -- so the feature has a working path;
-			// only this arm is dead. Characterized as-is, not fixed.
-			// Tracked as https://github.com/gammons/slk/issues/184.
-			// WHEN THAT BUG IS FIXED: space toggles, so this row must be
-			// re-pinned to assert IsCollapsed FLIPPED. Do not delete it;
-			// it is the regression guard for the fix. The precondition
-			// on keyPress(' ').String() == "space" stays useful either
-			// way.
+			// Regression guard for https://github.com/gammons/slk/issues/184.
+			// ToggleSection used to be declared as key.WithKeys(" "), but
+			// key.Matches compares against tea.KeyMsg.String(), and
+			// Key.String explicitly refuses to return a lone space
+			// (ultraviolet key.go: `if len(k.Text) > 0 && k.Text != " "`),
+			// falling through to Keystroke, which writes "space". So the
+			// arm was dead. The binding is now "space"; the precondition
+			// pins the stringification the fix relies on.
 			//
 			// The section is recorded in setup rather than re-read after
 			// the press because ToggleCollapse rebuilds the nav rows
 			// (sidebar/model.go:647) and the selected header afterwards
 			// can name a DIFFERENT section.
-			name: "space does NOT toggle a sidebar section: the \" \" binding can never match",
+			name: "space on a sidebar section header toggles its collapse state",
 			opts: normalOpts(),
 			setup: func(t *testing.T, a *App) {
 				toggledSection = selectSidebarSectionHeader(t, a)
-				wantCollapsed = a.sidebar.IsCollapsed(toggledSection)
+				wantCollapsed = !a.sidebar.IsCollapsed(toggledSection)
 				if got := keyPress(' ').String(); got != "space" {
 					t.Fatalf("precondition: a space press stringifies to %q, want %q -- "+
-						"if this changed, the dead arm may have come alive", got, "space")
+						"the ToggleSection binding relies on it", got, "space")
 				}
 			},
 			key:      keyPress(' '),
 			wantMode: ModeNormal,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
 				if got := a.sidebar.IsCollapsed(toggledSection); got != wantCollapsed {
-					t.Errorf("section %q collapsed = %v, want %v (unchanged): the arm is expected to be dead",
+					t.Errorf("section %q collapsed = %v, want %v (flipped by space)",
 						toggledSection, got, wantCollapsed)
 				}
 				if cmd != nil {

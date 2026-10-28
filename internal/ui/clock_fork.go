@@ -2,8 +2,9 @@
 //
 // Testable clock seam for typingTracker, selfSendDedup,
 // presenceController, and App, mirroring sidebar.SetNowFunc: each type
-// carries a nowFn clock field (declared alongside its struct) that
-// defaults to time.Now via the nil-safe Now.
+// but App carries a nowFn clock field (declared alongside its struct)
+// that defaults to time.Now via the nil-safe Now; App's is upstream's
+// now field.
 package ui
 
 import "time"
@@ -32,7 +33,11 @@ func (p *presenceController) now() time.Time { return p.nowFn.Now() }
 // SetNowFunc injects a clock for tests. Pass nil to revert to time.Now.
 func (p *presenceController) SetNowFunc(fn func() time.Time) { p.nowFn = fn }
 
-func (a *App) now() time.Time { return a.nowFn.Now() }
-
-// SetNowFunc injects a clock for tests. Pass nil to revert to time.Now.
-func (a *App) SetNowFunc(fn func() time.Time) { a.nowFn = fn }
+// SetNowFunc injects a clock for tests into App's now field (upstream's,
+// which the user-profile dialog reads). Pass nil to revert to time.Now.
+func (a *App) SetNowFunc(fn func() time.Time) {
+	if fn == nil {
+		fn = time.Now
+	}
+	a.now = fn
+}

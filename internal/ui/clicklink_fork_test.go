@@ -59,7 +59,7 @@ func screenPos(t *testing.T, a *App, text string) (x, y int) {
 // click presses and releases at (x, y), drawing a frame between the two
 // events as the runtime does, and runs every command the release
 // returns through Update.
-func click(a *App, x, y int) {
+func clickAt(a *App, x, y int) {
 	_, _ = a.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	_ = a.View()
 	release(a, x, y)
@@ -90,7 +90,7 @@ func TestClickOnLinkInMessagesPaneOpensIt(t *testing.T) {
 	x, y := screenPos(t, a, "clickme")
 	for _, cell := range []int{0, 6} { // first and last cell of the label
 		*opened = nil
-		click(a, x+cell, y)
+		clickAt(a, x+cell, y)
 		if len(*opened) != 1 || (*opened)[0] != clickLinkURL {
 			t.Errorf("click at label cell %d opened %v, want [%s]", cell, *opened, clickLinkURL)
 		}
@@ -106,7 +106,7 @@ func TestClickOnLinkInMessagesPaneOpensIt(t *testing.T) {
 func TestClickBesideLinkInMessagesPaneOpensThreadAsBefore(t *testing.T) {
 	a, opened, fetched := clickLinkApp(t)
 	x, y := screenPos(t, a, "clickme")
-	click(a, x-2, y) // the space before "clickme" is "see "'s
+	clickAt(a, x-2, y) // the space before "clickme" is "see "'s
 	if len(*opened) != 0 {
 		t.Errorf("a click beside the link opened %v", *opened)
 	}
@@ -151,7 +151,7 @@ func TestClickOnLinkOfACutOffMessageOpensThePressedLink(t *testing.T) {
 		t.Fatal("setup: could not cut the message off at the pane's top")
 	}
 	x, y := screenPos(t, a, "cutlink")
-	click(a, x, y)
+	clickAt(a, x, y)
 	if len(*opened) != 1 || (*opened)[0] != clickLinkURL {
 		t.Errorf("click on the cut-off message's link opened %v, want [%s]", *opened, clickLinkURL)
 	}
@@ -166,7 +166,7 @@ func TestClickOnLinkInThreadPanelOpensIt(t *testing.T) {
 			Text: "read <" + clickLinkURL + "|replylink> first"}},
 		"C1", "5.0")
 	x, y := screenPos(t, a, "replylink")
-	click(a, x, y)
+	clickAt(a, x, y)
 	if len(*opened) != 1 || (*opened)[0] != clickLinkURL {
 		t.Errorf("click on the reply's link opened %v, want [%s]", *opened, clickLinkURL)
 	}
@@ -176,14 +176,14 @@ func TestClickOnLinkInThreadPanelOpensIt(t *testing.T) {
 
 	*opened = nil
 	x, y = screenPos(t, a, "parentlink")
-	click(a, x, y)
+	clickAt(a, x, y)
 	if len(*opened) != 1 || (*opened)[0] != clickLinkURL {
 		t.Errorf("click on the parent's link opened %v, want [%s]", *opened, clickLinkURL)
 	}
 
 	*opened = nil
 	x, y = screenPos(t, a, "read ")
-	click(a, x, y)
+	clickAt(a, x, y)
 	if len(*opened) != 0 {
 		t.Errorf("a click beside the reply's link opened %v", *opened)
 	}

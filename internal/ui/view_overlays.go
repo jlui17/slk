@@ -32,6 +32,7 @@ import (
 
 	"github.com/gammons/slk/internal/ui/presencemenu"
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/ui/userprofile"
 )
 
 // applyOverlays composes any active overlays onto screen and
@@ -73,6 +74,9 @@ func (a *App) applyOverlays(screen string) string {
 	if a.linkPicker.IsVisible() {
 		screen = a.linkPicker.ViewOverlay(a.width, a.height, screen)
 	}
+	if a.userProfile.IsVisible() {
+		screen = a.userProfile.ViewOverlay(a.width, a.height, screen, a.userProfileLive())
+	}
 	if a.mode == ModePresenceCustomSnooze {
 		screen = presencemenu.CustomSnoozeView(a.width, a.height, screen, a.presence.SnoozeBuf())
 	}
@@ -100,8 +104,29 @@ func (a *App) overlayActive() bool {
 		a.linkPicker.IsVisible() ||
 		a.appShortcuts.model.IsVisible() ||
 		a.mode == ModeProfileCard ||
+		a.userProfile.IsVisible() ||
 		a.mode == ModePresenceCustomSnooze ||
 		a.bootstrap.IsLoading()
+}
+
+// userProfileLive builds the render-time inputs for the user-profile
+// dialog: the rendered avatar, presence and status of the user it
+// targets, and the App's clock. Read fresh at every render so a live
+// AvatarReadyMsg, UserStatusChangeMsg or presence update shows up in
+// the next frame without the modal copying any of it.
+func (a *App) userProfileLive() userprofile.Live {
+	_, userID := a.userProfile.Target()
+	var avatar string
+	if a.avatarFn != nil {
+		avatar = a.avatarFn(userID)
+	}
+	presence, _ := a.sidebar.PresenceByUser(userID)
+	return userprofile.Live{
+		Avatar:   avatar,
+		Presence: presence,
+		Status:   a.presence.peers[userID],
+		Now:      a.now(),
+	}
 }
 
 // maybeWrapFinalScreen wraps screen in a full-canvas

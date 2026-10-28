@@ -20,6 +20,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/slackurl"
+	"github.com/gammons/slk/internal/ui/activityview"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/compose"
@@ -41,6 +42,7 @@ import (
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/thread"
 	"github.com/gammons/slk/internal/ui/threadsview"
+	"github.com/gammons/slk/internal/ui/userprofile"
 	"github.com/gammons/slk/internal/ui/wintree"
 	"github.com/gammons/slk/internal/ui/workspace"
 	"github.com/gammons/slk/internal/ui/workspacefinder"
@@ -66,6 +68,9 @@ const (
 	ViewChannels View = iota
 	ViewThreads
 	ViewAppHome // fork: apphome.go, an app DM's Home tab
+	// ViewActivity swaps the pane's contents for the Activity feed
+	// (mentions, thread replies, reactions to your messages, DMs).
+	ViewActivity
 )
 
 const (
@@ -130,6 +135,7 @@ type App struct {
 	threadPanel      *thread.Model
 	threadCompose    compose.Model
 	threadsView      threadsview.Model
+	activityView     activityview.Model
 
 	// State
 	mode           Mode
@@ -256,8 +262,8 @@ type App struct {
 	// until wired.
 	desktop core.DesktopService
 
-	// clipboardWrite creates OSC 52 write commands for permalink and drag-copy
-	// actions. Tests inject fakes via SetClipboardWriter.
+	// clipboardWrite creates copy commands for message, permalink and drag-copy
+	// actions. cmd/slk wires the host backend; tests inject fakes.
 	clipboardWrite clipboardWriter
 
 	// asyncPaste routes paste off the UI goroutine for a slow (bridged)
@@ -277,6 +283,12 @@ type App struct {
 	// no-op adapter in NewApp so call sites can dispatch without
 	// nil-checks.
 	threads core.ThreadService
+
+	// activity is the App's ActivityService collaborator: fetches the
+	// Slack Activity feed (mentions, thread replies, reactions, DMs)
+	// for the Activity view. Defaulted to a no-op adapter in NewApp so
+	// call sites can dispatch without nil-checks.
+	activity core.ActivityService
 
 	threadsDirtyDebounce time.Duration
 
@@ -463,6 +475,18 @@ type App struct {
 	reactionPicker *reactionpicker.Model
 	reactionsView  *reactionsview.Model
 	confirmPrompt  *confirmprompt.Model
+	// userProfile is the K-opened read-only "who is this person?"
+	// modal (see internal/ui/userprofile). profileSvc fetches the
+	// full profile; defaulted to noopProfileService in NewApp so the
+	// cmd built by openUserProfile never calls a nil interface.
+	userProfile *userprofile.Model
+	profileSvc  core.ProfileService
+	// now is the clock used by the user-profile dialog's "local time"
+	// and status-expiry math. Defaults to time.Now; goldens pin it to
+	// goldenClock so the rendered frame is deterministic. Only this
+	// feature reads it -- other App code still calls time.Now
+	// directly.
+	now func() time.Time
 	// reactions is the App's ReactionService collaborator (add/remove
 	// reactions on Slack + load/record frecent emoji history). See
 	// internal/ui/services.go. Defaulted to a no-op adapter in NewApp
@@ -596,7 +620,6 @@ type App struct {
 	// that arrived via the normal HTTP-response / WS-echo paths.
 	// Falls back to time.Now().Format("3:04 PM") when unset.
 	nowTimestampFormatter func() string
-	nowFn                 clock
 
 	// bootstrap owns the multi-workspace startup overlay (loading flag,
 	// per-workspace status entries, initial-active claim guard, and the
@@ -849,6 +872,7 @@ func NewApp() *App {
 		threadPanel:           thread.New(),
 		threadCompose:         compose.New("thread"),
 		threadsView:           threadsview.New(nil, ""),
+		activityView:          activityview.New(nil, ""),
 		linkPicker:            linkpicker.New(),
 		reactionPicker:        reactionpicker.New(),
 		reactionsView:         reactionsview.New(),
@@ -879,6 +903,7 @@ func NewApp() *App {
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
 		threads:               noopThreadService,
+		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
@@ -889,6 +914,9 @@ func NewApp() *App {
 		editor:                noopEditorService,
 		navHistory:            newNavHistoryStore(),
 		clipboardWrite:        defaultClipboardWriter,
+		userProfile:           userprofile.New(),
+		profileSvc:            noopProfileService,
+		now:                   time.Now,
 	}
 	// Root model deliberately bypasses newWindowModel: the config
 	// retention fields (avatarFn, userNames, emojiCtx, ...) are still
@@ -1030,6 +1058,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.bootstrap,
 		reduceReactions,
 		reduceThreads,
+		reduceActivity,
 		reduceFocus,
 		reduceSend,
 		reduceChannels,
@@ -1039,6 +1068,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceWorkspace,
 		reduceWorkspaceCached,
 		reduceNewMessagePicker,
+		reduceUserProfile,
 		reduceIO,
 		reduceMouse,
 		reduceAgentThread,
@@ -1328,6 +1358,59 @@ func (a *App) openReactionsView() tea.Cmd {
 	return nil
 }
 
+// openUserProfile opens the read-only "who is this person?" modal for
+// the selected message's author (main pane) or selected reply's author
+// (thread pane), like openReactionsView. It rejects no selection, an
+// empty UserID, and a UserID starting with "B" (cmd/slk/history.go's
+// bot-ID substitute for a message with no human author) with a toast
+// and opens nothing. On success it seeds the modal from the App's own
+// cached identity, switches to ModeUserProfile, and returns a tea.Cmd
+// that fetches the full profile under a 10s timeout.
+func (a *App) openUserProfile() tea.Cmd {
+	var userID string
+	switch a.focusedPanel {
+	case PanelMessages:
+		msg, ok := a.messagepane.SelectedMessage()
+		if !ok {
+			a.statusbar.SetToast("No profile for this message")
+			return nil
+		}
+		userID = msg.UserID
+	case PanelThread:
+		reply := a.threadPanel.SelectedReply()
+		if reply == nil {
+			a.statusbar.SetToast("No profile for this message")
+			return nil
+		}
+		userID = reply.UserID
+	default:
+		a.statusbar.SetToast("No profile for this message")
+		return nil
+	}
+	if userID == "" || strings.HasPrefix(userID, "B") {
+		a.statusbar.SetToast("No profile for this message")
+		return nil
+	}
+
+	teamID := a.activeTeamID
+	displayName, _ := a.userNames.Get(userID)
+	a.userProfile.Open(userprofile.Seed{
+		TeamID:      teamID,
+		UserID:      userID,
+		DisplayName: displayName,
+		IsExternal:  a.externalUsers[userID],
+	})
+	a.SetMode(ModeUserProfile)
+
+	svc := a.profileSvc
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		profile, err := svc.Profile(ctx, teamID, userID)
+		return UserProfileLoadedMsg{TeamID: teamID, UserID: userID, Profile: profile, Err: err}
+	}
+}
+
 // buildReactionGroups resolves each reaction's user IDs to display names,
 // marking the current user with a "(you)" suffix.
 func (a *App) buildReactionGroups(reactions []messages.ReactionItem) []reactionsview.ReactionGroup {
@@ -1434,7 +1517,7 @@ func (a *App) toggleReactionOnMessageItem(channelIDStr string, msg messages.Mess
 }
 
 // copyMessageOfSelected copies the text of the currently-selected message or
-// thread reply to the system clipboard via OSC 52 and emits a status-bar toast.
+// thread reply to the system clipboard and emits a status-bar toast.
 func (a *App) copyMessageOfSelected() tea.Cmd {
 	var msg messages.MessageItem
 	switch a.focusedPanel {
@@ -1697,6 +1780,10 @@ func (a *App) handleDown() tea.Cmd {
 			// don't fire one conversations.replies call per row.
 			return a.openSelectedThreadCmd(true)
 		}
+		if a.view == ViewActivity {
+			a.activityView.MoveDown()
+			return nil
+		}
 		return a.coalesceContentScroll(+1)
 	case PanelThread:
 		return a.coalesceContentScroll(+1)
@@ -1713,6 +1800,10 @@ func (a *App) handleUp() tea.Cmd {
 			a.threadsView.MoveUp()
 			// k: same debounce as j — see handleDown.
 			return a.openSelectedThreadCmd(true)
+		}
+		if a.view == ViewActivity {
+			a.activityView.MoveUp()
+			return nil
 		}
 		return a.coalesceContentScroll(-1)
 	case PanelThread:
@@ -1848,6 +1939,10 @@ func (a *App) handleGoToBottom() tea.Cmd {
 			// G is a one-shot jump — fire the fetch immediately.
 			return a.openSelectedThreadCmd(false)
 		}
+		if a.view == ViewActivity {
+			a.activityView.GoToBottom()
+			return nil
+		}
 		a.messagepane.GoToBottom()
 	case PanelThread:
 		a.threadPanel.GoToBottom()
@@ -1902,10 +1997,13 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 	}
 	switch a.focusedPanel {
 	case PanelSidebar:
+		// Keyboard paging in the channel list has vim semantics: the
+		// cursor moves with the viewport (see sidebar.PageDown). The
+		// mouse wheel goes through sidebar.ScrollUp/Down instead.
 		if delta < 0 {
-			a.sidebar.ScrollUp(n)
+			a.sidebar.PageUp(n)
 		} else {
-			a.sidebar.ScrollDown(n)
+			a.sidebar.PageDown(n)
 		}
 	case PanelMessages:
 		if a.view == ViewThreads {
@@ -1913,6 +2011,12 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 				a.threadsView.ScrollUp(n)
 			} else {
 				a.threadsView.ScrollDown(n)
+			}
+		} else if a.view == ViewActivity {
+			if delta < 0 {
+				a.activityView.ScrollUp(n)
+			} else {
+				a.activityView.ScrollDown(n)
 			}
 		} else {
 			if delta < 0 {
@@ -1977,6 +2081,9 @@ func (a *App) handleEnter() tea.Cmd {
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
+		if a.sidebar.IsActivitySelected() {
+			return func() tea.Msg { return ActivityViewActivatedMsg{} }
+		}
 		// A section header? Toggle its collapse state and stay in
 		// place. Section headers are also navigable via j/k so the
 		// user can expand/collapse the firehose Channels section
@@ -2003,6 +2110,22 @@ func (a *App) handleEnter() tea.Cmd {
 	// "enter this thread to interact with it"), distinguishing it
 	// from the j/k navigation which preserves PanelMessages focus so
 	// the user can keep walking the list.
+	// In the Activity view, Enter on the highlighted row opens its
+	// underlying message or thread. Mirrors the ViewThreads branch: the
+	// messages-pane slot renders the activityView model, so route the
+	// selection explicitly rather than falling through to the channel
+	// message pane below.
+	if a.focusedPanel == PanelMessages && a.view == ViewActivity {
+		it, ok := a.activityView.SelectedItem()
+		if !ok {
+			return nil
+		}
+		channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
+		return func() tea.Msg {
+			return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
+		}
+	}
+
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {
 		if _, ok := a.threadsView.SelectedSummary(); !ok {
 			return nil
@@ -2593,6 +2716,7 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	a.sidebar.SetItems(items)
 	picks := make([]channelpicker.Channel, 0, len(items))
 	names := make(map[string]string, len(items))
+	types := make(map[string]string, len(items))
 	for _, ch := range items {
 		// Skip entries with empty names (defensive -- they'd never
 		// match a typed query and would clutter the empty-query view).
@@ -2605,6 +2729,7 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 			Type: ch.Type,
 		})
 		names[ch.ID] = ch.Name
+		types[ch.ID] = ch.Type
 	}
 	a.compose.SetChannels(picks)
 	a.threadCompose.SetChannels(picks)
@@ -2614,6 +2739,8 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	}
 	a.threadPanel.SetChannelNames(names)
 	a.threadsView.SetChannelNames(names)
+	a.activityView.SetChannelNames(names)
+	a.activityView.SetChannelTypes(types)
 }
 
 // SetChannelService wires the App's ChannelService collaborator
@@ -2694,8 +2821,8 @@ func (a *App) SetDesktopService(s core.DesktopService) {
 	a.desktop = s
 }
 
-// SetClipboardWriter replaces the OSC 52 command factory. Used by tests to
-// capture copied text. Pass nil to restore tea.SetClipboard.
+// SetClipboardWriter supplies the host's copy command factory. Tests can also
+// use it to capture copied text. Pass nil to restore tea.SetClipboard.
 func (a *App) SetClipboardWriter(fn clipboardWriter) {
 	if fn == nil {
 		a.clipboardWrite = defaultClipboardWriter
@@ -2712,6 +2839,15 @@ func (a *App) SetThreadService(s core.ThreadService) {
 		s = noopThreadService
 	}
 	a.threads = s
+}
+
+// SetActivityService wires the App's ActivityService collaborator
+// (Slack Activity-feed fetch). Build one via core.NewActivityService.
+func (a *App) SetActivityService(s core.ActivityService) {
+	if s == nil {
+		s = noopActivityService
+	}
+	a.activity = s
 }
 
 // SetUnreadService wires the read state the sidebar and workspace rail
@@ -3048,6 +3184,7 @@ func (a *App) downloadFileCmd(att messages.Attachment) tea.Cmd {
 func (a *App) SetUserNames(names *usernames.Store) {
 	a.userNames = names
 	a.threadsView.SetUserNames(names)
+	a.activityView.SetUserNames(names.Current())
 	for _, m := range a.allWinModels() {
 		m.SetUserNames(names)
 	}
@@ -3185,9 +3322,20 @@ func (a *App) SetReactionService(r core.ReactionService) {
 	a.reactions = r
 }
 
+// SetProfileService wires the App's ProfileService collaborator, used
+// by the K-opened user-profile dialog. A nil s restores the no-op
+// default, so a caller can pass through cmd/slk's wiring unconditionally.
+func (a *App) SetProfileService(s core.ProfileService) {
+	if s == nil {
+		s = noopProfileService
+	}
+	a.profileSvc = s
+}
+
 func (a *App) SetCurrentUserID(userID string) {
 	a.currentUserID = userID
 	a.threadsView.SetSelfUserID(userID)
+	a.activityView.SetSelfUserID(userID)
 	a.messagepane.SetCurrentUser(userID)
 	a.threadPanel.SetCurrentUser(userID)
 }
@@ -3461,6 +3609,15 @@ func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlace
 			}
 		}
 		return want
+	}
+	// A modal is composited into the frame's text, but sixel is painted
+	// after the text, so any placement published now would land on top
+	// of the modal. Withhold them all: the painter erases the images, and
+	// repaints them once the modal closes and the text beneath changes
+	// back. Kitty images get the same treatment in overlay.DimmedOverlay,
+	// which blanks their placeholder cells (issue #18).
+	if a.overlayActive() {
+		return nil
 	}
 	if a.view != ViewChannels || frame.MsgWidth == 0 {
 		return nil

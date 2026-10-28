@@ -26,8 +26,8 @@ type profileLoadedMsg struct {
 	err            error
 }
 
-// SetProfileService wires the card's fetch of the full profile.
-func (a *App) SetProfileService(s profilecard.Service) { a.profileCard.svc = s }
+// SetProfileCardService wires the card's fetch of the full profile.
+func (a *App) SetProfileCardService(s profilecard.Service) { a.profileCard.svc = s }
 
 // setWorkspaceDomain tells every pane the active workspace's subdomain,
 // which user mentions link into.

@@ -517,3 +517,49 @@ func TestEarlyFallbackPublishesEmptySixelFrame(t *testing.T) {
 		t.Fatalf("early fallback frame must be empty, got %d placements", len(frame.Placements))
 	}
 }
+
+// A modal is composited into the frame's text, but sixel is painted
+// out-of-band after the text, so a placement published under an open
+// modal lands on top of it. Kitty images are hidden under modals by
+// overlay.DimmedOverlay blanking their placeholder cells (issue #18);
+// sixel placements must be withheld the same way, and come back when
+// the modal closes.
+func TestCollectSixelPlacements_WithheldWhileAModalIsOpen(t *testing.T) {
+	for name, modal := range map[string]struct{ open, close func(a *App) }{
+		"channel finder": {func(a *App) { a.channelFinder.Open() }, func(a *App) { a.channelFinder.Close() }},
+		"help":           {func(a *App) { a.help.Open() }, func(a *App) { a.help.Close() }},
+		"theme switcher": {func(a *App) { a.themeSwitcher.Open() }, func(a *App) { a.themeSwitcher.Close() }},
+		"user profile": {
+			func(a *App) { a.focusedPanel = PanelMessages; _ = a.openUserProfile() },
+			func(a *App) { a.userProfile.Close() },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, _, _ := twoWindowApp(t)
+			a.imgProtocol = imgpkg.ProtoSixel
+			setupTwoWindowSixelImages(t, a)
+			frame := a.computeFrame()
+			rects := a.wins.ComputeRects(wintree.Rect{W: frame.MsgWidth + frame.MsgBorder, H: frame.ContentHeight})
+			for _, id := range a.wins.Leaves() {
+				_ = a.winModels[id].View(rects[id].H, rects[id].W)
+			}
+			before := len(a.collectSixelPlacements(frame))
+			if before == 0 {
+				t.Fatal("precondition: no placements before the modal opened")
+			}
+
+			modal.open(a)
+			if !a.overlayActive() {
+				t.Fatal("precondition: the modal did not register as an overlay")
+			}
+			if got := a.collectSixelPlacements(frame); len(got) != 0 {
+				t.Errorf("%d sixel placements published under an open modal", len(got))
+			}
+
+			modal.close(a)
+			if got := len(a.collectSixelPlacements(frame)); got != before {
+				t.Errorf("after closing the modal: %d placements, want %d back", got, before)
+			}
+		})
+	}
+}

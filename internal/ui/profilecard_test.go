@@ -64,7 +64,7 @@ func profileCardApp(t *testing.T) *profileCardFixture {
 		withApp(func(a *App) {
 			a.activeChannelID = "C1"
 			a.SetNowFunc(func() time.Time { return time.Date(2026, 10, 7, 21, 41, 0, 0, time.UTC) })
-			a.SetProfileService(f.profiles)
+			a.SetProfileCardService(f.profiles)
 			a.browserOpener = func(url string) tea.Cmd {
 				f.opened = append(f.opened, url)
 				return nil
@@ -106,7 +106,7 @@ func (f *profileCardFixture) assertCardFor(t *testing.T, what string) {
 func TestClickOnMentionInMessagesPaneOpensProfileCard(t *testing.T) {
 	f := profileCardApp(t)
 	x, y := screenPos(t, f.a, "@dana")
-	click(f.a, x+2, y)
+	clickAt(f.a, x+2, y)
 	f.assertCardFor(t, "click on @dana")
 	if f.a.messagepane.HasSelection() {
 		t.Error("the click left a selection")
@@ -123,7 +123,7 @@ func TestClickOnMentionInThreadOpensProfileCard(t *testing.T) {
 				[]messages.MessageItem{{TS: "5.1", ThreadTS: "5.0", UserID: "U3", UserName: "bob", Timestamp: "1:06 PM", Text: "reply asks <@U2>"}},
 				"C1", "5.0")
 			x, y := screenPos(t, f.a, target+" asks @dana")
-			click(f.a, x+len(target+" asks "), y)
+			clickAt(f.a, x+len(target+" asks "), y)
 			f.assertCardFor(t, "click on the "+target+"'s @dana")
 		})
 	}
@@ -132,7 +132,7 @@ func TestClickOnMentionInThreadOpensProfileCard(t *testing.T) {
 func TestClickBesideMentionOpensThreadAsBefore(t *testing.T) {
 	f := profileCardApp(t)
 	x, y := screenPos(t, f.a, "ping @dana")
-	click(f.a, x, y)
+	clickAt(f.a, x, y)
 	if f.a.mode == ModeProfileCard || len(f.profiles.fetched) != 0 {
 		t.Errorf("a click beside the mention opened the card (fetched %v)", f.profiles.fetched)
 	}
@@ -144,7 +144,7 @@ func TestClickBesideMentionOpensThreadAsBefore(t *testing.T) {
 func TestClickOnChannelMentionOpensThreadAsBefore(t *testing.T) {
 	f := profileCardApp(t)
 	x, y := screenPos(t, f.a, "#general")
-	click(f.a, x+2, y)
+	clickAt(f.a, x+2, y)
 	if f.a.mode == ModeProfileCard || len(f.opened) != 0 {
 		t.Errorf("a click on #general: mode %v, opened %v", f.a.mode, f.opened)
 	}
@@ -156,7 +156,7 @@ func TestClickOnChannelMentionOpensThreadAsBefore(t *testing.T) {
 func TestClickOnLinkBesideMentionStillOpensIt(t *testing.T) {
 	f := profileCardApp(t)
 	x, y := screenPos(t, f.a, "clickme")
-	click(f.a, x, y)
+	clickAt(f.a, x, y)
 	if !reflect.DeepEqual(f.opened, []string{clickLinkURL}) || f.a.mode == ModeProfileCard {
 		t.Errorf("a click on the link opened %v, mode %v; want [%s]", f.opened, f.a.mode, clickLinkURL)
 	}
@@ -166,7 +166,7 @@ func TestClickOnLinkBesideMentionStillOpensIt(t *testing.T) {
 func (f *profileCardFixture) openCard(t *testing.T) {
 	t.Helper()
 	x, y := screenPos(t, f.a, "@dana")
-	click(f.a, x+2, y)
+	clickAt(f.a, x+2, y)
 	if f.a.mode != ModeProfileCard {
 		t.Fatalf("setup: the card did not open")
 	}
@@ -224,7 +224,7 @@ func TestProfileCardKeys(t *testing.T) {
 func TestClickOutsideProfileCardClosesItAndNothingElse(t *testing.T) {
 	f := profileCardApp(t)
 	f.openCard(t)
-	click(f.a, 1, 1)
+	clickAt(f.a, 1, 1)
 	if f.a.mode != ModeNormal {
 		t.Errorf("a click outside the card left mode %v", f.a.mode)
 	}
@@ -234,7 +234,7 @@ func TestClickOutsideProfileCardClosesItAndNothingElse(t *testing.T) {
 
 	f.openCard(t)
 	x, y := screenPos(t, f.a, "@dana · Staff")
-	click(f.a, x, y)
+	clickAt(f.a, x, y)
 	if f.a.mode != ModeProfileCard {
 		t.Errorf("a click inside the card closed it (mode %v)", f.a.mode)
 	}
@@ -295,7 +295,7 @@ func TestMentionWithoutDomainIsNoLink(t *testing.T) {
 	f.a.workspaceDomains = map[string]string{}
 	f.a.setWorkspaceDomain()
 	x, y := screenPos(t, f.a, "@dana")
-	click(f.a, x+2, y)
+	clickAt(f.a, x+2, y)
 	if f.a.mode == ModeProfileCard || !reflect.DeepEqual(f.threads, []string{"1.0"}) {
 		t.Errorf("a click on an unlinked mention: mode %v, threads %v", f.a.mode, f.threads)
 	}

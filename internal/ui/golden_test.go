@@ -420,6 +420,7 @@ func newGoldenApp(t *testing.T, opts ...testOpt) *App {
 	// protocol that emits no escape sequences (renderer.go:19).
 	a.imgProtocol = imgpkg.ProtoOff
 	a.SetNowTimestampFormatter(func() string { return goldenClock().Format("3:04 PM") })
+	a.now = goldenClock
 
 	if probe.render {
 		_ = a.View()
@@ -2281,6 +2282,69 @@ func TestGoldenFilesAreWellFormed(t *testing.T) {
 // (the old auto-hide, since removed). A per-scenario assertion catches
 // that only if someone thought to write one for that scenario; this
 // catches it for every scenario, including ones added later.
+// goldenLocalOffsetSeconds returns "your" offset (seconds east of UTC)
+// at goldenClock's instant, exactly what formatLocalTime compares an
+// author's TZOffset against. TestGolden_UserProfile derives its
+// fixture's TZOffset from this, rather than a hardcoded literal, so
+// the rendered "N h from you" delta -- and the golden -- is the same
+// number in every timezone the suite runs in.
+func goldenLocalOffsetSeconds(t *testing.T) int {
+	t.Helper()
+	_, offset := goldenClock().Zone()
+	return offset
+}
+
+// TestGolden_UserProfile pins the K-opened user-profile dialog's frame:
+// select the first fixture message, K to open it, then deliver a fixed
+// UserProfileLoadedMsg so the "loaded" state (title, email, local time
+// with TZOffset/TZAbbrev) renders deterministically.
+func TestGolden_UserProfile(t *testing.T) {
+	a := newGoldenApp(t, goldenFixtureOpts()...)
+	a.activeTeamID = "T1"
+	focusMessageAt(t, a, 0)
+	msg, ok := a.messagepane.SelectedMessage()
+	if !ok {
+		t.Fatal("precondition: no selected message")
+	}
+
+	updateAndRender(t, a, keyPress('K'))
+	if !a.userProfile.IsVisible() {
+		t.Fatal("precondition: K did not open the user-profile dialog")
+	}
+
+	updateAndRender(t, a, UserProfileLoadedMsg{
+		TeamID: "T1", UserID: msg.UserID,
+		Profile: core.UserProfile{
+			UserID:      msg.UserID,
+			TeamID:      "T1",
+			Handle:      "alice",
+			RealName:    "Alice Anderson",
+			DisplayName: "Alice",
+			Title:       "Staff Engineer, Platform",
+			Pronouns:    "she/her",
+			Email:       "alice@example.com",
+			Phone:       "+1 555 0100",
+			TZ:          "America/Los_Angeles",
+			TZAbbrev:    "PDT",
+			// Deliberately derived from goldenClock's own zone offset
+			// rather than a hardcoded UTC-7 literal: formatLocalTime
+			// (userprofile/localtime.go) computes its "−7h from you"
+			// delta against "your" offset, which is this machine's
+			// time.Local at the instant goldenClock() was evaluated
+			// (goldenClock is anchored to time.Local, same rationale as
+			// goldenClock's own doc comment on timezone independence).
+			// A fixed literal would make the rendered delta -- and so
+			// the golden -- depend on which zone the test happens to
+			// run in; offsetting from goldenClock's own zone keeps the
+			// delta fixed at exactly 7 hours everywhere.
+			TZOffset: goldenLocalOffsetSeconds(t) - 7*3600,
+		},
+	})
+
+	frame := a.View().Content
+	compareGolden(t, "user_profile", frame)
+}
+
 func TestGolden_ScenariosArePairwiseDistinct(t *testing.T) {
 	rendered := map[string]string{}
 	for _, sc := range goldenScenarios() {

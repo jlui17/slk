@@ -1166,6 +1166,32 @@ func TestInsertModeKeys(t *testing.T) {
 				}
 			},
 		},
+		{
+			// The same, for the emoji picker: docs/assets/demo/compose.tape
+			// types ":coff" and presses Tab. The first prefix match wins,
+			// so coffee beats coffin.
+			name: "tab with an emoji picker active completes the first match",
+			opts: insertOpts(),
+			setup: func(t *testing.T, a *App) {
+				typeInto(t, &a.compose, "after standup? :coff")
+				if !a.compose.IsEmojiActive() {
+					t.Fatal("precondition: emoji picker did not open")
+				}
+			},
+			key:      keyCode(tea.KeyTab),
+			wantMode: ModeInsert,
+			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
+				if got, want := a.compose.Value(), "after standup? :coffee: "; got != want {
+					t.Errorf("compose value = %q, want %q (the picker's completion)", got, want)
+				}
+				if a.compose.IsEmojiActive() {
+					t.Error("emoji picker still active after tab")
+				}
+				if cmd != nil {
+					t.Errorf("cmd = %T, want nil", cmd)
+				}
+			},
+		},
 
 		// =============================================================
 		// Plain typing fallthrough (mode_insert.go:198-201, :244-247)
