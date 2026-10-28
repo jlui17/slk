@@ -8,7 +8,6 @@
 package ui
 
 import (
-	"reflect"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -77,27 +76,16 @@ func newHarnessApp(t *testing.T, opts ...harnessOption) *App {
 }
 
 // drainCmds executes cmd and every command nested inside tea.Batch /
-// tea.Sequence trees, returning the collected leaf messages. Nil cmds
-// and nil messages are dropped. tea.Sequence's message type is
-// unexported, but like tea.BatchMsg it is a []tea.Cmd — both are
-// detected by convertibility.
+// tea.Sequence trees, returning the collected leaf messages: upstream's
+// drainBatch with nil messages dropped.
 func drainCmds(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	if msg == nil {
-		return nil
-	}
-	batchType := reflect.TypeOf(tea.BatchMsg(nil))
-	if rv := reflect.ValueOf(msg); rv.Kind() == reflect.Slice && rv.Type().ConvertibleTo(batchType) {
-		var out []tea.Msg
-		for _, c := range rv.Convert(batchType).Interface().(tea.BatchMsg) {
-			out = append(out, drainCmds(c)...)
+	var out []tea.Msg
+	for _, msg := range drainBatch(cmd) {
+		if msg != nil {
+			out = append(out, msg)
 		}
-		return out
 	}
-	return []tea.Msg{msg}
+	return out
 }
 
 func TestDrainCmds_NestedBatchAndSequence(t *testing.T) {

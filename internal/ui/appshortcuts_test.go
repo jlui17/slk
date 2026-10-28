@@ -88,27 +88,9 @@ func send(a *App, msg tea.Msg) []string {
 			continue
 		}
 		_, cmd := a.Update(m)
-		queue = append(queue, runCmds(cmd)...)
+		queue = append(queue, drainCmd(cmd)...)
 	}
 	return toasts
-}
-
-func runCmds(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	switch m := cmd().(type) {
-	case nil:
-		return nil
-	case tea.BatchMsg:
-		var out []tea.Msg
-		for _, c := range m {
-			out = append(out, runCmds(c)...)
-		}
-		return out
-	default:
-		return []tea.Msg{m}
-	}
 }
 
 func shortcutKey(k string) tea.KeyPressMsg {
@@ -482,8 +464,8 @@ func TestAppShortcuts_ViewUpdatedDuringSubmit(t *testing.T) {
 		t.Fatal("the update dropped the typed note")
 	}
 	_, again := a.Update(shortcutKey("ctrl+s"))
-	runCmds(submit)
-	runCmds(again)
+	drainCmd(submit)
+	drainCmd(again)
 	if len(svc.submits) != 1 {
 		t.Errorf("submits = %d, want 1", len(svc.submits))
 	}

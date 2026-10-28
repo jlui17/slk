@@ -233,7 +233,7 @@ func TestAppHome_ORedrawWithSeveralLinksWarns(t *testing.T) {
 	view["blocks"] = blocks
 	redraw, _ := json.Marshal(view)
 	_, cmd := a.Update(AppViewMsg{TeamID: "T1", Updated: true, View: redraw})
-	for _, m := range runCmds(cmd) {
+	for _, m := range drainCmd(cmd) {
 		a.Update(m) // the toast, without running the tick that clears it
 	}
 	out := ansi.Strip(a.View().Content)
@@ -249,7 +249,7 @@ func TestAppHome_NoAnswerWarns(t *testing.T) {
 	homeKey(a, "j")
 	homeKey(a, "o")
 	_, cmd := a.Update(appHomeWaitTimeoutMsg{visit: a.appHome.visit, waitID: 1})
-	for _, m := range runCmds(cmd) {
+	for _, m := range drainCmd(cmd) {
 		a.Update(m) // the toast, without running the tick that clears it
 	}
 	if out := ansi.Strip(a.View().Content); !strings.Contains(out, "! Colony did not answer") || strings.Contains(out, "Waiting for Colony") {
