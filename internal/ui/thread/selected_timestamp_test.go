@@ -53,8 +53,8 @@ func assertThreadHeightsMatch(t *testing.T, m *Model) {
 			t.Errorf("reply %d: len(linesSelected)=%d != len(linesNormal)=%d",
 				i, len(e.Selected), len(e.Lines))
 		}
-		if short := m.cache[i].linesSelectedShort; short != nil && len(short) != len(e.Lines) {
-			t.Errorf("reply %d: len(linesSelectedShort)=%d != len(linesNormal)=%d",
+		if short := m.cache[i].SelectedShort; short != nil && len(short) != len(e.Lines) {
+			t.Errorf("reply %d: len(SelectedShort)=%d != len(linesNormal)=%d",
 				i, len(short), len(e.Lines))
 		}
 	}
@@ -211,7 +211,7 @@ func TestThreadSelectedTimestamp_DragOverParentHeaderKeepsTextIntact(t *testing.
 func TestThreadSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 	m, _ := threadLongTS(t, "priya", "lee", 80, 30)
 	for i, e := range m.cache {
-		if e.linesSelectedShort != nil {
+		if e.SelectedShort != nil {
 			t.Fatalf("reply %d built a short variant with no text selection", i)
 		}
 	}

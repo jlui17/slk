@@ -115,7 +115,7 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	line := y - m.chromeHeight + m.list.YOffset()
 	offsets, entries := m.list.Offsets(), m.list.Entries()
 	for i, e := range m.cache {
-		block, hit := CodeBlockCopyLabelAt(e.codeBlockCopyLabels, line-offsets[i], x)
+		block, hit := CodeBlockCopyLabelAt(e.CodeBlockCopyLabels, line-offsets[i], x)
 		if !hit {
 			continue
 		}

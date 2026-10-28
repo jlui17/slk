@@ -2838,7 +2838,7 @@ func TestMessageMarkedUnreadMsg_ThreadLevel_UpdatesThreadPaneAndThreadsView(t *t
 	}
 
 	// Thread pane unread boundary moved.
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("expected thread unreadBoundary=R1, got %q", got)
 	}
 
@@ -3048,7 +3048,7 @@ func TestThreadMarkedRemoteMsg_MovesOpenPanelBoundaryToCursor(t *testing.T) {
 		ChannelID: "C1", ThreadTS: "P1", LastRead: "R1",
 	})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want R1", got)
 	}
 }
@@ -3071,14 +3071,14 @@ func TestThreadMarkedLocalMsg_LeavesOpenPanelBoundaryInPlace(t *testing.T) {
 			{TS: "R2", UserID: "U1", Text: "r2"},
 		}, "C1", "P1")
 	app.threadVisible = true
-	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadPanel.SetLastReadTS("R1")
 	app.threadsView.SetSummaries([]cache.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
 	})
 
 	_, _ = app.Update(ThreadMarkedLocalMsg{ChannelID: "C1", ThreadTS: "P1", TS: "R2"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held", got)
 	}
 	// The threads-list side of the same mark must still take effect.
@@ -3103,7 +3103,7 @@ func threadPanelOnR1R2(t *testing.T) *App {
 			{TS: "R2", UserID: "U1", Text: "r2"},
 		}, "C1", "P1")
 	app.threadVisible = true
-	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadPanel.SetLastReadTS("R1")
 	return app
 }
 
@@ -3176,7 +3176,7 @@ func TestThreadMarkedRemoteMsg_SelfEchoHoldsPanelBoundary(t *testing.T) {
 	// Slack's echo of that same mark.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held against slk's own echo", got)
 	}
 	found := false
@@ -3205,13 +3205,13 @@ func TestThreadMarkedRemoteMsg_SelfEchoBeforeLocalMsgStillHoldsBoundary(t *testi
 
 	// Echo first, before the mark call has even returned.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Fatalf("unreadBoundary = %q, want R1: an echo that beats the HTTP response is still slk's own mark", got)
 	}
 
 	// The response then lands and must not disturb the landmark either.
 	_, _ = app.Update(local)
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("unreadBoundary = %q after the local completion, want R1", got)
 	}
 }
@@ -3222,12 +3222,12 @@ func TestThreadMarkedRemoteMsg_SelfEchoBeforeLocalMsgStillHoldsBoundary(t *testi
 // outstanding record for a DIFFERENT ts must not shield a foreign one.
 func TestThreadMarkedRemoteMsg_ForeignMarkStillMovesBoundary(t *testing.T) {
 	app := threadPanelOnR1R2(t)
-	app.threadPanel.SetUnreadBoundary("P1")
+	app.threadPanel.SetLastReadTS("P1")
 	app.selfThreadMarks.record(selfMarkKey{channelID: "C1", threadTS: "P1", ts: "R2"})
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R1"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want R1: a mark slk never issued must move the landmark", got)
 	}
 }
@@ -3241,12 +3241,12 @@ func TestThreadMarkedRemoteMsg_SelfEchoSuppressionIsConsumedOnce(t *testing.T) {
 	_, _ = app.Update(local)
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Fatalf("first echo: unreadBoundary = %q, want R1 held", got)
 	}
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R2" {
+	if got := app.threadPanel.LastReadTS(); got != "R2" {
 		t.Errorf("second echo: unreadBoundary = %q, want R2 — the record is consumed by the first echo", got)
 	}
 }
@@ -4804,7 +4804,7 @@ func TestOpenThreadPanel_BoundaryUsesThreadCursor(t *testing.T) {
 	if gotChannel != "C1" || gotThread != "P1" {
 		t.Fatalf("ThreadLastRead called with (%q, %q), want (C1, P1)", gotChannel, gotThread)
 	}
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R7" {
+	if got := app.threadPanel.LastReadTS(); got != "R7" {
 		t.Errorf("thread panel boundary = %q, want the thread cursor R7", got)
 	}
 }

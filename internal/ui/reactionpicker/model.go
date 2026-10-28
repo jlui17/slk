@@ -40,7 +40,7 @@ type Model struct {
 // EmojiContext bundles the emoji-image rendering dependencies for the
 // reaction picker. Set once at startup; updated again when the
 // CustomEmojisLoadedMsg arrives via SetEmojiCustoms. Mirrors
-// messages.EmojiContext / thread.EmojiContext.
+// messages.EmojiContext, which both content panes share.
 type EmojiContext struct {
 	PlaceCtx slkemoji.PlaceContext
 	Cells    int               // 1 or 2; 0 falls back to 2

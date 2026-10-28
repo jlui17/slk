@@ -34,7 +34,7 @@ func (a *App) newWindowModel(chName string) *messages.Model {
 	}
 	m.SetImageContext(a.imageCtx)
 	m.SetSpinnerFrame(a.spinnerFrame)
-	return &m
+	return m
 }
 
 // modelsForChannel returns the models of every window viewing chID,

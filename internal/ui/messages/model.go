@@ -34,36 +34,55 @@ type (
 // AvatarFunc returns the rendered half-block avatar for a user ID, or empty string.
 type AvatarFunc func(userID string) string
 
-// viewEntry is the message layer's payload for one entry of m.list,
-// index-aligned with m.list.Entries(): the parts the substrate does not
-// need. m.cache == nil means the render cache was discarded and the
-// next View rebuilds it (see dropCache).
-type viewEntry struct {
-	// shortSrc is the selected row's content with the short timestamp,
+// EntryPayload is a content pane's payload for one entry of its list,
+// index-aligned with the list's entries: the parts the substrate does
+// not need. A nil cache of payloads means the render cache was discarded
+// and the next View rebuilds it. Both panes use it.
+type EntryPayload struct {
+	// ShortSrc is the selected row's content with the short timestamp,
 	// set only when the selected variant carries a long one;
-	// linesSelectedShort is built from it on demand (selectedLines) and
+	// SelectedShort is built from it on demand (SelectedLines) and
 	// shown while a text selection exists, because the drag overlay
 	// splices the short-form plain text into the row by column.
-	shortSrc           string
-	linesSelectedShort []string
+	ShortSrc      string
+	SelectedShort []string
 
-	// flushes are per-frame kitty image uploads, invoked once per frame
+	// Flushes are per-frame kitty image uploads, invoked once per frame
 	// for visible entries. nil when the entry has no inline images.
-	flushes []func(io.Writer) error
+	Flushes []func(io.Writer) error
 
 	// sixelRows maps a row within the entry to the sixel image whose
 	// top-left cell is on it. View paints an image out-of-band when it
 	// is fully visible and substitutes its halfblock fallback otherwise.
+	// Only the channel pane fills it.
 	sixelRows map[int]sixelEntry
 
-	// codeBlockCopyLabels locates the copy label of each fenced block in
+	// CodeBlockCopyLabels locates the copy label of each fenced block in
 	// the body, in Lines cells (the frame the reaction hits use).
 	// CodeBlockAt reads them. See codeblocks_fork.go.
-	codeBlockCopyLabels []CodeBlockCopyLabel
+	CodeBlockCopyLabels []CodeBlockCopyLabel
 
-	// attachmentFoldRows are the rows of Lines that hold a card's fold
+	// AttachmentFoldRows are the rows of Lines that hold a card's fold
 	// row. See attachmentfold_fork.go.
-	attachmentFoldRows []int
+	AttachmentFoldRows []int
+}
+
+// SelectedLines returns the rows to draw for a cursor entry e: its
+// selected variant, or (while a text selection exists) the short-
+// timestamp variant built once from ShortSrc by build. Rows past the
+// short variant (the channel pane's spacer) are shared by every variant.
+func (p *EntryPayload) SelectedLines(e *entrylist.Entry, hasSelection bool, build func(src string) []string) []string {
+	if !hasSelection || p.ShortSrc == "" {
+		return e.Selected
+	}
+	if p.SelectedShort == nil {
+		short := build(p.ShortSrc)
+		if len(short) > len(e.Selected) {
+			return e.Selected // unreachable: variants share a height
+		}
+		p.SelectedShort = append(short, e.Selected[len(short):]...)
+	}
+	return p.SelectedShort
 }
 
 // sixelEntry holds the pre-computed sixel bytes for one inline image,
@@ -116,7 +135,7 @@ type Model struct {
 	// Render cache -- invalidated when messages or width change.
 	// Each entry holds pre-bordered variants so selection movement does not
 	// re-invoke lipgloss per keypress.
-	cache          []viewEntry
+	cache          []EntryPayload
 	cacheWidth     int
 	cacheMsgLen    int
 	cacheSpacer    string // pre-rendered blank spacer line (1 row, full width, themed background)
@@ -191,7 +210,7 @@ type Model struct {
 	// false, the selected-message "▌" border dims from Accent to
 	// TextMuted (via styles.SelectionBorderColor) so the unfocused
 	// selection doesn't compete visually with the focused panel. The
-	// color is baked into viewEntry.linesSelected during buildCache, so
+	// color is baked into the entry rows during buildCache, so
 	// SetFocused must invalidate the cache.
 	focused bool
 
@@ -454,12 +473,12 @@ func newChannelList() *entrylist.Model {
 	)
 }
 
-func New(msgs []MessageItem, channelName string) Model {
+func New(msgs []MessageItem, channelName string) *Model {
 	selected := 0
 	if len(msgs) > 0 {
 		selected = len(msgs) - 1
 	}
-	return Model{
+	return &Model{
 		messages:    msgs,
 		selected:    selected,
 		channelName: channelName,
@@ -1350,28 +1369,8 @@ func (m *Model) OldestTS() string {
 // (width, theme) avoids re-allocating identical lipgloss styles per
 // message during the per-message render loop.
 type cacheStyles struct {
-	borderFill   lipgloss.Style
-	borderInvis  lipgloss.Style
-	borderSelect lipgloss.Style
-	spacerLines  []string
-}
-
-// borderSelectStyle is the thick, tinted left border of the selected row.
-func (m *Model) borderSelectStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(m.focused)).
-		BorderBackground(styles.SelectionTintColor(m.focused)).
-		Background(styles.SelectionTintColor(m.focused))
-}
-
-// selectedVariant renders content r as the selected row: the selection
-// tint repainted over inner spans, filled to the row width, then the
-// selection border. Split on "\n".
-func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style) []string {
-	fill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1)
-	tinted := ReapplyBgAfterResets(RepaintBgToSelectionTint(r, m.focused), SelectionTintBgANSI(m.focused))
-	return strings.Split(borderSelect.Render(fill.Render(tinted)), "\n")
+	wrap        WrapStyles
+	spacerLines []string
 }
 
 // buildCacheStyles materializes the shared styles for a given width.
@@ -1387,9 +1386,6 @@ func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style
 // when the cache last rebuilt. View() composes the hint fresh from
 // renderLoadingOlderHint(width) on every frame instead.
 func (m *Model) buildCacheStyles(width int) cacheStyles {
-	borderFill := lipgloss.NewStyle().Background(styles.Background)
-	borderInvis := lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).BorderForeground(styles.Background).BorderBackground(styles.Background)
-	borderSelect := m.borderSelectStyle()
 	spacerBg := lipgloss.NewStyle().Background(styles.Background)
 	m.cacheSpacer = spacerBg.Width(width).Render("")
 	hintStyle := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.TextMuted)
@@ -1401,10 +1397,8 @@ func (m *Model) buildCacheStyles(width int) cacheStyles {
 	// the scrollbar pass and break TestSelection_HighlightDoesNotCorrupt...
 	m.cacheMoreBelow = hintStyle.Render("  -- more below --")
 	return cacheStyles{
-		borderFill:   borderFill,
-		borderInvis:  borderInvis,
-		borderSelect: borderSelect,
-		spacerLines:  []string{m.cacheSpacer},
+		wrap:        NewWrapStyles(m.focused),
+		spacerLines: []string{m.cacheSpacer},
 	}
 }
 
@@ -1498,7 +1492,7 @@ func (m *Model) renderContext() *RenderContext {
 	}
 }
 
-// renderMessageEntry builds a single viewEntry for m.messages[i] using
+// renderMessageEntry builds a single entry and its EntryPayload for m.messages[i] using
 // the shared cacheStyles. The returned entry is fully populated with
 // both the unselected and selected pre-bordered line slices, the
 // plain-text mirror, the per-frame image flushes, and the per-image
@@ -1516,7 +1510,7 @@ func (m *Model) renderContext() *RenderContext {
 // it for later aggregation. Callers must NOT increment stats.count --
 // renderMessageEntry does that itself so the count always matches the
 // number of entries produced.
-func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, viewEntry) {
+func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, EntryPayload) {
 	msg := m.messages[i]
 	opt := RenderOptions{
 		IsSelected:      i == m.selected,
@@ -1530,56 +1524,13 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		opt.Avatar = m.avatarFn(msg.UserID)
 	}
 	r := RenderMessage(msg, width, m.renderContext(), opt)
-	rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
 	// The channel pane's kitty upload order: blocks, attachments, then
 	// body and reaction emoji.
 	flushes := slices.Concat(r.BlockFlushes, r.AttachmentFlushes, r.BodyFlushes, r.ReactionFlushes)
-	// The selected variant carries the date-qualified timestamp. Only
-	// it: linesNormal and linesPlain keep the short form, so clipboard
-	// text and mouse->column mapping are unchanged.
-	renderedSel := SelectedHeader(rendered, header, msg.TS, msg.Timestamp, headerBudget)
-	// Two filled variants: borderFill (Background) for the unselected
-	// pre-render, and the SelectionTintColor for the selected pre-render.
-	// Without per-variant fills, the trailing whitespace of every wrapped
-	// line shows the WRONG background and the tint stops at the last
-	// character of content.
-	//
-	// For the selected variant we also substitute every theme-bg ANSI
-	// escape inside `rendered` with the tint-bg escape. Inner spans
-	// (Username, Timestamp, MessageText, the reset-reapplications
-	// emitted by RenderSlackMarkdown) explicitly paint Background, and
-	// without this substitution they show through as dark patches on
-	// the tinted row.
-	var bwT0 time.Time
+	cs.wrap.stats = stats
+	w := WrapRows(msg, r, width, cs.wrap)
+	linesN, linesS, linesP := w.Lines, w.Selected, w.Plain
 	if stats != nil {
-		bwT0 = time.Now()
-	}
-	filledNormal := cs.borderFill.Width(width - 1).Render(rendered)
-	normal := cs.borderInvis.Render(filledNormal)
-	linesS := m.selectedVariant(renderedSel, width, cs.borderSelect)
-	// The short-timestamp selected variant is built on demand from
-	// shortSrc (see selectedLines); building it here for every entry
-	// would double the fill+border cost of every cache build.
-	var shortSrc string
-	if renderedSel != rendered {
-		shortSrc = rendered
-	}
-	if stats != nil {
-		stats.borderWrapTotal += time.Since(bwT0)
-	}
-
-	linesN := strings.Split(normal, "\n")
-	// linesPlain mirrors the UNBORDERED content (filled) so that the
-	// thick left-border column is NOT present in plain text and never
-	// bleeds into clipboard output via SelectionText. The mouse-column
-	// to plain-column mapping happens in the substrate via Entry.ColOffset.
-	var plT0 time.Time
-	if stats != nil {
-		plT0 = time.Now()
-	}
-	linesP := plainLines(filledNormal)
-	if stats != nil {
-		stats.plainLinesTotal += time.Since(plT0)
 		stats.count++
 	}
 	// Append a trailing spacer line after every message except the last.
@@ -1605,9 +1556,9 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		Trail:      trail,
 		Hits:       r.Hits,
 	}
-	return entry, viewEntry{shortSrc: shortSrc, flushes: flushes, sixelRows: r.SixelRows,
-		codeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
-		attachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
+	return entry, EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes, sixelRows: r.SixelRows,
+		CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
+		AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 	}
 }
 
@@ -1641,7 +1592,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 	}
 
 	if cap(m.cache) < len(m.messages)+8 {
-		m.cache = make([]viewEntry, 0, len(m.messages)+8)
+		m.cache = make([]EntryPayload, 0, len(m.messages)+8)
 	}
 	entries := make([]entrylist.Entry, 0, cap(m.cache))
 
@@ -1653,7 +1604,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 			Selected: lines,
 			Plain:    plainLines(rendered),
 		})
-		m.cache = append(m.cache, viewEntry{})
+		m.cache = append(m.cache, EntryPayload{})
 	}
 
 	var lastDate string
@@ -1907,19 +1858,9 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 // garbled. The short variant is memoised in m.cache[i].
 func (m *Model) selectedLines(i int) []string {
 	e := &m.list.Entries()[i]
-	p := &m.cache[i]
-	if !m.list.HasSelection() || p.shortSrc == "" {
-		return e.Selected
-	}
-	if p.linesSelectedShort == nil {
-		short := m.selectedVariant(p.shortSrc, m.cacheWidth, m.borderSelectStyle())
-		if len(short) > len(e.Selected) {
-			return e.Selected // unreachable: variants share a height
-		}
-		// Trailing spacer rows are shared by every variant.
-		p.linesSelectedShort = append(short, e.Selected[len(short):]...)
-	}
-	return p.linesSelectedShort
+	return m.cache[i].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
+		return NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
+	})
 }
 
 // viewInternal is the body shared by View and ViewBare. When
@@ -2057,7 +1998,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	offsets := m.list.Offsets()
 	for _, v := range frame.Visible {
 		p := &m.cache[v.Index]
-		for _, fl := range p.flushes {
+		for _, fl := range p.Flushes {
 			if fl != nil {
 				_ = fl(&kittyFlushBuf)
 			}

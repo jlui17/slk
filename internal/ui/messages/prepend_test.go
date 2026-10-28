@@ -14,7 +14,7 @@ func newPrependTestModel() *Model {
 		{TS: "1717171000.000100", UserName: "alice", UserID: "U1", Text: "head", Timestamp: "1:00 PM"},
 		{TS: "1717171000.000200", UserName: "bob", UserID: "U2", Text: "tail", Timestamp: "1:01 PM"},
 	}, "general")
-	return &m
+	return m
 }
 
 func TestPrependMessages_DropsItemsNotOlderThanHead(t *testing.T) {

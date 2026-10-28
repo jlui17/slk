@@ -22,7 +22,7 @@ import (
 // which produces a single OSC 8 hyperlink line for non-image
 // attachments without inner wrapping (matching the messages pane's
 // post-Task-7 behavior). The cache-build layer's
-// `borderFill.Width(width - 1).Render(...)` is now solely responsible
+// `messages.WrapRows` fill (`Width(width - 1)`) is now solely responsible
 // for width enforcement when the cached output is composed for display.
 func TestRenderThreadMessageAttachmentLinesFit(t *testing.T) {
 	const width = 50 // panel content width passed to renderMessage

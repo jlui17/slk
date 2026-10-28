@@ -27,7 +27,7 @@ func p3Messages(t *testing.T, n int, dayStep int64) *Model {
 		}
 	}
 	m := New(items, "general")
-	return &m
+	return m
 }
 
 func p3MsgRows(view string) []string {

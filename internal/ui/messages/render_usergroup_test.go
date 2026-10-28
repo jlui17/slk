@@ -102,7 +102,7 @@ func TestFlattenUsergroupBareResolved(t *testing.T) {
 func TestSetUserGroupsSkipsCacheBustWhenUnchanged(t *testing.T) {
 	m := New(nil, "general")
 	m.SetUserGroups(map[string]string{"S1": "platform-team"})
-	m.cache = []viewEntry{{}}
+	m.cache = []EntryPayload{{}}
 
 	m.SetUserGroups(map[string]string{"S1": "platform-team"})
 	if m.cache == nil {

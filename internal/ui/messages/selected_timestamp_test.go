@@ -25,7 +25,7 @@ func longTSModel(t *testing.T, items []MessageItem, width int) (*Model, string) 
 	pinLongTSClock(t)
 	m := New(items, "general")
 	view := ansi.Strip(m.View(40, width))
-	return &m, view
+	return m, view
 }
 
 // selectedEntry returns the cache entry for the selected message.
@@ -47,9 +47,9 @@ func assertHeightsMatch(t *testing.T, m *Model) {
 			t.Errorf("entry %d: len(linesSelected)=%d != len(linesNormal)=%d",
 				i, len(e.Selected), len(e.Lines))
 		}
-		if p := m.cache[i]; p.linesSelectedShort != nil && len(p.linesSelectedShort) != len(e.Lines) {
-			t.Errorf("entry %d: len(linesSelectedShort)=%d != len(linesNormal)=%d",
-				i, len(p.linesSelectedShort), len(e.Lines))
+		if p := m.cache[i]; p.SelectedShort != nil && len(p.SelectedShort) != len(e.Lines) {
+			t.Errorf("entry %d: len(SelectedShort)=%d != len(linesNormal)=%d",
+				i, len(p.SelectedShort), len(e.Lines))
 		}
 	}
 }
@@ -115,11 +115,11 @@ func TestSelectedTimestamp_AvatarNarrowFallsBack(t *testing.T) {
 	}, "general")
 	m.SetAvatarFunc(func(string) string { return "AAAA\nAAAA" })
 	_ = m.View(40, 24)
-	e := selectedEntry(t, &m)
+	e := selectedEntry(t, m)
 	if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
 		t.Fatalf("avatar-narrow selected row shows long timestamp:\n%s", got)
 	}
-	assertHeightsMatch(t, &m)
+	assertHeightsMatch(t, m)
 }
 
 // Review Focus 3: the (edited) mark is part of the header row.
@@ -197,7 +197,7 @@ func TestSelectedTimestamp_SelectionToggleBumpsVersion(t *testing.T) {
 func TestSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 	m, _ := longTSModel(t, longTSItems(), 80)
 	for i, e := range m.cache {
-		if e.linesSelectedShort != nil {
+		if e.SelectedShort != nil {
 			t.Fatalf("entry %d built a short variant with no text selection", i)
 		}
 	}

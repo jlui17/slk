@@ -744,7 +744,7 @@ func TestSelfIssuedThreadMarkEcho_HoldsPanelLandmark(t *testing.T) {
 		messages.MessageItem{TS: "P1", UserID: "U1", Text: "parent"},
 		[]messages.MessageItem{{TS: "R1", UserID: "U1", Text: "r1"}},
 		"C1", "P1")
-	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadPanel.SetLastReadTS("R1")
 
 	// A reply into the open thread: staged by reduceNewMessage, issued
 	// by the flush tick that feed drives below.
@@ -760,7 +760,7 @@ func TestSelfIssuedThreadMarkEcho_HoldsPanelLandmark(t *testing.T) {
 	// Slack's thread_marked broadcast of that same mark.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want R1 held against slk's own auto-mark echo", got)
 	}
 }

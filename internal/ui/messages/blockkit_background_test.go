@@ -144,7 +144,7 @@ func TestWithBackground_EmptyBackgroundIsPassthrough(t *testing.T) {
 
 // The tests above build their input by calling WithBackground directly,
 // so they pin the helper's behaviour and the detector's. None of them
-// fails if renderMessagePlain stops calling it — which is the whole
+// fails if RenderMessage stops calling it — which is the whole
 // defect, not a detail of it. This one goes through buildCache, so the
 // wiring is what is under test.
 func TestBuildCache_BlockKitRunsKeepBackground(t *testing.T) {

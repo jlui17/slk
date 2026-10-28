@@ -28,7 +28,7 @@ func (m *Model) ToggleAttachmentFold() bool {
 		}
 		entry = &m.cache[m.selected]
 	}
-	if len(entry.attachmentFoldRows) == 0 {
+	if len(entry.AttachmentFoldRows) == 0 {
 		return false
 	}
 	if m.expandedAttachments == nil {
@@ -51,7 +51,7 @@ func (m *Model) ToggleAttachmentFoldAt(y int) bool {
 	m.redraw()
 	line := y - m.chromeHeight + m.list.YOffset()
 	_, start, payload, ok := m.forkEntryAt(line)
-	if !ok || !slices.Contains(payload.attachmentFoldRows, line-start) {
+	if !ok || !slices.Contains(payload.AttachmentFoldRows, line-start) {
 		return false
 	}
 	m.ClickAt(y)

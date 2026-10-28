@@ -67,7 +67,7 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	a.activeTeamID = "T1"
 	parent := messages.MessageItem{TS: "100.0", Text: "parent", UserID: "U1"}
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
-	a.threadPanel.SetUnreadBoundary("100.0")
+	a.threadPanel.SetLastReadTS("100.0")
 	a.threadVisible = true
 	a.threadsView.SetSummaries([]cache.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "100.0", Unread: true},
@@ -96,7 +96,7 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	// A read mark never clears the open panel's "── new ──" boundary:
 	// the user is watching the thread, and the landmark showing which
 	// replies were new must survive until they switch threads.
-	if got := a.threadPanel.UnreadBoundaryTS(); got != "100.0" {
+	if got := a.threadPanel.LastReadTS(); got != "100.0" {
 		t.Fatalf("read mark cleared the open panel's boundary (boundary=%q)", got)
 	}
 }

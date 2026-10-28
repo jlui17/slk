@@ -801,7 +801,7 @@ func TestThreadModel_SetEmojiContext_InvalidatesCache(t *testing.T) {
 	_ = m.View(80, 24)
 
 	startVersion := m.Version()
-	m.SetEmojiContext(EmojiContext{
+	m.SetEmojiContext(messages.EmojiContext{
 		PlaceCtx: emojiutil.PlaceContext{},
 		Cells:    2,
 		Customs:  nil,
@@ -847,7 +847,7 @@ func TestThreadModel_RenderReplyWithImageEmoji_WarmCache(t *testing.T) {
 	})
 
 	m := New()
-	m.SetEmojiContext(EmojiContext{
+	m.SetEmojiContext(messages.EmojiContext{
 		PlaceCtx: emojiutil.PlaceContext{Fetcher: ff},
 		Cells:    2,
 		Customs:  nil,

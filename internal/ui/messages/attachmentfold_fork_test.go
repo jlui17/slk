@@ -61,7 +61,7 @@ func cardMessage(ts string, cards ...blockkit.LegacyAttachment) MessageItem {
 func newCardModel(msgs ...MessageItem) *Model {
 	m := New(msgs, "general")
 	m.SetChannelNames(cardChannelNames)
-	return &m
+	return m
 }
 
 func viewPlain(m *Model, height, width int) string {

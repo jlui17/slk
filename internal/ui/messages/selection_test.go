@@ -17,7 +17,7 @@ func newTestModel(width int) *Model {
 		{TS: "2.0", UserName: "bob", UserID: "U2", Text: "second message", Timestamp: "1:01 PM"},
 	}, "general")
 	_ = m.View(40, width)
-	return &m
+	return m
 }
 
 // firstContentY returns the smallest pane-local viewportY that lands on
@@ -106,7 +106,7 @@ func TestSelection_ScrollHintForDrag(t *testing.T) {
 
 func TestSelection_ScrollHintForDragZeroHeight(t *testing.T) {
 	m := New(nil, "x") // never rendered — lastViewHeight stays 0
-	if got := (&m).ScrollHintForDrag(5); got != 0 {
+	if got := m.ScrollHintForDrag(5); got != 0 {
 		t.Fatalf("zero height: want 0 got %d", got)
 	}
 }
@@ -269,7 +269,7 @@ func TestSelection_HighlightDoesNotCorruptMoreBelowIndicator(t *testing.T) {
 	m.GoToTop()
 	_ = m.View(15, 60) // ensure cache + yOffset reflect top position with "more below"
 	// Selection covers a wide vertical range to overlap the bottom row.
-	mp := &m
+	mp := m
 	m.BeginSelectionAt(firstContentY(mp), 0)
 	m.ExtendSelectionAt(firstContentY(mp)+20, 60)
 	out := m.View(15, 60)
@@ -309,7 +309,7 @@ func TestSelection_HighlightSurvivesScroll(t *testing.T) {
 	}
 	m := New(msgs, "general")
 	_ = m.View(20, 60)
-	mp := &m
+	mp := m
 	y := firstContentY(mp) + 2
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 20)

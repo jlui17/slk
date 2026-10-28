@@ -27,7 +27,7 @@ func TestRenderThreadMessageTableCellEmojiUploads(t *testing.T) {
 		OnFlush: func(io.Writer) error { uploaded = true; return nil },
 	})
 	m := New()
-	m.SetEmojiContext(EmojiContext{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}, Cells: 2})
+	m.SetEmojiContext(messages.EmojiContext{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}, Cells: 2})
 
 	msg := messages.MessageItem{TS: "1.1", UserName: "claude", Blocks: []blockkit.Block{
 		blockkit.TableBlock{Rows: [][]string{{"Status"}, {":thumbsup: done"}}},
@@ -59,7 +59,7 @@ func TestThreadParentTableCellEmojiUploads(t *testing.T) {
 		OnFlush: func(io.Writer) error { uploaded = true; return nil },
 	})
 	m := New()
-	m.SetEmojiContext(EmojiContext{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}, Cells: 2})
+	m.SetEmojiContext(messages.EmojiContext{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}, Cells: 2})
 
 	parent := messages.MessageItem{TS: "1.0", UserName: "claude", Blocks: []blockkit.Block{
 		blockkit.TableBlock{Rows: [][]string{{"Status"}, {":thumbsup: done"}}},

@@ -143,14 +143,14 @@ func lockstepRender(t *testing.T) (mm *messages.Model, tm *Model, msgPane, thrPa
 	items := lockstepItems()
 
 	msgModel := messages.New(items, "general")
-	mm = &msgModel
+	mm = msgModel
 	mm.SetFocused(true)
 	mm.SetLastReadTS(items[0].TS)
 
 	tm = New()
 	tm.SetThread(items[0], items[1:], "C1", items[0].TS)
 	tm.SetFocused(true)
-	tm.SetUnreadBoundary(items[0].TS)
+	tm.SetLastReadTS(items[0].TS)
 
 	msgPane = lockstepStrip(mm.View(lockstepHeight, lockstepWidth))
 	thrPane = lockstepStrip(tm.View(lockstepHeight, lockstepWidth))
@@ -318,12 +318,10 @@ func TestLockstep_SharedRenderBehaviour(t *testing.T) {
 // gives a rendered string it gives the SHAPE, not one observed instance:
 // a hook designer reading a literal as a template ships the literal.
 //
-//  1. Construction. messages.New(msgs, channelName) returns a VALUE
-//     Model preloaded with content (messages/model.go:597); thread.New()
+//  1. Construction. messages.New(msgs, channelName) returns a *Model
+//     preloaded with content (a VALUE until Phase 3 PR 7); thread.New()
 //     returns a *Model that is empty until SetThread
-//     (thread/model.go:226). Phase 3 must pick one shape; the value
-//     return is why callers of messages.New must take an address before
-//     calling any method.
+//     (thread/model.go:226).
 //
 //  2. Parent row. thread renders m.parent as a pseudo-row above the
 //     replies, addressable through the parentSelected = -1 sentinel
@@ -398,7 +396,7 @@ func TestLockstep_SharedRenderBehaviour(t *testing.T) {
 //     thread/model.go:1532-1540), and the assertions above pin that.
 //     Only the non-rendering half is a divergence. What diverges is
 //     (a) the setter -- messages.SetLastReadTS(ts) vs
-//     thread.SetUnreadBoundary(ts); (b) lifecycle -- thread clears its
+//     thread.SetLastReadTS(ts); (b) lifecycle -- thread clears its
 //     boundary when the thread identity changes
 //     (thread/model.go:310-312), messages never self-clears; and
 //     (c) structure -- messages inserts the landmark as a viewEntry with
@@ -455,13 +453,9 @@ func TestLockstep_SharedRenderBehaviour(t *testing.T) {
 //     "loading" as one slot without inventing a loading state for
 //     thread, nor as two without splitting messages' branch.
 //
-// 13. Selection entry points. messages splits View / ViewBare and
-//     offers ApplySelectionToBordered so the App layer can cache a
-//     selection-free bordered render and repaint the selection as a
-//     cheap post-pass (messages/model.go:3315-3332, 3457); thread has
-//     only View, which always paints the selection. ClickAt also
-//     diverges in signature: messages.ClickAt(y) returns bool,
-//     thread.ClickAt(y) returns nothing.
+// 13. Selection entry points. REMOVED in Phase 3 PR 7: both panes split
+//     View / ViewBare, offer ApplySelectionToBordered, and ClickAt(y)
+//     returns bool (the contentPane interface in internal/ui asserts it).
 //
 // 14. Outer background wrapper. REMOVED in Phase 3 PR 2+3.
 //
@@ -490,7 +484,7 @@ func TestLockstep_ScrolledWindowParity(t *testing.T) {
 		}
 	}
 	mv := messages.New(items, "general")
-	mm := &mv
+	mm := mv
 	mm.SetFocused(true)
 	tm := New()
 	tm.SetThread(items[0], items[1:], "C1", items[0].TS)

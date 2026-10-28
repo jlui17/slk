@@ -314,9 +314,9 @@ func TestCursorFollowsScrollUp(t *testing.T) {
 	if m.SelectedIndex() >= startSel {
 		t.Errorf("cursor did not follow scroll up: before=%d after=%d", startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection not visible after scroll up: sel=[%d,%d) window=[%d,%d)",
-			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
+			cursorStart(m), cursorEnd(m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -342,9 +342,9 @@ func TestCursorFollowsScrollDown(t *testing.T) {
 	if m.SelectedIndex() <= startSel {
 		t.Errorf("cursor did not follow scroll down: before=%d after=%d", startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection not visible after scroll down: sel=[%d,%d) window=[%d,%d)",
-			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
+			cursorStart(m), cursorEnd(m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -368,7 +368,7 @@ func TestCursorUnchangedWhenScrollKeepsSelectionVisible(t *testing.T) {
 		t.Errorf("cursor moved on a scroll that kept selection visible: before=%d after=%d",
 			startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection unexpectedly off-screen after 1-line scroll")
 	}
 }
@@ -649,7 +649,7 @@ func setupImageMessageModel(t *testing.T, protocol imgpkg.Protocol) *Model {
 		ctx.KittyRender = imgpkg.NewKittyRenderer(imgpkg.NewRegistry())
 	}
 	m.SetImageContext(ctx)
-	return &m
+	return m
 }
 
 // TestView_SixelFullVisibility_PublishesPlacement asserts that a fully
@@ -1142,7 +1142,7 @@ func fmtRGBBg(r, g, b uint8) string {
 // TestSelectedRowContainsTintBackground asserts that the rendered output
 // for the selected message includes the SelectionTintColor as an ANSI
 // background, while a non-selected row does not. Guards against
-// regressions in cacheStyles' borderSelect construction.
+// regressions in WrapStyles' selected-border construction.
 func TestSelectedRowContainsTintBackground(t *testing.T) {
 	styles.Apply("dark", config.Theme{})
 	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
@@ -1325,7 +1325,7 @@ func TestPatchUserName_InvalidatesCacheEvenWithNoMatchingMessages(t *testing.T) 
 // click lands inside the pill, and ok=false elsewhere.
 //
 // Reaction pills are rendered on a line below the message body (see
-// renderMessagePlain). The exact column extents depend on
+// RenderMessage). The exact column extents depend on
 // emojiutil.Width() for the emoji glyph, so we don't assert specific
 // coordinates — we just confirm the rect is non-empty and the center
 // of the rect maps back to the expected emoji name.
@@ -1474,7 +1474,7 @@ func TestModel_RenderMessageWithImageEmoji_WarmCache(t *testing.T) {
 }
 
 // TestModel_RenderMessageWithImageEmoji_FlushesThreaded guards against a
-// regression where renderMessagePlain dropped the named-return `flushes`
+// regression where RenderMessage dropped the named-return `flushes`
 // slice (carrying body-text + reaction-pill emoji kitty upload callbacks)
 // in favor of returning only `allFlushes` (carrying blockkit/attachment
 // callbacks). When that happens kitty placeholder runes appear in the
@@ -1491,8 +1491,8 @@ func TestModel_RenderMessageWithImageEmoji_FlushesThreaded(t *testing.T) {
 
 	// Sentinel OnFlush makes the produced flush callback observable.
 	// The fake fetcher's prerender memo carries the same callback that
-	// Place returns to the caller; if renderMessagePlain drops the
-	// named-return `flushes` slice, len(e.flushes) will be 0 across the
+	// Place returns to the caller; if RenderMessage drops the
+	// named-return `flushes` slice, len(e.Flushes) will be 0 across the
 	// cache and the assertion below will fire.
 	flushCalled := false
 	ff := newFakePlaceFetcher()
@@ -1526,16 +1526,16 @@ func TestModel_RenderMessageWithImageEmoji_FlushesThreaded(t *testing.T) {
 
 	var totalFlushes int
 	for _, e := range m.cache {
-		totalFlushes += len(e.flushes)
+		totalFlushes += len(e.Flushes)
 	}
 	if totalFlushes == 0 {
-		t.Errorf("expected at least one flush callback in cached entries, got 0 — emoji upload not threaded through renderMessagePlain return")
+		t.Errorf("expected at least one flush callback in cached entries, got 0 — emoji upload not threaded through RenderMessage return")
 	}
 
 	// Invoking the gathered flushes should reach the sentinel OnFlush.
 	// (Defends against a future "we accumulate but never invoke" regression.)
 	for _, e := range m.cache {
-		for _, f := range e.flushes {
+		for _, f := range e.Flushes {
 			_ = f(io.Discard)
 		}
 	}
@@ -1545,8 +1545,6 @@ func TestModel_RenderMessageWithImageEmoji_FlushesThreaded(t *testing.T) {
 }
 
 func TestUpdateReactionMaintainsUserIDs(t *testing.T) {
-	// messages.New(msgs, channelName) returns a value Model; m is addressable
-	// so the pointer-receiver methods below work.
 	m := New([]MessageItem{{TS: "100.0", Text: "hi"}}, "general")
 
 	// Add a reaction by user U1 -> creates the group with U1.
@@ -1697,7 +1695,7 @@ func TestSetSearchTerms_ClonesInput(t *testing.T) {
 func TestSetSearchTerms_RedundantCallKeepsCache(t *testing.T) {
 	m := New(nil, "general")
 	m.SetSearchTerms([]string{"deploy"})
-	m.cache = []viewEntry{{}} // sentinel: a populated render cache
+	m.cache = []EntryPayload{{}} // sentinel: a populated render cache
 	m.SetSearchTerms([]string{"deploy"})
 	if m.cache == nil {
 		t.Fatal("redundant SetSearchTerms invalidated the render cache")

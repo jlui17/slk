@@ -14,7 +14,7 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	if !ok {
 		return "", false
 	}
-	block, ok := messages.CodeBlockCopyLabelAt(payload.codeBlockCopyLabels, line-start, x)
+	block, ok := messages.CodeBlockCopyLabelAt(payload.CodeBlockCopyLabels, line-start, x)
 	if !ok {
 		return "", false
 	}

@@ -3,7 +3,6 @@ package thread
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
 	"slices"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/debuglog"
-	emojiutil "github.com/gammons/slk/internal/emoji"
 
 	"github.com/gammons/slk/internal/bubbles/entrylist"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -24,33 +22,6 @@ import (
 )
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
-
-// viewEntry is the thread pane's payload for one reply, index-aligned
-// with m.replies (and with m.replyEntries): the parts the list substrate
-// does not need. m.cache == nil means the reply cache was discarded and
-// the next View rebuilds it.
-type viewEntry struct {
-	// shortSrc is the selected reply's content with the short timestamp,
-	// set only when the selected variant carries a long one;
-	// linesSelectedShort is built from it on demand (selectedLines) and
-	// shown while a text selection exists.
-	shortSrc           string
-	linesSelectedShort []string
-
-	// flushes are per-frame kitty image uploads for the reply's inline
-	// images, invoked when the frame's layout is rebuilt. v1 scope: sixel
-	// renders its placeholder only, so no sixel rows are captured.
-	flushes []func(io.Writer) error
-
-	// codeBlockCopyLabels locates the copy label of each fenced block in
-	// the body, in Lines cells. CodeBlockAt reads them. See
-	// codeblocks_fork.go.
-	codeBlockCopyLabels []messages.CodeBlockCopyLabel
-
-	// attachmentFoldRows are the rows of Lines that hold a card's fold
-	// row. See attachmentfold_fork.go.
-	attachmentFoldRows []int
-}
 
 // Model represents the thread panel UI component.
 // It displays a parent message and its replies with cursor navigation.
@@ -83,8 +54,11 @@ type Model struct {
 	currentUserID string
 
 	// Reply cache: the payload and the list entry of every reply,
-	// rebuilt when the replies or the width change.
-	cache         []viewEntry
+	// index-aligned with m.replies, rebuilt when the replies or the width
+	// change. nil means the cache was discarded and the next View
+	// rebuilds it. The thread pane captures no sixel rows (v1 scope:
+	// sixel renders its placeholder only).
+	cache         []messages.EntryPayload
 	replyEntries  []entrylist.Entry
 	cacheWidth    int
 	cacheReplyLen int
@@ -97,7 +71,7 @@ type Model struct {
 
 	// layoutValid says the previous frame's layout still describes the
 	// screen: a width change then keeps the scroll position (U5). Cleared
-	// by every invalidation, by SetFocused, SetUnreadBoundary and ClickAt
+	// by every invalidation, by SetFocused, SetLastReadTS and ClickAt
 	// (the events that cleared the old view cache).
 	layoutValid bool
 
@@ -141,7 +115,7 @@ type Model struct {
 	// parent's copy labels and fold rows, which the reply cache does
 	// not. See attachmentfold_fork.go.
 	expandedAttachments map[string]bool
-	parentEntry         viewEntry
+	parentEntry         messages.EntryPayload
 
 	// replyIDToIdx maps reply TS -> reply index; rebuilt with the reply
 	// cache. HasReply reads it.
@@ -155,7 +129,7 @@ type Model struct {
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
 	// new; a "── new ──" landmark is inserted between the last read reply
 	// and the first new one. Empty string disables the landmark. Set via
-	// SetUnreadBoundary, typically with the parent channel's last_read_ts
+	// SetLastReadTS, typically with the parent channel's last_read_ts
 	// at the moment the thread is opened.
 	unreadBoundaryTS string
 
@@ -173,16 +147,7 @@ type Model struct {
 	// through RenderSlackMarkdownWith for reply body text and consulted
 	// directly when building reply reaction pills. Configured at startup
 	// via Model.SetEmojiContext (mirrors messages.Model).
-	emojiCtx EmojiContext
-}
-
-// EmojiContext bundles the emoji-image rendering dependencies for the
-// thread pane. Mirrors messages.EmojiContext in shape and purpose —
-// see internal/ui/messages/model.go for the architectural rationale.
-type EmojiContext struct {
-	PlaceCtx emojiutil.PlaceContext
-	Cells    int               // 1 or 2; 0 falls back to 2
-	Customs  map[string]string // workspace custom emoji map; nil = empty
+	emojiCtx messages.EmojiContext
 }
 
 // New creates an empty thread panel.
@@ -232,7 +197,7 @@ func (m *Model) SetImageContext(ctx imgrender.ImageContext) {
 // Should be called once at startup (cmd/slk/main.go) and again after
 // CustomEmojisLoadedMsg arrives (via SetEmojiCustoms). Mirrors
 // messages.Model.SetEmojiContext.
-func (m *Model) SetEmojiContext(ctx EmojiContext) {
+func (m *Model) SetEmojiContext(ctx messages.EmojiContext) {
 	if ctx.Cells != 1 && ctx.Cells != 2 {
 		ctx.Cells = 2
 	}
@@ -298,7 +263,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 // The cursor starts at the bottom (newest reply). When the channel/thread
 // identity changes (i.e. the user is opening a different thread, not just
 // receiving a refresh of the current one), the unread boundary is cleared
-// so a fresh boundary can be set by the caller via SetUnreadBoundary.
+// so a fresh boundary can be set by the caller via SetLastReadTS.
 // A refresh of the current thread instead keeps the user's cursor and
 // scroll where they were — see restoreSelection in select.go.
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
@@ -329,12 +294,12 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	m.InvalidateCache()
 }
 
-// SetUnreadBoundary sets the timestamp the user has already read up to in
+// SetLastReadTS sets the timestamp the user has already read up to in
 // this thread. A "── new ──" landmark is rendered between the last reply
 // with TS <= boundary and the first reply with TS > boundary. Pass "" to
 // clear the boundary. Typically called by the App right after SetThread,
 // using the thread's own last-read cursor from thread_subscriptions.
-func (m *Model) SetUnreadBoundary(ts string) {
+func (m *Model) SetLastReadTS(ts string) {
 	if m.unreadBoundaryTS == ts {
 		return
 	}
@@ -364,8 +329,8 @@ func (m *Model) breadcrumbAuthor() string {
 	return name
 }
 
-// UnreadBoundaryTS returns the current unread-boundary ts. Used by tests.
-func (m *Model) UnreadBoundaryTS() string {
+// LastReadTS returns the current unread-boundary ts. Used by tests.
+func (m *Model) LastReadTS() string {
 	return m.unreadBoundaryTS
 }
 
@@ -774,6 +739,15 @@ func (m *Model) SelectedReply() *messages.MessageItem {
 	return &m.replies[m.selected]
 }
 
+// SelectedMessage returns the message under the cursor (the parent when
+// it is selected), the channel pane's accessor.
+func (m *Model) SelectedMessage() (messages.MessageItem, bool) {
+	if r := m.SelectedReply(); r != nil {
+		return *r, true
+	}
+	return messages.MessageItem{}, false
+}
+
 // SelectByIndex moves the selection cursor to i (an index into Replies()).
 // No-op if i is out of range. Used by tests that need a deterministic
 // selection state.
@@ -945,23 +919,26 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 // in the chrome are ignored. A click below the content lands on the last
 // line (the row is clamped), so it selects the last reply; a click on a
 // separator, a divider or the rule under the parent selects nothing.
-func (m *Model) ClickAt(y int) {
+// It reports whether the click landed on a selectable row (the selection
+// was updated or already there).
+func (m *Model) ClickAt(y int) bool {
 	if y < m.chromeHeight {
-		return
+		return false
 	}
 	i, within, ok := m.list.EntryAt(m.list.AbsLine(y - m.chromeHeight))
 	if !ok {
-		return
+		return false
 	}
 	e := m.list.Entries()[i]
 	if !e.Selectable || within >= len(e.Plain) {
-		return
+		return false
 	}
 	if m.selected != e.Ref {
 		m.selected = e.Ref
 		m.layoutValid = false
 		m.dirty()
 	}
+	return true
 }
 
 // BeginSelectionAt anchors a new selection at the given pane-local
@@ -1010,35 +987,9 @@ func (m *Model) selectedLines(i int) []string {
 	if e.Ref < 0 || e.Ref >= len(m.cache) {
 		return e.Lines
 	}
-	p := &m.cache[e.Ref]
-	if !m.list.HasSelection() || p.shortSrc == "" {
-		return e.Selected
-	}
-	if p.linesSelectedShort == nil {
-		short := m.selectedVariant(p.shortSrc, m.cacheWidth, m.borderSelectStyle())
-		if len(short) != len(e.Selected) {
-			return e.Selected // unreachable: variants share a height
-		}
-		p.linesSelectedShort = short
-	}
-	return p.linesSelectedShort
-}
-
-// borderSelectStyle is the thick, tinted left border of the selected reply.
-func (m *Model) borderSelectStyle() lipgloss.Style {
-	return lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(m.focused)).
-		BorderBackground(styles.SelectionTintColor(m.focused)).
-		Background(styles.SelectionTintColor(m.focused))
-}
-
-// selectedVariant renders content r as the selected reply: the selection
-// tint repainted over inner spans, filled to the row width, then the
-// selection border. Split on "\n". Mirrors messages.Model.selectedVariant.
-func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style) []string {
-	fill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1)
-	tinted := messages.ReapplyBgAfterResets(messages.RepaintBgToSelectionTint(r, m.focused), messages.SelectionTintBgANSI(m.focused))
-	return strings.Split(borderSelect.Render(fill.Render(tinted)), "\n")
+	return m.cache[e.Ref].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
+		return messages.NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
+	})
 }
 
 // ScrollHintForDrag returns -1 if the cursor is within 1 row of the top
@@ -1051,7 +1002,20 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 
 // View renders the thread panel content without a border.
 // The parent App is responsible for adding the border.
-func (m *Model) View(height, width int) string {
+func (m *Model) View(height, width int) string { return m.viewInternal(height, width, true) }
+
+// ViewBare renders the thread panel WITHOUT the selection-highlight
+// overlay; see messages.Model.ViewBare.
+func (m *Model) ViewBare(height, width int) string { return m.viewInternal(height, width, false) }
+
+// ApplySelectionToBordered paints the selection onto a cached bordered
+// render; see messages.Model.ApplySelectionToBordered.
+func (m *Model) ApplySelectionToBordered(bordered string, topBorderRows, leftBorderCols int) string {
+	m.list.SetStyles(messages.ThemeListStyles())
+	return m.list.ApplySelectionToBordered(bordered, topBorderRows+m.chromeHeight, leftBorderCols)
+}
+
+func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if m.IsEmpty() {
 		return lipgloss.NewStyle().
 			Width(width).
@@ -1140,9 +1104,9 @@ func (m *Model) View(height, width int) string {
 			_ = fl(imgpkg.KittyOutput)
 		}
 	}
-	m.parentEntry = viewEntry{
-		codeBlockCopyLabels: parentRendered.CodeBlockCopyLabels,
-		attachmentFoldRows:  parentRendered.AttachmentFoldRows,
+	m.parentEntry = messages.EntryPayload{
+		CodeBlockCopyLabels: parentRendered.CodeBlockCopyLabels,
+		AttachmentFoldRows:  parentRendered.AttachmentFoldRows,
 	}
 	// Replies only get a day divider when their day differs from the
 	// parent's, so the parent header carries its own date; otherwise a
@@ -1252,50 +1216,32 @@ func (m *Model) View(height, width int) string {
 		} else {
 			clear(m.replyIDToIdx)
 		}
-		// Pre-build border styles ONCE (don't allocate per reply): the
+		// Pre-build the wrap styles ONCE (don't allocate per reply): the
 		// thick left border ▌ is applied at cache-build time so View()
 		// picks a slice (normal vs selected) instead of running lipgloss
 		// for every visible reply on every j/k.
-		borderFill := lipgloss.NewStyle().Background(styles.Background)
-		borderInvis := lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-			BorderForeground(styles.Background).BorderBackground(styles.Background)
-		borderSelect := m.borderSelectStyle()
+		wrap := messages.NewWrapStyles(m.focused)
 		for i, reply := range m.replies {
 			// renderMessage's last arg ("isSelected") drives reaction-
 			// nav pill highlighting, so it MUST be i == m.selected.
 			r := m.renderMessage(reply, width, i == m.selected)
-			rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
 			// The thread pane's kitty upload order: body, blocks,
 			// reactions, then attachments.
 			flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
-			// Selected variant only; Lines / Plain keep the short form.
-			renderedSel := messages.SelectedHeader(rendered, header, reply.TS, reply.Timestamp, headerBudget)
-			// Two filled variants, so the trailing whitespace of every
-			// wrapped line carries the right background and the tint
-			// reaches the end of the row. Plain mirrors the untinted
-			// filledNormal, so clipboard text never carries the tint.
-			filledNormal := borderFill.Width(width - 1).Render(rendered)
-			linesN := strings.Split(borderInvis.Render(filledNormal), "\n")
-			linesS := m.selectedVariant(renderedSel, width, borderSelect)
-			// The short-timestamp selected variant is built on demand
-			// from shortSrc (see selectedLines).
-			var shortSrc string
-			if renderedSel != rendered {
-				shortSrc = rendered
-			}
+			w := messages.WrapRows(reply, r, width, wrap)
 			m.replyEntries = append(m.replyEntries, entrylist.Entry{
 				ID:         reply.TS,
 				Ref:        i,
 				Selectable: true,
-				Lines:      linesN,
-				Selected:   linesS,
-				Plain:      messages.PlainLines(filledNormal),
+				Lines:      w.Lines,
+				Selected:   w.Selected,
+				Plain:      w.Plain,
 				ColOffset:  1,
 				Hits:       r.Hits,
 			})
-			m.cache = append(m.cache, viewEntry{shortSrc: shortSrc, flushes: flushes,
-				codeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
-				attachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
+			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes,
+				CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
+				AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 			})
 			m.replyIDToIdx[reply.TS] = i
 		}
@@ -1365,7 +1311,7 @@ func (m *Model) View(height, width int) string {
 	if key != m.flushKey || !m.layoutValid {
 		var kittyFlushBuf bytes.Buffer
 		for _, p := range m.cache {
-			for _, fl := range p.flushes {
+			for _, fl := range p.Flushes {
 				if fl != nil {
 					_ = fl(&kittyFlushBuf)
 				}
@@ -1381,7 +1327,7 @@ func (m *Model) View(height, width int) string {
 	// reply hits (content-relative), overlay the selection, draw the
 	// scrollbar.
 	frame := m.list.Layout(m.selected, m.selectedLines)
-	rows := m.list.Compose(frame, "", "", true)
+	rows := m.list.Compose(frame, "", "", applySelection)
 	m.layoutValid = true
 	return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)
 }
@@ -1426,7 +1372,7 @@ func (m *Model) renderContext() *messages.RenderContext {
 		UserNames:        m.userNames.Current(),
 		ChannelNames:     m.channelNames,
 		UserGroups:       m.userGroups,
-		Emoji:            messages.EmojiContext(m.emojiCtx),
+		Emoji:            m.emojiCtx,
 		Images:           m.imgRenderer,
 		ImageChannel:     m.channelID,
 		Nav:              m.nav,

@@ -86,8 +86,8 @@ func TestThreadsViewJK_CachedRepliesKeepUnreadBoundary(t *testing.T) {
 	a, _ := cachedThreadsApp(t, true)
 	a.threadsView.MoveDown()
 	_ = a.openSelectedThreadCmd(true)
-	if got := a.threadPanel.UnreadBoundaryTS(); got != "2.01" {
-		t.Errorf("UnreadBoundaryTS = %q, want 2.01", got)
+	if got := a.threadPanel.LastReadTS(); got != "2.01" {
+		t.Errorf("LastReadTS = %q, want 2.01", got)
 	}
 }
 

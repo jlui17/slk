@@ -62,7 +62,7 @@ func (m *Model) ToggleAttachmentFold() bool {
 	m.freshenCache()
 	entries := m.list.Entries()
 	for i, e := range m.cache {
-		if entries[i].Ref != m.selected || len(e.attachmentFoldRows) == 0 {
+		if entries[i].Ref != m.selected || len(e.AttachmentFoldRows) == 0 {
 			continue
 		}
 		ts := m.messages[entries[i].Ref].TS
@@ -93,7 +93,7 @@ func (m *Model) ToggleAttachmentFoldAt(y int) bool {
 	line := y - m.chromeHeight + m.list.YOffset()
 	offsets := m.list.Offsets()
 	for i, e := range m.cache {
-		if slices.Contains(e.attachmentFoldRows, line-offsets[i]) {
+		if slices.Contains(e.AttachmentFoldRows, line-offsets[i]) {
 			m.ClickAt(y)
 			return m.ToggleAttachmentFold()
 		}
