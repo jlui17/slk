@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +23,7 @@ type paneServer struct {
 
 func startPaneServer(t *testing.T, results map[string]string) (*paneServer, *Reporter) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)

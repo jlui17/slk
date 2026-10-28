@@ -1,7 +1,6 @@
 package herdr
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,7 +10,7 @@ func tabOpenReporter(t *testing.T) (*Reporter, *recorder) {
 	old := shellStartupDelay
 	shellStartupDelay = 0
 	t.Cleanup(func() { shellStartupDelay = old })
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 	r.workspaceID = "w1"

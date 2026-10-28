@@ -1,14 +1,13 @@
 package herdr
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func labelCacheReporter(t *testing.T, currentLabel string) (*Reporter, *recorder) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel(currentLabel)
 	return newReporter("unix", sock, "w1:p1", "w1:t1"), rec

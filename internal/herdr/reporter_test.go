@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -94,6 +95,19 @@ func (r *recorder) getTokens() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// testSocketPath returns a herdr.sock path in a fresh short temp dir.
+// t.TempDir() embeds the test name, and under a nix build dir that runs
+// past the 107-byte unix socket path limit ("bind: invalid argument").
+func testSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "hd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "herdr.sock")
 }
 
 // startServer runs a fake herdr endpoint that mirrors the real server's
@@ -210,7 +224,7 @@ func decode(t *testing.T, line string) (method string, params map[string]any) {
 }
 
 func TestRequestsFollowAdoptedIdentity(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	// What the focus watcher does after a cross-workspace move: every
@@ -266,7 +280,7 @@ func TestRequestsFollowAdoptedIdentity(t *testing.T) {
 }
 
 func TestNameTabAbortsOnServerError(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setMethodError("tab.get", "tab w1:t1 not found")
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
@@ -285,7 +299,7 @@ func TestNameTabAbortsOnServerError(t *testing.T) {
 }
 
 func TestReport(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
@@ -362,7 +376,7 @@ func TestNextSeqMonotonic(t *testing.T) {
 }
 
 func TestReportIdleOmitsEmptyMessage(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
@@ -390,7 +404,7 @@ func TestReportTCP(t *testing.T) {
 }
 
 func TestRelease(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
@@ -417,7 +431,7 @@ func TestRelease(t *testing.T) {
 }
 
 func TestReleaseBeforeReportSendsNothing(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 
@@ -437,7 +451,7 @@ func TestNilReporter(t *testing.T) {
 }
 
 func TestNameTabRenamesDefaultAndOwnLabel(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel("2") // herdr default: position digits
 	r := newReporter("unix", sock, "pane-1", "tab-1")
@@ -458,7 +472,7 @@ func TestNameTabRenamesDefaultAndOwnLabel(t *testing.T) {
 
 func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
 	for _, userLabel := range []string{"my precious tab", "2024"} {
-		sock := filepath.Join(t.TempDir(), "herdr.sock")
+		sock := testSocketPath(t)
 		_, rec := startServer(t, "unix", sock)
 		rec.setTabLabel(userLabel)
 		r := newReporter("unix", sock, "pane-1", "tab-1")
@@ -480,7 +494,7 @@ func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
 // rename`) stops NameTab; ForceNameTab renames over it and claims the tab,
 // so the guarded renames that follow land again.
 func TestForceNameTabOverwritesForeignLabel(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel("someone else's label")
 	r := newReporter("unix", sock, "pane-1", "tab-1")
@@ -516,7 +530,7 @@ func TestForceNameTabOverwritesForeignLabel(t *testing.T) {
 }
 
 func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	// A previous slk run named the tab and recorded the ownership token
 	// in the herdr server.
@@ -535,7 +549,7 @@ func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
 }
 
 func TestNameTabNoTabID(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "")
 
@@ -547,7 +561,7 @@ func TestNameTabNoTabID(t *testing.T) {
 }
 
 func TestCloseWaitsForInFlight(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "pane-1", "tab-1")
 

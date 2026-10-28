@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestReportUnreadSendsCompletionPair(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	r := newReporter("unix", sock, "w1:p1", "")
 
@@ -298,7 +297,7 @@ func focusWatcher(t *testing.T, r *Reporter) (view func(want bool, step string),
 }
 
 func TestWatchFocusFiresOnUnfocusTransitions(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	view, quiet := focusWatcher(t, newReporter("unix", sock, "w1:p1", ""))
 	s.waitSubscribed()
@@ -324,7 +323,7 @@ func TestWatchFocusFiresOnUnfocusTransitions(t *testing.T) {
 }
 
 func TestWatchFocusSeedsFromLiveLocation(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	// The pane's tab is not the active one when the watcher connects, so
 	// it must report unviewed up front. Assuming viewed (what a fresh
@@ -347,7 +346,7 @@ func TestWatchFocusSeedsFromLiveLocation(t *testing.T) {
 }
 
 func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	// herdr 0.9.0 sends no focus event when the user switches tabs in
 	// its TUI: the only trace is workspace.get's answer changing. The
@@ -367,7 +366,7 @@ func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
 }
 
 func TestWatchFocusTracksPaneMove(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	view, _ := focusWatcher(t, newReporter("unix", sock, "w1:p1", ""))
 	s.waitSubscribed()
@@ -393,7 +392,7 @@ func TestWatchFocusTracksPaneMove(t *testing.T) {
 }
 
 func TestWatchFocusRejectsBadAckAndRetries(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	s.mu.Lock()
 	s.badAckOnce = true
@@ -451,7 +450,7 @@ func waitIdentity(t *testing.T, r *Reporter, want string) {
 }
 
 func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
@@ -481,7 +480,7 @@ func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
 }
 
 func TestWatchFocusMatchesMoveByTerminalID(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
@@ -499,7 +498,7 @@ func TestWatchFocusMatchesMoveByTerminalID(t *testing.T) {
 }
 
 func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	// An older herdr that reports no terminal ids at all: the tracked
 	// terminal id stays empty, and an empty event terminal id must not
@@ -528,7 +527,7 @@ func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
 }
 
 func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
@@ -566,7 +565,7 @@ func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
 }
 
 func TestWatchFocusBootstrapsFromCachedPaneID(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	// A cold start in the wedged pane: the launch env still says w1:p1
 	// (the pane moved workspaces, then a restart wiped every alias),
@@ -590,7 +589,7 @@ func TestWatchFocusBootstrapsFromCachedPaneID(t *testing.T) {
 }
 
 func TestWatchFocusRetriesFailedPaneIDSave(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
@@ -625,7 +624,7 @@ func TestWatchFocusRetriesFailedPaneIDSave(t *testing.T) {
 }
 
 func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
@@ -673,7 +672,7 @@ func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
 }
 
 func TestReportsDuringMovesNoRace(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "herdr.sock")
+	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
