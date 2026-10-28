@@ -71,7 +71,7 @@ type appHomeState struct {
 	panel appHomePanelCache
 
 	// after is tea.Tick; tests replace it.
-	after func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
+	after tickFunc
 }
 
 // appHomePanelCache keeps the bordered pane while the Home's render and
@@ -105,13 +105,6 @@ const maxHomeClicks = 8
 
 // SetAppHomeService wires App Home to Slack.
 func (a *App) SetAppHomeService(s apphome.Service) { a.appHome.svc = s }
-
-func (s *appHomeState) tick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
-	if s.after != nil {
-		return s.after(d, fn)
-	}
-	return tea.Tick(d, fn)
-}
 
 // appHomeChannelSelected opens an app DM's Home tab when the channel
 // switch lands on one, and closes App Home for any other channel. A
@@ -158,7 +151,7 @@ func (a *App) closeAppHome() {
 
 func (s *appHomeState) spinnerTick() tea.Cmd {
 	visit := s.visit
-	return s.tick(100*time.Millisecond, func(time.Time) tea.Msg { return appHomeSpinnerMsg{visit} })
+	return s.after.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return appHomeSpinnerMsg{visit} })
 }
 
 func (s *appHomeState) isOpen(teamID, channelID string) bool {
@@ -300,7 +293,7 @@ func (a *App) runAppHomeIntent(in apphome.Intent) tea.Cmd {
 		}
 		if in.WaitID != 0 {
 			visit, id := s.visit, in.WaitID
-			cmds = append(cmds, s.tick(appHomeWait, func(time.Time) tea.Msg {
+			cmds = append(cmds, s.after.Tick(appHomeWait, func(time.Time) tea.Msg {
 				return appHomeWaitTimeoutMsg{visit: visit, waitID: id}
 			}))
 		}

@@ -4,10 +4,15 @@
 // presenceController, and App, mirroring sidebar.SetNowFunc:
 // presenceController carries a nowFn clock field (declared alongside its
 // struct) that defaults to time.Now via the nil-safe Now; the others set
-// upstream's now field.
+// upstream's now field. tickFunc is the same seam for tea.Tick, which
+// App Home and the `.` overlay time their waits with.
 package ui
 
-import "time"
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 type clock func() time.Time
 
@@ -16,6 +21,15 @@ func (c clock) Now() time.Time {
 		return c()
 	}
 	return time.Now()
+}
+
+type tickFunc func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
+
+func (f tickFunc) Tick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+	if f != nil {
+		return f(d, fn)
+	}
+	return tea.Tick(d, fn)
 }
 
 // SetNowFunc injects a clock for tests into the tracker's now field

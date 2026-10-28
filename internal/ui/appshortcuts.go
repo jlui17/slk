@@ -68,7 +68,7 @@ type appShortcutsState struct {
 	quitPrompt bool
 
 	// after is tea.Tick; tests replace it.
-	after func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
+	after tickFunc
 }
 
 type abandonedRun struct{ token, teamID string }
@@ -188,10 +188,6 @@ func handleAppShortcutsMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	s.running, s.token = sc, a.clientToken()
 	s.model.Wait(sc.AppName)
 	svc, teamID, channelID, ts, token := s.svc, s.teamID, s.channelID, s.messageTS, s.token
-	after := s.after
-	if after == nil {
-		after = tea.Tick
-	}
 	return tea.Batch(
 		func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -201,7 +197,7 @@ func handleAppShortcutsMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		},
-		after(appViewWait, func(time.Time) tea.Msg { return appShortcutTimeoutMsg{token: token} }),
+		s.after.Tick(appViewWait, func(time.Time) tea.Msg { return appShortcutTimeoutMsg{token: token} }),
 	)
 }
 
