@@ -600,6 +600,7 @@ func hydrateFirstSight(db *cache.DB, workspaceID string, res *bootstrap.Result) 
 		if err := db.UpsertUser(cache.User{
 			ID:          u.ID,
 			WorkspaceID: workspaceID,
+			HomeTeamID:  u.TeamID,
 			Name:        u.Name,
 			DisplayName: bootUserDisplayName(u),
 			AvatarURL:   u.Profile.ImageOriginal,

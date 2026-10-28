@@ -199,7 +199,7 @@ func TestAgentMarkSkipsEphemeralBot(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	marks := fakeAgentMarks{}
 	a.SetAgentThreadMarks(marks)
-	ephemeral := messages.MessageItem{TS: "101.5", Text: "only visible to you", UserID: "UBOT", IsEphemeral: true}
+	ephemeral := messages.MessageItem{TS: "101.5", Text: "only visible to you", UserID: "UBOT", Ephemeral: true}
 	a.setThreadPanel(markParent, []messages.MessageItem{markReplies[0], ephemeral}, "C1", "100.0")
 
 	_ = executeCommand(a, "agent")

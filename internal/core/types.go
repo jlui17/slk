@@ -46,9 +46,10 @@ type MessageItem struct {
 	// cards). Rendered after Blocks.
 	LegacyAttachments []blocks.LegacyAttachment
 
-	// Fork: Slack showed this message to the user alone, for this
-	// session; slk keeps it in memory only (internal/ui/ephemeral_fork.go).
-	IsEphemeral bool
+	// Ephemeral is set for a message only the current user can see
+	// (Slack's is_ephemeral). It is never cached and never a
+	// read-marking target; Slack does not return it from history.
+	Ephemeral bool
 }
 
 // Attachment represents a file or image attached to a message.

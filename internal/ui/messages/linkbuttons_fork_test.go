@@ -15,12 +15,12 @@ import (
 // chat.postEphemeral after an annotation.
 func colonyEphemeral() MessageItem {
 	return MessageItem{
-		TS:          "1787400000.000200",
-		UserName:    "Colony",
-		Timestamp:   "3:04 PM",
-		Text:        "Your annotation was sent.",
-		Blocks:      blockkittest.ColonyEphemeral("https://x.slack.com/archives/C1/p1", "https://x.slack.com/archives/C1/p1787300000000100"),
-		IsEphemeral: true,
+		TS:        "1787400000.000200",
+		UserName:  "Colony",
+		Timestamp: "3:04 PM",
+		Text:      "Your annotation was sent.",
+		Blocks:    blockkittest.ColonyEphemeral("https://x.slack.com/archives/C1/p1", "https://x.slack.com/archives/C1/p1787300000000100"),
+		Ephemeral: true,
 	}
 }
 
@@ -91,21 +91,21 @@ func TestInteractHint(t *testing.T) {
 }
 
 // The pane draws Colony's ephemeral with "o to open" under its button and
-// "only visible to you" on its header row; a message Slack showed to
-// everyone has no such mark.
+// upstream's "Only visible to you" row above its header; a message Slack
+// showed to everyone has no such mark.
 func TestRenderColonyEphemeral(t *testing.T) {
 	msg := colonyEphemeral()
 	plain := ansi.Strip(renderedFor(t, msg, 100))
 	lines := strings.Split(plain, "\n")
-	if !strings.Contains(lines[0], "Colony") || !strings.Contains(lines[0], "only visible to you") {
-		t.Errorf("header row = %q, want the author and \"only visible to you\"", lines[0])
+	if !strings.Contains(lines[0], "Only visible to you") || !strings.Contains(lines[1], "Colony") {
+		t.Errorf("first rows = %q, %q; want \"Only visible to you\" above the author", lines[0], lines[1])
 	}
 	if !strings.Contains(plain, "o to open") || strings.Contains(plain, "open in Slack to interact") {
 		t.Errorf("want the \"o to open\" hint alone, got %q", plain)
 	}
 
-	msg.IsEphemeral = false
-	if plain := ansi.Strip(renderedFor(t, msg, 100)); strings.Contains(plain, "only visible to you") {
+	msg.Ephemeral = false
+	if plain := ansi.Strip(renderedFor(t, msg, 100)); strings.Contains(plain, "Only visible to you") {
 		t.Errorf("a message everyone sees is marked: %q", plain)
 	}
 }

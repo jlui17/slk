@@ -7,12 +7,14 @@ import (
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 )
 
-// MessageLinks returns the links msg offers to o and O, one per URL: the
-// links of the text, then the links of the blocks, in reading order. The
-// body's rich_text block gives the links of the text what the text does
-// not carry, their list item and their link text, and adds the links a
-// bot's short text fallback leaves out. Cards and files are not read.
-func MessageLinks(msg MessageItem) []Link {
+// textAndBlockLinks returns the links of msg's text and blocks that
+// MessageLinks offers to o and O, one per URL: the links of the text,
+// then the links of the blocks, in reading order. The body's rich_text
+// block gives the links of the text what the text does not carry, their
+// list item and their link text, and adds the links a bot's short text
+// fallback leaves out. Cards and files are not read here; MessageLinks
+// adds a shared message's permalink after these.
+func textAndBlockLinks(msg MessageItem) []Link {
 	var links []Link
 	at := map[string]int{}
 	body, below := blockLinks(msg.Blocks)

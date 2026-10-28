@@ -54,7 +54,7 @@ func (a *App) applyOverlays(screen string) string {
 	screen = a.appHomeOverlay(screen)      // fork: apphome.go
 	screen = a.profileCardOverlay(screen)  // fork: profilecard.go
 	if a.confirmPrompt.IsVisible() {
-		screen = a.confirmPrompt.ViewOverlay(a.width, a.height, screen)
+		screen = a.confirmPromptOverlay(screen)
 	}
 	if a.workspaceFinder.IsVisible() {
 		screen = a.workspaceFinder.ViewOverlay(a.width, a.height, screen)

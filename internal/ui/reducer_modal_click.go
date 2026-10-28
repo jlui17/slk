@@ -90,7 +90,7 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{box: &a.help, click: &a.help, activation: nil}, true
 	case ModeConfirm:
 		// Confirm has no list: outside dismisses, inside is a no-op.
-		return modalClickTarget{box: a.confirmPrompt}, true
+		return modalClickTarget{box: confirmPromptBox{&a.confirmPrompt}}, true
 	case ModeProfileCard: // fork: profilecard.go
 		return modalClickTarget{box: &a.profileCard.model}, true
 	case ModeUserProfile:

@@ -5,6 +5,7 @@ import (
 
 	"github.com/slack-go/slack"
 
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/usernames"
 )
@@ -31,7 +32,7 @@ func TestOnEphemeralMessage_DispatchesWithoutPersisting(t *testing.T) {
 		return err == nil, db.GetChannelLatestSyncedTS("C1"), rs.HasUnread
 	}
 
-	h.OnEphemeralMessage("C1", "", "1787400000.000200", "Your annotation was sent.", "1787300000.000100", "bot_message", nil, slack.Blocks{}, nil, "B1", "Colony")
+	h.OnEphemeralMessage(slackclient.EphemeralMessage{ChannelID: "C1", BotID: "B1", Username: "Colony", TS: "1787400000.000200", ThreadTS: "1787300000.000100", Subtype: "bot_message", Text: "Your annotation was sent."})
 
 	if row, latest, unread := persisted(); row || latest != "" || unread {
 		t.Errorf("ephemeral persisted: message row %v, latest_synced_ts %q, has_unread %v", row, latest, unread)
@@ -41,7 +42,7 @@ func TestOnEphemeralMessage_DispatchesWithoutPersisting(t *testing.T) {
 		t.Fatalf("want 1 NewMessageMsg, got %d", len(msgs))
 	}
 	m := msgs[0]
-	if !m.Message.IsEphemeral || m.TeamID != "T1" || m.ChannelID != "C1" || m.Message.ThreadTS != "1787300000.000100" || m.Message.UserName != "Colony" {
+	if !m.Message.Ephemeral || m.TeamID != "T1" || m.ChannelID != "C1" || m.Message.ThreadTS != "1787300000.000100" || m.Message.UserName != "Colony" {
 		t.Errorf("NewMessageMsg = %+v, want an ephemeral reply in C1 by Colony", m)
 	}
 

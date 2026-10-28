@@ -60,7 +60,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usernames"
 )
 
@@ -221,12 +220,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		// revert to the global default on startup until the user
 		// manually switches workspaces.
 		if m.Theme != "" {
-			styles.Apply(m.Theme, a.themeOverrides)
-			a.invalidateAllWinModelCaches()
-			a.threadPanel.InvalidateCache()
-			a.sidebar.InvalidateCache()
-			a.compose.RefreshStyles()
-			a.threadCompose.RefreshStyles()
+			a.applyTheme(m.Theme)
 		}
 		if m.SidebarWidth != 0 {
 			a.sidebar.SetWidth(m.SidebarWidth)
@@ -425,15 +419,10 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.closeAppHome()                               // fork: apphome.go
 	batch = append(batch, a.applyActiveConnState())
 	// Apply per-workspace theme. Must run on Update goroutine so
-	// the component cache invalidations and compose-style refreshes
-	// below take effect on the next render.
+	// applyTheme's cache invalidations and style refreshes take
+	// effect on the next render.
 	if m.Theme != "" {
-		styles.Apply(m.Theme, a.themeOverrides)
-		a.invalidateAllWinModelCaches()
-		a.threadPanel.InvalidateCache()
-		a.sidebar.InvalidateCache()
-		a.compose.RefreshStyles()
-		a.threadCompose.RefreshStyles()
+		a.applyTheme(m.Theme)
 	}
 	if m.SidebarWidth != 0 {
 		a.sidebar.SetWidth(m.SidebarWidth)

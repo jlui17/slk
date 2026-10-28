@@ -3,8 +3,6 @@ package slackclient
 import (
 	"reflect"
 	"testing"
-
-	"github.com/slack-go/slack"
 )
 
 type assistantStatusRecord struct {
@@ -59,15 +57,6 @@ func TestDispatch_ThreadMarked_WireCapture_SubscribedOnFullyReadThread(t *testin
 	}
 }
 
-type ephemeralRecord struct {
-	channelID, userID, ts, text, threadTS, subtype, botID string
-	blocks                                                int
-}
-
-func (m *mockEventHandler) OnEphemeralMessage(channelID, userID, ts, text, threadTS, subtype string, files []slack.File, blocks slack.Blocks, attachments []slack.Attachment, botID, username string) {
-	m.ephemerals = append(m.ephemerals, ephemeralRecord{channelID, userID, ts, text, threadTS, subtype, botID, len(blocks.BlockSet)})
-}
-
 // A message Slack shows to this user alone arrives with is_ephemeral and
 // goes to OnEphemeralMessage, never OnMessage, which persists what it
 // gets. The frame is the shape of the Colony app's chat.postEphemeral in
@@ -81,28 +70,41 @@ func TestDispatchEphemeralMessage(t *testing.T) {
 	if len(handler.messages) != 0 {
 		t.Errorf("OnMessage got %q; an ephemeral must not reach it", handler.messages)
 	}
-	want := []ephemeralRecord{{"C1", "U0BOT", "1787400000.000200", "Your annotation was sent.", "1787300000.000100", "bot_message", "B1", 1}}
-	if !reflect.DeepEqual(handler.ephemerals, want) {
-		t.Errorf("OnEphemeralMessage got %+v, want %+v", handler.ephemerals, want)
+	if len(handler.ephemerals) != 1 {
+		t.Fatalf("OnEphemeralMessage called %d times, want 1", len(handler.ephemerals))
+	}
+	got := handler.ephemerals[0]
+	if got.ChannelID != "C1" || got.UserID != "U0BOT" || got.TS != "1787400000.000200" || got.Text != "Your annotation was sent." ||
+		got.ThreadTS != "1787300000.000100" || got.Subtype != "bot_message" || got.BotID != "B1" || len(got.Blocks.BlockSet) != 1 {
+		t.Errorf("OnEphemeralMessage got %+v", got)
 	}
 }
 
-// An app replacing its ephemeral (replace_original) arrives as
-// message_changed; it goes to OnEphemeralMessage, with the ts it
-// replaces, whichever level carries is_ephemeral.
+// An app replacing its ephemeral (replace_original, /giphy's Shuffle)
+// arrives as message_changed; it goes to OnEphemeralMessage, with the ts
+// it replaces and its buttons' action ids, whichever level carries
+// is_ephemeral. Upstream drops it.
 func TestDispatchEphemeralMessageChanged(t *testing.T) {
 	for _, frame := range []string{
-		`{"type":"message","subtype":"message_changed","channel":"C1","message":{"is_ephemeral":true,"bot_id":"B1","text":"replaced","ts":"1787400000.000200"}}`,
-		`{"type":"message","subtype":"message_changed","is_ephemeral":true,"channel":"C1","message":{"bot_id":"B1","text":"replaced","ts":"1787400000.000200"}}`,
+		`{"type":"message","subtype":"message_changed","channel":"C1","message":{"is_ephemeral":true,"bot_id":"B1","text":"replaced","ts":"1787400000.000200",
+			"attachments":[{"id":1,"actions":[{"id":"7","name":"x","text":"X","type":"button"}]}]}}`,
+		`{"type":"message","subtype":"message_changed","is_ephemeral":true,"channel":"C1","message":{"bot_id":"B1","text":"replaced","ts":"1787400000.000200",
+			"attachments":[{"id":1,"actions":[{"id":"7","name":"x","text":"X","type":"button"}]}]}}`,
 	} {
 		handler := &mockEventHandler{}
 		dispatchWebSocketEvent([]byte(frame), handler)
 		if len(handler.messages) != 0 {
 			t.Errorf("%s: OnMessage got %q; an ephemeral must not reach it", frame, handler.messages)
 		}
-		want := []ephemeralRecord{{channelID: "C1", ts: "1787400000.000200", text: "replaced", botID: "B1"}}
-		if !reflect.DeepEqual(handler.ephemerals, want) {
-			t.Errorf("%s: OnEphemeralMessage got %+v, want %+v", frame, handler.ephemerals, want)
+		if len(handler.ephemerals) != 1 {
+			t.Fatalf("%s: OnEphemeralMessage called %d times, want 1", frame, len(handler.ephemerals))
+		}
+		got := handler.ephemerals[0]
+		if got.ChannelID != "C1" || got.TS != "1787400000.000200" || got.Text != "replaced" || got.BotID != "B1" {
+			t.Errorf("%s: OnEphemeralMessage got %+v", frame, got)
+		}
+		if want := [][]string{{"7"}}; !reflect.DeepEqual(got.ActionIDs, want) {
+			t.Errorf("%s: ActionIDs = %v, want %v", frame, got.ActionIDs, want)
 		}
 	}
 }

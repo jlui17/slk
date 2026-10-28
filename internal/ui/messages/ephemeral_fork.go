@@ -3,18 +3,7 @@ package messages
 import (
 	"slices"
 	"strings"
-
-	"github.com/gammons/slk/internal/ui/styles"
 )
-
-// EphemeralMark ends the header row of a message Slack shows to the user
-// alone, saying so; the text carries the meaning, not the style.
-func EphemeralMark(msg MessageItem) string {
-	if !msg.IsEphemeral {
-		return ""
-	}
-	return " " + styles.Timestamp.Render("only visible to you")
-}
 
 // oldestNonEphemeralTS is the ts of the oldest message of msgs that is
 // not an ephemeral, "" when there is none. History paging anchors there:
@@ -22,7 +11,7 @@ func EphemeralMark(msg MessageItem) string {
 // it would skip the history between the two.
 func oldestNonEphemeralTS(msgs []MessageItem) string {
 	for _, m := range msgs {
-		if !m.IsEphemeral {
+		if !m.Ephemeral {
 			return m.TS
 		}
 	}
@@ -34,7 +23,7 @@ func oldestNonEphemeralTS(msgs []MessageItem) string {
 // ephemerals ahead of that message laid among older by ts. The
 // selection stays on its message.
 func (m *Model) prependOlder(older []MessageItem) {
-	lead := slices.IndexFunc(m.messages, func(msg MessageItem) bool { return !msg.IsEphemeral })
+	lead := slices.IndexFunc(m.messages, func(msg MessageItem) bool { return !msg.Ephemeral })
 	if lead < 0 {
 		lead = len(m.messages)
 	}

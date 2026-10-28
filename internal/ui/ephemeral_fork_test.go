@@ -32,7 +32,7 @@ func TestEphemeral_StaysThroughChannelReloads(t *testing.T) {
 				return nil
 			},
 		}))
-	eph := messages.MessageItem{TS: "200.0", Text: "only you", IsEphemeral: true}
+	eph := messages.MessageItem{TS: "200.0", Text: "only you", Ephemeral: true}
 
 	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: eph})
 	if got := paneTSes(a); len(got) != 3 || got[2] != "200.0" {
@@ -63,7 +63,7 @@ func TestEphemeral_InThreadShowsInItsPanelOnly(t *testing.T) {
 	reply := messages.MessageItem{TS: "150.0", ThreadTS: "100.0", Text: "reply"}
 	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"), withMessages(parent))
 	a.setThreadFetcherForTest(func(ids.ChannelID, ids.ThreadTS) core.Msg { return nil })
-	eph := messages.MessageItem{TS: "200.0", ThreadTS: "100.0", Text: "only you", IsEphemeral: true}
+	eph := messages.MessageItem{TS: "200.0", ThreadTS: "100.0", Text: "only you", Ephemeral: true}
 
 	a.messagepane.SelectByTS(parent.TS)
 	drainCmd(a.openThreadForSelectedMessage())
@@ -110,7 +110,7 @@ func TestEphemeral_OlderThanLoadedHistoryKeepsPagingAnchor(t *testing.T) {
 				return nil
 			},
 		}))
-	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", IsEphemeral: true})
+	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", Ephemeral: true})
 
 	a.Update(MessagesLoadedMsg{ChannelID: "C1", Messages: []messages.MessageItem{{TS: "500.0"}, {TS: "600.0"}}})
 	if got, want := paneTSes(a), []string{"200.0", "500.0", "600.0"}; !slices.Equal(got, want) {
@@ -136,7 +136,7 @@ func TestEphemeral_OlderThanLoadedHistoryKeepsPagingAnchor(t *testing.T) {
 // loads, as every other load does.
 func TestEphemeral_LaidIntoJumpWindow(t *testing.T) {
 	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"))
-	a.ephemerals.remember("C1", messages.MessageItem{TS: "250.0", IsEphemeral: true})
+	a.ephemerals.remember("C1", messages.MessageItem{TS: "250.0", Ephemeral: true})
 
 	a.Update(MessagesAroundLoadedMsg{ChannelID: "C1", TargetTS: "200.0", Messages: []messages.MessageItem{{TS: "200.0"}, {TS: "300.0"}}})
 	if got, want := paneTSes(a), []string{"200.0", "250.0", "300.0"}; !slices.Equal(got, want) {
@@ -155,7 +155,7 @@ func TestEphemeral_UncachedChannelStillShowsSpinner(t *testing.T) {
 			return nil
 		},
 	}))
-	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", IsEphemeral: true})
+	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", Ephemeral: true})
 
 	_, cmd := a.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
 	drainCmd(cmd)
@@ -170,7 +170,7 @@ func TestEphemeral_UncachedChannelStillShowsSpinner(t *testing.T) {
 func TestEphemeral_EachPaneGetsItsOwnCopy(t *testing.T) {
 	reactions := func() []messages.ReactionItem { return []messages.ReactionItem{{Emoji: "eyes", Count: 1}} }
 	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"))
-	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", IsEphemeral: true, Reactions: reactions()})
+	a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", Ephemeral: true, Reactions: reactions()})
 	out := a.ephemerals.inChannel("C1", nil)
 	out[0].Reactions[0].Count = 9
 	if got := a.ephemerals["C1"][0].Reactions[0].Count; got != 1 {
@@ -182,7 +182,7 @@ func TestEphemeral_EachPaneGetsItsOwnCopy(t *testing.T) {
 	b.setThreadFetcherForTest(func(ids.ChannelID, ids.ThreadTS) core.Msg { return nil })
 	b.messagepane.SelectByTS(parent.TS)
 	drainCmd(b.openThreadForSelectedMessage())
-	b.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", ThreadTS: "100.0", IsEphemeral: true, Reactions: reactions()}})
+	b.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", ThreadTS: "100.0", Ephemeral: true, Reactions: reactions()}})
 	b.threadPanel.Replies()[0].Reactions[0].Count = 9
 	if got := b.ephemerals["C1"][0].Reactions[0].Count; got != 1 {
 		t.Errorf("a write in the thread panel reached the remembered ephemeral: count %d", got)
@@ -210,7 +210,7 @@ func TestEphemeral_FreshCacheMarksReadPastIt(t *testing.T) {
 				return nil
 			},
 		}))
-		a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", IsEphemeral: true})
+		a.ephemerals.remember("C1", messages.MessageItem{TS: "200.0", Ephemeral: true})
 		_, cmd := a.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
 		drainCmd(cmd)
 		if !slices.Equal(marks, tc.want) {
@@ -222,7 +222,7 @@ func TestEphemeral_FreshCacheMarksReadPastIt(t *testing.T) {
 // A deleted ephemeral does not come back on the next reload.
 func TestEphemeral_DeletedStaysDeleted(t *testing.T) {
 	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"), withMessages(messages.MessageItem{TS: "100.0"}))
-	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", IsEphemeral: true}})
+	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", Ephemeral: true}})
 	a.Update(WSMessageDeletedMsg{TeamID: "T1", ChannelID: "C1", TS: "200.0"})
 
 	a.Update(MessagesLoadedMsg{ChannelID: "C1", Messages: []messages.MessageItem{{TS: "100.0"}}})
@@ -236,8 +236,8 @@ func TestEphemeral_DeletedStaysDeleted(t *testing.T) {
 // the next reload.
 func TestEphemeral_ReplacedInPlace(t *testing.T) {
 	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"), withMessages(messages.MessageItem{TS: "100.0"}))
-	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", Text: "first", IsEphemeral: true}})
-	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", Text: "replaced", IsEphemeral: true}})
+	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", Text: "first", Ephemeral: true}})
+	a.Update(NewMessageMsg{TeamID: "T1", ChannelID: "C1", Message: messages.MessageItem{TS: "200.0", Text: "replaced", Ephemeral: true}})
 
 	texts := func() (out []string) {
 		for _, m := range a.messagepane.Messages() {

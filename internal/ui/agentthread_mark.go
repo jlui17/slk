@@ -88,7 +88,7 @@ func (a *App) agentThreadMarked(channelID, threadTS string) bool {
 // restart don't, so a bot found in one would change the thread's agent.
 func (a *App) threadBot(parent messages.MessageItem, replies []messages.MessageItem) (userID, name string, ok bool) {
 	for _, m := range append([]messages.MessageItem{parent}, replies...) {
-		if m.IsEphemeral {
+		if m.Ephemeral {
 			continue
 		}
 		if userID, name, ok = a.firstBotMention(m.Text); ok {

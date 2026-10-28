@@ -125,6 +125,9 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			// error before returning nil. cloneMessageItems gives each
 			// window its own copy — two same-channel windows must not
 			// alias one slice (in-place model writes would cross-leak).
+			// Ephemerals already on screen are carried over: the fetch
+			// never contains them, and they belong to this channel
+			// (a channel switch clears the pane before its fetch lands).
 			if m.Messages != nil {
 				mm.SetMessages(a.ephemerals.inChannel(m.ChannelID, cloneMessageItems(m.Messages))) // fork: ephemeral_fork.go
 			}

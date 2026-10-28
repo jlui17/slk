@@ -17,11 +17,11 @@ const colonyReviewURL = "https://colony-pyo1658.slack.com/archives/" + judgeChan
 // section links the annotated reply, its button the review to complete.
 func colonyEphemeral() messages.MessageItem {
 	return messages.MessageItem{
-		TS:          "1790979500.000100",
-		UserName:    "Colony",
-		Text:        "Your annotation was sent.",
-		Blocks:      blockkittest.ColonyEphemeral("https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1790979381013049?thread_ts=1790910827.409349&cid=C0BCG30UGEP", colonyReviewURL),
-		IsEphemeral: true,
+		TS:        "1790979500.000100",
+		UserName:  "Colony",
+		Text:      "Your annotation was sent.",
+		Blocks:    blockkittest.ColonyEphemeral("https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1790979381013049?thread_ts=1790910827.409349&cid=C0BCG30UGEP", colonyReviewURL),
+		Ephemeral: true,
 	}
 }
 
