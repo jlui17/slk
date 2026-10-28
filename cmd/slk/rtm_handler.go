@@ -559,3 +559,24 @@ func (h *rtmEventHandler) OnUserTyping(channelID, userID string) {
 		WorkspaceID: h.workspaceID,
 	})
 }
+
+func (h *rtmEventHandler) OnAssistantStatus(s slackclient.AssistantStatus) {
+	// The status names the app; one slk has not seen yet is fetched,
+	// as an unknown message author is, so it does not stay a raw ID.
+	if s.Status != "" {
+		if _, ok := resolveUserCached(s.BotUserID, h.userNames, h.db); !ok && h.wsCtx != nil && h.wsCtx.UserResolver != nil {
+			h.wsCtx.UserResolver.Request(s.BotUserID)
+		}
+	}
+	h.sendAssistantStatus(s) // fork: herdr_wiring.go, the tracked agent thread's turn
+	if h.program == nil {
+		return
+	}
+	h.program.Send(ui.BotStatusMsg{
+		WorkspaceID: h.workspaceID,
+		ChannelID:   s.ChannelID,
+		ThreadTS:    s.ThreadTS,
+		BotUserID:   s.BotUserID,
+		Status:      s.Status,
+	})
+}

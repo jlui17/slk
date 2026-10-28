@@ -3521,15 +3521,16 @@ func (a *App) SetSidebarStaleThreshold(d time.Duration) {
 }
 
 // renderTypingLine returns the styled typing indicator for the current
-// channel, or an empty string if no one is typing. Stays on App because
-// it pulls in messagepane name resolution and styles. State and
-// formatting live in internal/ui/typing.go.
+// channel (people typing, apps working), or an empty string if there is
+// neither. Stays on App because it pulls in messagepane name resolution
+// and styles. State and formatting live in internal/ui/typing.go.
 func (a *App) renderTypingLine() string {
 	if !a.typing.Enabled() {
 		return ""
 	}
 	userIDs := a.typing.UsersExcluding(a.activeChannelID, a.currentUserID)
-	if len(userIDs) == 0 {
+	botIDs := a.typing.WorkingBots(a.activeChannelID)
+	if len(userIDs) == 0 && len(botIDs) == 0 {
 		return ""
 	}
 	// Resolve user IDs to display names
@@ -3541,7 +3542,11 @@ func (a *App) renderTypingLine() string {
 		}
 		names = append(names, name)
 	}
-	return styles.TypingIndicator.Render(typingIndicatorText(names))
+	botNames := make([]string, 0, len(botIDs))
+	for _, id := range botIDs {
+		botNames = append(botNames, a.userNameFor(id))
+	}
+	return styles.TypingIndicator.Render(typingRowText(names, botNames))
 }
 
 func (a *App) View() tea.View {

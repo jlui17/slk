@@ -24,6 +24,7 @@ type mockEventHandler struct {
 	reactions           []string
 	presenceChanges     []string
 	typingEvents        []string
+	assistantStatuses   []AssistantStatus
 	selfPresenceChanges []string
 	dndChanges          []dndChangeRecord
 	lastBlocks          slack.Blocks
@@ -50,8 +51,6 @@ type mockEventHandler struct {
 
 	memberJoined []memberEventRecord
 	memberLeft   []memberEventRecord
-
-	assistantStatuses []assistantStatusRecord
 
 	userStatusChanges []userStatusRecord
 	userInvalidated   []string
@@ -124,6 +123,9 @@ func (m *mockEventHandler) OnPresenceChange(userID, presence string) {
 }
 func (m *mockEventHandler) OnUserTyping(channelID, userID string) {
 	m.typingEvents = append(m.typingEvents, channelID+":"+userID)
+}
+func (m *mockEventHandler) OnAssistantStatus(s AssistantStatus) {
+	m.assistantStatuses = append(m.assistantStatuses, s)
 }
 func (m *mockEventHandler) OnConnect()    {}
 func (m *mockEventHandler) OnDisconnect() {}
@@ -344,6 +346,32 @@ func TestDispatchWebSocketUserTypingEvent(t *testing.T) {
 	}
 	if handler.typingEvents[0] != "C1:U1" {
 		t.Errorf("expected 'C1:U1', got %q", handler.typingEvents[0])
+	}
+}
+
+// The two frames a bot's "working" indicator produced on a real
+// workspace (2026-10-13 capture): Atlas set "Thinking..." on the thread
+// under the user's mention, then cleared it with an empty status just
+// before posting its reply.
+func TestDispatchWebSocketAIAssistantStatusEvent(t *testing.T) {
+	handler := &mockEventHandler{}
+
+	set := []byte(`{"type":"ai_assistant_status","channel_id":"C0B1PMJJULE","status":"Thinking...","bot_user_id":"U0AQYKDUF5G","thread_ts":"1791884373.622309","status_type":"banner","event_ts":"1791884374.000700","ts":"1791884374.000700"}`)
+	clear := []byte(`{"type":"ai_assistant_status","channel_id":"C0B1PMJJULE","status":"","bot_user_id":"U0AQYKDUF5G","thread_ts":"1791884373.622309","status_type":"banner","event_ts":"1791884378.000800","ts":"1791884378.000800"}`)
+	dispatchWebSocketEvent(set, handler)
+	dispatchWebSocketEvent(clear, handler)
+
+	want := []AssistantStatus{
+		{ChannelID: "C0B1PMJJULE", ThreadTS: "1791884373.622309", BotUserID: "U0AQYKDUF5G", Status: "Thinking..."},
+		{ChannelID: "C0B1PMJJULE", ThreadTS: "1791884373.622309", BotUserID: "U0AQYKDUF5G", Status: ""},
+	}
+	if len(handler.assistantStatuses) != len(want) {
+		t.Fatalf("got %d assistant statuses, want %d: %+v", len(handler.assistantStatuses), len(want), handler.assistantStatuses)
+	}
+	for i := range want {
+		if handler.assistantStatuses[i] != want[i] {
+			t.Errorf("status %d = %+v, want %+v", i, handler.assistantStatuses[i], want[i])
+		}
 	}
 }
 

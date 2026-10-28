@@ -22,7 +22,7 @@ colored_usernames = false # color each user's name by ID hash (Slack-style)
 [animations]
 enabled = true
 smooth_scrolling = true
-typing_indicators = true
+typing_indicators = true  # also apps' "working" status (e.g. "Atlas is working...")
 
 [notifications]
 enabled = true

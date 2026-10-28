@@ -18,10 +18,14 @@ func (c clock) Now() time.Time {
 	return time.Now()
 }
 
-func (t *typingTracker) now() time.Time { return t.nowFn.Now() }
-
-// SetNowFunc injects a clock for tests. Pass nil to revert to time.Now.
-func (t *typingTracker) SetNowFunc(fn func() time.Time) { t.nowFn = fn }
+// SetNowFunc injects a clock for tests into the tracker's now field
+// (upstream's). Pass nil to revert to time.Now.
+func (t *typingTracker) SetNowFunc(fn func() time.Time) {
+	if fn == nil {
+		fn = time.Now
+	}
+	t.now = fn
+}
 
 func (d *selfSendDedup) now() time.Time { return d.nowFn.Now() }
 

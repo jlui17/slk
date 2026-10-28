@@ -8,6 +8,7 @@ import (
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/herdr"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
 )
 
@@ -95,15 +96,15 @@ func herdrTabLabelStore(db *cache.DB, paneKey string) (load func() (string, bool
 	return load, save
 }
 
-func (h *rtmEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
+func (h *rtmEventHandler) sendAssistantStatus(s slackclient.AssistantStatus) {
 	if h.program == nil {
 		return
 	}
 	h.program.Send(ui.AssistantStatusMsg{
 		TeamID:    h.workspaceID,
-		ChannelID: channelID,
-		ThreadTS:  threadTS,
-		BotUserID: botUserID,
-		Status:    status,
+		ChannelID: s.ChannelID,
+		ThreadTS:  s.ThreadTS,
+		BotUserID: s.BotUserID,
+		Status:    s.Status,
 	})
 }

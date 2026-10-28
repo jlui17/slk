@@ -5,14 +5,6 @@ import (
 	"testing"
 )
 
-type assistantStatusRecord struct {
-	channelID, threadTS, botUserID, status string
-}
-
-func (m *mockEventHandler) OnAssistantStatus(channelID, threadTS, botUserID, status string) {
-	m.assistantStatuses = append(m.assistantStatuses, assistantStatusRecord{channelID, threadTS, botUserID, status})
-}
-
 func TestDispatchAssistantStatus(t *testing.T) {
 	handler := &mockEventHandler{}
 
@@ -26,11 +18,11 @@ func TestDispatchAssistantStatus(t *testing.T) {
 	if len(handler.assistantStatuses) != 2 {
 		t.Fatalf("expected 2 assistant statuses, got %d", len(handler.assistantStatuses))
 	}
-	want := assistantStatusRecord{"C0BS6HBB3R6", "1787202220.875429", "U0AJPPX8SE8", "is thinking…"}
+	want := AssistantStatus{ChannelID: "C0BS6HBB3R6", ThreadTS: "1787202220.875429", BotUserID: "U0AJPPX8SE8", Status: "is thinking…"}
 	if handler.assistantStatuses[0] != want {
 		t.Errorf("set: got %+v, want %+v", handler.assistantStatuses[0], want)
 	}
-	want.status = ""
+	want.Status = ""
 	if handler.assistantStatuses[1] != want {
 		t.Errorf("clear: got %+v, want %+v", handler.assistantStatuses[1], want)
 	}

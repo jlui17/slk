@@ -516,6 +516,15 @@ type (
 		UserID      string
 		WorkspaceID string
 	}
+	// BotStatusMsg is an app's "working" indicator on a thread (Slack's
+	// ai_assistant_status). An empty Status clears it.
+	BotStatusMsg struct {
+		WorkspaceID string
+		ChannelID   string
+		ThreadTS    string
+		BotUserID   string
+		Status      string
+	}
 	TypingExpiredMsg  struct{}
 	PresenceChangeMsg struct {
 		UserID   string

@@ -47,6 +47,9 @@ type EventHandler interface {
 	OnReactionRemoved(channelID, ts, userID, emoji string)
 	OnPresenceChange(userID, presence string)
 	OnUserTyping(channelID, userID string)
+	// OnAssistantStatus is delivered for ai_assistant_status: an app
+	// set or cleared its "working" indicator on a thread.
+	OnAssistantStatus(s AssistantStatus)
 	OnConnect()
 	OnDisconnect()
 	OnSelfPresenceChange(presence string)
@@ -137,13 +140,6 @@ type EventHandler interface {
 	// OnMemberLeft is delivered for member_left_channel WS events.
 	OnMemberLeft(channelID, userID string)
 
-	// OnAssistantStatus is delivered for ai_assistant_status WS events:
-	// an AI assistant (bot) started or stopped composing a reply in a
-	// thread. Fires for every thread in the workspace, not just visible
-	// ones. A non-empty status (e.g. "is thinking…") means the
-	// assistant's turn is in progress; an empty status clears it.
-	OnAssistantStatus(channelID, threadTS, botUserID, status string)
-
 	// OnView is delivered for view_opened and view_updated: an app's
 	// modal for this user (appactions_fork.go).
 	OnView(evt ViewEvent)
@@ -187,6 +183,18 @@ type EphemeralMessage struct {
 	// chat.attachmentAction echoes it back. nil when the frame's ids are
 	// absent or not strings.
 	ActionIDs [][]string
+}
+
+// AssistantStatus is an app's "working" indicator on one thread, from an
+// ai_assistant_status event: what the app's assistant.threads.setStatus
+// (or agents.sessions.setStatus) call looks like to a client. An empty
+// Status clears the indicator. Slack also drops it on its own two
+// minutes after it was set.
+type AssistantStatus struct {
+	ChannelID string
+	ThreadTS  string
+	BotUserID string
+	Status    string
 }
 
 // wsEvent is the minimal structure for identifying a WebSocket event type.
@@ -303,6 +311,16 @@ type wsTypingEvent struct {
 	Type    string `json:"type"`
 	Channel string `json:"channel"`
 	User    string `json:"user"`
+}
+
+// wsAssistantStatusEvent represents an ai_assistant_status event. Its
+// status_type ("banner" in every capture so far) is not decoded: slk
+// draws every status the same way.
+type wsAssistantStatusEvent struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts"`
+	BotUserID string `json:"bot_user_id"`
+	Status    string `json:"status"`
 }
 
 // wsMemberChannelEvent represents member_joined_channel /
@@ -699,9 +717,9 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		if err := json.Unmarshal(data, &evt); err != nil {
 			return
 		}
-		debuglog.WS("ai_assistant_status: channel=%s thread_ts=%s bot_user=%s status=%q",
-			evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
-		handler.OnAssistantStatus(evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
+		debuglog.WS("ai_assistant_status: channel=%s thread=%s bot=%s status=%q",
+			evt.ChannelID, evt.ThreadTS, evt.BotUserID, evt.Status)
+		handler.OnAssistantStatus(AssistantStatus(evt))
 
 	case "member_joined_channel":
 		var evt wsMemberChannelEvent
