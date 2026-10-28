@@ -12,6 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/appshortcuts"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -524,5 +526,34 @@ func TestAppShortcuts_UnaskedModalToasts(t *testing.T) {
 	other.TeamID = "T2"
 	if got := send(a, other); len(got) != 0 {
 		t.Errorf("toasts for a background workspace = %q, want none", got)
+	}
+}
+
+// The permalink fetch runs off the UI goroutine, and a paste swaps the
+// desktop service on the UI goroutine meanwhile (reducePasteAsync). The
+// cmd must open the link with the service it was built with; reading
+// a.desktop from the cmd is a data race, which `-race` reports here.
+func TestOpenMessageInBrowserReadsNoAppStateOffTheUIGoroutine(t *testing.T) {
+	a := NewApp()
+	release := make(chan struct{})
+	a.setPermalinkFetcherForTest(func(context.Context, ids.ChannelID, ids.MessageTS) (string, error) {
+		<-release
+		return "https://example.slack.com/archives/C1/p1", nil
+	})
+	var opened []string
+	a.SetDesktopService(core.NewDesktopService(core.DesktopServiceFuncs{
+		Open: func(target string) error { opened = append(opened, target); return nil },
+	}))
+	cmd := a.openMessageInBrowser("C1", "1.0")
+	done := make(chan tea.Msg)
+	go func() { done <- cmd() }()
+
+	close(release)
+	a.mode = ModeInsert
+	reducePasteAsync(a, clipboardSnapshotMsg{})
+	<-done
+
+	if len(opened) != 1 || opened[0] != "https://example.slack.com/archives/C1/p1" {
+		t.Fatalf("opened = %v, want the message's permalink once", opened)
 	}
 }

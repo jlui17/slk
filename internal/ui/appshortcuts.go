@@ -241,6 +241,9 @@ func (a *App) openMessageInBrowser(channelID, ts string) tea.Cmd {
 	if messageSvc == nil {
 		return nil
 	}
+	// Read here, on the UI goroutine: a paste swaps a.desktop while the
+	// fetch runs (reducePasteAsync).
+	desktop := a.desktop
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -248,7 +251,11 @@ func (a *App) openMessageInBrowser(channelID, ts string) tea.Cmd {
 		if err != nil || url == "" {
 			return ToastMsg{Text: "Could not get the message's link"}
 		}
-		return a.openURLCmd(url)()
+		if err := desktop.Open(url); err != nil {
+			debuglog.General("browser launch failed: %v", err)
+			return ToastMsg{Text: "Failed to open link"}
+		}
+		return nil
 	}
 }
 
