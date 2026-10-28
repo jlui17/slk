@@ -316,7 +316,7 @@ func stripMention(text, userID string) string {
 // which recognizes an slk-originated echo whatever id it carries.
 func (a *App) noteAgentThreadReply(teamID, channelID string, msg messages.MessageItem) {
 	t := a.agentSidebar.thread
-	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID || msg.ThreadTS != t.threadTS {
+	if !a.tracksThread(teamID, channelID, msg.ThreadTS) {
 		return
 	}
 	if msg.TS == msg.ThreadTS || msg.IsEdited {
@@ -369,9 +369,7 @@ func (a *App) markAgentThreadUnread(teamID, channelID, threadTS, boundaryTS stri
 // dropAgentThreadReply stops counting a reply that was deleted, in
 // whichever workspace it was deleted.
 func (a *App) dropAgentThreadReply(teamID, channelID, ts string) {
-	t := a.agentSidebar.thread
-	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID ||
-		!a.agentSidebar.dropUnread(ts) {
+	if !a.trackedThreadIn(teamID, channelID) || !a.agentSidebar.dropUnread(ts) {
 		return
 	}
 	if a.agentSidebar.unreadTotal() > 0 {
@@ -386,9 +384,14 @@ func (a *App) dropAgentThreadReply(teamID, channelID, ts string) {
 // tracksThread reports whether an event for (teamID, channelID, threadTS)
 // belongs to the thread currently tracked.
 func (a *App) tracksThread(teamID, channelID, threadTS string) bool {
+	return a.trackedThreadIn(teamID, channelID) && threadTS == a.agentSidebar.thread.threadTS
+}
+
+// trackedThreadIn reports whether an agent thread is tracked and lives in
+// channelID of the workspace an event tagged teamID concerns.
+func (a *App) trackedThreadIn(teamID, channelID string) bool {
 	t := a.agentSidebar.thread
-	return t.active && a.threadEventIsOurs(teamID) &&
-		channelID == t.channelID && threadTS == t.threadTS
+	return t.active && a.threadEventIsOurs(teamID) && channelID == t.channelID
 }
 
 // dropAgentThreadTurnState forgets the assistant's in-progress turn.
@@ -567,8 +570,7 @@ var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case AssistantStatusMsg:
 		t := a.agentSidebar.thread
-		if !t.active || !a.threadEventIsOurs(m.TeamID) || m.ChannelID != t.channelID ||
-			m.ThreadTS != t.threadTS || m.BotUserID != t.botUserID {
+		if !a.tracksThread(m.TeamID, m.ChannelID, m.ThreadTS) || m.BotUserID != t.botUserID {
 			return nil, true
 		}
 		a.agentSidebar.working = m.Status != ""

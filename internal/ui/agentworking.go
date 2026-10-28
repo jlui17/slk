@@ -144,7 +144,7 @@ func (a *App) agentAuthorIsHuman(authorID string) bool {
 // and what they said, is exactly the derived state.
 func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.MessageItem) {
 	t := a.agentSidebar.thread
-	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID {
+	if !a.trackedThreadIn(teamID, channelID) {
 		return
 	}
 	if msg.ThreadTS != t.threadTS && msg.TS != t.threadTS {
@@ -202,8 +202,7 @@ func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 // the agent reacting to the newest message — any emoji — is its ack.
 func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, removed bool) {
 	t := a.agentSidebar.thread
-	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID ||
-		ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
+	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
 		return
 	}
 	prev := a.agentSidebar.effectiveState()
@@ -232,9 +231,7 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 // The message before it is kept only as judge context (earlierMsgs), so the
 // state reads idle until the next reply or panel snapshot re-establishes it.
 func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
-	t := a.agentSidebar.thread
-	if !t.active || !a.threadEventIsOurs(teamID) || channelID != t.channelID ||
-		ts != a.agentSidebar.lastMsg.ts {
+	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts {
 		return
 	}
 	prev := a.agentSidebar.effectiveState()
