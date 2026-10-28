@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/ui/cellwidth"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/rivo/uniseg"
 )
@@ -374,10 +375,11 @@ var (
 	cursor  = func() lipgloss.Style { return plain().Reverse(true) }
 )
 
-// wrap breaks unstyled s into lines of at most w cells as lipgloss
-// counts them, at spaces where it can and inside a word too long for a
-// line. messages.WordWrap breaks such a word with x/ansi, which counts
-// a keycap emoji (1️⃣) as one cell where the box pads it as two.
+// wrap breaks s into lines of at most w cells as lipgloss counts them,
+// at spaces where it can and inside a word too long for a line, keeping
+// escape sequences whole. messages.WordWrap breaks such a word with
+// x/ansi, which counts a keycap emoji (1️⃣) as one cell where the box
+// pads it as two.
 func wrap(s string, w int) []string {
 	w = max(w, 1)
 	var lines []string
@@ -394,18 +396,45 @@ func wrap(s string, w int) []string {
 				lines = append(lines, line)
 			}
 			line, lineW = "", 0
-			for g := uniseg.NewGraphemes(word); g.Next(); {
-				gW := lipgloss.Width(g.Str())
-				if line != "" && lineW+gW > w {
+			for _, g := range graphemesAndEscapes(word) {
+				gW := lipgloss.Width(g)
+				if line != "" && gW > 0 && lineW+gW > w {
 					lines = append(lines, line)
 					line, lineW = "", 0
 				}
-				line, lineW = line+g.Str(), lineW+gW
+				line, lineW = line+g, lineW+gW
 			}
 		}
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// graphemesAndEscapes splits s into its escape sequences and the
+// grapheme clusters between them. x/ansi's decoder alone splits an ASCII
+// keycap base (the 1 of 1️⃣) from its marks.
+func graphemesAndEscapes(s string) []string {
+	var parts []string
+	text := ""
+	flush := func() {
+		for g := uniseg.NewGraphemes(text); g.Next(); {
+			parts = append(parts, g.Str())
+		}
+		text = ""
+	}
+	var state byte
+	for s != "" {
+		seq, _, n, next := ansi.DecodeSequence(s, state, nil)
+		state, s = next, s[n:]
+		if strings.HasPrefix(seq, "\x1b") {
+			flush()
+			parts = append(parts, seq)
+			continue
+		}
+		text += seq
+	}
+	flush()
+	return parts
 }
 
 // clampStyled cuts a styled line to w cells as lipgloss counts them,
@@ -443,6 +472,23 @@ func clampStyled(s string, w int) string {
 	return b.String()
 }
 
+// textLines draws a section's text object at width w: mrkdwn formatted
+// as Slack formats it, plain_text as typed.
+func textLines(t Text, w int) []string {
+	if t.Type != "mrkdwn" {
+		return styled(plain(), wrap(t.Text, w))
+	}
+	var lines []string
+	for _, line := range strings.Split(messages.RenderSlackMarkdownWith(t.Text, messages.RenderSlackMarkdownOpts{Width: w}), "\n") {
+		if lipgloss.Width(line) <= w {
+			lines = append(lines, line) // a code block's or list's own rows
+			continue
+		}
+		lines = append(lines, wrap(line, w)...)
+	}
+	return styled(plain(), lines)
+}
+
 func styled(st lipgloss.Style, lines []string) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
@@ -471,10 +517,10 @@ func (f *Form) body(w int) (lines []string, focusTop, focusEnd int) {
 			}
 		case "section":
 			if b.Text != nil {
-				lines = append(lines, styled(plain(), wrap(b.Text.Text, w))...)
+				lines = append(lines, textLines(*b.Text, w)...)
 			}
 			for _, t := range b.Fields {
-				lines = append(lines, styled(plain(), wrap(t.Text, w))...)
+				lines = append(lines, textLines(t, w)...)
 			}
 		case "context":
 			var parts []string

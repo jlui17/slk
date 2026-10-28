@@ -3,6 +3,7 @@ package appshortcuts
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -291,9 +292,34 @@ func TestForm_DisplayBlocks(t *testing.T) {
 		t.Fatal("display-only blocks should be supported")
 	}
 	box := ansi.Strip(Model{phase: phaseForm, form: f}.box(60, 40))
-	for _, want := range []string{"Heads up", "Some *text*", "────", "small print", "tab next · esc Cancel"} {
+	for _, want := range []string{"Heads up", "Some text", "────", "small print", "tab next · esc Cancel"} {
 		if !strings.Contains(box, want) {
 			t.Errorf("missing %q:\n%s", want, box)
+		}
+	}
+}
+
+// A section's or field's mrkdwn is formatted as Slack formats it in a
+// modal; plain_text is drawn as typed.
+func TestForm_MrkdwnTextFormatsLikeSlack(t *testing.T) {
+	f := NewForm(viewFrom(t, `{"id":"V1","title":{"type":"plain_text","text":"T"},"blocks":[
+		{"type":"section","text":{"type":"mrkdwn","text":"*Deploy* to <https://x.io|prod> by <@U1>"},
+		 "fields":[{"type":"mrkdwn","text":"_staging_ first"}]},
+		{"type":"section","text":{"type":"plain_text","text":"*literal* <https://x.io|y>"}}]}`))
+	raw := Model{phase: phaseForm, form: f}.box(60, 40)
+	box := ansi.Strip(raw)
+	for _, want := range []string{"Deploy to prod by @U1", "staging first", "*literal* <https://x.io|y>"} {
+		if !strings.Contains(box, want) {
+			t.Errorf("missing %q:\n%s", want, box)
+		}
+	}
+	for name, re := range map[string]string{
+		"bold Deploy":    `\x1b\[1;[0-9;]*mDeploy`,
+		"italic staging": `\x1b\[3;[0-9;]*mstaging`,
+		"link to prod":   `\x1b\]8;;https://x\.io\x1b\\`,
+	} {
+		if !regexp.MustCompile(re).MatchString(raw) {
+			t.Errorf("no %s", name)
 		}
 	}
 }
