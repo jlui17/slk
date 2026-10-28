@@ -29,7 +29,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -80,24 +79,19 @@ func (a *App) routeLink(rawURL string, inHerdr HerdrTarget) tea.Cmd {
 	}
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
-		debuglog.General("routeLink: not a permalink, browser: %s", rawURL)
 		return a.browserOpener(rawURL)
 	}
 	domain := a.activeWorkspaceDomain()
 	if domain == "" || pl.Subdomain != domain {
-		debuglog.General("routeLink: domain %q != active %q, browser: %s", pl.Subdomain, domain, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	name, _, found := a.channels.Lookup(pl.ChannelID)
 	if !found {
-		debuglog.General("routeLink: channel %s not found, browser: %s", pl.ChannelID, rawURL)
 		return a.browserOpener(rawURL)
 	}
 	if cmd, ok := a.openInHerdr(inHerdr, rawURL, name); ok { // fork: reducer_links_fork.go
 		return cmd
 	}
-	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
-		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
 	cmd, ok := a.applyLinkNav(&pendingLinkNav{
 		Location: Location{
 			TeamID:    ids.TeamID(a.activeTeamID),
@@ -168,16 +162,15 @@ func (a *App) applyLinkNav(nav *pendingLinkNav, fromHistory bool) (tea.Cmd, bool
 	}, true
 }
 
-// completePendingLinkNav finishes (or drops) the pending navigation for
-// channelID. authoritative=true means "no more message data is coming
-// for this channel" — if the target ts still isn't in the buffer,
-// dispatch ChannelService.FetchAround to load a history window centered
-// on the target instead of waiting; the nav stays armed and the
-// MessagesAroundLoadedMsg arm finishes it.
+// completePendingLinkNav finishes (or drops) the pending permalink
+// navigation for channelID. authoritative=true means "no more message
+// data is coming for this channel" — if the target ts still isn't in
+// the buffer, dispatch ChannelService.FetchAround to load a history
+// window centered on the target instead of waiting.
 //
-// Called from: applyLinkNav (already-active channel), reduceChannels'
-// ChannelSelectedMsg arm (cache render, best-effort), and
-// reduceChannels' MessagesLoadedMsg arm (authoritative).
+// Called from: applyLocation (already-active channel, authoritative),
+// reduceChannels' ChannelSelectedMsg arm (cache render, best-effort),
+// and reduceChannels' MessagesLoadedMsg arm (authoritative).
 func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.Cmd {
 	p := a.pendingLinkNav
 	if p == nil {
@@ -186,7 +179,6 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if string(p.ChannelID) != channelID || (p.TeamID != "" && string(p.TeamID) != a.activeTeamID) {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
-		debuglog.General("completePendingLinkNav: stale (pending=%s got=%s), dropped", p.ChannelID, channelID)
 		a.pendingLinkNav = nil
 		return nil
 	}
@@ -199,84 +191,22 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		a.pendingLinkNav = nil
 		return nil
 	}
-	firstLanding := !p.delivered
-	if firstLanding {
-		// The target is in the channel, also when the jump was taken
-		// from the Threads or Activity view (an app's Home keeps its
-		// view: apphome.go routes its own DM).
-		if a.view != ViewAppHome {
-			a.view = ViewChannels
-			a.sidebar.SetThreadsActive(false)
-		}
-		a.lastOpenedChannelID = ""
-		a.lastOpenedThreadTS = ""
-	}
-	if p.ThreadTS != "" {
-		debuglog.General("completePendingLinkNav: opening thread %s select=%s", p.ThreadTS, p.MessageTS)
-		a.pendingLinkNav = nil
-		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS), string(p.MessageTS))
-	}
-	debuglog.General("completePendingLinkNav: channel=%s ts=%s authoritative=%v", channelID, p.MessageTS, authoritative)
-	// The select lands in the messages pane; with a thread panel open
-	// (or zoomed) that pane is hidden or unfocused and the jump would
-	// be invisible. Close the panel and focus the pane, mirroring the
-	// cross-channel path (reduceChannelSelected closes the thread on
-	// every switch). Only until the jump first lands: a re-completion
-	// (the authoritative pass after a best-effort success) just
-	// re-selects, without tearing down whatever the user opened since.
-	// Ordering: CloseThread clears pane selections, so it must precede
-	// SelectByTS.
-	if firstLanding {
-		if a.threadVisible {
-			a.CloseThread()
-		}
-		a.focusedPanel = PanelMessages
+	if cmd, opened := a.landPendingLinkNav(p); opened { // fork: reducer_links_fork.go
+		return cmd
 	}
 	if a.messagepane.SelectByTS(string(p.MessageTS)) {
-		p.delivered = true
-		// A thread parent's permalink carries no thread_ts, but
-		// following it means the thread: when the target has replies,
-		// open its thread panel (cursor on the parent row) instead of
-		// stopping at the in-channel select. Permalink navs only
-		// (openParentThread): a workspace-search jump to a top-level
-		// hit stays a plain select. Re-evaluated on every pass while no
-		// thread panel is up: the first landing is usually the cached
-		// render, whose parent row can carry a stale zero ReplyCount
-		// (live replies bump only the in-memory pane, never the cache
-		// row), so only the authoritative buffer's count is
-		// trustworthy. An already-open panel — this nav's own
-		// best-effort open, or one the user raised mid-flight — stays
-		// put.
-		if p.openParentThread && !a.threadVisible {
-			for _, m := range a.messagepane.Messages() {
-				if m.TS != string(p.MessageTS) {
-					continue
-				}
-				// Fork: under openEmptyThread the count decides nothing,
-				// so the thread opens on the first pass that holds the
-				// target, a stale cached count included.
-				if m.ReplyCount > 0 || p.openEmptyThread {
-					debuglog.General("completePendingLinkNav: target is a thread parent (%d replies), opening thread", m.ReplyCount)
-					if authoritative {
-						a.pendingLinkNav = nil
-					}
-					// Fork: a reply that was also sent to the channel has
-					// no replies either; its thread is its parent's.
-					threadTS := string(p.MessageTS)
-					if m.ThreadTS != "" {
-						threadTS = m.ThreadTS
-					}
-					return a.openThreadForPermalink(string(p.ChannelID), threadTS, string(p.MessageTS))
-				}
-				break
-			}
+		if cmd, opened := a.deliverPendingLinkNav(p, authoritative); opened { // fork: reducer_links_fork.go
+			return cmd
 		}
-		// A best-effort (cache-render) select is not the end of the
-		// nav: the in-flight fetch's MessagesLoadedMsg will replace
-		// the buffer via SetMessages, which clears the selection and
-		// snaps to the bottom. Keep the nav armed so the authoritative
-		// completion re-selects the target on the fresh buffer; only
-		// an authoritative success retires it.
+		// Only forget the target once this is the freshest data we
+		// will get. On a best-effort pass (the cache render, with a
+		// network fetch still in flight) the selection is real but
+		// temporary: the MessagesLoadedMsg arm calls SetMessages,
+		// which resets the selection to the newest message. Clearing
+		// here left nothing to re-apply, so the first jump into a
+		// channel visibly landed on the target and then snapped to the
+		// bottom a moment later. Keeping the pending makes the
+		// authoritative pass re-select; it is idempotent.
 		if authoritative {
 			a.pendingLinkNav = nil
 		}

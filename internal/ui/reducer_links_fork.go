@@ -183,3 +183,81 @@ func (a *App) applyLinkPreview(m LinkPreviewMsg) {
 		a.linkPicker.SetSide(m.Index, channelDisplayName(name, chType)+" · "+m.Sender)
 	}
 }
+
+// landPendingLinkNav is completePendingLinkNav's landing once the
+// target's channel is loaded. Its first landing puts the view on the
+// channel, also when the jump was taken from the Threads or Activity
+// view (an app's Home keeps its view: apphome.go routes its own DM). A
+// target with a thread_ts then opens its thread panel (true). Any other
+// target is selected in the messages pane next; with a thread panel open
+// (or zoomed) that pane is hidden or unfocused and the jump would be
+// invisible, so the first landing closes the panel and focuses the pane,
+// mirroring the cross-channel path (reduceChannelSelected closes the
+// thread on every switch). A re-completion (the authoritative pass after
+// a best-effort success) just re-selects, without tearing down whatever
+// the user opened since. CloseThread clears pane selections, so it runs
+// before completePendingLinkNav's SelectByTS.
+func (a *App) landPendingLinkNav(p *pendingLinkNav) (tea.Cmd, bool) {
+	firstLanding := !p.delivered
+	if firstLanding {
+		if a.view != ViewAppHome {
+			a.view = ViewChannels
+			a.sidebar.SetThreadsActive(false)
+		}
+		a.lastOpenedChannelID = ""
+		a.lastOpenedThreadTS = ""
+	}
+	if p.ThreadTS != "" {
+		a.pendingLinkNav = nil
+		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS), string(p.MessageTS)), true
+	}
+	if firstLanding {
+		if a.threadVisible {
+			a.CloseThread()
+		}
+		a.focusedPanel = PanelMessages
+	}
+	return nil, false
+}
+
+// deliverPendingLinkNav runs once completePendingLinkNav has selected
+// the target in the messages pane: the jump has visibly landed. A
+// thread parent's permalink carries no thread_ts, but following it
+// means the thread: when the target has replies, open its thread panel
+// (cursor on the parent row) instead of stopping at the in-channel
+// select (true). Permalink navs only (openParentThread): a
+// workspace-search jump to a top-level hit stays a plain select.
+// Re-evaluated on every pass while no thread panel is up: the first
+// landing is usually the cached render, whose parent row can carry a
+// stale zero ReplyCount (live replies bump only the in-memory pane,
+// never the cache row), so only the authoritative buffer's count is
+// trustworthy. An already-open panel — this nav's own best-effort open,
+// or one the user raised mid-flight — stays put.
+func (a *App) deliverPendingLinkNav(p *pendingLinkNav, authoritative bool) (tea.Cmd, bool) {
+	p.delivered = true
+	if !p.openParentThread || a.threadVisible {
+		return nil, false
+	}
+	for _, m := range a.messagepane.Messages() {
+		if m.TS != string(p.MessageTS) {
+			continue
+		}
+		// Under openEmptyThread the count decides nothing, so the
+		// thread opens on the first pass that holds the target, a
+		// stale cached count included.
+		if m.ReplyCount == 0 && !p.openEmptyThread {
+			return nil, false
+		}
+		if authoritative {
+			a.pendingLinkNav = nil
+		}
+		// A reply that was also sent to the channel has no replies
+		// either; its thread is its parent's.
+		threadTS := string(p.MessageTS)
+		if m.ThreadTS != "" {
+			threadTS = m.ThreadTS
+		}
+		return a.openThreadForPermalink(string(p.ChannelID), threadTS, string(p.MessageTS)), true
+	}
+	return nil, false
+}
