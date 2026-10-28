@@ -256,7 +256,7 @@ func (f cachedFetcher) Prerendered(string, image.Point, imgpkg.Protocol) (imgpkg
 func (f cachedFetcher) ConfigurePrerender(imgpkg.Protocol)            {}
 func (f cachedFetcher) ConfigurePrerenderKitty(*imgpkg.KittyRenderer) {}
 
-func imageCtx(proto imgpkg.Protocol) Context {
+func cardImageCtx(proto imgpkg.Protocol) Context {
 	ctx := makeCtx()
 	ctx.Protocol = proto
 	ctx.Fetcher = cachedFetcher{img: image.NewRGBA(image.Rect(0, 0, 160, 90))}
@@ -275,7 +275,7 @@ const cardImageURL = "https://example.com/i.png"
 func TestCardImageRendersInsideTheFrame(t *testing.T) {
 	for _, proto := range []imgpkg.Protocol{imgpkg.ProtoHalfBlock, imgpkg.ProtoKitty} {
 		const width = 30
-		r := RenderLegacy([]LegacyAttachment{{Title: "T", Text: "caption", ImageURL: cardImageURL}}, imageCtx(proto), width)
+		r := RenderLegacy([]LegacyAttachment{{Title: "T", Text: "caption", ImageURL: cardImageURL}}, cardImageCtx(proto), width)
 		if len(r.Hits) != 1 || len(r.FoldRows) != 0 {
 			t.Fatalf("%v: hits = %v folds = %v, want one image and no fold row", proto, r.Hits, r.FoldRows)
 		}
@@ -303,7 +303,7 @@ func TestCardImageRendersInsideTheFrame(t *testing.T) {
 func TestFoldedCardHidesItsImage(t *testing.T) {
 	card := []LegacyAttachment{{Title: "T", Text: bodyOf(6), ImageURL: cardImageURL}}
 	for _, proto := range []imgpkg.Protocol{imgpkg.ProtoHalfBlock, imgpkg.ProtoKitty} {
-		expanded := imageCtx(proto)
+		expanded := cardImageCtx(proto)
 		expanded.Card.Expanded = true
 		full := RenderLegacy(card, expanded, 40)
 		if len(full.Hits) != 1 || cells(full)[full.Hits[0].RowEnd] != "▾ z to collapse" {
@@ -311,7 +311,7 @@ func TestFoldedCardHidesItsImage(t *testing.T) {
 		}
 		imageRows := full.Hits[0].RowEnd - full.Hits[0].RowStart
 
-		r := RenderLegacy(card, imageCtx(proto), 40)
+		r := RenderLegacy(card, cardImageCtx(proto), 40)
 		want := []string{"", "T", "body line 1", "body line 2", "body line 3 …", fmt.Sprintf("▸ %d more lines · z to expand", 3+imageRows), ""}
 		if got := cells(r); !slices.Equal(got, want) {
 			t.Errorf("%v: collapsed card = %q, want %q", proto, got, want)
@@ -330,7 +330,7 @@ func TestFoldPreviewEndsBeforeAnImage(t *testing.T) {
 		ImageBlock{URL: cardImageURL},
 		SectionBlock{Text: bodyOf(6)},
 	}}}
-	r := RenderLegacy(card, imageCtx(imgpkg.ProtoHalfBlock), 40)
+	r := RenderLegacy(card, cardImageCtx(imgpkg.ProtoHalfBlock), 40)
 	got := cells(r)
 	if len(got) != 4 || got[1] != "intro …" || !strings.HasPrefix(got[2], "▸ ") || len(r.Hits) != 0 {
 		t.Errorf("collapsed card = %q hits %v, want the intro, then the fold row", got, r.Hits)

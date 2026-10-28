@@ -247,6 +247,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		batch = append(batch, a.applyActiveConnState())
+		a.statusbar.SetCustomStatus(a.presence.CustomStatus(a.currentUserID))
 		a.workspaceRail.SelectByID(m.TeamID)
 		if cmd, ok := a.reconcileProvisionalSelection(m); ok {
 			batch = append(batch, cmd)
@@ -441,7 +442,11 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.workspaceRail.SelectByID(m.TeamID)
 
 	// After resetWindowTree above, so the fresh panes get the statuses.
+	// Must run before SetCustomStatus below: self-status is read from
+	// this same peers store, so it has to be seeded for the new
+	// workspace first.
 	batch = append(batch, a.presence.SetPeers(a, m.UserStatuses))
+	a.statusbar.SetCustomStatus(a.presence.CustomStatus(a.currentUserID))
 	// Restore the last-viewed channel for this workspace if we
 	// have one and it still exists; otherwise fall back to the
 	// first channel in the sidebar. Move the sidebar cursor to

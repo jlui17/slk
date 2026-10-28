@@ -37,7 +37,7 @@ func barePost(ts, threadTS string) messages.MessageItem {
 // changed is post as a message_changed event delivers it.
 func changed(post messages.MessageItem, text string, card []blockkit.LegacyAttachment) NewMessageMsg {
 	post.Text, post.LegacyAttachments, post.IsEdited = text, card, true
-	return NewMessageMsg{ChannelID: "C1", Message: post}
+	return NewMessageMsg{ChannelID: "C1", Message: post, Changed: true}
 }
 
 func unfurlTestApp() *App {

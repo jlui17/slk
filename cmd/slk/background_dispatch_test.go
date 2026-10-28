@@ -35,7 +35,7 @@ func TestOnMessageInactiveWorkspaceDispatchesTagged(t *testing.T) {
 		userNames:   usernames.FromMap(map[string]string{"U1": "user one"}),
 		isActive:    func() bool { return false },
 	}
-	h.OnMessage("C1", "U1", "101.0", "a thread reply", "100.0", "", false, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "U1", "101.0", "a thread reply", "100.0", "", false, false, nil, slack.Blocks{}, nil, "", "")
 
 	msgs := sentOfType[ui.NewMessageMsg](sender)
 	if len(msgs) != 1 {
@@ -58,7 +58,7 @@ func TestOnMessageInactiveTopLevelNotDispatched(t *testing.T) {
 		userNames:   usernames.FromMap(map[string]string{"U1": "user one"}),
 		isActive:    func() bool { return false },
 	}
-	h.OnMessage("C1", "U1", "101.0", "a top-level message", "", "", false, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "U1", "101.0", "a top-level message", "", "", false, false, nil, slack.Blocks{}, nil, "", "")
 
 	if msgs := sentOfType[ui.NewMessageMsg](sender); len(msgs) != 0 {
 		t.Fatalf("background top-level messages must not dispatch NewMessageMsg (no consumer; per-message render cost), got %d", len(msgs))

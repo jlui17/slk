@@ -84,7 +84,7 @@
 | `Ctrl+r` / `:reload` | Normal | Reload: force every workspace's websocket to reconnect and catch up, and refetch the open thread panel (the Slack app's `Cmd+R` analog) |
 | `Ctrl+y` | Any | Switch theme |
 | `Alt+y` / `Alt+Shift+y` | Normal | Next / previous theme (wraps; saved per workspace) |
-| `Ctrl+s` | Any | Set status (Active / Away / DND snooze) |
+| `Ctrl+s` | Any | Set status (Active / Away / DND snooze / Working from home / On vacation / Clear status) |
 | `q` | Normal | Close the thread pane (does nothing when none is open) |
 | `Q` | Normal | Quit (with confirmation) |
 | `Ctrl+c` | Any | Quit (with confirmation) |

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/bubbles/entrylist"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
@@ -994,43 +995,31 @@ func (m *Model) IncrementReplyCount(parentTS, replyTS string) {
 		}
 		set[replyTS] = struct{}{}
 	}
-	// Same bottom-anchor preservation as UpdateReaction: if the increment
-	// is going to add a "[N replies ->]" line under a message that's
-	// currently at the bottom of the visible window, advance yOffset by
-	// the height delta so the message stays pinned to the bottom instead
-	// of being pushed under the fold.
-	wasAnchoredAtBottom := false
-	oldTotalLines := m.list.Total()
-	if m.cache != nil && m.list.Height() > 0 && m.list.Total() > 0 {
-		wasAnchoredAtBottom = m.list.YOffset()+m.list.Height() >= m.list.Total()
-	}
-
 	for i, msg := range m.messages {
 		if msg.TS == parentTS {
+			// Same as UpdateReaction: the first reply adds a
+			// "[N replies ->]" row, which must not push a message at
+			// the bottom of the pane under the fold.
+			m.list.HoldBottom()
 			m.messages[i].ReplyCount++
 			m.dropCache()
 			m.dirty()
-			if wasAnchoredAtBottom && m.cacheWidth > 0 {
-				m.buildCache(m.cacheWidth, false)
-				if delta := m.list.Total() - oldTotalLines; delta > 0 {
-					y := min(m.list.YOffset()+delta, m.list.Total()-m.list.Height())
-					m.list.SetYOffset(max(y, 0))
-					m.list.MarkSnapped(m.selected)
-				}
-			}
 			return
 		}
 	}
 }
 
-// UpdateMessageInPlace finds a message by TS, replaces its text, and
-// marks it as edited. Returns true if the message was found.
-// Invalidates the render cache.
-func (m *Model) UpdateMessageInPlace(ts, newText string) bool {
+// UpdateMessageInPlace finds the message with item's TS and applies a
+// message_changed echo to it (MessageItem.ApplyChange: text, edited
+// mark, blocks, attachments; reactions and the rest are kept). Returns
+// true if the message was found. Invalidates the render cache. A pane
+// at the bottom stays there: an unfurl or an edit that adds rows must
+// not push them under the fold (see UpdateReaction).
+func (m *Model) UpdateMessageInPlace(item MessageItem) bool {
 	for i, msg := range m.messages {
-		if msg.TS == ts {
-			m.messages[i].Text = newText
-			m.messages[i].IsEdited = true
+		if msg.TS == item.TS {
+			m.list.HoldBottom()
+			m.messages[i].ApplyChange(item)
 			m.dropCache()
 			m.dirty()
 			return true
@@ -1065,39 +1054,21 @@ func (m *Model) RemoveMessageByTS(ts string) bool {
 }
 
 func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool) {
-	// Capture pre-mutation viewport state so we can preserve "anchored at
-	// bottom" across the reaction's height change. Without this, adding
-	// the first reaction to the last visible message grows the list total by
-	// 1 while yOffset stays put -- the bottom message gets pushed below
-	// the fold and a "-- more below --" hint replaces it. We want the
-	// reaction to push content *up* (yOffset++) instead, keeping the
-	// reacted-to message anchored to the bottom of the pane.
-	wasAnchoredAtBottom := false
-	oldTotalLines := m.list.Total()
-	if m.cache != nil && m.list.Height() > 0 && m.list.Total() > 0 {
-		wasAnchoredAtBottom = m.list.YOffset()+m.list.Height() >= m.list.Total()
-	}
-
 	for i, msg := range m.messages {
 		if msg.TS == messageTS {
+			// Keep "anchored at bottom" across the reaction's height
+			// change. Without this, adding the first reaction to the
+			// last visible message grows the list total by 1 while
+			// yOffset stays put -- the bottom message gets pushed below
+			// the fold and a "-- more below --" hint replaces it. The
+			// reaction must push content *up* instead, keeping the
+			// reacted-to message anchored to the bottom of the pane.
+			m.list.HoldBottom()
 			ApplyReaction(&m.messages[i], emojiName, userID, m.currentUserID, remove)
 			m.dropCache()
 			m.dirty()
 			if m.nav.Active {
 				m.ClampReactionNav()
-			}
-			// Re-anchor the viewport bottom if it was at the bottom before.
-			// We need the new list total, which only buildCache computes;
-			// rebuild now (cheap, and the next View() would do it anyway).
-			if wasAnchoredAtBottom && m.cacheWidth > 0 {
-				m.buildCache(m.cacheWidth, false)
-				if delta := m.list.Total() - oldTotalLines; delta > 0 {
-					y := min(m.list.YOffset()+delta, m.list.Total()-m.list.Height())
-					m.list.SetYOffset(max(y, 0))
-					// Mark snapped so View() doesn't re-snap to the
-					// (unchanged) selection and undo our adjustment.
-					m.list.MarkSnapped(m.selected)
-				}
 			}
 			return
 		}
@@ -1813,6 +1784,17 @@ func (m *Model) HitTestImage(row, col int) (ts string, attIdx int, ok bool) {
 	return m.messages[msgIdx].TS, attIdx, true
 }
 
+// HitTestFile returns the ts of the message and the attachment index
+// of the "[File]" line at (row, col), or ok=false. Coordinate frame
+// mirrors HitTest.
+func (m *Model) HitTestFile(row, col int) (ts string, attIdx int, ok bool) {
+	h, ok := m.list.HitTest(entrylist.HitFile, row, col)
+	if !ok || h.Ref < 0 || h.Ref >= len(m.messages) {
+		return "", 0, false
+	}
+	return m.messages[h.Ref].TS, h.Aux, true
+}
+
 // HitTestReaction returns the (message index, reaction emoji name) at
 // (row, col) within the messages-pane content area, or ok=false when
 // no reaction pill covers that cell. Coordinate frame mirrors HitTest.
@@ -1875,6 +1857,22 @@ func (m *Model) selectedLines(i int) []string {
 	return m.cache[i].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
 		return NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
 	})
+}
+
+// composeFallbackRow grafts a halfblock fallback row onto the
+// placeholder row it replaces. The placeholder carries the row's left
+// border, avatar gutter and background fill; a bare fallback row
+// would shift the image left under the gutter (one column, six with
+// an avatar), drop the border, and leave the row short so stale
+// pixels stayed visible right of the image on panes without a
+// scrollbar pass to re-pad. Keep the placeholder's first col cells,
+// then the fallback, then the placeholder's own tail: cut from the
+// row being replaced rather than re-filling from a themed spacer, so
+// the tail carries whatever background that row had - the selection
+// tint included - instead of the unselected background.
+func composeFallbackRow(placeholder, fb string, col int) string {
+	end := col + ansi.StringWidth(fb)
+	return ansi.Cut(placeholder, 0, col) + fb + ansi.Cut(placeholder, end, ansi.StringWidth(placeholder))
 }
 
 // viewInternal is the body shared by View and ViewBare. When
@@ -2056,7 +2054,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 					if sixelFallback == nil {
 						sixelFallback = make(map[int]string)
 					}
-					sixelFallback[row] = sx.fallback[k]
+					sixelFallback[row] = composeFallbackRow(frame.Rows[row], sx.fallback[k], sx.col)
 				}
 			}
 		}

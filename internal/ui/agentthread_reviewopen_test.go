@@ -30,7 +30,7 @@ type previewCall struct {
 
 // withPreview installs a message service whose Preview answers sender and
 // text (or err), recording each call.
-func withPreview(a *App, sender, text string, err error) *[]previewCall {
+func withLinkPreview(a *App, sender, text string, err error) *[]previewCall {
 	calls := &[]previewCall{}
 	a.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{
 		Preview: func(_ context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
@@ -49,7 +49,7 @@ func reviewOpenThread() (messages.MessageItem, []messages.MessageItem) {
 
 func TestReviewOpenLabelWaitsForAnnotatedMessage(t *testing.T) {
 	a, calls, _ := newLLMLabelTestApp(t)
-	previews := withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	previews := withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 
 	if cmd := a.setThreadPanel(parent, nil, "C1", "500.0"); cmd != nil {
@@ -86,7 +86,7 @@ func TestReviewOpenLabelWaitsForAnnotatedMessage(t *testing.T) {
 // The automatic path's fetch rides out of the replies load that fires it.
 func TestReviewOpenLabelFetchReturnedByRepliesLoad(t *testing.T) {
 	a, calls, _ := newLLMLabelTestApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	a.setThreadPanel(parent, nil, "C1", "500.0")
 	a.threadVisible = true
@@ -106,7 +106,7 @@ func TestReviewOpenLabelFetchReturnedByRepliesLoad(t *testing.T) {
 func TestReviewOpenRetitleWaitsForAnnotatedMessage(t *testing.T) {
 	parent, replies := reviewOpenThread()
 	a, calls, _ := newRetitleTestApp(t, parent, replies)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 
 	cmd := executeCommand(a, "retitle")
 	if len(*calls) != 0 {
@@ -140,7 +140,7 @@ func TestNonReviewOpenLabelSendsWithoutFetch(t *testing.T) {
 		replies := []messages.MessageItem{{TS: "101.0", Text: "on it", UserID: "UBOT"}}
 
 		a, calls, _ := newLLMLabelTestApp(t)
-		previews := withPreview(a, "", "", errors.New("must not fetch"))
+		previews := withLinkPreview(a, "", "", errors.New("must not fetch"))
 		a.setThreadPanel(parent, nil, "C1", "100.0")
 		if cmd := a.setThreadPanel(parent, replies, "C1", "100.0"); cmd != nil {
 			t.Errorf("%q: automatic path returned a cmd", root)
@@ -151,7 +151,7 @@ func TestNonReviewOpenLabelSendsWithoutFetch(t *testing.T) {
 		}
 
 		r, rcalls, _ := newRetitleTestApp(t, parent, replies)
-		rpreviews := withPreview(r, "", "", errors.New("must not fetch"))
+		rpreviews := withLinkPreview(r, "", "", errors.New("must not fetch"))
 		_ = executeCommand(r, "retitle")
 		if len(*rcalls) != 1 || (*rcalls)[0].transcript != want || (*rcalls)[0].reviewOpen {
 			t.Errorf("%q: :retitle requests = %+v, want one with %q, not review-open", root, *rcalls, want)
@@ -164,7 +164,7 @@ func TestNonReviewOpenLabelSendsWithoutFetch(t *testing.T) {
 
 func TestReviewOpenFetchFailureSendsPlainTranscript(t *testing.T) {
 	a, calls, _ := newLLMLabelTestApp(t)
-	withPreview(a, "", "", errors.New("channel_not_found"))
+	withLinkPreview(a, "", "", errors.New("channel_not_found"))
 	parent, replies := reviewOpenThread()
 	a.setThreadPanel(parent, nil, "C1", "500.0")
 
@@ -223,7 +223,7 @@ func TestReviewOpenResultUnusableLabelDropped(t *testing.T) {
 
 func TestReviewOpenFetchDroppedAfterThreadSwitch(t *testing.T) {
 	a, calls, _ := newLLMLabelTestApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	fetch := a.setThreadPanel(parent, replies, "C1", "500.0")
 
@@ -239,7 +239,7 @@ func TestReviewOpenFetchDroppedAfterThreadSwitch(t *testing.T) {
 // the return started sends: the thread's request still goes out once.
 func TestReviewOpenFetchSupersededByNewerFetch(t *testing.T) {
 	a, calls, _ := newLLMLabelTestApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	first := a.setThreadPanel(parent, replies, "C1", "500.0")
 	a.setThreadPanel(messages.MessageItem{TS: "200.0", Text: "<@UBOT> ship the viewer", UserID: "UHUMAN"}, []messages.MessageItem{}, "C1", "200.0")
@@ -302,7 +302,7 @@ func TestReviewOpenNoteKickoffSendsNoteWithoutFetch(t *testing.T) {
 		replies := []messages.MessageItem{{TS: "101.0", Text: "Blind judge: Justified.", UserID: "UBOT"}}
 
 		a, calls, _ := newLLMLabelTestApp(t)
-		previews := withPreview(a, "", "", errors.New("must not fetch"))
+		previews := withLinkPreview(a, "", "", errors.New("must not fetch"))
 		a.setThreadPanel(parent, nil, "C1", "100.0")
 		if cmd := a.setThreadPanel(parent, replies, "C1", "100.0"); cmd != nil {
 			t.Errorf("%q: automatic path returned a cmd", root)
@@ -313,7 +313,7 @@ func TestReviewOpenNoteKickoffSendsNoteWithoutFetch(t *testing.T) {
 		}
 
 		r, rcalls, _ := newRetitleTestApp(t, parent, replies)
-		rpreviews := withPreview(r, "", "", errors.New("must not fetch"))
+		rpreviews := withLinkPreview(r, "", "", errors.New("must not fetch"))
 		_ = executeCommand(r, "retitle")
 		if len(*rcalls) != 1 || (*rcalls)[0].transcript != want || !(*rcalls)[0].reviewOpen {
 			t.Errorf("%q: :retitle requests = %+v, want one review-open request with %q", root, *rcalls, want)

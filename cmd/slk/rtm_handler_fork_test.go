@@ -46,7 +46,7 @@ func TestOnEphemeralMessage_DispatchesWithoutPersisting(t *testing.T) {
 		t.Errorf("NewMessageMsg = %+v, want an ephemeral reply in C1 by Colony", m)
 	}
 
-	h.OnMessage("C1", "", "1787400000.000200", "Your annotation was sent.", "", "bot_message", false, nil, slack.Blocks{}, nil, "B1", "Colony")
+	h.OnMessage("C1", "", "1787400000.000200", "Your annotation was sent.", "", "bot_message", false, false, nil, slack.Blocks{}, nil, "B1", "Colony")
 	if row, latest, unread := persisted(); !row || latest == "" || !unread {
 		t.Errorf("control: OnMessage wrote message row %v, latest_synced_ts %q, has_unread %v; want all three", row, latest, unread)
 	}

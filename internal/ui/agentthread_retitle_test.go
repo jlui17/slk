@@ -382,7 +382,7 @@ func TestRetitleOlderResultDroppedAfterNewerRetitle(t *testing.T) {
 // newer :retitle like any other: the fetch's request never goes out.
 func TestReviewOpenRetitleFetchDroppedAfterNewerRetitle(t *testing.T) {
 	a, calls, _, _ := newRetitleOtherThreadApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	a.threadPanel.SetThread(parent, replies, "C3", "500.0")
 	fetch := executeCommand(a, "retitle")
@@ -400,7 +400,7 @@ func TestReviewOpenRetitleFetchDroppedAfterNewerRetitle(t *testing.T) {
 // message, and the request goes out keyed to the open thread.
 func TestReviewOpenRetitleOnOtherThread(t *testing.T) {
 	a, calls, _, _ := newRetitleOtherThreadApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	a.threadPanel.SetThread(parent, replies, "C3", "500.0")
 
@@ -515,7 +515,7 @@ func TestRetitleOnOtherThreadKeepsBotMention(t *testing.T) {
 
 func TestReviewOpenRetitleFetchSurvivesAutomaticFetch(t *testing.T) {
 	a, calls, _, _ := newRetitleOtherThreadApp(t)
-	withPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
+	withLinkPreview(a, "Justin Lui", "!annotate - pr 1231 is merged already", nil)
 	parent, replies := reviewOpenThread()
 	a.threadPanel.SetThread(parent, replies, "C3", "500.0")
 
