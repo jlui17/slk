@@ -27,14 +27,14 @@ func TestPlanRebootClassifiesEverySavedPane(t *testing.T) {
 	}
 	info := map[string]herdr.ProcessInfo{
 		// Shell at its prompt lists only itself.
-		"w1:p1": {ShellPID: 10, Foreground: []herdr.Process{{PID: 10, Name: "zsh", Cmdline: "-zsh"}}},
+		"w1:p1": {ShellPID: 10, Foreground: []herdr.Process{{PID: 10, Cmdline: "-zsh"}}},
 		// A running slk: run-docker.sh's docker run in the foreground.
 		"w1:p2": {ShellPID: 20, Foreground: []herdr.Process{
-			{PID: 21, Name: "bash", Cmdline: "bash /repo/tools/run-docker.sh"},
-			{PID: 22, Name: "docker", Cmdline: "docker run --rm -it --name slk-user-21 --label slk.role=user slk-go:1.26 /src/bin/slk-linux"},
+			{PID: 21, Cmdline: "bash /repo/tools/run-docker.sh"},
+			{PID: 22, Cmdline: "docker run --rm -it --name slk-user-21 --label slk.role=user slk-go:1.26 /src/bin/slk-linux"},
 		}},
 		// Something else in the foreground.
-		"w1:p3": {ShellPID: 30, Foreground: []herdr.Process{{PID: 31, Name: "vim", Cmdline: "vim notes.md"}}},
+		"w1:p3": {ShellPID: 30, Foreground: []herdr.Process{{PID: 31, Cmdline: "vim notes.md"}}},
 		// An empty foreground list is also a prompt.
 		"w1:p4": {ShellPID: 40},
 	}
@@ -71,7 +71,7 @@ func TestPlanRebootClassifiesEverySavedPane(t *testing.T) {
 func TestClassifyForegroundMatchesTheConfiguredCommand(t *testing.T) {
 	// A custom open_command with no "slk" in it still reads as live.
 	info := herdr.ProcessInfo{ShellPID: 1, Foreground: []herdr.Process{
-		{PID: 2, Name: "bash", Cmdline: "bash /home/me/bin/chat-tui"},
+		{PID: 2, Cmdline: "bash /home/me/bin/chat-tui"},
 	}}
 	if got := classifyForeground(info, "/home/me/bin/chat-tui"); got != paneLive {
 		t.Errorf("configured command in the foreground = %s, want live", got)

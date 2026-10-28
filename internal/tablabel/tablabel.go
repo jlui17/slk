@@ -63,17 +63,6 @@ func New(model, effort, apiKey string) *Client {
 	return &Client{model: model, effort: effort, client: anthropic.NewClient(option.WithAPIKey(apiKey))}
 }
 
-func newForTest(model, baseURL string) *Client {
-	return &Client{
-		model:  model,
-		effort: "low",
-		client: anthropic.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithAPIKey("test"),
-		),
-	}
-}
-
 // Relabel asks the model to judge, from a thread transcript (as much of the
 // thread as the caller has), which task id the thread is about and to name
 // the work. hints are freeform

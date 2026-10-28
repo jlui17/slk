@@ -8,7 +8,6 @@ import (
 // Process is one entry of a pane's foreground process list.
 type Process struct {
 	PID     int    `json:"pid"`
-	Name    string `json:"name"`
 	Cmdline string `json:"cmdline"`
 }
 

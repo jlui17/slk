@@ -8,7 +8,23 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
+
+// newForTest returns a Client calling model at low effort against a fake
+// API server at baseURL.
+func newForTest(model, baseURL string) *Client {
+	return &Client{
+		model:  model,
+		effort: "low",
+		client: anthropic.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithAPIKey("test"),
+		),
+	}
+}
 
 type capturedRequest struct {
 	Model       string   `json:"model"`
