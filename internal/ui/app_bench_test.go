@@ -98,6 +98,23 @@ func BenchmarkAppViewIdle(b *testing.B) {
 	}
 }
 
+// BenchmarkAppViewOtherChannelMessage measures a message landing in a
+// channel that is not on screen: the reducer re-reads read state
+// (invalidating the sidebar), then one frame renders.
+func BenchmarkAppViewOtherChannelMessage(b *testing.B) {
+	a := makeBenchApp()
+	a.SetMode(ModeNormal)
+	_ = a.View()
+	msg := benchMessages()[0]
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		msg.TS = fmt.Sprintf("%d.0", 1800000000+i)
+		_, _ = a.Update(NewMessageMsg{ChannelID: "C7", Message: msg})
+		_ = a.View()
+	}
+}
+
 // makeWideScrollApp builds a NORMAL-mode app at an ultrawide terminal size
 // (477x130, matching a real user's session in slk-debug.log) with focus on
 // the messages pane -- the j/k scroll hot path. This is the case the

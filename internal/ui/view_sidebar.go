@@ -47,6 +47,16 @@ func (a *App) renderSidebar(sidebarWidth, sidebarBorder, contentHeight int, them
 	if c.hit(a.sidebar.Version(), sidebarWidth, contentHeight, sbLayoutKey) {
 		return c.output
 	}
+	sidebarView := a.sidebar.View(contentHeight-2, sidebarWidth)
+	// A version bump that leaves every row as it was -- a message in
+	// a channel the sidebar already shows as unread re-reads the read
+	// state and invalidates it -- keeps the bordered output, skipping
+	// the border render and exactSizeBg pass that re-measure every
+	// cell of the panel.
+	if c.hit(c.panelVersion, sidebarWidth, contentHeight, sbLayoutKey) && sidebarView == a.renderCache.sidebarView {
+		c.store(c.output, a.sidebar.Version(), sidebarWidth, contentHeight, sbLayoutKey)
+		return c.output
+	}
 
 	borderStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -62,9 +72,8 @@ func (a *App) renderSidebar(sidebarWidth, sidebarBorder, contentHeight int, them
 			Background(styles.SidebarBackground).
 			Width(sidebarWidth)
 	}
-	sidebarView := a.sidebar.View(contentHeight-2, sidebarWidth)
-	sidebarView = borderStyle.Render(sidebarView)
-	out := exactSizeBg(sidebarView, sidebarWidth+sidebarBorder, contentHeight, styles.SidebarBackground)
+	out := exactSizeBg(borderStyle.Render(sidebarView), sidebarWidth+sidebarBorder, contentHeight, styles.SidebarBackground)
 	c.store(out, a.sidebar.Version(), sidebarWidth, contentHeight, sbLayoutKey)
+	a.renderCache.sidebarView = sidebarView
 	return out
 }

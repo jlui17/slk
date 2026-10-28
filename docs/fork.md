@@ -358,3 +358,6 @@ upstream's and drop the fork's.
   re-rendered every frame (branch `perf-compose-region`). The fork's
   `view_compose_region_test.go` passes a `usernames.FromMap` store to
   `SetUserNames` where upstream's passes a map.
+- `internal/ui/view_sidebar.go`, `panelcache.go` — the bordered sidebar
+  is kept when a read-state refresh leaves every row as it was (branch
+  `perf-sidebar-border`).

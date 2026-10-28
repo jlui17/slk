@@ -139,6 +139,11 @@ type panelRenderCache struct {
 	threadBottom  composeRegionCache
 	status        panelCache
 
+	// sidebarView is the sidebar.View output the cached sidebar
+	// panel was rendered from, so a version bump that changes no row
+	// can keep the panel.
+	sidebarView string
+
 	// winPanes caches the bordered output of unfocused live window
 	// panes, one slot per window (Phase 3). Focused windows render
 	// through msgTop/msgPanel as before. Evicted when windows close
