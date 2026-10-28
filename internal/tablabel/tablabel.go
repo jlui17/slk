@@ -1,7 +1,10 @@
-// Package tablabel names herdr tabs after Slack agent threads with a
-// small-model API call. It is the fork's one Anthropic API dependency;
-// callers own triggering, sanitizing the reply, and every fallback (the
-// deterministic label stands whenever Relabel errors).
+// Package tablabel makes the small-model API calls behind slk's herdr
+// tabs: Relabel names a tab after the Slack agent thread it shows, and
+// Judge (working.go) is the agent status judge, which reads whether the
+// thread's agent is working, idle or blocked on the user. It is the
+// fork's one Anthropic API dependency; callers own triggering,
+// sanitizing the reply, and every fallback (the deterministic label
+// stands whenever Relabel errors).
 package tablabel
 
 import (
