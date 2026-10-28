@@ -985,7 +985,6 @@ func run(startupLink *slackurl.Permalink) error {
 			SearchWorkspace: searchWorkspaceFunc(router, db, tsFormat),
 		}))
 
-		linkPreviews := newPreviewCache()
 		app.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{
 			Forward: func(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (core.ForwardResult, error) {
 				// The user may have switched workspaces since starting the action.
@@ -1144,18 +1143,7 @@ func run(startupLink *slackurl.Permalink) error {
 				}
 				return wctx.Client.GetPermalink(ctx, string(channelID), string(ts))
 			},
-			Preview: func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
-				chIDStr, tsStr := string(channelID), string(ts)
-				wctx := router.Active()
-				if wctx == nil {
-					return "", "", nil
-				}
-				if sender, text, found := cachedMessagePreview(db, wctx.UserNames, router, chIDStr, tsStr); found {
-					return sender, text, nil
-				}
-				fetch := previewFetch(ctx, wctx.Client, chIDStr, tsStr, string(threadTS))
-				return fetchedMessagePreview(linkPreviews, fetch, wctx.UserNames, db, router, chIDStr, tsStr)
-			},
+			Preview: previewFunc(router, db), // fork: preview_cache.go
 		}))
 
 		profileFetch := newProfileFetch(func(teamID string) (func(context.Context, string) (*slackclient.UserProfile, error), bool) {

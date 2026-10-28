@@ -9,6 +9,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/ids"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/usernames"
 )
@@ -62,6 +63,25 @@ func (c *previewCache) Put(channelID, ts string, m slack.Message) {
 	defer c.mu.Unlock()
 	kept := slack.Message{Msg: slack.Msg{User: m.User, BotID: m.BotID, Username: m.Username, Text: m.Text}}
 	c.entries[previewCacheKey(channelID, ts)] = previewCacheEntry{message: kept, storedAt: c.now()}
+}
+
+// previewFunc is the MessageService's Preview: the active workspace's
+// cache tier first, then the network tier memoized in its own
+// previewCache. No active workspace previews nothing.
+func previewFunc(router *workspaceRouter, db *cache.DB) func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
+	linkPreviews := newPreviewCache()
+	return func(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS, threadTS ids.ThreadTS) (string, string, error) {
+		chIDStr, tsStr := string(channelID), string(ts)
+		wctx := router.Active()
+		if wctx == nil {
+			return "", "", nil
+		}
+		if sender, text, found := cachedMessagePreview(db, wctx.UserNames, router, chIDStr, tsStr); found {
+			return sender, text, nil
+		}
+		fetch := previewFetch(ctx, wctx.Client, chIDStr, tsStr, string(threadTS))
+		return fetchedMessagePreview(linkPreviews, fetch, wctx.UserNames, db, router, chIDStr, tsStr)
+	}
 }
 
 // cachedMessagePreview is the Preview seam's cache tier: the target
