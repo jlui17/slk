@@ -8,7 +8,6 @@ import (
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/herdr"
-	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
 )
 
@@ -76,30 +75,4 @@ func herdrPaneCache(paneKey, what string, get func(paneKey string) (string, bool
 		return put(paneKey, v)
 	}
 	return load, save
-}
-
-func (h *rtmEventHandler) sendAssistantStatus(s slackclient.AssistantStatus) {
-	if h.program == nil {
-		return
-	}
-	h.program.Send(ui.AssistantStatusMsg{
-		TeamID:    h.workspaceID,
-		ChannelID: s.ChannelID,
-		ThreadTS:  s.ThreadTS,
-		BotUserID: s.BotUserID,
-		Status:    s.Status,
-	})
-}
-
-// reactionReachesUI reports whether a reaction event is sent to the UI. A
-// background workspace's reactions matter there only as the tracked agent
-// thread's ack, which only a bot gives, and each one sent costs a full
-// Update and View. Bot-ness is read where agent-thread detection reads it,
-// the user cache, so the tracked thread's bot always passes.
-func (h *rtmEventHandler) reactionReachesUI(userID string) bool {
-	if h.isActive == nil || h.isActive() {
-		return true
-	}
-	u, err := h.db.GetUser(userID)
-	return err == nil && u.IsBot
 }

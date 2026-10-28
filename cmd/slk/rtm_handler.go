@@ -592,7 +592,7 @@ func (h *rtmEventHandler) OnAssistantStatus(s slackclient.AssistantStatus) {
 			h.wsCtx.UserResolver.Request(s.BotUserID)
 		}
 	}
-	h.sendAssistantStatus(s) // fork: herdr_wiring.go, the tracked agent thread's turn
+	h.sendAssistantStatus(s) // fork: rtm_handler_fork.go, the tracked agent thread's turn
 	if h.program == nil {
 		return
 	}

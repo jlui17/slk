@@ -3,22 +3,8 @@ package main
 import (
 	"context"
 
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/appshortcuts"
 )
-
-func (h *rtmEventHandler) OnView(evt slackclient.ViewEvent) {
-	if h.program == nil {
-		return
-	}
-	h.program.Send(ui.AppViewMsg{
-		TeamID:      h.workspaceID,
-		ClientToken: evt.ClientToken,
-		Updated:     evt.Updated,
-		View:        evt.View,
-	})
-}
 
 // appShortcutService is the `.` overlay's appshortcuts.Service, routed
 // to the workspace the overlay was opened in.
