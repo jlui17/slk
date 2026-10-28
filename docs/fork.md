@@ -75,6 +75,11 @@ there and resolve them knowing what the fork wants:
   cursor-only writers; the fork derives `Read` (`threadMarkReadState` from
   `ThreadNewestActivity`) and dispatches `ThreadMarkedRemoteMsg`
   `TeamID`-tagged for every workspace, where upstream dispatches active-only.
+- `cmd/slk/rtm_handler.go`, `history.go` — a bot message shows its own
+  username over the bot's stored name, live and from the cache
+  (`authorName`, `users_fork.go`), and a WebSocket message is cached with
+  the event's `user`, `bot_id` and `username` in raw_json, as Slack sends
+  them, where upstream stores the author ID as `user`.
 - `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
   `OriginalW/H`, `MessageService.Preview`, and
   the `Preview` member of `MessageServiceFuncs`; the adapter method and

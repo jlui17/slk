@@ -24,9 +24,8 @@ func (h *rtmEventHandler) dispatchBackgroundThreadReply(channelID, authorID, use
 	userName := authorID
 	if resolved, ok := h.userNames.Get(authorID); ok {
 		userName = resolved
-	} else if userID == "" && username != "" {
-		userName = username
 	}
+	userName = authorName(userID, username, userName)
 	debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=dispatched_background_thread_reply",
 		h.workspaceID, channelID, ts, subtype, threadTS)
 	h.program.Send(ui.NewMessageMsg{

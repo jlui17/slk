@@ -38,3 +38,16 @@ func (f *userNameFill) lookup(userID string, db *cache.DB) (string, bool) {
 func (f *userNameFill) apply() {
 	f.names.Fill(f.pending)
 }
+
+// authorName is the name a message shows for its author: a bot
+// message's own username when it carries one, as Slack shows it (one
+// bot can post under a different username per message, through
+// chat.postMessage's username override), else stored, the author's
+// name from the store or cache. A message with a user is not a bot
+// message, whatever username it carries.
+func authorName(userID, username, stored string) string {
+	if userID == "" && username != "" {
+		return username
+	}
+	return stored
+}

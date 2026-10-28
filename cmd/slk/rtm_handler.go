@@ -157,7 +157,9 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			synthetic := slack.Message{Msg: slack.Msg{
 				Type:            "message",
 				Timestamp:       ts,
-				User:            authorID,
+				User:            userID,
+				BotID:           botID,
+				Username:        username,
 				Text:            text,
 				ThreadTimestamp: threadTS,
 				SubType:         subtype,
@@ -459,6 +461,7 @@ func (h *rtmEventHandler) messageItemFromEvent(authorID, userID, username, ts, t
 			userName = username
 		}
 	}
+	userName = authorName(userID, username, userName) // fork: users_fork.go
 	return messages.MessageItem{
 		TS:                ts,
 		UserID:            authorID,

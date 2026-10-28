@@ -398,6 +398,7 @@ func enrichCachedRow(
 			attachments = extractAttachments(raw.Files)
 			blocks = extractBlocks(raw.Blocks)
 			legacy = extractLegacyAttachments(raw.Attachments)
+			userName = authorName(raw.User, raw.Username, userName) // fork: users_fork.go
 		}
 	}
 
