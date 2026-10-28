@@ -170,8 +170,7 @@ type Model struct {
 	headerRow         func(width int) string // fork: apphome_fork.go
 	chromeCacheValid  bool
 
-	reactionNavActive bool
-	reactionNavIndex  int
+	nav ReactionNav
 
 	// currentUserID is the authenticated user; UpdateReaction uses it to
 	// set ReactionItem.HasReacted only for the current user's own
@@ -813,7 +812,7 @@ func (m *Model) LastHitsForTest() []HitRect {
 }
 
 func (m *Model) MoveUp() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	if m.selected > 0 {
@@ -840,7 +839,7 @@ func (m *Model) ScrollDown(n int) {
 }
 
 func (m *Model) MoveDown() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	if m.selected < len(m.messages)-1 {
@@ -924,25 +923,25 @@ func (m *Model) PrependMessages(msgs []MessageItem) {
 
 func (m *Model) EnterReactionNav() {
 	if msg, ok := m.SelectedMessage(); ok && len(msg.Reactions) > 0 {
-		m.reactionNavActive = true
-		m.reactionNavIndex = 0
+		m.nav.Active = true
+		m.nav.Index = 0
 		m.dropCache()
 		m.dirty()
 	}
 }
 
 func (m *Model) ExitReactionNav() {
-	if !m.reactionNavActive && m.reactionNavIndex == 0 {
+	if !m.nav.Active && m.nav.Index == 0 {
 		return
 	}
-	m.reactionNavActive = false
-	m.reactionNavIndex = 0
+	m.nav.Active = false
+	m.nav.Index = 0
 	m.dropCache()
 	m.dirty()
 }
 
 func (m *Model) ReactionNavActive() bool {
-	return m.reactionNavActive
+	return m.nav.Active
 }
 
 func (m *Model) ReactionNavLeft() {
@@ -950,8 +949,7 @@ func (m *Model) ReactionNavLeft() {
 	if !ok {
 		return
 	}
-	total := len(msg.Reactions) + 1 // +1 for [+] pill
-	m.reactionNavIndex = (m.reactionNavIndex - 1 + total) % total
+	m.nav.Left(len(msg.Reactions))
 	m.dropCache()
 	m.dirty()
 }
@@ -961,8 +959,7 @@ func (m *Model) ReactionNavRight() {
 	if !ok {
 		return
 	}
-	total := len(msg.Reactions) + 1
-	m.reactionNavIndex = (m.reactionNavIndex + 1) % total
+	m.nav.Right(len(msg.Reactions))
 	m.dropCache()
 	m.dirty()
 }
@@ -972,10 +969,7 @@ func (m *Model) SelectedReaction() (emoji string, isPlus bool) {
 	if !ok {
 		return "", false
 	}
-	if m.reactionNavIndex >= len(msg.Reactions) {
-		return "", true
-	}
-	return msg.Reactions[m.reactionNavIndex].Emoji, false
+	return m.nav.Selected(msg.Reactions)
 }
 
 func (m *Model) ClampReactionNav() {
@@ -984,10 +978,7 @@ func (m *Model) ClampReactionNav() {
 		m.ExitReactionNav()
 		return
 	}
-	total := len(msg.Reactions) + 1
-	if m.reactionNavIndex >= total {
-		m.reactionNavIndex = total - 1
-	}
+	m.nav.Clamp(len(msg.Reactions))
 	m.dropCache()
 	m.dirty()
 }
@@ -1098,66 +1089,10 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 
 	for i, msg := range m.messages {
 		if msg.TS == messageTS {
-			if remove {
-				for j, r := range msg.Reactions {
-					if r.Emoji == emojiName {
-						// Idempotent: only decrement if userID was actually
-						// present (a duplicate WS echo must not under-count).
-						newIDs := RemoveUserID(r.UserIDs, userID)
-						if len(newIDs) == len(r.UserIDs) && r.Count <= len(r.UserIDs) {
-							// userID isn't among the listed reactors and the
-							// list isn't truncated, so this is a duplicate echo
-							// of a removal we already applied — skip to avoid
-							// under-counting. When Count > len(UserIDs), Slack
-							// truncated the reactor list for a popular reaction;
-							// the removal is real, so fall through and decrement.
-							break
-						}
-						r.UserIDs = newIDs
-						r.Count--
-						if userID == m.currentUserID {
-							r.HasReacted = false
-						}
-						if r.Count <= 0 {
-							m.messages[i].Reactions = append(msg.Reactions[:j], msg.Reactions[j+1:]...)
-						} else {
-							m.messages[i].Reactions[j] = r
-						}
-						break
-					}
-				}
-			} else {
-				found := false
-				for j, r := range msg.Reactions {
-					if r.Emoji == emojiName {
-						// Idempotent: only increment if userID is newly
-						// added, so our own optimistic update + the WS echo
-						// of the same reaction don't double-count.
-						newIDs := AppendUserID(r.UserIDs, userID)
-						if len(newIDs) != len(r.UserIDs) {
-							r.UserIDs = newIDs
-							r.Count++
-						}
-						if userID == m.currentUserID {
-							r.HasReacted = true
-						}
-						m.messages[i].Reactions[j] = r
-						found = true
-						break
-					}
-				}
-				if !found {
-					m.messages[i].Reactions = append(m.messages[i].Reactions, ReactionItem{
-						Emoji:      emojiName,
-						Count:      1,
-						HasReacted: userID == m.currentUserID,
-						UserIDs:    AppendUserID(nil, userID),
-					})
-				}
-			}
+			ApplyReaction(&m.messages[i], emojiName, userID, m.currentUserID, remove)
 			m.dropCache()
 			m.dirty()
-			if m.reactionNavActive {
+			if m.nav.Active {
 				m.ClampReactionNav()
 			}
 			// Re-anchor the viewport bottom if it was at the bottom before.
@@ -2024,7 +1959,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 				}
 			}
 			var style lipgloss.Style
-			if isSelected && m.reactionNavActive && i == m.reactionNavIndex {
+			if isSelected && m.nav.Active && i == m.nav.Index {
 				style = styles.ReactionPillSelected
 			} else if r.HasReacted {
 				style = styles.ReactionPillOwn
@@ -2041,9 +1976,9 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 				flushes = append(flushes, placedFlush)
 			}
 		}
-		if isSelected && m.reactionNavActive {
+		if isSelected && m.nav.Active {
 			plusStyle := styles.ReactionPillPlus
-			if m.reactionNavIndex >= len(msg.Reactions) {
+			if m.nav.Index >= len(msg.Reactions) {
 				plusStyle = styles.ReactionPillSelected
 			}
 			pills = append(pills, plusStyle.Render("+"))

@@ -80,15 +80,14 @@ type Model struct {
 	// open (SetPendingSelectTS) and by a same-thread reload whose
 	// content lost the cursor's message (restoreSelection); both live
 	// in select.go.
-	pendingSelectTS   string
-	focused           bool
-	coloredUsernames  bool
-	avatarFn          messages.AvatarFunc
-	userNames         *usernames.Store
-	userStatuses      map[string]peerstatus.Status
-	channelNames      map[string]string
-	reactionNavActive bool
-	reactionNavIndex  int
+	pendingSelectTS  string
+	focused          bool
+	coloredUsernames bool
+	avatarFn         messages.AvatarFunc
+	userNames        *usernames.Store
+	userStatuses     map[string]peerstatus.Status
+	channelNames     map[string]string
+	nav              messages.ReactionNav
 	// currentUserID is the authenticated user; UpdateReaction uses it to
 	// set HasReacted only for the current user's own reactions.
 	currentUserID string
@@ -827,7 +826,7 @@ func (m *Model) ViewportAtTop() bool {
 }
 
 func (m *Model) MoveUp() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	// The parent row (parentSelected, index -1) sits above the first
@@ -840,7 +839,7 @@ func (m *Model) MoveUp() {
 
 // MoveDown moves the selection cursor down one reply.
 func (m *Model) MoveDown() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	if m.selected < len(m.replies)-1 {
@@ -872,22 +871,22 @@ func (m *Model) GoToBottom() {
 // EnterReactionNav activates reaction navigation on the selected reply.
 func (m *Model) EnterReactionNav() {
 	if reply := m.SelectedReply(); reply != nil && len(reply.Reactions) > 0 {
-		m.reactionNavActive = true
-		m.reactionNavIndex = 0
+		m.nav.Active = true
+		m.nav.Index = 0
 		m.InvalidateCache()
 	}
 }
 
 // ExitReactionNav deactivates reaction navigation.
 func (m *Model) ExitReactionNav() {
-	m.reactionNavActive = false
-	m.reactionNavIndex = 0
+	m.nav.Active = false
+	m.nav.Index = 0
 	m.InvalidateCache()
 }
 
 // ReactionNavActive returns whether reaction navigation is active.
 func (m *Model) ReactionNavActive() bool {
-	return m.reactionNavActive
+	return m.nav.Active
 }
 
 // ReactionNavLeft moves the reaction cursor left with wrapping.
@@ -896,8 +895,7 @@ func (m *Model) ReactionNavLeft() {
 	if reply == nil {
 		return
 	}
-	total := len(reply.Reactions) + 1
-	m.reactionNavIndex = (m.reactionNavIndex - 1 + total) % total
+	m.nav.Left(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -907,8 +905,7 @@ func (m *Model) ReactionNavRight() {
 	if reply == nil {
 		return
 	}
-	total := len(reply.Reactions) + 1
-	m.reactionNavIndex = (m.reactionNavIndex + 1) % total
+	m.nav.Right(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -919,10 +916,7 @@ func (m *Model) SelectedReaction() (emojiName string, isPlus bool) {
 	if reply == nil {
 		return "", false
 	}
-	if m.reactionNavIndex >= len(reply.Reactions) {
-		return "", true
-	}
-	return reply.Reactions[m.reactionNavIndex].Emoji, false
+	return m.nav.Selected(reply.Reactions)
 }
 
 // ClampReactionNav ensures the reaction nav index is within bounds.
@@ -932,10 +926,7 @@ func (m *Model) ClampReactionNav() {
 		m.ExitReactionNav()
 		return
 	}
-	total := len(reply.Reactions) + 1
-	if m.reactionNavIndex >= total {
-		m.reactionNavIndex = total - 1
-	}
+	m.nav.Clamp(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -956,60 +947,11 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 		return
 	}
 
-	m.updateMessageReaction(msg, emojiName, userID, remove)
+	messages.ApplyReaction(msg, emojiName, userID, m.currentUserID, remove)
 	m.InvalidateCache()
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ClampReactionNav()
 	}
-}
-
-// updateMessageReaction applies one idempotent reaction event to msg.
-func (m *Model) updateMessageReaction(msg *messages.MessageItem, emojiName, userID string, remove bool) {
-	if remove {
-		for j, r := range msg.Reactions {
-			if r.Emoji != emojiName {
-				continue
-			}
-			newIDs := messages.RemoveUserID(r.UserIDs, userID)
-			if len(newIDs) == len(r.UserIDs) && r.Count <= len(r.UserIDs) {
-				return
-			}
-			r.UserIDs = newIDs
-			r.Count--
-			if userID == m.currentUserID {
-				r.HasReacted = false
-			}
-			if r.Count <= 0 {
-				msg.Reactions = append(msg.Reactions[:j], msg.Reactions[j+1:]...)
-			} else {
-				msg.Reactions[j] = r
-			}
-			return
-		}
-		return
-	}
-
-	for j, r := range msg.Reactions {
-		if r.Emoji != emojiName {
-			continue
-		}
-		newIDs := messages.AppendUserID(r.UserIDs, userID)
-		if len(newIDs) != len(r.UserIDs) {
-			r.UserIDs = newIDs
-			r.Count++
-		}
-		if userID == m.currentUserID {
-			r.HasReacted = true
-		}
-		msg.Reactions[j] = r
-		return
-	}
-	msg.Reactions = append(msg.Reactions, messages.ReactionItem{
-		Emoji:      emojiName,
-		Count:      1,
-		HasReacted: userID == m.currentUserID,
-		UserIDs:    messages.AppendUserID(nil, userID),
-	})
 }
 
 // ClickAt handles a mouse click at the given y-coordinate (the pane-local
@@ -1297,7 +1239,7 @@ func (m *Model) View(height, width int) string {
 	// Rebuild the reply cache if the replies or the width changed.
 	//
 	// The predicate intentionally excludes m.selected, m.focused,
-	// m.reactionNavActive/Index and the theme version. The cache holds
+	// m.nav.Active/Index and the theme version. The cache holds
 	// renderThreadMessage output, which depends on those fields, so any
 	// state that can change rendered output for a given (reply, width)
 	// MUST call InvalidateCache() on its mutation path. EnterReactionNav /
@@ -1685,7 +1627,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 				}
 			}
 			var style lipgloss.Style
-			if isSelected && m.reactionNavActive && i == m.reactionNavIndex {
+			if isSelected && m.nav.Active && i == m.nav.Index {
 				style = styles.ReactionPillSelected
 			} else if r.HasReacted {
 				style = styles.ReactionPillOwn
@@ -1701,9 +1643,9 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 				flushes = append(flushes, placedFlush)
 			}
 		}
-		if isSelected && m.reactionNavActive {
+		if isSelected && m.nav.Active {
 			plusStyle := styles.ReactionPillPlus
-			if m.reactionNavIndex >= len(msg.Reactions) {
+			if m.nav.Index >= len(msg.Reactions) {
 				plusStyle = styles.ReactionPillSelected
 			}
 			pills = append(pills, plusStyle.Render("+"))
