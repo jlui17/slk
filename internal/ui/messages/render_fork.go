@@ -60,10 +60,10 @@ func renderQuoteLine(body string, opts RenderSlackMarkdownOpts, hl searchHighlig
 	if !isItem {
 		line = renderInlineLine(body, opts, hl)
 	}
-	return renderBlockquote(line, opts.Width, hl)
+	return renderBlockquote(line, opts.Width)
 }
 
-func renderBlockquote(body string, width int, hl searchHighlighter) string {
+func renderBlockquote(body string, width int) string {
 	style := blockquoteStyle()
 	body = ReapplyBgAfterResets(body, fgANSIFor(style.GetForeground()))
 	return style.Render(WordWrap(body, width-style.GetHorizontalFrameSize()))
