@@ -33,8 +33,8 @@ func OffsetAttachmentFoldRows(rows []int, by int) []int {
 func (m *Model) freshenCache() {
 	switch {
 	case m.cacheWidth <= 0: // never drawn
-	case m.cache == nil || m.cacheMsgLen != len(m.messages):
-		m.buildCache(m.cacheWidth, m.cache != nil)
+	case m.cache == nil || m.cacheMsgLen != len(m.messages) || m.relayout:
+		m.buildCache(m.cacheWidth, m.cache != nil && !m.relayout)
 	case len(m.staleEntries) > 0:
 		m.partialRebuild(m.cacheWidth)
 	}

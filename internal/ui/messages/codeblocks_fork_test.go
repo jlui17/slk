@@ -184,3 +184,25 @@ func TestCodeBlockAt_ALabelGivesItsOwnBlocksCode(t *testing.T) {
 		}
 	}
 }
+
+// A click between a removal and the next draw finds labels where the
+// next draw puts them, and reads the message each now belongs to: the
+// entries still carry the indexes they had before the removal, and an
+// append after it leaves the count of messages unchanged.
+func TestCodeBlockAt_BetweenARemovalAndTheNextDraw(t *testing.T) {
+	kept := MessageItem{TS: "2.0", UserName: "bob", Text: "```\nkept\n```"}
+	added := MessageItem{TS: "3.0", UserName: "carol", Text: "no code"}
+	m := New([]MessageItem{{TS: "1.0", UserName: "alice", Text: "gone soon"}, kept}, "general")
+	_ = m.View(24, 80)
+	m.RemoveMessageByTS("1.0")
+	m.AppendMessage(added)
+
+	want := New([]MessageItem{kept, added}, "general")
+	cells := copyLabelCells(want.View(24, 80))
+	if len(cells) != 1 {
+		t.Fatalf("found %d copy labels on screen, want 1", len(cells))
+	}
+	if got, ok := m.CodeBlockAt(cells[0][0], cells[0][1]); !ok || got != "kept" {
+		t.Errorf("label at %v: got %q ok=%v, want %q", cells[0], got, ok, "kept")
+	}
+}

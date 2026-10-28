@@ -3,6 +3,7 @@ package messages
 import (
 	"bytes"
 	"fmt"
+	goimage "image"
 	"io"
 	"slices"
 	"strings"
@@ -66,6 +67,11 @@ type EntryPayload struct {
 	// AttachmentFoldRows are the rows of Lines that hold a card's fold
 	// row. See attachmentfold_fork.go.
 	AttachmentFoldRows []int
+
+	// coldEmoji reports that an emoji in the entry was drawn as the
+	// blank reservation of emoji.Place's cold path: only such entries
+	// change when an emoji image lands. Only the channel pane fills it.
+	coldEmoji bool
 }
 
 // SelectedLines returns the rows to draw for a cursor entry e: its
@@ -139,6 +145,7 @@ type Model struct {
 	cache          []EntryPayload
 	cacheWidth     int
 	cacheMsgLen    int
+	cacheFocused   bool   // m.focused when the cache was last fully built
 	cacheSpacer    string // pre-rendered blank spacer line (1 row, full width, themed background)
 	cacheMoreBelow string // pre-rendered "-- more below --" line
 
@@ -207,6 +214,13 @@ type Model struct {
 	// equivalent to "nothing stale".
 	staleEntries map[string]struct{}
 
+	// relayout reports that messages were appended or removed since the
+	// last buildCache. The next View rebuilds the entry list (dividers,
+	// spacers, indexes) but reuses the rendered entry of every message
+	// that is not in staleEntries, rendering only the new ones and the
+	// neighbours whose trailing spacer changed.
+	relayout bool
+
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
 	// TextMuted (via styles.SelectionBorderColor) so the unfocused
@@ -261,23 +275,46 @@ func (m *Model) SetFocused(focused bool) {
 }
 
 // HandleEmojiImageReady is invoked by the host (App.Update) when an
-// emoji.EmojiImageReadyMsg lands. The same emoji can appear in any
-// visible message, reaction pill, or block-kit element — so the
-// cheapest correct invariant is a wholesale render-cache
-// invalidation. The next View() rebuilds with the now-warm emoji
-// placement (single kitty transmit + N placements per the
-// registry's dedup contract).
-//
-// v1 keeps this coarse; if heavy-emoji channels show measurable
-// invalidation churn (multiple emoji arriving in a burst), a future
-// follow-up can index per-URL → per-message-TS for targeted
-// staleEntries population. Punt for now: kitty image placements are
-// cheap, full re-render of a viewport is sub-frame on the workloads
-// tested.
+// emoji.EmojiImageReadyMsg lands (debounced: url is "" for a batch).
+// An entry can change only if one of its emoji was drawn as a cold
+// reservation (EntryPayload.coldEmoji): a warm emoji is already the
+// image, and an entry without image emoji has nothing to swap. Those
+// entries are marked stale and re-rendered by partialRebuild; every
+// other entry is kept.
 func (m *Model) HandleEmojiImageReady(url string) {
-	debuglog.ImgFetch("messages.HandleEmojiImageReady: url=%s wholesale_invalidate", url)
-	m.dropCache()
+	var marked int
+	entries := m.list.Entries()
+	for i, p := range m.cache {
+		if p.coldEmoji {
+			m.markEntryStale(entries[i].ID)
+			marked++
+		}
+	}
+	debuglog.ImgFetch("messages.HandleEmojiImageReady: url=%s cold_entries=%d", url, marked)
 	m.dirty()
+}
+
+// markEntryStale has the next View re-render the entry of the message
+// with ts (partialRebuild), keeping every other entry. With no cache
+// there is nothing to mark: the next View builds it whole.
+//
+// Every entry's selected rows carry the focus colours of the build
+// that rendered it, and SetFocused re-renders only the selected one.
+// While the focus differs from the last full build's, the cache is
+// dropped instead, as it was before entries were marked one by one:
+// otherwise a selection moved later would draw the old colours.
+func (m *Model) markEntryStale(ts string) {
+	if m.cache == nil {
+		return
+	}
+	if m.focused != m.cacheFocused {
+		m.dropCache()
+		return
+	}
+	if m.staleEntries == nil {
+		m.staleEntries = make(map[string]struct{})
+	}
+	m.staleEntries[ts] = struct{}{}
 }
 
 // HandleImageReady is invoked by the host (App.Update) when an
@@ -458,6 +495,15 @@ func (m *Model) dropCache() {
 	m.list.KeepLookups(0)
 }
 
+// markRelayout has the next View rebuild the entry list after messages
+// were appended or removed, rendering only the entries that changed
+// (see m.relayout and buildCache). Until then the entries no longer
+// match m.messages, so lookups find none, as after dropCache.
+func (m *Model) markRelayout() {
+	m.relayout = true
+	m.list.KeepLookups(0)
+}
+
 // newChannelList configures the substrate for the channel pane (spec
 // §5): the cursor follows the scroll (U1), a bottom-anchored pane stays
 // pinned when it shrinks (U2), a press on a divider snaps to a message
@@ -605,7 +651,7 @@ func (m *Model) AppendMessage(msg MessageItem) {
 		}
 	}
 	m.messages = append(m.messages, msg)
-	m.dropCache()
+	m.markRelayout()
 	m.dirty()
 
 	// Always scroll to the newest message. Advancing `selected` to the
@@ -1002,7 +1048,7 @@ func (m *Model) IncrementReplyCount(parentTS, replyTS string) {
 			// the bottom of the pane under the fold.
 			m.list.HoldBottom()
 			m.messages[i].ReplyCount++
-			m.dropCache()
+			m.markEntryStale(parentTS)
 			m.dirty()
 			return
 		}
@@ -1012,7 +1058,7 @@ func (m *Model) IncrementReplyCount(parentTS, replyTS string) {
 // UpdateMessageInPlace finds the message with item's TS and applies a
 // message_changed echo to it (MessageItem.ApplyChange: text, edited
 // mark, blocks, attachments; reactions and the rest are kept). Returns
-// true if the message was found. Invalidates the render cache. A pane
+// true if the message was found. Re-renders only its entry. A pane
 // at the bottom stays there: an unfurl or an edit that adds rows must
 // not push them under the fold (see UpdateReaction).
 func (m *Model) UpdateMessageInPlace(item MessageItem) bool {
@@ -1020,7 +1066,7 @@ func (m *Model) UpdateMessageInPlace(item MessageItem) bool {
 		if msg.TS == item.TS {
 			m.list.HoldBottom()
 			m.messages[i].ApplyChange(item)
-			m.dropCache()
+			m.markEntryStale(item.TS)
 			m.dirty()
 			return true
 		}
@@ -1030,7 +1076,8 @@ func (m *Model) UpdateMessageInPlace(item MessageItem) bool {
 
 // RemoveMessageByTS removes a message with the given TS, adjusting the
 // selected index so it remains valid. Returns true if the message was
-// found and removed. Invalidates the render cache.
+// found and removed. The next View renders no entry but, when the last
+// message went, the new last one's (see markRelayout).
 func (m *Model) RemoveMessageByTS(ts string) bool {
 	for i, msg := range m.messages {
 		if msg.TS == ts {
@@ -1045,7 +1092,7 @@ func (m *Model) RemoveMessageByTS(ts string) bool {
 					m.selected = len(m.messages) - 1
 				}
 			}
-			m.dropCache()
+			m.markRelayout()
 			m.dirty()
 			return true
 		}
@@ -1065,7 +1112,7 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 			// reacted-to message anchored to the bottom of the pane.
 			m.list.HoldBottom()
 			ApplyReaction(&m.messages[i], emojiName, userID, m.currentUserID, remove)
-			m.dropCache()
+			m.markEntryStale(messageTS)
 			m.dirty()
 			if m.nav.Active {
 				m.ClampReactionNav()
@@ -1496,7 +1543,13 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	if m.avatarFn != nil {
 		opt.Avatar = m.avatarFn(msg.UserID)
 	}
-	r := RenderMessage(msg, width, m.renderContext(), opt)
+	rc := m.renderContext()
+	var probe *coldEmojiProbe
+	if f := rc.Emoji.PlaceCtx.Fetcher; f != nil {
+		probe = &coldEmojiProbe{PlaceFetcher: f}
+		rc.Emoji.PlaceCtx.Fetcher = probe
+	}
+	r := RenderMessage(msg, width, rc, opt)
 	// The channel pane's kitty upload order: blocks, attachments, then
 	// body and reaction emoji.
 	flushes := slices.Concat(r.BlockFlushes, r.AttachmentFlushes, r.BodyFlushes, r.ReactionFlushes)
@@ -1532,23 +1585,53 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	return entry, EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes, sixelRows: r.SixelRows,
 		CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 		AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
+		coldEmoji:           probe != nil && probe.cold,
 	}
+}
+
+// coldEmojiProbe wraps the emoji fetcher for one entry's render and
+// records whether any emoji took emoji.Place's cold path (nothing
+// prerendered yet: a blank reservation is drawn and a fetch started).
+type coldEmojiProbe struct {
+	emojiutil.PlaceFetcher
+	cold bool
+}
+
+func (p *coldEmojiProbe) Prerendered(key string, cellTarget goimage.Point, proto imgpkg.Protocol) (imgpkg.Render, bool) {
+	r, ok := p.PlaceFetcher.Prerendered(key, cellTarget, proto)
+	if !ok {
+		p.cold = true
+	}
+	return r, ok
 }
 
 // buildCache pre-renders all messages and day separators, splitting each
 // rendered string on "\n" so View() can flatten everything into the visible
 // window with zero string-scanning per frame. Runs only on width / message-set
-// / theme / reaction changes -- never on simple j/k navigation, and never
-// on a single-image arrival (HandleImageReady marks one TS stale and the
+// / theme changes -- never on simple j/k navigation, and never on a change
+// to one message (an image, reaction or edit marks its TS stale and the
 // View()-time guard dispatches to partialRebuild instead).
+//
+// After an append or removal (m.relayout) it keeps the rendered entry of
+// every message that is not stale and renders only the rest: an entry
+// depends on its neighbours only through the dividers before it, which
+// are rebuilt here, and its trailing spacer (none on the last message).
+// Not while reaction nav is active (the selected entry draws it) or the
+// focus differs from the build that rendered the entries (see
+// markEntryStale).
 func (m *Model) buildCache(width int, keepPosition bool) {
-	m.cache = m.cache[:0]
+	reuse := m.relayout && m.cache != nil && m.cacheWidth == width &&
+		m.cacheFocused == m.focused && !m.nav.Active
+	oldEntries, oldCache := m.list.Entries(), m.cache
+	m.relayout = false
+	if reuse {
+		m.cache = nil // keep oldCache intact while the new one is built
+	} else {
+		m.cache = m.cache[:0]
+	}
 	m.cacheWidth = width
 	m.cacheMsgLen = len(m.messages)
-	// A full rebuild supersedes any pending per-entry invalidations.
-	for k := range m.staleEntries {
-		delete(m.staleEntries, k)
-	}
+	m.cacheFocused = m.focused
 
 	cs := m.buildCacheStyles(width)
 
@@ -1604,12 +1687,19 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 			newMsgLandmarkInserted = true
 		}
 
-		e, p := m.renderMessageEntry(i, width, cs, stats)
+		e, p, ok := m.reusedEntry(i, reuse, oldEntries, oldCache)
+		if !ok {
+			e, p = m.renderMessageEntry(i, width, cs, stats)
+		}
 		entries = append(entries, e)
 		m.cache = append(m.cache, p)
 	}
 
 	m.list.SetEntries(entries, width, keepPosition)
+	// A full rebuild supersedes any pending per-entry invalidations.
+	for k := range m.staleEntries {
+		delete(m.staleEntries, k)
+	}
 
 	if stats != nil {
 		debuglog.Perf("messages.buildCache.breakdown N=%d body=%s reactions(n=%d)=%s blockKit(n=%d)=%s legacy(n=%d, atts=%d)=%s [text=%s image=%s other=%s] img[cachedCheck(n=%d)=%s kitty(n=%d)=%s renderImage(n=%d)=%s placeholder(n=%d)=%s] attachments(n=%d)=%s borderWrap=%s plainLines=%s",
@@ -1625,6 +1715,27 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 			stats.attachmentsCount, stats.attachmentsTotal,
 			stats.borderWrapTotal, stats.plainLinesTotal)
 	}
+}
+
+// reusedEntry returns the entry buildCache rendered last time for
+// m.messages[i], re-indexed to i, when reuse is on and it is still
+// current: the message is not stale and its trailing spacer (after
+// every message but the last) is unchanged.
+func (m *Model) reusedEntry(i int, reuse bool, old []entrylist.Entry, oldCache []EntryPayload) (entrylist.Entry, EntryPayload, bool) {
+	if !reuse {
+		return entrylist.Entry{}, EntryPayload{}, false
+	}
+	ts := m.messages[i].TS
+	if _, stale := m.staleEntries[ts]; stale {
+		return entrylist.Entry{}, EntryPayload{}, false
+	}
+	idx, ok := m.list.IndexOf(ts)
+	if !ok || (old[idx].Trail > 0) != (i < len(m.messages)-1) {
+		return entrylist.Entry{}, EntryPayload{}, false
+	}
+	e := old[idx]
+	e.Ref = i
+	return e, oldCache[idx], true
 }
 
 // partialRebuild re-renders only the cache slots whose source-message
@@ -1954,7 +2065,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	// change with the previous cache intact re-anchors the scroll
 	// position (spec §5.2 U5), which SetEntries does.
 	switch {
-	case m.cache == nil || m.cacheWidth != width || m.cacheMsgLen != len(m.messages):
+	case m.cache == nil || m.cacheWidth != width || m.cacheMsgLen != len(m.messages) || m.relayout:
 		// Perf instrumentation: classify which predicate fired so we
 		// can attribute focus-flip churn vs width-resize vs new-message
 		// rebuilds in slk-debug.log. SLK_DEBUG=1 only; zero cost
@@ -1966,12 +2077,14 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 				reason = "cache-nil"
 			case m.cacheWidth != width:
 				reason = fmt.Sprintf("width-changed %d->%d", m.cacheWidth, width)
+			case m.relayout:
+				reason = fmt.Sprintf("relayout %d->%d", m.cacheMsgLen, len(m.messages))
 			default:
 				reason = fmt.Sprintf("len-changed %d->%d", m.cacheMsgLen, len(m.messages))
 			}
 		}
 		start := time.Now()
-		m.buildCache(width, m.cache != nil)
+		m.buildCache(width, m.cache != nil && !m.relayout)
 		debuglog.Perf("messages.buildCache N=%d width=%d took=%s reason=%s",
 			len(m.messages), width, time.Since(start), reason)
 	case len(m.staleEntries) > 0:

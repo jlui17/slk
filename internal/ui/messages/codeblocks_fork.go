@@ -112,6 +112,9 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	if y < m.chromeHeight {
 		return "", false
 	}
+	// Until the next draw the entries can lag the messages: a removal
+	// shifts their indexes.
+	m.freshenCache()
 	line := y - m.chromeHeight + m.list.YOffset()
 	offsets, entries := m.list.Offsets(), m.list.Entries()
 	for i, e := range m.cache {

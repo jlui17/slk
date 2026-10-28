@@ -364,3 +364,9 @@ upstream's and drop the fork's.
 - `internal/ui/view_helpers.go` — `joinPanelsHorizontal`,
   `stackContentStatus` and `borderedPaneCore` size their builders up
   front (branch `perf-frame-grow`).
+- `internal/ui/messages/model.go` — a reaction, edit, reply count, new or
+  deleted message, or emoji image landing re-renders only the entries it
+  changes (`markEntryStale`, `relayout`), where upstream renders the whole
+  channel again (branch `perf-messages-partial-rebuild`). The fork's
+  `freshenCache` and `CodeBlockAt` bring a pending relayout up to date
+  before they read the entries.
