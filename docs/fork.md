@@ -60,7 +60,13 @@ there and resolve them knowing what the fork wants:
   `conversations.go`, `workspace_search.go`, `presence.go` and
   `rtm_handler.go` are call sites (`presence.go` also the token-guarded
   status bootstrap and presence dedupe, `rtm_handler.go` also the
-  `TeamID`-tagged dispatch for background workspaces); `attachments.go` one
+  `TeamID`-tagged dispatch for background workspaces, ephemerals and
+  deletes included, and the `sendAssistantStatus` hook that feeds the
+  tracked agent thread); upstream's own `userNameStore` (`usernames.go`
+  and its three tests) is deleted, `*usernames.Store` taking its place in
+  `export_collect.go`, `demo.go` and every upstream test that built one
+  (through the `newUserNameStore` shim in `usernames_fork_test.go`; the
+  race test is ported to `user_names_race_test.go`); `attachments.go` one
   line (`OriginalW/H`); `main.go` keeps `run()`'s fork wiring (permalink
   argument, `herdr` subcommand, pane restore, notify leader, the `Preview`
   service func, the `$BROWSER` opener). The single biggest divergence;
@@ -70,7 +76,7 @@ there and resolve them knowing what the fork wants:
   `ThreadNewestActivity`) and dispatches `ThreadMarkedRemoteMsg`
   `TeamID`-tagged for every workspace, where upstream dispatches active-only.
 - `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
-  `OriginalW/H`, `MessageItem.IsEphemeral`, `MessageService.Preview`, and
+  `OriginalW/H`, `MessageService.Preview`, and
   the `Preview` member of `MessageServiceFuncs`; the adapter method and
   `TableBlock` live in `adapters_fork.go` and `blocks/blocks_fork.go`.
 - `internal/core/blocks/blocks.go`, `internal/ui/messages/blockkit/parse.go`
@@ -110,14 +116,27 @@ there and resolve them knowing what the fork wants:
   past ephemerals (`ephemeral_fork.go`): paging anchors on the oldest
   message that is not one, the boundary guard compares against it, and the
   older page is merged by ts with the ephemerals ahead of it, the selection
-  kept on its message. Here and in `thread/model.go`, the header row ends in
-  `EphemeralMark` and the interact hint is `InteractHint` (`links_fork.go`),
-  where upstream always says to open Slack.
+  kept on its message.
+- `internal/ui/messages/render_message.go` — `RenderMessage` carries the
+  fork's render inputs and outputs: `RenderContext` gains
+  `WorkspaceDomain` and `ExpandedAttachments`, `RenderedMessage`
+  `CodeBlockCopyLabels` and `AttachmentFoldRows`, and the body render takes
+  the search terms, permalink chips and code-block copy labels, so the
+  search highlight is drawn in the body rather than over the finished
+  rows. Blocks go through `RenderMessageBlocks` with
+  `BlockkitContextFork` (`render_message_fork.go`), and the interact hint
+  is `InteractHint` (`links_fork.go`), which names `o` for a button's
+  link, where upstream always says to open Slack. `wrap_rows.go`'s
+  `SelectedVariant` reasserts the selection tint after every reset
+  (`ReapplyBgAfterResets`), so bare runs from block renderers take it.
 - `internal/ui/messages/render.go` — a user mention is drawn inside an OSC 8
   link to the user's profile when `RenderSlackMarkdownOpts.WorkspaceDomain`
   is set (`profilelink_fork.go`), as the messages pane and thread panel set
   it, so a click on it opens the profile card (`profilecard.go`); upstream
-  draws the mention plain.
+  draws the mention plain. A `<url|label>` whose label is the URL of a
+  Slack message draws as that message's chip (`PermalinkChips` in
+  `permalinkchip_fork.go`), checked on the raw label before upstream's
+  entity decode.
   Strikethrough draws through `strikeRenderer` (`strike_fork.go`), which
   strikes a run with a styled span in it (inline code, bold) without
   cutting the span's escape sequences apart, and draws a link in the run
@@ -127,12 +146,13 @@ there and resolve them knowing what the fork wants:
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream
   matches within one segment. Upstreaming candidate.
-- `internal/slack/events.go` — `OnAssistantStatus`, `OnEphemeralMessage`
-  and `OnView` on `EventHandler`; the `ai_assistant_status` and
-  `view_opened`/`view_updated` dispatch arms; and `is_ephemeral` on
-  `wsMessageEvent` and `wsSubMsg`, with which the `message` and
-  `message_changed` arms hand an ephemeral to `OnEphemeralMessage` in place
-  of `OnMessage`.
+- `internal/slack/events.go` — `OnView` on `EventHandler` in place of
+  upstream's `OnViewOpened` (its handler and tests, `rtm_view_opened_test.go`
+  among them, deleted): `view_opened` and `view_updated` go to
+  `dispatchViewEvent` (`appactions_fork.go`), and the UI says a modal it
+  didn't ask for can't be shown (`unshownViewToast` in `appshortcuts.go`),
+  as upstream's handler did. A `message_changed` on an ephemeral goes to
+  `dispatchChangedEphemeral` (`events_fork.go`), where upstream drops it.
 - `internal/slack/client.go` — boot-path calls made cancellable in
   place: SlackAPI's `AuthTest`/`GetConversationsForUser` swapped for
   their `Context` variants, `GetUnreadCounts` takes a ctx, and the
@@ -149,8 +169,9 @@ there and resolve them knowing what the fork wants:
   stars only, and its parse test now expects the DM.
 - `internal/slack/auth.go` — atomic token save.
 - `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
-- `internal/avatar/avatar.go` — `preloadInner` hooks into fork helpers:
-  sized-variant URL rewrite and a bounded kitty decode target.
+- `internal/avatar/avatar.go` — `preloadInner` fetches at the fork's
+  `decodeTarget` (`avatar_fork.go`), which bounds the kitty decode where
+  upstream decodes the source at full size.
 - `internal/cache/users.go` — `UpsertUser` no longer updates `presence`
   on conflict; `UpdatePresence` is the column's only writer.
 - `cmd/slk/reconnect_sync.go` (+ its test) — the shared-DB
@@ -165,7 +186,9 @@ there and resolve them knowing what the fork wants:
 - `internal/ui/mode_insert.go` (+ its test in `app_test.go`) — the
   Ctrl+U clear-compose intercept removed so Ctrl+U (kitty's
   cmd+backspace) falls through to the textarea's delete-before-cursor;
-  the fork's expectation is pinned in `mode_insert_fork_test.go`.
+  the fork's expectation is pinned in `mode_insert_fork_test.go`. The
+  stay-in-insert tests in `action_prompt_queue_test.go` that empty the
+  composer with Ctrl+U focus it first, which the textarea needs.
 - `internal/ui/keys.go`, `internal/ui/mode_insert.go` (+ the key in
   `editor_test.go` and `seams_test.go`'s `editDraft`) — the $EDITOR draft
   binding moved from `ctrl+e` to `ctrl+x` so Ctrl+E (kitty's cmd+right)
@@ -209,14 +232,30 @@ there and resolve them knowing what the fork wants:
   fixture renders expanded. `LegacyAttachment` gains `AuthorName` and
   `FromURL`, `RenderResult` `FoldRows`, `Context` `Card`; `golden_test.go`'s
   `█ deploy` assertion and the goldens with that card are re-blessed.
-- `internal/ui/reducer_send.go` — `reduceNewMessage`'s edit-echo branch
-  calls the panes' `ReplaceMessageContent` (`model_fork.go`) where upstream
-  calls `UpdateMessageInPlace` / `UpdateParentInPlace` with the text alone:
-  a `message_changed` event also carries blocks and attachments, and it is
-  how Slack delivers a link's unfurl after the post. Upstreaming candidate.
-  A live reply to the open thread goes through the thread panel's
+- `internal/ui/reducer_send.go` — an ephemeral `NewMessageMsg` goes to
+  `reduceEphemeral` (`ephemeral_fork.go`); the tracked agent thread's
+  reply, activity and delete hooks run ahead of the background-workspace
+  skip; a live reply to the open thread goes through the thread panel's
   `AddIncomingReply` (`thread/select.go`) where upstream calls `AddReply`:
   the cursor follows only from the newest reply.
+- `internal/ui/reducer_links.go` — permalink navigation keeps the fork's
+  mechanism inside upstream's `applyLocation`: `applyLinkNav` and a
+  `pendingLinkNav` that embeds `Location` pin the target with
+  `SetPendingSelectTS` and open its thread (`openThreadForPermalink` takes
+  the reply to select), where upstream wraps thread loads in a
+  `permalinkThreadResultMsg` envelope (dropped, with its four tests in
+  `reducer_links_test.go`). `routeLink` takes the herdr target.
+- `internal/ui/panellayout.go`, `app.go` — upstream's stacked thread
+  layout, with `t` (`ZoomThread`) as `Compute`'s extra `threadFullscreen`
+  argument: the thread stacks in front at any width. The fork's own
+  cramped auto-zoom is gone.
+- `internal/ui/linkpicker/view.go` — `renderBox` lives in `view_fork.go`
+  and keeps the fork's frame, where upstream draws the picker in its
+  shared chrome frame. Provisional.
+- `internal/ui/presencemenu/model.go` — an injectable clock (`nowFn`) feeds
+  the DND check and the snooze presets.
+- `internal/ui/mode_linkpicker.go` — a "copy" picker commits through
+  `copyPickedCopyable` ahead of upstream's clear-on-commit.
 - `internal/ui/thread/model.go` (+ `TestNavigation` in `model_test.go` and
   `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
   selects the parent row, the thread's topmost, where upstream selects the
@@ -238,6 +277,11 @@ there and resolve them knowing what the fork wants:
   (`seedUsersTable` adds `display_name`, which `migrateFork` indexes);
   `cmd/slk/reconnect_sync_test.go`, `internal/slack/client_test.go` (ctx
   argument on `GetUnreadCounts`, `Context` variants on the mock);
+  `cmd/slk/user_resolver_test.go`, the `starred_*_test.go` files,
+  `export_collect_test.go` and `internal/ui/username_fanout_test.go`
+  (`*usernames.Store` for upstream's `userNameStore`);
+  `internal/ui/command_help_test.go` passes because `keys.go` gains help
+  entries for `:agent` and `:retitle`;
   `cmd/slk/on_message_mention_test.go`, `rail_unread_test.go`,
   `internal/ui/seams_test.go`, `threadsview/model_test.go` (fixtures built
   on the stores); `internal/ui/mode_normal_keys_test.go` (`O` is
@@ -245,10 +289,14 @@ there and resolve them knowing what the fork wants:
   mode list includes `ModeAppShortcuts` and `ModeProfileCard`); `mode_insert_keys_test.go`
   (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
   bordered code box); `golden_test.go`, `mode_linkpicker_test.go` (extra
-  argument on `layout.Compute` / `openLinksOfSelected`); seven
-  `internal/ui/testdata/golden/*.ansi` re-blessed (selection tint reassert;
-  `window_split.ansi` gains the "── new ──" line from
-  `applyCachedLastRead`).
+  argument on `layout.Compute` / `openLinksOfSelected`); most
+  `internal/ui/testdata/golden/*.ansi` re-blessed: the deploy card draws
+  in the fork's round box (which also shifts the dialogs' backdrops), the
+  help overlay lists the fork's keys, the selection tint is reasserted,
+  and `window_split.ansi` gains the "── new ──" line from
+  `applyCachedLastRead`. Re-bless with `tools/go.sh test ./internal/ui
+  -run TestGolden -update` and check the diff against upstream's goldens
+  is only those.
 - `go.mod` / `go.sum` — `github.com/slack-go/slack` bumped past upstream's
   pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
   decoded every cell as rich_text and dropped raw_text content). On an
