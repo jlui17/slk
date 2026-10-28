@@ -61,7 +61,7 @@ type tabCloseParams struct {
 // wiring gates on it once at startup — before the watcher first
 // resolves — so a pane whose env lacked HERDR_WORKSPACE_ID never gets
 // the opener installed even after a workspace id is adopted.
-func (r *Reporter) CanOpenTab() bool {
+func (r *Client) CanOpenTab() bool {
 	if r == nil {
 		return false
 	}
@@ -75,7 +75,7 @@ func (r *Reporter) CanOpenTab() bool {
 // paint its prompt); call it off the UI goroutine. Not tracked by
 // Close: quitting slk mid-open abandons the sequence, worst case
 // leaving the created tab with no command sent.
-func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error {
+func (r *Client) OpenTab(label, openCommand, rawURL string, focus bool) error {
 	if !r.CanOpenTab() {
 		return errors.New("no herdr workspace id")
 	}
@@ -112,7 +112,7 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 // sendOpenCommand runs `<openCommand> '<rawURL>'` in the shell of
 // paneID, a pane just created for it. rollback removes that pane (or
 // its tab) and runs only when herdr definitively rejected the send.
-func (r *Reporter) sendOpenCommand(paneID, openCommand, rawURL string, rollback func()) error {
+func (r *Client) sendOpenCommand(paneID, openCommand, rawURL string, rollback func()) error {
 	// Send only once the shell is reading input: wait for its first
 	// visible output (the prompt). Any wait failure — the method absent
 	// on an older herdr, or a shell quiet past the timeout — degrades

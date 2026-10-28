@@ -387,7 +387,7 @@ func run(startupLink *slackurl.Permalink) error {
 		// out-of-order subprocess.
 		desktop.ReportStatus = sr.Enqueue
 	}
-	herdrReporter, closeHerdr := wireHerdr(app, db, cfg.Herdr)
+	herdrClient, closeHerdr := wireHerdr(app, db, cfg.Herdr)
 	if closeHerdr != nil {
 		defer closeHerdr()
 	}
@@ -1573,11 +1573,11 @@ func run(startupLink *slackurl.Permalink) error {
 
 	// The focus watcher dispatches into the program loop, so it can only
 	// start once `p` exists.
-	herdrReporter.WatchFocus(
+	herdrClient.WatchFocus(
 		func(viewed bool) { p.Send(ui.HerdrTabViewMsg{Viewed: viewed}) },
 		func() { p.Send(ui.HerdrConnectedMsg{}) },
 	)
-	if herdrReporter != nil {
+	if herdrClient != nil {
 		wireAgentTabLabeler(app, cfg.Herdr, p.Send)
 	}
 	// A changed thread-unread answer re-runs the rail refresh, which

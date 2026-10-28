@@ -226,7 +226,7 @@ func decode(t *testing.T, line string) (method string, params map[string]any) {
 func TestRequestsFollowAdoptedIdentity(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	// What the focus watcher does after a cross-workspace move: every
 	// request from here on must target the new coordinates, not the
 	// launch env's.
@@ -283,7 +283,7 @@ func TestNameTabAbortsOnServerError(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setMethodError("tab.get", "tab w1:t1 not found")
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 
 	// A tab.get error reply must abort the rename. Parsed as success it
 	// reads as an empty label, which counts as a herdr default and lets
@@ -301,7 +301,7 @@ func TestNameTabAbortsOnServerError(t *testing.T) {
 func TestReport(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "#general · thread", "working", "is thinking…")
 	lines := waitLines(t, rec, 2)
@@ -378,7 +378,7 @@ func TestNextSeqMonotonic(t *testing.T) {
 func TestReportIdleOmitsEmptyMessage(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", "idle", "")
 	lines := waitLines(t, rec, 2)
@@ -394,7 +394,7 @@ func TestReportIdleOmitsEmptyMessage(t *testing.T) {
 
 func TestReportTCP(t *testing.T) {
 	ln, rec := startServer(t, "tcp", "127.0.0.1:0")
-	r := newReporter("tcp", ln.Addr().String(), "pane-1", "tab-1")
+	r := newClient("tcp", ln.Addr().String(), "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", "working", "")
 	lines := waitLines(t, rec, 2)
@@ -406,7 +406,7 @@ func TestReportTCP(t *testing.T) {
 func TestRelease(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", "working", "")
 	waitLines(t, rec, 2)
@@ -433,7 +433,7 @@ func TestRelease(t *testing.T) {
 func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.release()
 	r.Close(time.Second)
@@ -443,7 +443,7 @@ func TestReleaseBeforeReportSendsNothing(t *testing.T) {
 }
 
 func TestNilReporter(t *testing.T) {
-	var r *Reporter
+	var r *Client
 	r.Report("a", "A", "t", "working", "m")
 	r.release()
 	r.NameTab("x")
@@ -454,7 +454,7 @@ func TestNameTabRenamesDefaultAndOwnLabel(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel("2") // herdr default: position digits
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.NameTab("fix ingest retries")
 	r.Close(time.Second)
@@ -475,7 +475,7 @@ func TestNameTabNeverOverwritesUserLabel(t *testing.T) {
 		sock := testSocketPath(t)
 		_, rec := startServer(t, "unix", sock)
 		rec.setTabLabel(userLabel)
-		r := newReporter("unix", sock, "pane-1", "tab-1")
+		r := newClient("unix", sock, "pane-1", "tab-1")
 
 		r.NameTab("fix ingest retries")
 		r.Close(time.Second)
@@ -497,7 +497,7 @@ func TestForceNameTabOverwritesForeignLabel(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel("someone else's label")
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 	var cached string
 	r.SetTabLabelCache(
 		func() (string, bool) { return cached, cached != "" },
@@ -537,7 +537,7 @@ func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
 	rec.setTabLabel("old thread name")
 	rec.setToken(tabLabelToken, "old thread name")
 
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 	r.NameTab("new thread name")
 	r.Close(time.Second)
 	if got := rec.getTabLabel(); got != "new thread name" {
@@ -551,7 +551,7 @@ func TestNameTabOwnershipSurvivesRestart(t *testing.T) {
 func TestNameTabNoTabID(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "")
+	r := newClient("unix", sock, "pane-1", "")
 
 	r.NameTab("fix ingest retries")
 	r.Close(time.Second)
@@ -563,7 +563,7 @@ func TestNameTabNoTabID(t *testing.T) {
 func TestCloseWaitsForInFlight(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "pane-1", "tab-1")
+	r := newClient("unix", sock, "pane-1", "tab-1")
 
 	r.Report("slack-claude", "Claude", "title", "working", "")
 	r.Close(2 * time.Second)

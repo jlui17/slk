@@ -72,7 +72,7 @@ func (l paneLocation) viewed() bool { return l.wsFocused && l.tabFocused }
 //
 // Runs a persistent connection with reconnects until Close, and is
 // nil-safe.
-func (r *Reporter) WatchFocus(onViewChange func(viewed bool), onConnected func()) {
+func (r *Client) WatchFocus(onViewChange func(viewed bool), onConnected func()) {
 	if r == nil {
 		return
 	}
@@ -96,7 +96,7 @@ func (r *Reporter) WatchFocus(onViewChange func(viewed bool), onConnected func()
 // where the pane currently sits and whether it is viewed, subscribe, then
 // fold the event stream into that viewed flag. Returns on any error, and
 // the caller reconnects.
-func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool), onConnected func()) {
+func (r *Client) watchFocusOnce(onViewChange func(viewed bool), onConnected func()) {
 	// Resolved per connection rather than read from the launch
 	// environment: herdr can move a pane to another tab or workspace, and
 	// a stale tab id silently mistracks focus forever. Re-resolving also
@@ -212,7 +212,7 @@ type watchEvent struct {
 // viewed, returning loc unchanged for events about other panes or
 // workspaces. Only a pane_moved for this pane can fail: it re-resolves
 // the location.
-func (r *Reporter) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
+func (r *Client) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
 	switch d.Type {
 	case "tab_focused":
 		// Another workspace's tab focus doesn't change which tab is
@@ -247,9 +247,9 @@ func (r *Reporter) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
 }
 
 // locate reads the pane's current coordinates, adopts them as the
-// reporter's identity, and returns where the pane sits and whether that
+// client's identity, and returns where the pane sits and whether that
 // tab is the focused workspace's active tab.
-func (r *Reporter) locate() (paneLocation, error) {
+func (r *Client) locate() (paneLocation, error) {
 	pane, err := r.fetchPane()
 	if err != nil {
 		return paneLocation{}, err
@@ -291,7 +291,7 @@ func (r *Reporter) locate() (paneLocation, error) {
 // belief about alias semantics and an idle fallback costs nothing;
 // confirming in herdr's source that pane.get cannot fail mid-run is
 // what would make the scan deletable.
-func (r *Reporter) fetchPane() (Pane, error) {
+func (r *Client) fetchPane() (Pane, error) {
 	id := r.identity()
 	pane, err := r.getPane(id.PaneID)
 	if err == nil {
@@ -319,7 +319,7 @@ func (r *Reporter) fetchPane() (Pane, error) {
 	return Pane{}, err
 }
 
-func (r *Reporter) getPane(paneID string) (Pane, error) {
+func (r *Client) getPane(paneID string) (Pane, error) {
 	var parsed struct {
 		Pane Pane `json:"pane"`
 	}
@@ -329,7 +329,7 @@ func (r *Reporter) getPane(paneID string) (Pane, error) {
 	return parsed.Pane, nil
 }
 
-func (r *Reporter) findPaneByTerminal(terminalID string) (Pane, error) {
+func (r *Client) findPaneByTerminal(terminalID string) (Pane, error) {
 	panes, err := r.listPanes(sendTimeout)
 	if err != nil {
 		return Pane{}, err
@@ -347,7 +347,7 @@ func (r *Reporter) findPaneByTerminal(terminalID string) (Pane, error) {
 // event. Matching that type positively (rather than treating any
 // non-error line as success) keeps a stray line from being mistaken for
 // the ack and swallowed.
-func (r *Reporter) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
+func (r *Client) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
 	line, err := encodeRequest(request{
 		ID:     fmt.Sprintf("slk:%d", nextSeq()),
 		Method: "events.subscribe",

@@ -21,7 +21,7 @@ type paneServer struct {
 	seen []string
 }
 
-func startPaneServer(t *testing.T, results map[string]string) (*paneServer, *Reporter) {
+func startPaneServer(t *testing.T, results map[string]string) (*paneServer, *Client) {
 	t.Helper()
 	sock := testSocketPath(t)
 	ln, err := net.Listen("unix", sock)
@@ -39,7 +39,7 @@ func startPaneServer(t *testing.T, results map[string]string) (*paneServer, *Rep
 			go s.serve(conn)
 		}
 	}()
-	return s, newReporter("unix", sock, "w1:p1", "")
+	return s, newClient("unix", sock, "w1:p1", "")
 }
 
 func (s *paneServer) serve(conn net.Conn) {

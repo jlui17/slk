@@ -48,11 +48,14 @@ func nextSeq() int64 {
 	}
 }
 
-// Reporter sends agent-sidebar updates for one herdr pane. Every method
-// returns immediately (sends run on their own goroutine, ordered on the
-// herdr side by a seq captured at call time) and is safe on a nil
-// receiver, so callers outside a herdr pane need no guards.
-type Reporter struct {
+// Client is slk's client of herdr's socket API, for the herdr pane slk
+// runs in. The agent-sidebar methods (Report, ReportUnread, NameTab,
+// ForceNameTab) return immediately: sends run on their own goroutine,
+// ordered on the herdr side by a seq captured at call time. They, the
+// Set*Cache methods, WatchFocus and Close are safe on a nil receiver, so
+// callers outside a herdr pane need no guards. OpenTab, OpenPane and the
+// pane calls slk herdr makes block on their round-trips.
+type Client struct {
 	network string
 	addr    string
 
@@ -112,12 +115,12 @@ type Reporter struct {
 	tabMu sync.Mutex
 }
 
-// NewReporterFromEnv returns a Reporter when slk is running inside a herdr
+// NewClientFromEnv returns a Client when slk is running inside a herdr
 // pane, else nil. Requires HERDR_ENV=1 and HERDR_PANE_ID. The address comes
 // from SLK_HERDR_ADDR ("host:port", TCP — used when slk runs in a container
 // and a host-side bridge forwards to the socket) or else HERDR_SOCKET_PATH
 // (unix socket path).
-func NewReporterFromEnv() *Reporter {
+func NewClientFromEnv() *Client {
 	if os.Getenv("HERDR_ENV") != "1" {
 		return nil
 	}
@@ -128,11 +131,11 @@ func NewReporterFromEnv() *Reporter {
 	// HERDR_TAB_ID is optional: without it NameTab is a no-op and the
 	// agent-sidebar reporting still works.
 	tabID := os.Getenv("HERDR_TAB_ID")
-	var r *Reporter
+	var r *Client
 	if addr := os.Getenv("SLK_HERDR_ADDR"); addr != "" {
-		r = newReporter("tcp", addr, paneID, tabID)
+		r = newClient("tcp", addr, paneID, tabID)
 	} else if path := os.Getenv("HERDR_SOCKET_PATH"); path != "" {
-		r = newReporter("unix", path, paneID, tabID)
+		r = newClient("unix", path, paneID, tabID)
 	} else {
 		return nil
 	}
@@ -142,8 +145,8 @@ func NewReporterFromEnv() *Reporter {
 	return r
 }
 
-func newReporter(network, addr, paneID, tabID string) *Reporter {
-	return &Reporter{
+func newClient(network, addr, paneID, tabID string) *Client {
+	return &Client{
 		network: network, addr: addr, paneID: paneID, tabID: tabID,
 		stop:         make(chan struct{}),
 		retryDelay:   watchRetryDelay,
@@ -160,7 +163,7 @@ type Pane struct {
 	TerminalID  string `json:"terminal_id"`
 }
 
-func (r *Reporter) identity() Pane {
+func (r *Client) identity() Pane {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return Pane{
@@ -175,7 +178,7 @@ func (r *Reporter) identity() Pane {
 // coordinates, field-wise so a record with gaps (an older herdr omitting
 // terminal_id) can't blank what is already known. Called only from the
 // focus watcher's goroutine.
-func (r *Reporter) adopt(p Pane) {
+func (r *Client) adopt(p Pane) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if p.PaneID != "" {
@@ -198,7 +201,7 @@ func (r *Reporter) adopt(p Pane) {
 // with ids a pane.get response vouched for (locate) — never straight
 // from a pane_moved event, so one malformed event can't overwrite the
 // last good row.
-func (r *Reporter) persistPaneID(paneID string) {
+func (r *Client) persistPaneID(paneID string) {
 	if r.savePaneID == nil || paneID == "" || paneID == r.savedPaneID {
 		return
 	}
@@ -209,7 +212,7 @@ func (r *Reporter) persistPaneID(paneID string) {
 	r.savedPaneID = paneID
 }
 
-// SetPaneIDCache connects the reporter to a store of the pane's
+// SetPaneIDCache connects the client to a store of the pane's
 // last-resolved public id that outlives the process: save is called
 // whenever a resolve lands a new id (a returned error is logged and the
 // id retried on the next resolve), and load is the cold-start fallback
@@ -217,7 +220,7 @@ func (r *Reporter) persistPaneID(paneID string) {
 // moved, then a restart or handoff wiped the alias map — herdr persists
 // public pane ids and nothing else a pane could be found by). Must be
 // called before WatchFocus; nil-safe.
-func (r *Reporter) SetPaneIDCache(load func() (string, bool), save func(paneID string) error) {
+func (r *Client) SetPaneIDCache(load func() (string, bool), save func(paneID string) error) {
 	if r == nil {
 		return
 	}
@@ -225,12 +228,12 @@ func (r *Reporter) SetPaneIDCache(load func() (string, bool), save func(paneID s
 	r.savePaneID = save
 }
 
-// SetTabLabelCache connects the reporter to a store of the last tab label
+// SetTabLabelCache connects the client to a store of the last tab label
 // NameTab set for this pane: save is called on every label NameTab sets or
 // claims, and load backs the re-claim of a label whose herdr-side
 // ownership token a herdr restart wiped (herdr persists tab labels, not
 // pane metadata). Must be called before the first NameTab; nil-safe.
-func (r *Reporter) SetTabLabelCache(load func() (string, bool), save func(label string) error) {
+func (r *Client) SetTabLabelCache(load func() (string, bool), save func(label string) error) {
 	if r == nil {
 		return
 	}
@@ -273,7 +276,7 @@ type releaseAgentParams struct {
 // sidebar (e.g. "@Claude"), title the pane title (channel + thread snippet),
 // state one of herdr's lifecycle states ("working", "idle", "blocked"),
 // statusMessage the transient status text ("is thinking…", may be empty).
-func (r *Reporter) Report(agent, displayName, title, state, statusMessage string) {
+func (r *Client) Report(agent, displayName, title, state, statusMessage string) {
 	if r == nil {
 		return
 	}
@@ -322,7 +325,7 @@ func (r *Reporter) Report(agent, displayName, title, state, statusMessage string
 // while the user isn't already looking at the pane. Both requests ride one
 // send call so the idle can't overtake the working on the wire and get
 // dropped as a stale seq.
-func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string) {
+func (r *Client) ReportUnread(agent, displayName, title, statusMessage string) {
 	if r == nil {
 		return
 	}
@@ -373,7 +376,7 @@ func (r *Reporter) ReportUnread(agent, displayName, title, statusMessage string)
 
 // release removes this pane's agent-sidebar entry. A no-op until the first
 // Report, since no entry exists to remove.
-func (r *Reporter) release() {
+func (r *Client) release() {
 	if r == nil {
 		return
 	}
@@ -431,14 +434,14 @@ const tabLabelToken = "slk_tab_label"
 // NameTab set itself, tracked via a pane-metadata token; a label the user
 // typed is never overwritten. No-op without a tab id (HERDR_TAB_ID absent
 // and the focus watcher hasn't resolved one yet) and nil-safe.
-func (r *Reporter) NameTab(label string) { r.nameTab(label, false) }
+func (r *Client) NameTab(label string) { r.nameTab(label, false) }
 
 // ForceNameTab is NameTab without the ownership guard, for a rename the
 // user asked for by name (:retitle): it lands over whatever label the tab
 // carries and claims the tab like any label NameTab set.
-func (r *Reporter) ForceNameTab(label string) { r.nameTab(label, true) }
+func (r *Client) ForceNameTab(label string) { r.nameTab(label, true) }
 
-func (r *Reporter) nameTab(label string, force bool) {
+func (r *Client) nameTab(label string, force bool) {
 	if r == nil || label == "" {
 		return
 	}
@@ -488,7 +491,7 @@ func (r *Reporter) nameTab(label string, force bool) {
 
 // ownsTabLabel reports whether current is a label NameTab set: the pane's
 // ownership token matches it.
-func (r *Reporter) ownsTabLabel(paneID, current string) (bool, error) {
+func (r *Client) ownsTabLabel(paneID, current string) (bool, error) {
 	var parsed struct {
 		Pane struct {
 			Tokens map[string]string `json:"tokens"`
@@ -503,7 +506,7 @@ func (r *Reporter) ownsTabLabel(paneID, current string) (bool, error) {
 // cachedTabLabel reports whether current is the label the cache says a
 // previous slk run set for this pane — the recovery for a herdr restart
 // having wiped the ownership token while keeping the label.
-func (r *Reporter) cachedTabLabel(current string) bool {
+func (r *Client) cachedTabLabel(current string) bool {
 	if r.loadTabLabel == nil {
 		return false
 	}
@@ -514,7 +517,7 @@ func (r *Reporter) cachedTabLabel(current string) bool {
 // saveTabLabelCache mirrors a label NameTab set into the durable cache;
 // failures only cost a post-restart re-claim, so they are logged and
 // dropped.
-func (r *Reporter) saveTabLabelCache(label string) {
+func (r *Client) saveTabLabelCache(label string) {
 	if r.saveTabLabel == nil {
 		return
 	}
@@ -527,7 +530,7 @@ func (r *Reporter) saveTabLabelCache(label string) {
 // rename, so they are logged and dropped. Token only, deliberately: OpenTab
 // calls this for a pane it created, whose label must not enter this
 // process's own label cache.
-func (r *Reporter) recordTabLabel(paneID, label string) {
+func (r *Client) recordTabLabel(paneID, label string) {
 	err := r.call("pane.report_metadata", reportTokensParams{
 		PaneID: paneID,
 		Source: source,
@@ -540,7 +543,7 @@ func (r *Reporter) recordTabLabel(paneID, label string) {
 }
 
 // tabLabel fetches the tab's current label via tab.get.
-func (r *Reporter) tabLabel(tabID string) (string, error) {
+func (r *Client) tabLabel(tabID string) (string, error) {
 	var parsed struct {
 		Tab struct {
 			Label string `json:"label"`
@@ -574,7 +577,7 @@ func isDefaultTabLabel(label string) bool {
 // Close releases the entry, stops the focus watcher, and waits up to
 // timeout for in-flight sends and the watcher to finish; called once at
 // process shutdown.
-func (r *Reporter) Close(timeout time.Duration) {
+func (r *Client) Close(timeout time.Duration) {
 	if r == nil {
 		return
 	}
@@ -601,7 +604,7 @@ func (r *Reporter) Close(timeout time.Duration) {
 // reqs from a single call stay ordered. Failures, herdr's error replies
 // included, are logged and dropped: the sidebar is best-effort, and the
 // next Report supersedes anything lost.
-func (r *Reporter) send(reqs ...request) {
+func (r *Client) send(reqs ...request) {
 	lines := make([][]byte, 0, len(reqs))
 	for _, req := range reqs {
 		line, err := encodeRequest(req)
@@ -625,7 +628,7 @@ func (r *Reporter) send(reqs ...request) {
 // call sends one request, waiting up to timeout for the connection and
 // the reply, and decodes the reply's result object into out (nil to
 // discard it); a server error response comes back as a serverError.
-func (r *Reporter) call(method string, params any, timeout time.Duration, out any) error {
+func (r *Client) call(method string, params any, timeout time.Duration, out any) error {
 	line, err := encodeRequest(request{
 		ID:     fmt.Sprintf("slk:%d", nextSeq()),
 		Method: method,
@@ -652,7 +655,7 @@ func encodeRequest(req request) ([]byte, error) {
 
 // exchange sends one request line over a fresh connection and returns
 // the reply's result object, or the server's error as a serverError.
-func (r *Reporter) exchange(line []byte, timeout time.Duration) (json.RawMessage, error) {
+func (r *Client) exchange(line []byte, timeout time.Duration) (json.RawMessage, error) {
 	conn, err := net.DialTimeout(r.network, r.addr, timeout)
 	if err != nil {
 		return nil, err

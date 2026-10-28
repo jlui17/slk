@@ -13,12 +13,12 @@ import (
 
 // wireHerdr connects app's agent-thread reporting, the O keybinding's
 // tab opener and alt+o's pane opener to the herdr pane slk is running
-// in, when there is one. The returned reporter is for wiring that must
+// in, when there is one. The returned client is for wiring that must
 // wait for the tea program (the focus watcher's Send); the close func
 // releases the pane's sidebar entry and must be deferred by the caller.
 // Both are nil when herdr is absent or disabled.
-func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, func()) {
-	hr := herdr.NewReporterFromEnv()
+func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Client, func()) {
+	hr := herdr.NewClientFromEnv()
 	if hr == nil || cfg.Disabled {
 		return nil, nil
 	}
@@ -45,7 +45,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 			return hr.OpenTab(label, openCommand, url, focus)
 		})
 	}
-	// A split needs only slk's own pane id, which every reporter has.
+	// A split needs only slk's own pane id, which every client has.
 	app.SetHerdrPaneOpener(func(url, splitPaneID string, focus bool) (string, error) {
 		return hr.OpenPane(splitPaneID, openCommand, url, focus)
 	})
@@ -54,9 +54,9 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	return hr, func() { hr.Close(time.Second) }
 }
 
-// herdrPaneCache returns one of the reporter's per-pane cache hooks
+// herdrPaneCache returns one of the client's per-pane cache hooks
 // (pane id, tab label) over the DB row get and put read and write,
-// keyed by the launch env's pane id (non-empty whenever the reporter
+// keyed by the launch env's pane id (non-empty whenever the client
 // is): what the row remembers is about that id's pane wherever it
 // ended up. what names the value in the read-error log line.
 func herdrPaneCache(paneKey, what string, get func(paneKey string) (string, bool, error), put func(paneKey, value string) error) (load func() (string, bool), save func(string) error) {

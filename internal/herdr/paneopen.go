@@ -21,7 +21,7 @@ type paneCloseParams struct {
 // herdr's focus to the new pane; false leaves it where it is. The new
 // pane shares slk's tab, so it claims no tab label. Blocking, like
 // OpenTab; call it off the UI goroutine.
-func (r *Reporter) OpenPane(splitPaneID, openCommand, rawURL string, focus bool) (string, error) {
+func (r *Client) OpenPane(splitPaneID, openCommand, rawURL string, focus bool) (string, error) {
 	if splitPaneID == "" {
 		splitPaneID = r.identity().PaneID
 	}

@@ -20,7 +20,7 @@ type ProcessInfo struct {
 
 // ListPanes returns every live pane across all workspaces: pane.list
 // with no workspace_id is unscoped.
-func (r *Reporter) ListPanes() ([]Pane, error) {
+func (r *Client) ListPanes() ([]Pane, error) {
 	panes, err := r.listPanes(openTabTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("pane.list: %w", err)
@@ -28,7 +28,7 @@ func (r *Reporter) ListPanes() ([]Pane, error) {
 	return panes, nil
 }
 
-func (r *Reporter) listPanes(timeout time.Duration) ([]Pane, error) {
+func (r *Client) listPanes(timeout time.Duration) ([]Pane, error) {
 	var parsed struct {
 		Panes []Pane `json:"panes"`
 	}
@@ -39,7 +39,7 @@ func (r *Reporter) listPanes(timeout time.Duration) ([]Pane, error) {
 }
 
 // PaneProcessInfo reports what paneID's shell has in the foreground.
-func (r *Reporter) PaneProcessInfo(paneID string) (ProcessInfo, error) {
+func (r *Client) PaneProcessInfo(paneID string) (ProcessInfo, error) {
 	var parsed struct {
 		ProcessInfo ProcessInfo `json:"process_info"`
 	}
@@ -52,7 +52,7 @@ func (r *Reporter) PaneProcessInfo(paneID string) (ProcessInfo, error) {
 // RunInPane types command into paneID and presses Enter — the same
 // pane.send_input call the herdr CLI's `pane run` makes. The text goes
 // to whatever is frontmost, so the pane's shell must be at its prompt.
-func (r *Reporter) RunInPane(paneID, command string) error {
+func (r *Client) RunInPane(paneID, command string) error {
 	err := r.call("pane.send_input", paneSendInputParams{
 		PaneID: paneID,
 		Text:   command,
@@ -66,7 +66,7 @@ func (r *Reporter) RunInPane(paneID, command string) error {
 
 // WaitForOutput blocks until substring shows on paneID's visible screen,
 // returning herdr's timeout error if it hasn't within timeout.
-func (r *Reporter) WaitForOutput(paneID, substring string, timeout time.Duration) error {
+func (r *Client) WaitForOutput(paneID, substring string, timeout time.Duration) error {
 	// The socket deadline must outlast the server-side wait.
 	err := r.call("pane.wait_for_output", paneWaitForOutputParams{
 		PaneID:    paneID,

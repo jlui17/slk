@@ -26,7 +26,7 @@ func withWorkingJudge(a *App) *[]judgeCall {
 // withHerdrSequence records everything published to herdr in one ordered
 // list, the way herdr sees it: a state report is its state, and the
 // synthetic completion is the working→idle pair it puts on the wire
-// (herdr.Reporter.ReportUnread). The two recorders newAgentTestApp returns
+// (herdr.Client.ReportUnread). The two recorders newAgentTestApp returns
 // keep recording; on their own they can't order a state report against a
 // pair.
 func withHerdrSequence(a *App, calls *[]agentReportCall, unreads *[]agentUnreadCall) *[]AgentState {

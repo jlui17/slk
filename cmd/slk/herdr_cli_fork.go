@@ -152,7 +152,7 @@ const (
 // launching nothing under dryRun. Runs inside a herdr pane (the herdr
 // address comes from the launch env).
 func rebootPanes(w io.Writer, dryRun bool) error {
-	r := herdr.NewReporterFromEnv()
+	r := herdr.NewClientFromEnv()
 	if r == nil {
 		return errors.New("not running inside a herdr pane")
 	}

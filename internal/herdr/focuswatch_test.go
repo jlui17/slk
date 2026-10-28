@@ -13,7 +13,7 @@ import (
 func TestReportUnreadSendsCompletionPair(t *testing.T) {
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
-	r := newReporter("unix", sock, "w1:p1", "")
+	r := newClient("unix", sock, "w1:p1", "")
 
 	r.ReportUnread("slack-claude", "Claude", "#eng fix retries", "2 unread replies")
 	lines := waitLines(t, rec, 3)
@@ -269,7 +269,7 @@ func focusEvent(kind, tabID, workspaceID string) map[string]any {
 // focusWatcher starts r's watcher and returns two checkers over the
 // viewed states it reports: one asserting the next report's value, one
 // asserting no report arrives.
-func focusWatcher(t *testing.T, r *Reporter) (view func(want bool, step string), quiet func(step string)) {
+func focusWatcher(t *testing.T, r *Client) (view func(want bool, step string), quiet func(step string)) {
 	t.Helper()
 	views := make(chan bool, 8)
 	r.WatchFocus(func(viewed bool) { views <- viewed }, nil)
@@ -299,7 +299,7 @@ func focusWatcher(t *testing.T, r *Reporter) (view func(want bool, step string),
 func TestWatchFocusFiresOnUnfocusTransitions(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	view, quiet := focusWatcher(t, newReporter("unix", sock, "w1:p1", ""))
+	view, quiet := focusWatcher(t, newClient("unix", sock, "w1:p1", ""))
 	s.waitSubscribed()
 	view(true, "initial state")
 
@@ -330,7 +330,7 @@ func TestWatchFocusSeedsFromLiveLocation(t *testing.T) {
 	// connection used to do) both misreports the state to consumers that
 	// gate on it and inverts the fold, swallowing the next real unfocus.
 	s.setLocation("w1:t1", "w1:t7", true)
-	view, quiet := focusWatcher(t, newReporter("unix", sock, "w1:p1", ""))
+	view, quiet := focusWatcher(t, newClient("unix", sock, "w1:p1", ""))
 	s.waitSubscribed()
 	view(false, "seeded from the live location")
 
@@ -352,7 +352,7 @@ func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
 	// its TUI: the only trace is workspace.get's answer changing. The
 	// pane starts in a background tab, and no event ever arrives.
 	s.setLocation("w1:t1", "w1:t7", true)
-	r := newReporter("unix", sock, "w1:p1", "")
+	r := newClient("unix", sock, "w1:p1", "")
 	r.pollInterval = 20 * time.Millisecond
 	view, _ := focusWatcher(t, r)
 	s.waitSubscribed()
@@ -368,7 +368,7 @@ func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
 func TestWatchFocusTracksPaneMove(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	view, _ := focusWatcher(t, newReporter("unix", sock, "w1:p1", ""))
+	view, _ := focusWatcher(t, newClient("unix", sock, "w1:p1", ""))
 	s.waitSubscribed()
 	view(true, "initial state")
 
@@ -397,7 +397,7 @@ func TestWatchFocusRejectsBadAckAndRetries(t *testing.T) {
 	s.mu.Lock()
 	s.badAckOnce = true
 	s.mu.Unlock()
-	r := newReporter("unix", sock, "w1:p1", "")
+	r := newClient("unix", sock, "w1:p1", "")
 	r.retryDelay = 20 * time.Millisecond
 	// A line that isn't a subscription_started ack must be rejected, not
 	// taken for success: accepting it parks the watcher on a connection
@@ -435,8 +435,8 @@ func moveEvent(prev string, p Pane) map[string]any {
 	}}
 }
 
-// waitIdentity polls until the reporter's tracked pane id becomes want.
-func waitIdentity(t *testing.T, r *Reporter, want string) {
+// waitIdentity polls until the client's tracked pane id becomes want.
+func waitIdentity(t *testing.T, r *Client, want string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -452,7 +452,7 @@ func waitIdentity(t *testing.T, r *Reporter, want string) {
 func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
 	s.waitSubscribed()
 	view(true, "initial state")
@@ -482,7 +482,7 @@ func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
 func TestWatchFocusMatchesMoveByTerminalID(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
 	s.waitSubscribed()
 	view(true, "initial state")
@@ -507,7 +507,7 @@ func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
 	s.pane.TerminalID = ""
 	s.foreign["w9:p8"] = Pane{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}
 	s.mu.Unlock()
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	view, quiet := focusWatcher(t, r)
 	s.waitSubscribed()
 	view(true, "initial state")
@@ -529,7 +529,7 @@ func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
 func TestWatchFocusRecoversFromStalePaneID(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
 	connects := make(chan struct{}, 8)
 	views := make(chan bool, 8)
@@ -580,7 +580,7 @@ func TestWatchFocusBootstrapsFromCachedPaneID(t *testing.T) {
 	s.mu.Unlock()
 	s.setPane("w5:p2", "w5:t1", "w5")
 	s.setLocation("w5:t1", "w5:t1", true)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	r.SetPaneIDCache(func() (string, bool) { return "w5:p2", true }, func(string) error { return nil })
 	view, _ := focusWatcher(t, r)
 	s.waitSubscribed()
@@ -591,7 +591,7 @@ func TestWatchFocusBootstrapsFromCachedPaneID(t *testing.T) {
 func TestWatchFocusRetriesFailedPaneIDSave(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
 	// The saver runs only on the watcher's goroutine, so the plain bool
 	// is race-free. First write fails, as a busy cache DB's would.
@@ -626,7 +626,7 @@ func TestWatchFocusRetriesFailedPaneIDSave(t *testing.T) {
 func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	r.retryDelay = 20 * time.Millisecond
 	saves := make(chan string, 8)
 	r.SetPaneIDCache(nil, func(paneID string) error {
@@ -674,7 +674,7 @@ func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
 func TestReportsDuringMovesNoRace(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	r := newReporter("unix", sock, "w1:p1", "w1:t1")
+	r := newClient("unix", sock, "w1:p1", "w1:t1")
 	view, _ := focusWatcher(t, r)
 	s.waitSubscribed()
 	view(true, "initial state")
@@ -701,7 +701,7 @@ func TestReportsDuringMovesNoRace(t *testing.T) {
 }
 
 func TestWatchFocusNilSafe(t *testing.T) {
-	var r *Reporter
+	var r *Client
 	r.SetPaneIDCache(func() (string, bool) { return "", false }, func(string) error { return nil })
 	r.WatchFocus(func(bool) { t.Error("must not fire") }, func() { t.Error("must not connect") })
 	time.Sleep(20 * time.Millisecond)

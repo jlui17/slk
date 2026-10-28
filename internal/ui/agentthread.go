@@ -34,7 +34,7 @@ type AgentReportFunc func(agent, displayName, title string, state AgentState, st
 // AgentUnreadReportFunc publishes the tracked thread's unread state as a
 // synthetic working→idle completion (the only edge herdr derives its
 // unseen "done" indicator from) with statusMessage as the row's status
-// text. See internal/herdr.Reporter.ReportUnread.
+// text. See internal/herdr.Client.ReportUnread.
 type AgentUnreadReportFunc func(agent, displayName, title, statusMessage string)
 
 // HerdrTabViewMsg is dispatched by the herdr focus watcher with this

@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-func labelCacheReporter(t *testing.T, currentLabel string) (*Reporter, *recorder) {
+func labelCacheReporter(t *testing.T, currentLabel string) (*Client, *recorder) {
 	t.Helper()
 	sock := testSocketPath(t)
 	_, rec := startServer(t, "unix", sock)
 	rec.setTabLabel(currentLabel)
-	return newReporter("unix", sock, "w1:p1", "w1:t1"), rec
+	return newClient("unix", sock, "w1:p1", "w1:t1"), rec
 }
 
 // A herdr restart keeps tab labels but wipes pane-metadata tokens, so a
