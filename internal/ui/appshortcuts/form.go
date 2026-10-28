@@ -377,9 +377,9 @@ var (
 
 // wrap breaks s into lines of at most w cells as lipgloss counts them,
 // at spaces where it can and inside a word too long for a line, keeping
-// escape sequences whole. messages.WordWrap breaks such a word with
-// x/ansi, which counts a keycap emoji (1️⃣) as one cell where the box
-// pads it as two.
+// escape sequences whole and re-opening a styled run on the rows it
+// continues onto. messages.WordWrap breaks such a word with x/ansi, which
+// counts a keycap emoji (1️⃣) as one cell where the box pads it as two.
 func wrap(s string, w int) []string {
 	w = max(w, 1)
 	var lines []string
@@ -407,7 +407,7 @@ func wrap(s string, w int) []string {
 		}
 		lines = append(lines, line)
 	}
-	return lines
+	return messages.ReopenSGRAcrossRows(lines)
 }
 
 // graphemesAndEscapes splits s into its escape sequences and the

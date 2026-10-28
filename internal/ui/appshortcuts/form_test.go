@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -353,6 +354,38 @@ func TestForm_ContextTextAfterBoldStaysMuted(t *testing.T) {
 	if got := fgAt(raw, " is here"); got != muted {
 		t.Errorf("text after the bold span is drawn in %q, want muted %q (primary is %q)", got, muted, primary)
 	}
+}
+
+// A bold or italic span that wraps stays bold or italic on every row it
+// runs onto, as Slack draws it.
+func TestForm_WrappedSectionKeepsBoldAndItalic(t *testing.T) {
+	f := NewForm(viewFrom(t, `{"id":"V1","title":{"type":"plain_text","text":"T"},"blocks":[
+		{"type":"section","text":{"type":"mrkdwn","text":"*one two three four five six* _seven eight nine ten eleven_"}}]}`))
+	lines, _, _ := f.body(20)
+	for word, attr := range map[string]string{"one": "1", "five": "1", "seven": "3", "nine": "3", "eleven": "3"} {
+		i := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(ansi.Strip(l), word) })
+		if i < 0 {
+			t.Fatalf("%q not drawn: %q", word, lines)
+		}
+		if !attrAt(lines[i], word, attr) {
+			t.Errorf("row %d lost SGR %s at %q: %q", i, attr, word, lines[i])
+		}
+	}
+}
+
+// attrAt reports whether SGR attribute attr (1 bold, 3 italic) is on
+// where sub starts in s.
+func attrAt(s, sub, attr string) bool {
+	on := false
+	for _, seq := range regexp.MustCompile(`\x1b\[[0-9;]*m`).FindAllString(s[:strings.Index(s, sub)], -1) {
+		switch params := seq[2 : len(seq)-1]; {
+		case params == "" || params == "0" || params == "2"+attr:
+			on = false
+		case params == attr || strings.HasPrefix(params, attr+";"):
+			on = true
+		}
+	}
+	return on
 }
 
 var fgParamsRe = regexp.MustCompile(`38;(?:2(?:;\d+){3}|5;\d+)`)

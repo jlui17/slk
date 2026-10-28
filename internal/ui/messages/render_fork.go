@@ -171,7 +171,7 @@ func renderCodeBlock(inner string, opts RenderSlackMarkdownOpts, hl searchHighli
 		}
 	}
 	surface := bgANSIFor(styles.Surface)
-	for i, row := range reopenSGRAcrossRows(rows) {
+	for i, row := range ReopenSGRAcrossRows(rows) {
 		rows[i] = gutters[i] + ReapplyBgAfterResets(hl.highlight(row), surface)
 	}
 	body := strings.Join(rows, "\n")
@@ -263,11 +263,12 @@ func commonMarkCodeFence(inner string) string {
 var sgrSeqRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // lipgloss closes every row, and wrapping splits styled runs across rows:
-// re-open at each later row's start whatever SGR the row before left open.
+// ReopenSGRAcrossRows re-opens at each later row's start whatever SGR the
+// row before left open.
 // A sequence seen again moves to the end, so the list stays bounded and
 // the latest foreground wins; a closer (39, 49, 22...) is not carried and
 // retires the opens it cancels.
-func reopenSGRAcrossRows(rows []string) []string {
+func ReopenSGRAcrossRows(rows []string) []string {
 	var open []string
 	for i, row := range rows {
 		if len(open) > 0 {
@@ -351,7 +352,7 @@ func wrapStyledLine(buf *strings.Builder, line string, limit int) {
 	}
 	var rows strings.Builder
 	wrapLine(&rows, line, limit)
-	buf.WriteString(strings.Join(reopenSGRAcrossRows(strings.Split(rows.String(), "\n")), "\n"))
+	buf.WriteString(strings.Join(ReopenSGRAcrossRows(strings.Split(rows.String(), "\n")), "\n"))
 }
 
 func writeIfFits(buf *strings.Builder, line string, limit int) bool {

@@ -762,7 +762,7 @@ func TestReopenSGRAcrossRows_ClosersRetireOpensAndAreNotCarried(t *testing.T) {
 		{"open fg carries", []string{fg + "x", "next"}, fg + "next"},
 	}
 	for _, c := range cases {
-		if got := reopenSGRAcrossRows(c.rows)[1]; got != c.want {
+		if got := ReopenSGRAcrossRows(c.rows)[1]; got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}
