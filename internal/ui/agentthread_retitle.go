@@ -1,6 +1,6 @@
 // The model tab label: judge a thread's task id and name its work from the
 // thread transcript. One request path serves both triggers: the automatic
-// one when the tracked agent thread opens (agentthread_llm.go), which fires
+// one when the tracked agent thread opens (agenttablabel.go), which fires
 // once, and the :retitle command here, for whatever thread the panel shows:
 // an agent thread that has drifted since (brainstorm to design to
 // implementation, a task id filed mid-thread), or any other thread the

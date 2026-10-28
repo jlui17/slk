@@ -106,7 +106,7 @@ type agentSidebar struct {
 
 	// requestLabel asks the model for a refined tab label, once
 	// automatically per tracked thread (labelRequested; see
-	// agentthread_llm.go) and on :retitle for the thread the panel shows
+	// agenttablabel.go) and on :retitle for the thread the panel shows
 	// (agentthread_retitle.go).
 	requestLabel   AgentTabRelabelFunc
 	labelRequested bool
