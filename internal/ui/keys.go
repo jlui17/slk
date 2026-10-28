@@ -38,6 +38,7 @@ type KeyMap struct {
 	ReactionNav         key.Binding
 	Edit                key.Binding
 	Delete              key.Binding
+	RemovePreview       key.Binding
 	CopyMessage         key.Binding
 	CopyPermalink       key.Binding
 	CopyFromMessage     key.Binding
@@ -69,6 +70,8 @@ type KeyMap struct {
 	NavForward          key.Binding
 	Reload              key.Binding
 	Help                key.Binding
+	HelpCommand         key.Binding
+	Version             key.Binding
 	SaveThread          key.Binding
 	RespondButtons      key.Binding
 	ListReactions       key.Binding
@@ -87,6 +90,8 @@ type KeyMap struct {
 	ToggleAttachmentFold key.Binding // fork: attachment_fold.go
 	MessageActions       key.Binding // fork: appshortcuts.go
 	AppHomeTab           key.Binding // fork: apphome.go
+	AgentMark            key.Binding
+	Retitle              key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -125,6 +130,7 @@ func DefaultKeyMap() KeyMap {
 		ReactionNav:     key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "navigate reactions")),
 		Edit:            key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit message")),
 		Delete:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete message")),
+		RemovePreview:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "remove link preview")),
 		CopyMessage:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
 		CopyFromMessage: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy code block or link in message")),
@@ -147,7 +153,7 @@ func DefaultKeyMap() KeyMap {
 		MarksDelete:    key.NewBinding(key.WithHelp(":delmarks", "delete marks by letter")),
 		NextUnread:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),
 		PrevUnread:     key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "prev unread channel")),
-		ActivityView:   key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "open activity")),
+		ActivityView:   key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a / :activity", "open activity")),
 		ActivityUnread: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "Activity: toggle unread-only")),
 		// Keyless: ctrl+w is reserved as the window-command prefix
 		// (window-management design §4). The keyless binding never
@@ -164,9 +170,14 @@ func DefaultKeyMap() KeyMap {
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		// ctrl+k was the original forward key. It stays bound for
 		// existing users but is left out of the help overlay.
-		NavForward:     key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
-		Reload:         key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r / :reload", "reload connections")),
-		Help:           key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		NavForward: key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
+		Reload:     key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r / :reload", "reload connections")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		// Keyless, like MarksList: :help is dispatched from the
+		// command registry. Kept apart from Help so the status-bar
+		// hint, built from Help's key, stays "? for keybindings".
+		HelpCommand:    key.NewBinding(key.WithHelp(":help", "show keybindings and : commands")),
+		Version:        key.NewBinding(key.WithHelp(":version", "show the running build's version")),
 		SaveThread:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
 		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
 		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
@@ -196,5 +207,9 @@ func DefaultKeyMap() KeyMap {
 		MessageActions: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "run an app's shortcut on message")),
 		// fork: apphome.go
 		AppHomeTab: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "app's Home or Messages tab")),
+		// fork: keyless, dispatched from the command registry
+		// (agentthread_mark.go, agentthread_retitle.go).
+		AgentMark: key.NewBinding(key.WithHelp(":agent", "mark or unmark thread as an agent thread")),
+		Retitle:   key.NewBinding(key.WithHelp(":retitle", "rename thread's herdr tab from its transcript")),
 	}
 }

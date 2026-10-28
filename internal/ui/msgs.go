@@ -264,6 +264,17 @@ type (
 	// the filtering). Dispatched by the unread-toggle key while the
 	// Activity view is focused.
 	ActivityToggleUnreadMsg struct{}
+	// ActivityBadgeUpdatedMsg carries a workspace's total unread
+	// activity - the number the sidebar's Activity badge shows. Sent
+	// once per workspace at boot (from client.counts) and again
+	// whenever the server pushes badge_counts_updated. The total is
+	// absolute; the badge never derives itself from the loaded feed
+	// page, whose unread count undercounts (the page holds only the
+	// newest items) and moves when the unread filter re-fetches.
+	ActivityBadgeUpdatedMsg struct {
+		TeamID string
+		Total  int
+	}
 	// ActivityReadSetMsg reports the result of asking Slack to mark one
 	// Activity item read (Read=true) or unread. The App changed the
 	// item before asking; a non-nil Err makes it undo that change.
@@ -649,6 +660,19 @@ type MessageEditedMsg struct {
 type MessageDeletedMsg struct {
 	ChannelID string
 	TS        string
+	Err       error
+}
+
+// AttachmentRemovedMsg carries the result of the chat.deleteAttachment
+// API call (removing a link preview). On success nothing is done with it:
+// the message_changed echo updates the message. TS is the message's.
+// Seq names the removal it answers; the UI sets it (adapters leave it 0).
+// Err is *core.AttachmentRefusedError when the preview was certainly not
+// removed; any other Err leaves it unknown whether Slack acted.
+type AttachmentRemovedMsg struct {
+	ChannelID string
+	TS        string
+	Seq       uint64
 	Err       error
 }
 

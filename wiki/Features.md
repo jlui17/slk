@@ -6,6 +6,8 @@
 - Apps' "working" status: "Atlas is working..." under the channel, and the app's own status text ("Atlas Thinking...") in the open thread it is working on
 - Edit your own messages (`E`) — reuses the compose box with stash/restore for any in-progress draft
 - Delete your own messages (`D`) — centered confirmation overlay with message preview
+- Remove a link preview from your own message (`x`): the "x" on Slack's preview card. A confirmation names the preview (one button per preview when the message has several); the card disappears when Slack confirms the change. Works from the messages pane and from a thread reply. Slack decides what it allows, so removing the card of a message you forwarded can be refused.
+- Live message updates: an edit, a link preview Slack adds a moment after you post, or a preview you remove all update the message in place. Only a real edit adds the "(edited)" mark.
 - Slack markdown rendering (bold, italic, strikethrough, code, blockquotes, links, mentions)
 - Emoji shortcodes (`:rocket:` → 🚀)
 - Day separators (Today, Yesterday, Monday, full date)
@@ -112,6 +114,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Glob-based config sections (`[sections.*]` in `config.toml`) — used when `use_slack_sections = false` or as a fallback when Slack's API is unreachable. Channel patterns can carry an optional `":<N>"` suffix (e.g. `"eng-general:1"`) to pin order within a section; see [Configuration › Ordering channels within a section](Configuration.md#ordering-channels-within-a-section).
 - Fuzzy channel finder (`Ctrl+t` / `Ctrl+p`) — auto-expands a collapsed section when you open a channel inside it; ranks 1:1 DMs above group DMs when searching by person name
 - Workspace picker (`:ws`) and direct jump (`1`–`9`)
+- `:` command line with Tab completion (`Shift+Tab` goes back) and the matching names listed in the status bar; `:help` (same as `?`) lists every key and command, `:version` shows the running build
 - All workspaces stay connected in parallel for live unread badges
 
 ## Marks & Navigation

@@ -46,6 +46,7 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/workspace"
+	versionpkg "github.com/gammons/slk/internal/version"
 	"github.com/gammons/slk/internal/wake"
 	"github.com/slack-go/slack"
 	"golang.design/x/clipboard"
@@ -79,7 +80,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v", "version":
-			fmt.Printf("slk %s (commit %s, built %s)\n", version, commit, date)
+			fmt.Println(versionpkg.Line(version, commit, date))
 			fmt.Println("Unofficial Slack client. Not affiliated with Slack Technologies, LLC.")
 			fmt.Println("Uses Slack's internal browser protocol; may violate Slack's TOS. Use at your own risk.")
 			return
@@ -567,14 +568,7 @@ func run(startupLink *slackurl.Permalink) error {
 	for _, it := range wsItems {
 		railTeamIDs = append(railTeamIDs, it.ID)
 	}
-	applyUISettings(app, uiSettings{
-		TimestampFormat:  tsFormat,
-		TypingIndicators: cfg.Animations.TypingIndicators,
-		StaleAfter:       time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour,
-		MouseWheelLines:  cfg.Appearance.MouseWheelLines,
-		ColoredUsernames: cfg.Appearance.ColoredUsernames,
-		ThemeOverrides:   cfg.Theme,
-	})
+	applyUISettings(app, uiSettingsFromConfig(cfg))
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {
 		app.SetComposeEditor(editor)
@@ -1061,6 +1055,14 @@ func run(startupLink *slackurl.Permalink) error {
 					log.Printf("Warning: failed to delete message %s/%s: %v", chIDStr, tsStr, err)
 				}
 				return ui.MessageDeletedMsg{ChannelID: chIDStr, TS: tsStr, Err: err}
+			},
+			RemoveAttachment: func(teamID string, channelID ids.ChannelID, ts ids.MessageTS, attachmentID int) core.Msg {
+				// The user may have switched workspaces since pressing the key.
+				var client attachmentRemover
+				if wctx := router.ByID(teamID); wctx != nil && wctx.Client != nil {
+					client = wctx.Client
+				}
+				return removeAttachment(context.Background(), client, teamID, channelID, ts, attachmentID)
 			},
 			MarkUnread: func(channelID ids.ChannelID, threadTS ids.ThreadTS, boundaryTS ids.MessageTS, unreadCount int) core.Msg {
 				chIDStr := string(channelID)

@@ -15,9 +15,10 @@
 //   - theme cycle: Alt-Y / Alt-Shift-Y apply the next / previous
 //     theme, wrapping around (saved per workspace, like Ctrl-Y)
 //   - message ops: y (copy message), Y/C (copy permalink), E (edit), D (delete),
-//     U (mark unread), m (set mark), ' (jump to mark), v (open image
-//     preview), o (open link), O (open link in new herdr tab), c (copy
-//     code block or link), z (expand or collapse long attachment cards)
+//     x (remove link preview), U (mark unread), m (set mark),
+//     ' (jump to mark), v (open image preview), o (open link), O (open
+//     link in new herdr tab), c (copy code block or link), z (expand or
+//     collapse long attachment cards)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav, for either content pane)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -38,7 +39,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 )
 
@@ -105,19 +105,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// user can see it, not in a channel compose hidden behind
 		// the thread.
 		toThread := a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) || a.threadDrawnAlone()
-		// composeDisabled reflects the active CHANNEL's send capability,
-		// not the thread panel's -- a thread reply targets whatever
-		// thread is open, which need not be in that channel.
-		if a.composeDisabled && !toThread {
-			return toastWithClear(a, a.composeBlockedText(), 2*time.Second)
-		}
-		a.SetMode(ModeInsert)
-		if toThread {
-			a.focusedPanel = PanelThread
-			return a.threadCompose.Focus()
-		}
-		a.focusedPanel = PanelMessages
-		return a.compose.Focus()
+		return a.beginInsertMode(toThread)
 
 	case key.Matches(msg, a.keys.CommandMode):
 		a.enterCommandMode()
@@ -284,9 +272,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.scrollFocusedPanel(a.halfPageSize())
 
 	case key.Matches(msg, a.keys.Help):
-		a.help.SetEntries(help.FromKeyMap(a.keys))
-		a.help.Open()
-		a.SetMode(ModeHelp)
+		a.openHelpOverlay()
 
 	case key.Matches(msg, a.keys.ThemeSwitcher):
 		// Per-workspace scope. Header text shows the current
@@ -360,6 +346,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.Delete):
 		return a.beginDeleteOfSelected()
+
+	case key.Matches(msg, a.keys.RemovePreview):
+		return a.removePreviewOfSelected()
 
 	case key.Matches(msg, a.keys.OpenPreview):
 		return a.openImagePreviewOfSelected()

@@ -167,6 +167,12 @@ type App struct {
 	// every other mode.
 	cmdline string
 
+	// cmdComplete is the Tab-completion cycle in progress at that same
+	// prompt. Owned by mode_command.go; zero outside a Tab cycle — every
+	// plain edit to cmdline and every path that clears it resets this,
+	// so it can never outlive the command line it was built from.
+	cmdComplete cmdCompletion
+
 	// wins is the vim-style window tree subdividing the messages
 	// region; focusedWin is the active window within it. Phase 2:
 	// the focused window renders the single live messages model,
@@ -336,6 +342,15 @@ type App struct {
 	// only.
 	activityReads map[string]*activityRead
 
+	// activityBadgeTotals holds each workspace's total unread activity
+	// (from client.counts at boot and badge_counts_updated events
+	// after), keyed by team id. The sidebar's Activity badge shows the
+	// active workspace's value; it is never derived from the loaded
+	// feed page, whose unread count undercounts and moves when the
+	// unread filter re-fetches. A workspace with no entry (a
+	// grid-restricted member, whose counts call fails) shows zero.
+	activityBadgeTotals map[string]int
+
 	threadsDirtyDebounce time.Duration
 
 	// threadsListFetchScheduled is set while a threads-list refresh is
@@ -457,6 +472,10 @@ type App struct {
 	channelNames map[string]string
 	userGroups   map[string]string
 
+	// buildInfo is the build identity :version shows: version and short
+	// commit (version.Short). Set once at startup by main.
+	buildInfo string
+
 	// externalUsers tracks which user IDs are Slack Connect / shared-channel
 	// guests. Populated by main.go via SetExternalUsers as users are
 	// resolved. Read by SetUserNames when building the mention-picker User
@@ -540,17 +559,24 @@ type App struct {
 	// "press b" toast, so it appears once per message.
 	actionQueue   []actionPromptRef
 	promptToasted map[string]bool
+	// previewRemovals holds the link-preview removals in flight, by
+	// channel and ts (see remove_preview.go). Written on the Update
+	// goroutine only. Each removal's seq comes from previewRemovalSeq,
+	// which never resets.
+	previewRemovals   map[string]previewRemoval
+	previewRemovalSeq uint64
 	// userProfile is the K-opened read-only "who is this person?"
 	// modal (see internal/ui/userprofile). profileSvc fetches the
 	// full profile; defaulted to noopProfileService in NewApp so the
 	// cmd built by openUserProfile never calls a nil interface.
 	userProfile *userprofile.Model
 	profileSvc  core.ProfileService
-	// now is the clock used by the user-profile dialog's "local time"
-	// and status-expiry math. Defaults to time.Now; goldens pin it to
-	// goldenClock so the rendered frame is deterministic. Only this
-	// feature reads it -- other App code still calls time.Now
-	// directly.
+	// now is the clock read by the user-profile dialog (its "local
+	// time" and status-expiry math) and by the link-preview removal
+	// timeout (remove_preview.go). Defaults to time.Now; goldens pin it
+	// to goldenClock so the rendered frame is deterministic, and tests
+	// move it to cross the removal timeout. Other App code still calls
+	// time.Now directly.
 	now func() time.Time
 	// reactions is the App's ReactionService collaborator (add/remove
 	// reactions on Slack + load/record frecent emoji history). See
@@ -638,6 +664,11 @@ type App struct {
 	// beginning a jump (' ) shows the marks list. Defaults to on; the
 	// option does not affect the :marks command, which always shows it.
 	showJumpOverlay bool
+
+	// stayInInsertAfterSend is the [compose] stay_in_insert_after_send
+	// option: whether Enter leaves the composer focused in insert mode
+	// after a send. Set by main.go from config; off by default.
+	stayInInsertAfterSend bool
 
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
@@ -1164,6 +1195,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceActivity,
 		reduceFocus,
 		reduceSend,
+		reduceRemovePreview,
 		reduceActionPrompt,
 		reduceSlashCommand,
 		reduceChannels,
@@ -2283,8 +2315,7 @@ func (a *App) SetMode(mode Mode) {
 	// empty outside ModeCommand" invariant true; idempotent with
 	// exitCommandMode, which clears before calling here.
 	if a.mode == ModeCommand && mode != ModeCommand {
-		a.cmdline = ""
-		a.statusbar.SetCommandLine("")
+		a.clearCmdline()
 	}
 	// Same for the marks list: a global intercept (ctrl+c) leaves
 	// ModeMarks without going through handleMarksMode, and the list
@@ -2296,15 +2327,30 @@ func (a *App) SetMode(mode Mode) {
 	a.statusbar.SetMode(mode)
 }
 
-// exitInsertAfterSend mirrors the Esc-from-insert handler so that
-// submitting a message returns the user to ModeNormal — matching the
-// vim convention where finishing an action drops you back to command
-// mode. Used by every send branch in handleInsertMode that actually
-// dispatches a message (plain-text and attachment, channel and
-// thread). Edits intentionally bypass this and instead exit insert
-// mode via cancelEdit on MessageEditedMsg, so a transient edit
+// exitInsertAfterSend drops the user back to ModeNormal after a send,
+// unless the [compose] stay_in_insert_after_send option is on, in which
+// case it does nothing: the composer keeps focus (the send path already
+// reset its text) so several messages can be typed in a row. Used by
+// the plain-text send branches of handleInsertMode (channel and thread)
+// and by trySlashCommand; the two upload branches call exitInsert
+// directly instead, since an in-flight upload always leaves insert mode.
+// Edits intentionally bypass this and instead exit
+// insert mode via cancelEdit on MessageEditedMsg, so a transient edit
 // failure doesn't strand the user one keystroke away from resuming.
 func (a *App) exitInsertAfterSend() {
+	if a.stayInInsertAfterSend {
+		return
+	}
+	a.exitInsert()
+}
+
+// exitInsert mirrors the Esc-from-insert handler: ModeNormal, both
+// composers blurred. This is the unconditioned exit that
+// exitInsertAfterSend applies when the option is off, and that the
+// upload branches of handleInsertMode apply whatever the option says,
+// since the composer is busy for the duration of an upload and must not
+// keep taking keystrokes as if it were still accepting text.
+func (a *App) exitInsert() {
 	a.SetMode(ModeNormal)
 	a.compose.Blur()
 	a.threadCompose.Blur()
@@ -2856,6 +2902,13 @@ func (a *App) SetClipboardAvailable(ok bool) {
 // SetComposeEditor sets Ctrl+E's resolved editor argv (see editor.go).
 func (a *App) SetComposeEditor(editor []string) {
 	a.composeEditor = editor
+}
+
+// SetStayInInsertAfterSend sets the [compose] stay_in_insert_after_send
+// option: whether Enter leaves the composer focused in insert mode
+// after a send. Off by default.
+func (a *App) SetStayInInsertAfterSend(b bool) {
+	a.stayInInsertAfterSend = b
 }
 
 // SetEditorService wires Ctrl+E's temp file and editor process. nil
@@ -3526,6 +3579,11 @@ func (a *App) SetHelpFooter(s string) {
 	a.help.SetFooter(s)
 }
 
+// SetBuildInfo sets the build identity :version shows.
+func (a *App) SetBuildInfo(s string) {
+	a.buildInfo = s
+}
+
 // SetMouseWheelLines configures the number of lines the viewport scrolls per
 // mouse-wheel notch. Values < 1 are coerced to 1 to guarantee scroll progress.
 func (a *App) SetMouseWheelLines(n int) {
@@ -3572,6 +3630,13 @@ func (a *App) renderTypingLine() string {
 }
 
 func (a *App) View() tea.View {
+	// Compose regions are recorded per frame by the pane renderers;
+	// clear last frame's before any pane decides not to draw one (the
+	// threads view replaces the channel pane's compose). First
+	// statement so the early-fallback path cannot leave a stale
+	// region behind either.
+	a.layout.ResetComposeRegions()
+
 	if v, handled := a.renderEarlyFallback(); handled {
 		return a.finalizeSixelView(v, nil)
 	}

@@ -140,6 +140,10 @@ Contributions are welcome. A few ground rules:
   binaries are killed on launch, so `go test` and the TUI itself must run
   through the docker wrappers in `tools/` — see
   [docs/developing-on-santa-hosts.md](docs/developing-on-santa-hosts.md).
+- **Inactive PRs are closed.** A pull request with no activity for 14
+ days gets a warning, and it's closed 7 days later (21 days in total)
+ unless there's a push, comment or review in the meantime. You can
+ reopen it whenever you pick it back up.
 
 ## Disclaimer
 

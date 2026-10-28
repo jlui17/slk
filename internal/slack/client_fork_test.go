@@ -135,7 +135,7 @@ func TestGetUnreadCounts_HonorsContext(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, _, err := c.GetUnreadCounts(ctx)
+	_, _, _, err := c.GetUnreadCounts(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("GetUnreadCounts against a hung server: err = %v, want ctx deadline", err)
 	}
