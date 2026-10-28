@@ -74,7 +74,7 @@ if [ "$(cat "$stamp" 2>/dev/null)" != "$vol_created" ]; then
 fi
 
 bin="$repo/bin/$bin_name"
-if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]; then
+if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" "$repo/go.mod" "$repo/go.sum" \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print -quit 2>/dev/null)" ]; then
   echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
   docker run --rm -v "$repo":/src -w /src \
     -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
