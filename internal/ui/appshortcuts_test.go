@@ -135,7 +135,7 @@ func typeAppKeys(a *App, s string) {
 // Annotate shortcut, ids replaced; its client_token is web-1700000000000.
 func capturedViewOpened(t *testing.T, token string) AppViewMsg {
 	t.Helper()
-	raw, err := os.ReadFile("../slack/testdata/ws_view_opened.json")
+	raw, err := os.ReadFile("../slack/testdata/ws_view_opened_annotate_fork.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,5 +504,25 @@ func TestAppShortcuts_WorkspaceSwitchClosesForm(t *testing.T) {
 	send(a, shortcutKey("j"))
 	if a.mode != ModeNormal {
 		t.Errorf("mode %v after j, want normal", a.mode)
+	}
+}
+
+// A modal nothing asked for (a slash command's, as bare /giphy opens)
+// gets upstream's "can't show" toast, named by the modal's title, in
+// the active workspace only; a form a shortcut asked for opens instead
+// (TestAppShortcuts_MenuLoadsOnceAndRuns).
+func TestAppShortcuts_UnaskedModalToasts(t *testing.T) {
+	a, _, _ := shortcutApp(t)
+	got := send(a, capturedViewOpened(t, "web-unasked"))
+	if want := "Annotate Claude's work opened a dialog slk can't show yet"; len(got) != 1 || got[0] != want {
+		t.Errorf("toasts = %q, want [%q]", got, want)
+	}
+	if a.mode != ModeNormal {
+		t.Errorf("mode = %v, want normal", a.mode)
+	}
+	other := capturedViewOpened(t, "web-unasked")
+	other.TeamID = "T2"
+	if got := send(a, other); len(got) != 0 {
+		t.Errorf("toasts for a background workspace = %q, want none", got)
 	}
 }

@@ -103,7 +103,7 @@ func handleProfileCardMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.SetMode(ModeNormal)
 	case "m":
 		a.SetMode(ModeNormal)
-		return a.openConversationCmd([]string{userID})
+		return a.openConversation([]string{userID}, msgPrefill{})
 	case "o":
 		a.SetMode(ModeNormal)
 		return a.browserOpener(slackurl.ProfileURL(a.activeWorkspaceDomain(), userID))

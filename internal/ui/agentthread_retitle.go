@@ -132,7 +132,7 @@ const (
 // isn't the tracked agent thread it only names the tab, and tracks
 // nothing. Only the tracked thread has a known bot, whose mention the root
 // line drops.
-func cmdRetitle(a *App, _ []string) tea.Cmd {
+func cmdRetitle(a *App, _ commandArgs) tea.Cmd {
 	if a.agentSidebar.nameTab == nil {
 		return toastWithClear(a, "Tab labels need slk in a herdr pane", 2*time.Second)
 	}

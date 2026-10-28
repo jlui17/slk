@@ -542,22 +542,30 @@ type App struct {
 	// so call sites can dispatch without nil-checks.
 	reactions     core.ReactionService
 	interactions  core.InteractionService
+	commandSvc    core.CommandService
 	currentUserID string
 
 	// editing tracks in-progress message edit state. See
 	// internal/ui/edit.go.
 	editing *editController
 
-	// newMessageInFlightID is the monotonic counter for in-flight
-	// OpenConversation requests dispatched from the new-message
-	// picker. 0 means no submit is in flight. The reducer drops late
-	// results whose RequestID doesn't match.
+	// newMessageInFlightID is the ID of the in-flight OpenConversation
+	// request (new-message picker or /msg); 0 means none. The reducer
+	// drops late results whose RequestID doesn't match. IDs come from
+	// newMessageSeq, which never resets, so a late result of an old
+	// request can never match a newer one.
 	newMessageInFlightID uint64
+	newMessageSeq        uint64
 	// newMessageCancelled is set to true when the user Escs the
 	// modal while a submit is in flight. A subsequent
 	// NewMessageOpenedMsg with the matching RequestID is dropped
 	// rather than switching channels behind the user's back.
 	newMessageCancelled bool
+	// newMessagePrefill is what /msg asked of the in-flight open: the
+	// text to offer as the opened conversation's draft and where /msg
+	// was typed; zero for the new-message picker. Consumed by
+	// NewMessageOpenedMsg, given back and cleared by NewMessageFailedMsg.
+	newMessagePrefill msgPrefill
 
 	// reloader forces every workspace's websocket to reconnect
 	// (ctrl+r / :reload). Nil until SetReloader.
@@ -977,6 +985,7 @@ func NewApp() *App {
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
 		interactions:          noopInteractionService,
+		commandSvc:            noopCommandService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
@@ -1140,6 +1149,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceFocus,
 		reduceSend,
 		reduceActionPrompt,
+		reduceSlashCommand,
 		reduceChannels,
 		reduceLinks,
 		reduceFiles,
@@ -3351,6 +3361,16 @@ func (a *App) SetInteractionService(s core.InteractionService) {
 		s = noopInteractionService
 	}
 	a.interactions = s
+}
+
+// SetCommandService wires the service slash commands run through. A nil s
+// restores the no-op, whose runs fail with errors.ErrUnsupported and so
+// surface as a toast.
+func (a *App) SetCommandService(s core.CommandService) {
+	if s == nil {
+		s = noopCommandService
+	}
+	a.commandSvc = s
 }
 
 // SetProfileService wires the App's ProfileService collaborator, used

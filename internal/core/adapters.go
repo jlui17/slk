@@ -99,6 +99,27 @@ func (i interactionAdapter) PressAttachmentAction(channelID ids.ChannelID, messa
 	return i.fns.PressAttachmentAction(channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
 }
 
+// CommandServiceFuncs bundles the closures behind a CommandService. A nil
+// func makes its method return errors.ErrUnsupported.
+type CommandServiceFuncs struct {
+	Run func(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error
+}
+
+// NewCommandService builds a CommandService from fns. Used by
+// cmd/slk/main.go (production wiring) and tests.
+func NewCommandService(fns CommandServiceFuncs) CommandService {
+	return commandAdapter{fns: fns}
+}
+
+type commandAdapter struct{ fns CommandServiceFuncs }
+
+func (c commandAdapter) Run(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
+	if c.fns.Run == nil {
+		return errors.ErrUnsupported
+	}
+	return c.fns.Run(teamID, channelID, threadTS, command, args)
+}
+
 // ThreadServiceFuncs is the closure bundle accepted by
 // NewThreadService. Any field may be nil; the resulting service
 // no-ops that operation (and returns the zero value for read paths).

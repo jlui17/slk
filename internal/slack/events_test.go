@@ -938,3 +938,17 @@ func TestDispatchEphemeralMessage_NumericActionIDs(t *testing.T) {
 		t.Errorf("ActionIDs = %v (want nil), attachments = %d (want 1)", got.ActionIDs, len(got.Attachments))
 	}
 }
+
+// A live /me line used to be dropped: the message switch passed only
+// "", bot_message, thread_broadcast and file_share to OnMessage.
+func TestDispatchMeMessage_CapturedFrame(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "ws_me_message.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &mockEventHandler{}
+	dispatchWebSocketEvent(data, h)
+	if len(h.messages) != 1 || h.messages[0] != "waves" || h.subtypes[0] != "me_message" {
+		t.Fatalf("messages = %v subtypes = %v, want [waves] [me_message]", h.messages, h.subtypes)
+	}
+}

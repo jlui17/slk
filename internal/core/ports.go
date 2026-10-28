@@ -56,6 +56,21 @@ type InteractionService interface {
 		attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error
 }
 
+// CommandService runs Slack slash commands. Run is blocking (callers run
+// it from a tea.Cmd). What a command produces arrives over the WebSocket,
+// so only the error comes back: *CommandError when Slack refuses the
+// command, any other error for a transport failure.
+//
+// Build one with NewCommandService.
+type CommandService interface {
+	// Run executes command ("/giphy", with its slash, lowercased) with
+	// args in channelID of workspace teamID — the one the command was
+	// typed in, which the user may have switched away from since — in
+	// threadTS's thread when threadTS is set.
+	// args is wire-form text (<@U…>, <#C…|name>); "" for none.
+	Run(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error
+}
+
 // ThreadService is the App's interface to Slack's thread surfaces:
 // fetching replies, marking threads read, posting replies, and loading
 // the involved-threads list for the user's threads view. Includes

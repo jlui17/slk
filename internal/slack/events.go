@@ -517,7 +517,7 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 			debuglog.WS("message raw fields: %s", topLevelFields(data))
 		}
 		switch msg.SubType {
-		case "", "bot_message", "thread_broadcast", "file_share":
+		case "", "bot_message", "thread_broadcast", "file_share", "me_message":
 			if msg.IsEphemeral {
 				dispatchEphemeral(data, msg, handler)
 				break
@@ -527,7 +527,8 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 			// message but with the subtype preserved so the UI can
 			// label it. file_share is a regular message that has one
 			// or more files attached (Slack's V2 upload flow uses
-			// this subtype).
+			// this subtype). me_message is a /me line; the UI renders it
+			// in italics.
 			debuglog.WS("message: channel=%s user=%s ts=%s subtype=%q thread_ts=%s files=%d",
 				msg.Channel, msg.User, msg.TS, msg.SubType, msg.ThreadTS, len(msg.Files))
 			handler.OnMessage(msg.Channel, msg.User, msg.TS, msg.Text, msg.ThreadTS, msg.SubType, false, msg.Files, msg.Blocks, msg.Attachments, msg.BotID, msg.Username)
@@ -587,6 +588,11 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 			return
 		}
 		handler.OnSelfPresenceChange(evt.Presence)
+
+	case "view_opened", "view_updated":
+		// Fork: the view goes to OnView (appactions_fork.go); the UI
+		// opens a form it asked for and says so for any other modal.
+		dispatchViewEvent(data, evt.Type, handler)
 
 	case "dnd_updated":
 		var evt wsDNDUpdatedEvent
@@ -696,9 +702,6 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		debuglog.WS("ai_assistant_status: channel=%s thread_ts=%s bot_user=%s status=%q",
 			evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
 		handler.OnAssistantStatus(evt.Channel, evt.ThreadTS, evt.BotUserID, evt.Status)
-
-	case "view_opened", "view_updated":
-		dispatchViewEvent(data, evt.Type, handler)
 
 	case "member_joined_channel":
 		var evt wsMemberChannelEvent

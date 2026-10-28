@@ -34,7 +34,7 @@ func init() { commands["agent"] = cmdAgent }
 // it removes the mark. Unmarking leaves the thread tracked until another
 // agent thread replaces it, the rule every tracked thread follows; the
 // mark only decides what later opens detect.
-func cmdAgent(a *App, _ []string) tea.Cmd {
+func cmdAgent(a *App, _ commandArgs) tea.Cmd {
 	if a.agentSidebar.report == nil || a.agentSidebar.userInfo == nil || a.agentSidebar.marks == nil {
 		return toastWithClear(a, "Agent threads need slk in a herdr pane", 2*time.Second)
 	}

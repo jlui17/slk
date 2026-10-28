@@ -346,7 +346,7 @@ func (a *App) applyAppView(m AppViewMsg) tea.Cmd {
 		return a.closeAppViewCmd(m.TeamID, v.ID, v.RootViewID)
 	}
 	if !s.model.Waiting() || m.ClientToken != s.token || m.TeamID != s.teamID {
-		return nil
+		return a.unshownViewToast(m.TeamID, v.Title)
 	}
 	if err != nil {
 		debuglog.General("view_opened: %v", err)
@@ -357,4 +357,18 @@ func (a *App) applyAppView(m AppViewMsg) tea.Cmd {
 	f := appshortcuts.NewForm(v)
 	s.model.OpenForm(f)
 	return f.Focus()
+}
+
+// unshownViewToast tells the user an app opened a modal slk cannot show:
+// one no shortcut or Home button asked for, typically a slash command's
+// (bare /giphy). Upstream's wording; the active workspace only.
+func (a *App) unshownViewToast(teamID, title string) tea.Cmd {
+	if teamID != "" && teamID != a.activeTeamID {
+		return nil
+	}
+	text := "This command opened a dialog slk can't show yet"
+	if title != "" {
+		text = title + " opened a dialog slk can't show yet"
+	}
+	return func() tea.Msg { return ToastMsg{Text: text} }
 }

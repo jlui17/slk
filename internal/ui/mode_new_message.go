@@ -33,7 +33,7 @@ func handleNewMessageMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	result := a.newMessagePicker.HandleKey(keyStr)
 	if result != nil {
-		return a.openConversationCmd(result.UserIDs) // fork: mode_new_message_fork.go
+		return a.openConversation(result.UserIDs, msgPrefill{})
 	}
 
 	// Picker closed itself (Esc). Mark any in-flight submit as
@@ -42,6 +42,7 @@ func handleNewMessageMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if !a.newMessagePicker.IsVisible() {
 		if a.newMessageInFlightID != 0 {
 			a.newMessageCancelled = true
+			a.abandonMsgPrefill()
 		}
 		a.SetMode(ModeNormal)
 	}

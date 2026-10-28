@@ -1427,6 +1427,19 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 		}))
 
+		app.SetCommandService(core.NewCommandService(core.CommandServiceFuncs{
+			Run: func(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
+				// The user may have switched workspaces since pressing Enter.
+				wctx := router.ByID(teamID)
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("running %s: workspace %q is unavailable", command, teamID)
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				return runCommand(ctx, wctx.Client, channelID, threadTS, command, args)
+			},
+		}))
+
 		sendTyping := func(channelID string) {
 			wctx := router.Active()
 			if wctx == nil {

@@ -15,7 +15,7 @@ import (
 // from Colony's Annotate shortcut, with its ids replaced.
 func capturedView(t *testing.T) View {
 	t.Helper()
-	raw, err := os.ReadFile("../../slack/testdata/ws_view_opened.json")
+	raw, err := os.ReadFile("../../slack/testdata/ws_view_opened_annotate_fork.json")
 	if err != nil {
 		t.Fatal(err)
 	}

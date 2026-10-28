@@ -181,7 +181,7 @@ func TestSubmitView(t *testing.T) {
 }
 
 func TestDispatchViewOpened_CapturedEvent(t *testing.T) {
-	data, err := os.ReadFile("testdata/ws_view_opened.json")
+	data, err := os.ReadFile("testdata/ws_view_opened_annotate_fork.json")
 	if err != nil {
 		t.Fatal(err)
 	}
