@@ -85,6 +85,10 @@ type (
 		// as a self-mark so the resulting channel_marked echo does not
 		// drag the divider off LastReadTS. See selfMarkDedup.
 		MarkedTS string
+		// KeepLastRead is set by the reconnect refresh of the channel
+		// on screen: a pane that has a last-read boundary keeps it
+		// rather than take LastReadTS. See loadedLastRead.
+		KeepLastRead bool
 	}
 	OlderMessagesLoadedMsg struct {
 		ChannelID string

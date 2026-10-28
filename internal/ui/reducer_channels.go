@@ -154,7 +154,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		for _, mm := range models {
 			mm.SetLoading(false)
-			mm.SetLastReadTS(m.LastReadTS)
+			mm.SetLastReadTS(loadedLastRead(mm, m)) // fork: reducer_channels_fork.go
 			// nil Messages from the fetcher signals network FAILURE,
 			// not an empty channel (empty channels return
 			// []messages.MessageItem{}). On failure, preserve whatever

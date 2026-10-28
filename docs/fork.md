@@ -197,7 +197,10 @@ there and resolve them knowing what the fork wants:
 - `internal/ui/reducer_channels.go` — tier-1 freshness additionally
   requires `syncedAfterWatermark`; every load into the channel pane (fetch,
   channel switch, jump to a message) lays the session's ephemerals in
-  (`ephemeral_fork.go`), and the cache tier is chosen before that.
+  (`ephemeral_fork.go`), and the cache tier is chosen before that. The
+  reconnect refresh (`KeepLastRead`, set in `main.go`) leaves a pane's
+  last-read boundary where it is (`loadedLastRead`,
+  `reducer_channels_fork.go`).
 - `internal/ui/mode_insert.go` (+ its test in `app_test.go`) — the
   Ctrl+U clear-compose intercept removed so Ctrl+U (kitty's
   cmd+backspace) falls through to the textarea's delete-before-cursor;

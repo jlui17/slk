@@ -1709,9 +1709,10 @@ func run(startupLink *slackurl.Permalink) error {
 					msgItems := fetchChannelMessages(wctx.Client, channelID, db, wctx.UserNames, tsFormat, avatarCache, router)
 					state, _ := db.GetChannelReadState(channelID)
 					p.Send(ui.MessagesLoadedMsg{
-						ChannelID:  channelID,
-						Messages:   msgItems,
-						LastReadTS: state.LastReadTS,
+						ChannelID:    channelID,
+						Messages:     msgItems,
+						LastReadTS:   state.LastReadTS,
+						KeepLastRead: true, // fork: keeps the "── new ──" line on screen
 					})
 				},
 				// Reconnect/wake kick for the throttled thread-
