@@ -143,8 +143,9 @@ func (m *Model) shown() []int {
 // window returns the indexes of the rows to draw: as many of shown as
 // the terminal has room for, scrolled just far enough to hold the
 // highlighted row.
-func (m *Model) window() []int {
-	shown := m.shown()
+func (m *Model) window() []int { return m.windowOf(m.shown()) }
+
+func (m *Model) windowOf(shown []int) []int {
 	rows := min(len(shown), maxWindowRows)
 	if m.termHeight > 0 {
 		rows = min(rows, max(m.termHeight-boxChromeRows, 1))

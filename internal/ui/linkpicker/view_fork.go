@@ -72,10 +72,10 @@ func (m *Model) sideWidth(innerWidth int) int {
 }
 
 // drawnText is rowText, but for a row whose Side column is not drawn
-// for want of room and whose preview has not landed: its fallback text
-// says when, and without its Side nothing says where.
-func (m *Model) drawnText(it Item, innerWidth int) string {
-	if it.Side != "" && !it.previewed && m.sideWidth(innerWidth) == 0 {
+// for want of room (sideWidth 0) and whose preview has not landed: its
+// fallback text says when, and without its Side nothing says where.
+func drawnText(it Item, sideWidth int) string {
+	if it.Side != "" && !it.previewed && sideWidth == 0 {
 		it.Display = it.Side + " \u00b7 " + it.Display
 	}
 	return rowText(it)
@@ -84,9 +84,8 @@ func (m *Model) drawnText(it Item, innerWidth int) string {
 // sideColumn is the Side column of row it as drawn, gap included: ""
 // for a row without a Side, whose text may run on to the badge. A row
 // without the [slk] badge keeps the badge's cells empty, so the column
-// lines up with the rows that have it.
-func (m *Model) sideColumn(it Item, innerWidth int) string {
-	width := m.sideWidth(innerWidth)
+// lines up with the rows that have it. width is sideWidth's.
+func sideColumn(it Item, width int) string {
 	if it.Side == "" || width == 0 {
 		return ""
 	}
@@ -104,9 +103,8 @@ func (m *Model) sideColumn(it Item, innerWidth int) string {
 // rows counted are its matches and the line says so ("4 matches",
 // "1–14 of 15 matches"), also when they all fit; none is filterLine's
 // "no matching rows".
-func (m *Model) withTitleStatus(title string, innerWidth int) string {
+func (m *Model) withTitleStatus(title string, innerWidth int, shown, window []int) string {
 	var parts []string
-	shown, window := m.shown(), m.window()
 	position := ""
 	if len(window) < len(shown) {
 		position = fmt.Sprintf("%d–%d of ", m.top+1, m.top+len(window))
@@ -138,7 +136,7 @@ func (m *Model) withTitleStatus(title string, innerWidth int) string {
 
 // filterLine is the line under the title: empty until / starts a
 // filter, then "/text", with a block cursor while keys go to it.
-func (m *Model) filterLine() string {
+func (m *Model) filterLine(shown []int) string {
 	if m.filter == "" && !m.filtering {
 		return ""
 	}
@@ -147,7 +145,7 @@ func (m *Model) filterLine() string {
 		line += "\u2588"
 	}
 	line = lipgloss.NewStyle().Background(styles.Background).Foreground(styles.TextPrimary).Render(line)
-	if len(m.shown()) == 0 {
+	if len(shown) == 0 {
 		line += lipgloss.NewStyle().Background(styles.Background).Foreground(styles.TextMuted).Render("  no matching rows")
 	}
 	return line
@@ -198,22 +196,25 @@ func (m *Model) renderBox(termWidth int) string {
 		Background(bg).
 		Foreground(styles.Primary).
 		Render(m.title)
-	title = m.withTitleStatus(title, innerWidth)
+	shown := m.shown()
+	window := m.windowOf(shown)
+	title = m.withTitleStatus(title, innerWidth, shown, window)
 
 	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
 	mutedStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
 
+	sideWidth := m.sideWidth(innerWidth)
 	var rows []string
-	for _, i := range m.window() {
+	for _, i := range window {
 		it := m.items[i]
-		text := m.drawnText(it, innerWidth)
+		text := drawnText(it, sideWidth)
 		badge := ""
 		if it.InApp {
 			badge = " [slk]"
 		}
 		budget := innerWidth - 1 - lipgloss.Width(badge) // 1 = indicator column
 		budget -= lipgloss.Width(m.checkbox(i))
-		side := m.sideColumn(it, innerWidth)
+		side := sideColumn(it, sideWidth)
 		budget -= lipgloss.Width(side)
 		if budget < 1 {
 			budget = 1
@@ -256,7 +257,7 @@ func (m *Model) renderBox(termWidth int) string {
 		Foreground(styles.TextMuted).
 		Render(m.footerText(innerWidth))
 
-	content := title + "\n" + m.filterLine() + "\n" + strings.Join(rows, "\n") + "\n\n" + footer
+	content := title + "\n" + m.filterLine(shown) + "\n" + strings.Join(rows, "\n") + "\n\n" + footer
 	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
 
 	return lipgloss.NewStyle().

@@ -181,3 +181,15 @@ func TestRenderBox_SideColumnAlignedWithoutBadge(t *testing.T) {
 		t.Errorf("columns start at cells %d and %d, want the same:\n%s", at("#general"), at("other.slack.com"), strings.Join(lines, "\n"))
 	}
 }
+
+// A draw of the 46-row table picker with a full 20-row window.
+func BenchmarkRenderBox(b *testing.B) {
+	m := New()
+	m.Open("Open link in herdr tab", tableItems())
+	m.SetMultiSelect(true)
+	m.SetTermHeight(50)
+	b.ReportAllocs()
+	for b.Loop() {
+		m.renderBox(140)
+	}
+}
