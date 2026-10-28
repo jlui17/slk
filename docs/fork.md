@@ -361,3 +361,6 @@ upstream's and drop the fork's.
 - `internal/ui/view_sidebar.go`, `panelcache.go` — the bordered sidebar
   is kept when a read-state refresh leaves every row as it was (branch
   `perf-sidebar-border`).
+- `internal/ui/view_helpers.go` — `joinPanelsHorizontal`,
+  `stackContentStatus` and `borderedPaneCore` size their builders up
+  front (branch `perf-frame-grow`).

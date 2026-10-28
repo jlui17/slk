@@ -47,14 +47,17 @@ func joinPanelsHorizontal(panels []string, height int) (string, bool) {
 		return "", false
 	}
 	cols := make([][]string, len(panels))
+	size := 0
 	for i, p := range panels {
 		lines := strings.Split(p, "\n")
 		if len(lines) != height {
 			return "", false
 		}
 		cols[i] = lines
+		size += len(p)
 	}
 	var b strings.Builder
+	b.Grow(size)
 	for r := 0; r < height; r++ {
 		if r > 0 {
 			b.WriteByte('\n')
@@ -95,6 +98,7 @@ func stackContentStatus(content, status string) string {
 	if maxW > contentW {
 		pad := strings.Repeat(" ", maxW-contentW)
 		lines := strings.Split(content, "\n")
+		b.Grow(len(content) + len(lines)*len(pad) + 1 + len(status))
 		for i, line := range lines {
 			if i > 0 {
 				b.WriteByte('\n')
@@ -103,6 +107,7 @@ func stackContentStatus(content, status string) string {
 			b.WriteString(pad)
 		}
 	} else {
+		b.Grow(len(content) + 1 + len(status) + maxW - statusW)
 		b.WriteString(content)
 	}
 	b.WriteByte('\n')
@@ -231,6 +236,8 @@ func borderedPaneCore(content string, innerWidth, fullWidth, rows int, focused b
 
 	lines := strings.Split(content, "\n")
 	var b strings.Builder
+	blankRows := max(rows-1-len(lines), 0)
+	b.Grow(2*len(topEdge) + len(content) + rows*(len(left)+len(right)+len(gutter)+1) + blankRows*len(blankInner))
 	for r := 0; r < rows; r++ {
 		if r > 0 {
 			b.WriteByte('\n')
