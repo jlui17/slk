@@ -199,7 +199,7 @@ func WordWrap(s string, limit int) string {
 		if i > 0 {
 			result.WriteByte('\n')
 		}
-		wrapLine(&result, line, limit)
+		wrapStyledLine(&result, line, limit) // fork
 	}
 	return result.String()
 }

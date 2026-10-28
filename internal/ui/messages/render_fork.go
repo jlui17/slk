@@ -66,9 +66,7 @@ func renderQuoteLine(body string, opts RenderSlackMarkdownOpts, hl searchHighlig
 func renderBlockquote(body string, width int, hl searchHighlighter) string {
 	style := blockquoteStyle()
 	body = ReapplyBgAfterResets(body, fgANSIFor(style.GetForeground()))
-	body = WordWrap(body, width-style.GetHorizontalFrameSize())
-	body = strings.Join(reopenSGRAcrossRows(strings.Split(body, "\n")), "\n")
-	return style.Render(body)
+	return style.Render(WordWrap(body, width-style.GetHorizontalFrameSize()))
 }
 
 type heldCodeBlocks []string
@@ -339,6 +337,21 @@ func renderListItem(line string, opts RenderSlackMarkdownOpts, hl searchHighligh
 	w := lipgloss.Width(head)
 	body = WordWrap(body, opts.Width-w)
 	return head + strings.ReplaceAll(body, "\n", "\n"+strings.Repeat(" ", w)), true
+}
+
+// wrapStyledLine is wrapLine for a line that may carry SGR: a styled run
+// the wrap splits stays styled on the rows it continues onto.
+func wrapStyledLine(buf *strings.Builder, line string, limit int) {
+	if writeIfFits(buf, line, limit) {
+		return
+	}
+	if !strings.Contains(line, "\x1b[") {
+		wrapLine(buf, line, limit)
+		return
+	}
+	var rows strings.Builder
+	wrapLine(&rows, line, limit)
+	buf.WriteString(strings.Join(reopenSGRAcrossRows(strings.Split(rows.String(), "\n")), "\n"))
 }
 
 func writeIfFits(buf *strings.Builder, line string, limit int) bool {

@@ -935,6 +935,31 @@ func sgrAttrText(s, on, off string) string {
 	return b.String()
 }
 
+// Slack keeps a bold, italic or struck sentence styled on every row it
+// wraps onto, in the body and in a list item.
+func TestWrappedStyledSentenceKeepsItsStyleOnEveryRow(t *testing.T) {
+	cases := []struct{ name, text, on, off string }{
+		{"bold", "*%s*", "1", "22"},
+		{"italic", "_%s_", "3", "23"},
+		{"strike", "~%s~", "9", "29"},
+		{"bold list item", "• *%s*", "1", "22"},
+	}
+	const sentence = "This sentence is long enough that it has to wrap onto a second row"
+	for _, c := range cases {
+		m := New([]MessageItem{{TS: "1.0", UserName: "bot", Text: fmt.Sprintf(c.text, sentence)}}, "general")
+		m.buildCache(50, false)
+		i := slices.IndexFunc(m.list.Entries(), func(e entrylist.Entry) bool { return e.Ref == 0 })
+		var drawn, styled []string
+		for _, row := range m.list.Entries()[i].Lines[1:] {
+			drawn = append(drawn, strings.Trim(ansi.Strip(row), "▌• "))
+			styled = append(styled, sgrAttrText(row, c.on, c.off))
+		}
+		if len(drawn) < 2 || !slices.Equal(drawn, styled) {
+			t.Errorf("%s: rows drawn:\n%s\nstyled:\n%s", c.name, strings.Join(drawn, "\n"), strings.Join(styled, "\n"))
+		}
+	}
+}
+
 // Slack sends a struck-through phrase with a link in it as struck text,
 // a struck link and struck text. Shape as seen 2026-10 in a bot's
 // corrected reply.
