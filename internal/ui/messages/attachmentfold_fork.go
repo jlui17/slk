@@ -6,21 +6,6 @@ import (
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 )
 
-var timestampFormat string
-
-// SetTimestampFormat sets the clock format a linked message's card
-// header uses: the config's timestamp_format, as message rows wear it.
-func SetTimestampFormat(format string) { timestampFormat = format }
-
-// TimestampFormat is the layout SetTimestampFormat set, the default
-// "3:04 PM" until it is called.
-func TimestampFormat() string {
-	if timestampFormat == "" {
-		return "3:04 PM"
-	}
-	return timestampFormat
-}
-
 // CardContext is what a pane hands blockkit for one message's
 // attachment cards.
 func CardContext(expanded bool, channelNames map[string]string) blockkit.CardContext {
@@ -28,7 +13,7 @@ func CardContext(expanded bool, channelNames map[string]string) blockkit.CardCon
 		Expanded:     expanded,
 		ChannelNames: channelNames,
 		Now:          nowFunc(),
-		TimeFormat:   timestampFormat,
+		TimeFormat:   TimestampFormat(),
 	}
 }
 

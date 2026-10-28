@@ -28,7 +28,7 @@ type CardContext struct {
 	Expanded     bool              // the message's cards show in full
 	ChannelNames map[string]string // channel ID -> name, for a linked message's header
 	Now          time.Time         // a linked message's time reads against it
-	TimeFormat   string            // the host's clock format; "" means "3:04 PM"
+	TimeFormat   string            // the host's clock format, a time.Format layout
 }
 
 // LinkedMessage reports the Slack message a unfurls.
@@ -184,9 +184,6 @@ func linkedMessageTime(ts string, now time.Time, timeFormat string) string {
 	sec, err := strconv.ParseInt(strings.SplitN(ts, ".", 2)[0], 10, 64)
 	if err != nil {
 		return ""
-	}
-	if timeFormat == "" {
-		timeFormat = "3:04 PM"
 	}
 	t := time.Unix(sec, 0)
 	ny, nm, nd := now.Date()

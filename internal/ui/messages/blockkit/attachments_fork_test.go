@@ -63,6 +63,7 @@ func linkedCtx() Context {
 	ctx := makeCtx()
 	ctx.Card.ChannelNames = map[string]string{"C0000000001": "dev"}
 	ctx.Card.Now = time.Date(2026, 3, 1, 9, 0, 0, 0, time.Local)
+	ctx.Card.TimeFormat = "3:04 PM"
 	return ctx
 }
 
@@ -193,8 +194,8 @@ func TestLinkedMessageTimeIsLocalAndDatedLikeSearchResults(t *testing.T) {
 		now          time.Time
 		format, want string
 	}{
-		{time.Date(2026, 3, 1, 23, 0, 0, 0, time.Local), "", "4:02 PM"},
-		{time.Date(2026, 3, 2, 0, 5, 0, 0, time.Local), "", "Mar 1, 4:02 PM"},
+		{time.Date(2026, 3, 1, 23, 0, 0, 0, time.Local), "3:04 PM", "4:02 PM"},
+		{time.Date(2026, 3, 2, 0, 5, 0, 0, time.Local), "3:04 PM", "Mar 1, 4:02 PM"},
 		{time.Date(2027, 1, 1, 0, 0, 0, 0, time.Local), "15:04", "Mar 1 2026, 16:02"},
 	}
 	for _, c := range cases {
