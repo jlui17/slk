@@ -84,3 +84,38 @@ func (h *rtmEventHandler) reactionReachesUI(userID string) bool {
 	u, err := h.db.GetUser(userID)
 	return err == nil && u.IsBot
 }
+
+// cacheReaction applies one reaction event to the cached reactions with
+// the panes' rule (messages.ApplyReaction): one entry per user per emoji.
+// Every slk on the machine shares the cache and gets every event, so
+// the cache sees each event once per slk. A row an earlier build stored
+// once per slk is first cut back to one entry per user, taking the
+// repeats off its count.
+func (h *rtmEventHandler) cacheReaction(channelID, ts, userID, emoji string, remove bool) {
+	rows, err := h.db.GetReactions(ts, channelID)
+	if err != nil {
+		return
+	}
+	var msg messages.MessageItem
+	for _, r := range rows {
+		if r.Emoji != emoji {
+			continue
+		}
+		var users []string
+		for _, id := range r.UserIDs {
+			users = messages.AppendUserID(users, id)
+		}
+		msg.Reactions = []messages.ReactionItem{{
+			Emoji:   emoji,
+			Count:   r.Count - (len(r.UserIDs) - len(users)),
+			UserIDs: users,
+		}}
+	}
+	messages.ApplyReaction(&msg, emoji, userID, "", remove)
+	if len(msg.Reactions) == 0 {
+		_ = h.db.DeleteReaction(ts, channelID, emoji)
+		return
+	}
+	r := msg.Reactions[0]
+	_ = h.db.UpsertReaction(ts, channelID, emoji, r.UserIDs, r.Count)
+}

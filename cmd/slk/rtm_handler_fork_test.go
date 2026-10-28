@@ -95,3 +95,61 @@ func TestReactionsReachUIFromBackgroundWorkspaceOnlyForBots(t *testing.T) {
 		})
 	}
 }
+
+// Every slk running on the machine shares one cache and gets every
+// reaction event, so the cache sees each event once per slk. The bot's
+// ack (:eyes: added on start, removed when done, added again) must still
+// leave one entry for the bot, as Slack shows: "eyes ×1".
+func TestOnReaction_CacheCountsEachUserOnce(t *testing.T) {
+	const ch, ts, bot = "C1", "1.0", "UBOT"
+	db := newTestDB(t)
+	panes := []*rtmEventHandler{
+		{program: &captureSender{}, workspaceID: "T1", db: db},
+		{program: &captureSender{}, workspaceID: "T1", db: db},
+	}
+	added := func() {
+		for _, h := range panes {
+			h.OnReactionAdded(ch, ts, bot, "eyes")
+		}
+	}
+	removed := func() {
+		for _, h := range panes {
+			h.OnReactionRemoved(ch, ts, bot, "eyes")
+		}
+	}
+	wantEyes := func(step string, users []string, count int) {
+		t.Helper()
+		rows, err := db.GetReactions(ts, ch)
+		if err != nil {
+			t.Fatalf("GetReactions: %v", err)
+		}
+		if len(users) == 0 {
+			if len(rows) != 0 {
+				t.Fatalf("after %s: cached %+v, want no reaction", step, rows)
+			}
+			return
+		}
+		if len(rows) != 1 || !slices.Equal(rows[0].UserIDs, users) || rows[0].Count != count {
+			t.Fatalf("after %s: cached %+v, want eyes %v ×%d", step, rows, users, count)
+		}
+	}
+
+	added()
+	wantEyes("add", []string{bot}, 1)
+	removed()
+	wantEyes("add, remove", nil, 0)
+	added()
+	removed()
+	added()
+	panes[0].OnReactionAdded(ch, ts, bot, "eyes") // a duplicate delivery
+	wantEyes("add, remove, add, remove, add, add", []string{bot}, 1)
+
+	// A row an earlier build stored once per slk mends on the next event.
+	if err := db.UpsertReaction(ts, ch, "eyes", []string{bot, bot, bot, "U2"}, 4); err != nil {
+		t.Fatalf("UpsertReaction: %v", err)
+	}
+	added()
+	wantEyes("add over a row stored once per slk", []string{bot, "U2"}, 2)
+	removed()
+	wantEyes("remove", []string{"U2"}, 1)
+}

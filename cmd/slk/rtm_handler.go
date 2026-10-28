@@ -511,21 +511,7 @@ func (h *rtmEventHandler) OnMessageDeleted(channelID, ts string) {
 
 func (h *rtmEventHandler) OnReactionAdded(channelID, ts, userID, emojiName string) {
 	// Update cache regardless of active state
-	rows, err := h.db.GetReactions(ts, channelID)
-	if err == nil {
-		found := false
-		for _, r := range rows {
-			if r.Emoji == emojiName {
-				userIDs := append(r.UserIDs, userID)
-				_ = h.db.UpsertReaction(ts, channelID, emojiName, userIDs, r.Count+1)
-				found = true
-				break
-			}
-		}
-		if !found {
-			_ = h.db.UpsertReaction(ts, channelID, emojiName, []string{userID}, 1)
-		}
-	}
+	h.cacheReaction(channelID, ts, userID, emojiName, false) // fork: rtm_handler_fork.go
 
 	// Tagged like NewMessageMsg: the reducer skips background-team pane
 	// updates itself, and the tracked agent thread's ack hook runs ahead
@@ -544,25 +530,7 @@ func (h *rtmEventHandler) OnReactionAdded(channelID, ts, userID, emojiName strin
 
 func (h *rtmEventHandler) OnReactionRemoved(channelID, ts, userID, emojiName string) {
 	// Update cache regardless of active state
-	rows, err := h.db.GetReactions(ts, channelID)
-	if err == nil {
-		for _, r := range rows {
-			if r.Emoji == emojiName {
-				var newUserIDs []string
-				for _, uid := range r.UserIDs {
-					if uid != userID {
-						newUserIDs = append(newUserIDs, uid)
-					}
-				}
-				if len(newUserIDs) == 0 {
-					_ = h.db.DeleteReaction(ts, channelID, emojiName)
-				} else {
-					_ = h.db.UpsertReaction(ts, channelID, emojiName, newUserIDs, r.Count-1)
-				}
-				break
-			}
-		}
-	}
+	h.cacheReaction(channelID, ts, userID, emojiName, true) // fork: rtm_handler_fork.go
 
 	if !h.reactionReachesUI(userID) { // fork: herdr_wiring.go
 		return

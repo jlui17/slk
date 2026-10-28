@@ -80,6 +80,12 @@ there and resolve them knowing what the fork wants:
   (`authorName`, `users_fork.go`), and a WebSocket message is cached with
   the event's `user`, `bot_id` and `username` in raw_json, as Slack sends
   them, where upstream stores the author ID as `user`.
+- `cmd/slk/rtm_handler.go` — `OnReactionAdded` and `OnReactionRemoved`
+  write the cache through `cacheReaction` (`rtm_handler_fork.go`), which
+  keeps one entry per user per emoji, where upstream appends the user and
+  adds one to the count for every event. Every slk on the machine shares
+  the cache and gets every event, so upstream's write counted a reaction
+  once per slk.
 - `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
   `OriginalW/H`, `MessageService.Preview`, and
   the `Preview` member of `MessageServiceFuncs`; the adapter method and
