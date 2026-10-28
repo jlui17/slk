@@ -77,3 +77,28 @@ func TestVisible(t *testing.T) {
 		t.Error("Visible(6,5) should be true")
 	}
 }
+
+func TestThumb(t *testing.T) {
+	cases := []struct {
+		name                   string
+		total, offset, visible int
+		start, end             int
+	}{
+		{"top", 20, 0, 10, 0, 5},
+		{"middle rounds down", 20, 5, 10, 2, 7},
+		{"bottom", 20, 10, 10, 5, 10},
+		{"thumb at least one row", 100, 97, 3, 2, 3},
+		{"offset past the end clamps", 20, 50, 10, 5, 10},
+		{"no overflow fills the track", 5, 0, 10, 0, 10},
+		{"no window", 20, 0, 0, 0, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, e := Thumb(c.total, c.offset, c.visible)
+			if s != c.start || e != c.end {
+				t.Errorf("Thumb(%d, %d, %d) = [%d, %d), want [%d, %d)",
+					c.total, c.offset, c.visible, s, e, c.start, c.end)
+			}
+		})
+	}
+}

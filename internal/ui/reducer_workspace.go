@@ -241,6 +241,9 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.SetCurrentUserID(m.UserID)
 		a.activeTeamID = m.TeamID
 		a.setWorkspaceDomain() // fork: profilecard.go
+		// The back-jump slot is not per-workspace: it holds the latest
+		// departure, which is meaningless once the workspace changes.
+		a.backJump = nil
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		batch = append(batch, a.applyActiveConnState())
@@ -271,9 +274,9 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 			// would.
 			if nav := a.startupLinkNav; nav != nil {
 				a.startupLinkNav = nil
-				if n, t, found := lookupChannelIn(nav.channelID, m.Channels, m.FinderItems); found {
+				if n, t, found := lookupChannelIn(string(nav.ChannelID), m.Channels, m.FinderItems); found {
 					a.pendingLinkNav = nav
-					id, name, chType = nav.channelID, n, t
+					id, name, chType = string(nav.ChannelID), n, t
 				} else {
 					batch = append(batch, func() tea.Msg {
 						return ToastMsg{Text: "Linked channel not found in this workspace"}
@@ -335,7 +338,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 // data, restores last-viewed channel).
 func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
-		return a.uploadToastCmd("Upload in progress", 2*time.Second)
+		return toastWithClear(a, "Upload in progress", 2*time.Second)
 	}
 	if a.userProfile.IsVisible() {
 		a.userProfile.Close()
@@ -352,6 +355,10 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// entry.
 	if a.activeTeamID != "" && a.activeChannelID != "" && a.activeTeamID != m.TeamID {
 		a.lastChannelByTeam[a.activeTeamID] = a.activeChannelID
+		// Leaving the workspace is a departure from its current
+		// history entry; record the position before the teardown
+		// below clears the selections.
+		a.navHistory.UpdateCurrent(a.activeTeamID, a.currentPosition())
 	}
 	a.cancelEdit()
 	// Detach the main composer from the outgoing workspace's channel
@@ -413,6 +420,9 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.SetCurrentUserID(m.UserID)
 	a.activeTeamID = m.TeamID
 	a.setWorkspaceDomain() // fork: profilecard.go
+	// The back-jump slot is not per-workspace: clear it on switch (see
+	// WorkspaceReadyMsg).
+	a.backJump = nil
 	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 	var batch []tea.Cmd

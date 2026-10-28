@@ -125,7 +125,7 @@ func shortcutKey(k string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: []rune(k)[0], Text: k}
 }
 
-func typeKeys(a *App, s string) {
+func typeAppKeys(a *App, s string) {
 	for _, r := range s {
 		send(a, tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -275,9 +275,9 @@ func openAnnotateForm(t *testing.T) (*App, *fakeShortcutService) {
 func TestAppShortcuts_FormKeysStayInForm(t *testing.T) {
 	a, svc := openAnnotateForm(t)
 	// Keys that mean something to slk elsewhere: q, j, i, ., :, ?
-	typeKeys(a, "qji.:?")
+	typeAppKeys(a, "qji.:?")
 	send(a, shortcutKey("enter"))
-	typeKeys(a, "ok")
+	typeAppKeys(a, "ok")
 	if a.mode != ModeAppShortcuts || a.threadVisible {
 		t.Fatalf("mode %v", a.mode)
 	}
@@ -304,7 +304,7 @@ func TestAppShortcuts_FormKeysStayInForm(t *testing.T) {
 func TestAppShortcuts_SubmitRefusedKeepsForm(t *testing.T) {
 	a, svc := openAnnotateForm(t)
 	svc.submitRes = appshortcuts.SubmitResult{FieldErrors: map[string]string{"note": "Say more"}}
-	typeKeys(a, "x")
+	typeAppKeys(a, "x")
 	send(a, shortcutKey("tab"))
 	send(a, shortcutKey("space"))
 	send(a, shortcutKey("ctrl+s"))
@@ -368,7 +368,7 @@ func TestAppShortcuts_QuitPromptCancelReturnsToForm(t *testing.T) {
 		t.Fatalf("mode %v, want the quit prompt", a.mode)
 	}
 	send(a, shortcutKey("esc"))
-	typeKeys(a, "q")
+	typeAppKeys(a, "q")
 	if a.mode != ModeAppShortcuts || !strings.Contains(a.appShortcuts.model.Form().State(), `"value":"q"`) {
 		t.Errorf("mode %v state %s", a.mode, a.appShortcuts.model.Form().State())
 	}
@@ -469,7 +469,7 @@ func TestAppShortcuts_LateViewIsClosed(t *testing.T) {
 // ctrl+s again: one submit, and the typed note survives the update.
 func TestAppShortcuts_ViewUpdatedDuringSubmit(t *testing.T) {
 	a, svc := openAnnotateForm(t)
-	typeKeys(a, "note")
+	typeAppKeys(a, "note")
 	send(a, shortcutKey("tab"))
 	send(a, shortcutKey("space"))
 	_, submit := a.Update(shortcutKey("ctrl+s"))

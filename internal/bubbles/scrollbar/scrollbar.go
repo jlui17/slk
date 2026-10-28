@@ -1,5 +1,6 @@
 // Package scrollbar renders a 1-column proportional scrollbar gutter onto
-// pre-rendered visible lines. It is the same look used by the modal
+// pre-rendered visible lines, and computes its thumb (Thumb) for callers
+// that draw the gutter themselves. It is the same look used by the modal
 // overlays (channelfinder, workspacefinder, themeswitcher, reactionpicker):
 // a Border-colored track (│) with a Primary-colored thumb (█) sized
 // proportionally to the visible window, positioned proportionally to the
@@ -37,27 +38,7 @@ func Overlay(visible []string, width, total, yOffset, visibleHeight int, bg, tra
 		return visible
 	}
 
-	// Proportional thumb sizing: thumbHeight = visible^2 / total, clamped
-	// to [1, visibleHeight]. Same formula as the modal overlays.
-	thumbHeight := visibleHeight * visibleHeight / total
-	if thumbHeight < 1 {
-		thumbHeight = 1
-	}
-	if thumbHeight > visibleHeight {
-		thumbHeight = visibleHeight
-	}
-	denom := total - visibleHeight
-	if denom < 1 {
-		denom = 1
-	}
-	thumbStart := yOffset * (visibleHeight - thumbHeight) / denom
-	if thumbStart < 0 {
-		thumbStart = 0
-	}
-	if thumbStart > visibleHeight-thumbHeight {
-		thumbStart = visibleHeight - thumbHeight
-	}
-	thumbEnd := thumbStart + thumbHeight
+	thumbStart, thumbEnd := Thumb(total, yOffset, visibleHeight)
 
 	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(thumbFg)
 	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(trackFg)
@@ -101,6 +82,26 @@ func Overlay(visible []string, width, total, yOffset, visibleHeight int, bg, tra
 		visible[i] = prefix + glyph
 	}
 	return visible
+}
+
+// Thumb returns the [start, end) rows of the thumb within a window of
+// visible rows scrolled offset rows into total. The thumb is
+// visible²/total rows tall, at least one, positioned in proportion to
+// offset so it reaches the bottom when the window does. This is the
+// one thumb formula: Overlay and the dialog chrome
+// (internal/bubbles/chrome) both use it. With no overflow the thumb
+// fills the track; with no window it is empty.
+func Thumb(total, offset, visible int) (start, end int) {
+	if visible <= 0 {
+		return 0, 0
+	}
+	if total <= visible {
+		return 0, visible
+	}
+	height := max(visible*visible/total, 1)
+	denom := max(total-visible, 1)
+	start = min(max(offset*(visible-height)/denom, 0), visible-height)
+	return start, start + height
 }
 
 // Visible reports whether a scrollbar should be drawn for the given content

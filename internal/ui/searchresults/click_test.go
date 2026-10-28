@@ -28,7 +28,7 @@ func TestBoxSizeMatchesRender(t *testing.T) {
 
 // TestClickRowSelectsItem verifies a box-local click on a list row moves the
 // selection to that item, and that clicks above/below the list are no-ops.
-// Rows are rowLines tall: row k starts at line listTopOffset + k*rowLines.
+// Rows are rowLines tall: row k starts at line listTopOffset() + k*rowLines.
 func TestClickRowSelectsItem(t *testing.T) {
 	m := New()
 	m.Open()
@@ -41,7 +41,7 @@ func TestClickRowSelectsItem(t *testing.T) {
 	}
 
 	// Third visible row: its first line is at offset 2*rowLines.
-	if !m.ClickRow(80, 30, listTopOffset+2*rowLines) {
+	if !m.ClickRow(80, 30, listTopOffset()+2*rowLines) {
 		t.Fatal("ClickRow on a populated row should return true")
 	}
 	if m.selected != 2 {
@@ -49,12 +49,12 @@ func TestClickRowSelectsItem(t *testing.T) {
 	}
 
 	// Clicking the input/title area (above the list) is a no-op.
-	if m.ClickRow(80, 30, listTopOffset-1) {
+	if m.ClickRow(80, 30, listTopOffset()-1) {
 		t.Error("ClickRow above the list should return false")
 	}
 
 	// Clicking past the last visible row's separator is a no-op.
-	if m.ClickRow(80, 30, listTopOffset+3*rowLines) {
+	if m.ClickRow(80, 30, listTopOffset()+3*rowLines) {
 		t.Error("ClickRow past the last visible row should return false")
 	}
 }
@@ -69,7 +69,7 @@ func TestClickAnyLineSelectsRow(t *testing.T) {
 	m.SetResults(manyItems(6), 6)
 
 	// First snippet line of row 0.
-	if !m.ClickRow(80, 30, listTopOffset+1) {
+	if !m.ClickRow(80, 30, listTopOffset()+1) {
 		t.Fatal("ClickRow on row 0 line 2 should return true")
 	}
 	if m.selected != 0 {
@@ -77,7 +77,7 @@ func TestClickAnyLineSelectsRow(t *testing.T) {
 	}
 
 	// Second snippet line of row 2.
-	if !m.ClickRow(80, 30, listTopOffset+2*rowLines+2) {
+	if !m.ClickRow(80, 30, listTopOffset()+2*rowLines+2) {
 		t.Fatal("ClickRow on row 2 line 3 should return true")
 	}
 	if m.selected != 2 {
@@ -85,7 +85,7 @@ func TestClickAnyLineSelectsRow(t *testing.T) {
 	}
 
 	// Separator line of row 1 maps to row 1.
-	if !m.ClickRow(80, 30, listTopOffset+1*rowLines+3) {
+	if !m.ClickRow(80, 30, listTopOffset()+1*rowLines+3) {
 		t.Fatal("ClickRow on row 1's separator should return true")
 	}
 	if m.selected != 1 {
@@ -103,7 +103,7 @@ func TestClickRowScrolledWindow(t *testing.T) {
 	m.SetResults(manyItems(15), 15)
 	m.selected = 14 // window is [12, 15) at a 30-row terminal
 
-	if !m.ClickRow(80, 30, listTopOffset+0) {
+	if !m.ClickRow(80, 30, listTopOffset()+0) {
 		t.Fatal("ClickRow on first visible row should return true")
 	}
 	if m.selected != 12 {
@@ -140,10 +140,10 @@ func TestShortTerminalClampsRows(t *testing.T) {
 	if rows < 1 {
 		t.Fatalf("clamped window is empty: [%d,%d)", start, end)
 	}
-	if !m.ClickRow(80, termH, listTopOffset+(rows-1)*rowLines) {
+	if !m.ClickRow(80, termH, listTopOffset()+(rows-1)*rowLines) {
 		t.Error("last clamped row should be clickable")
 	}
-	if m.ClickRow(80, termH, listTopOffset+rows*rowLines) {
+	if m.ClickRow(80, termH, listTopOffset()+rows*rowLines) {
 		t.Error("row past the clamped window should not be clickable")
 	}
 }
@@ -172,15 +172,15 @@ func TestTinyTerminalKeepsOneRow(t *testing.T) {
 func TestClickRowOnlyInResultsState(t *testing.T) {
 	m := New()
 	m.Open()
-	if m.ClickRow(80, 24, listTopOffset) {
+	if m.ClickRow(80, 24, listTopOffset()) {
 		t.Error("ClickRow in input state should return false")
 	}
 	submitQuery(&m, "deploy") // now loading
-	if m.ClickRow(80, 24, listTopOffset) {
+	if m.ClickRow(80, 24, listTopOffset()) {
 		t.Error("ClickRow in loading state should return false")
 	}
 	m.SetError("boom")
-	if m.ClickRow(80, 24, listTopOffset) {
+	if m.ClickRow(80, 24, listTopOffset()) {
 		t.Error("ClickRow in error state should return false")
 	}
 }

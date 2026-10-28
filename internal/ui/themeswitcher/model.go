@@ -1,14 +1,15 @@
 package themeswitcher
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
-	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
 
@@ -34,6 +35,11 @@ type Model struct {
 	headerText string
 }
 
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
+
 // New creates a new theme switcher.
 func New() Model {
 	return Model{}
@@ -42,6 +48,25 @@ func New() Model {
 // SetItems updates the list of available theme names.
 func (m *Model) SetItems(items []string) {
 	m.items = items
+}
+
+// Neighbor returns the theme step places from current in the picker's
+// item order, wrapping at either end, so repeated calls with the result
+// cycle through every theme. current matches case-insensitively. When it
+// is not in the list, a forward step starts at the first item and a
+// backward step at the last. Returns "" when there are no items.
+func (m Model) Neighbor(current string, step int) string {
+	n := len(m.items)
+	if n == 0 {
+		return ""
+	}
+	idx := slices.IndexFunc(m.items, func(item string) bool {
+		return strings.EqualFold(item, current)
+	})
+	if idx < 0 && step < 0 {
+		idx = n
+	}
+	return m.items[((idx+step)%n+n)%n]
 }
 
 // Open shows the overlay and resets state. Defaults to ScopeGlobal with no
@@ -73,9 +98,8 @@ func (m *Model) Close() {
 	m.visible = false
 }
 
-// listTopOffset is the box-local row of the first list row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first list row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // maxVisibleRows is the height of the results scroll window.
 const maxVisibleRows = 12
@@ -95,24 +119,7 @@ func boxWidth(termWidth int) int {
 // visibleWindow returns the [start, end) slice of m.filtered currently
 // shown, using the same scroll math as the renderer.
 func (m *Model) visibleWindow() (int, int) {
-	maxVisible := maxVisibleRows
-	total := len(m.filtered)
-	if maxVisible > total {
-		maxVisible = total
-	}
-	startIdx := 0
-	if m.selected >= maxVisible {
-		startIdx = m.selected - maxVisible + 1
-	}
-	endIdx := startIdx + maxVisible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - maxVisible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.selected, len(m.filtered), maxVisibleRows)
 }
 
 // BoxSize returns the rendered modal box's outer dimensions. termHeight is
@@ -129,7 +136,7 @@ func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 // ClickRow moves the selection to the list row at box-local localY and
 // returns true when the click lands on a visible row.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 {
 		return false
 	}
@@ -234,143 +241,38 @@ func (m Model) renderBox(termWidth int) string {
 	if !m.visible {
 		return ""
 	}
-
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4
-
-	// All inner elements share the modal background so the dimmed app
-	// behind the overlay doesn't bleed through individual styled spans.
-	bg := styles.Background
 
 	titleText := "Switch Theme"
 	if m.headerText != "" {
 		titleText = m.headerText
 	}
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render(titleText)
 
-	var inputText string
-	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter...")
-		inputText = "\u2588 " + placeholder
-	} else {
-		inputText = m.query + "\u2588"
-	}
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "\u258c"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(inputText)
-
-	total := len(m.filtered)
-	startIdx, endIdx := m.visibleWindow()
-	maxVisible := endIdx - startIdx
-
-	// Scrollbar: only shown when the list is taller than the visible window.
-	// Reserve one column on the right; rows shrink by 1 to make room. The
-	// thumb size and position are proportional to the visible-window/total
-	// ratio so users see at a glance how much more content exists.
-	showScrollbar := total > maxVisible
-	rowWidth := innerWidth - 1 // leave room for the scrollbar gutter (1 col)
-	if !showScrollbar {
-		rowWidth = innerWidth
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		// Thumb height: at least 1 row, proportional otherwise.
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
+	start, end := m.visibleWindow()
+	list := chrome.List{Start: start, End: end, Total: len(m.filtered)}
+	width := list.ContentWidth(innerWidth)
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		line := m.items[m.filtered[i]]
+		if lipgloss.Width(line) > width {
+			line = truncate.StringWithTail(line, uint(width), "\u2026")
 		}
-		// Thumb top: proportional to scroll position. Clamp so the thumb
-		// reaches the bottom exactly when endIdx == total.
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	var resultRows []string
-	for i := startIdx; i < endIdx; i++ {
-		idx := m.filtered[i]
-		line := m.items[idx]
-
-		if lipgloss.Width(line) > rowWidth-1 {
-			line = truncate.StringWithTail(line, uint(rowWidth-1), "\u2026")
-		}
-
-		var row string
+		style := s.Row
 		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(rowWidth - 1).
-				Render(line)
-			row = indicator + label
-		} else {
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextPrimary).
-				Width(rowWidth - 1).
-				Render(line)
-			row = " " + label
+			style = s.RowSelected
 		}
-
-		if showScrollbar {
-			rel := i - startIdx
-			var sb string
-			if rel >= thumbStart && rel < thumbEnd {
-				sb = thumbStyle.Render("\u2588") // █ thumb
-			} else {
-				sb = trackStyle.Render("\u2502") // │ track
-			}
-			row += sb
-		}
-		resultRows = append(resultRows, row)
+		rows = append(rows, style.Width(width).Render(line))
 	}
 
-	if total == 0 && m.query != "" {
-		noResults := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No matching themes")
-		resultRows = append(resultRows, noResults)
+	f := chrome.Frame{
+		Title: titleText,
+		Input: chrome.FilterInput(s, m.query, "Type to filter..."),
+		Body:  list.Rows(s, m.selected, rows),
 	}
-
-	content := title + "\n" + input + "\n\n" + strings.Join(resultRows, "\n")
-
-	// Re-paint modal bg+fg after every ANSI reset so trailing/unstyled
-	// cells don't leak the dimmed app behind the overlay.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	if m.query != "" {
+		f.Empty = "No matching themes"
+	}
+	return f.Render(s, overlayWidth)
 }

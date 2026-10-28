@@ -228,7 +228,7 @@ func TestSearchNav_MessageWithoutReplies_SelectsInChannel(t *testing.T) {
 	a := newTestApp(t, withSize(200, 60))
 	a.activeChannelID = judgeChannelID
 	a.messagepane.SetMessages(judgeHistory())
-	a.pendingLinkNav = &pendingLinkNav{channelID: judgeChannelID, messageTS: judgePostTS}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: ids.ChannelID(judgeChannelID), MessageTS: ids.MessageTS(judgePostTS)}}
 	drainCmd(a.completePendingLinkNav(judgeChannelID, true))
 	if a.threadVisible {
 		t.Error("search jump opened a thread panel")

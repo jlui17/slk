@@ -1,17 +1,20 @@
 package emojipicker
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 )
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // MaxVisible caps how many emoji rows are shown in the picker.
 // Independent of mentionpicker.MaxVisible.
@@ -158,6 +161,7 @@ func (m Model) View(width int) string {
 	if !m.visible || len(m.filtered) == 0 {
 		return ""
 	}
+	s := messages.ChromeStyles()
 
 	// Compute the widest display preview so name columns line up.
 	previewWidth := 1
@@ -187,10 +191,8 @@ func (m Model) View(width int) string {
 
 	var rows []string
 	for i, e := range m.filtered {
-		indicator := "  "
 		nameStyle := lipgloss.NewStyle().Foreground(styles.TextPrimary)
 		if i == m.selected {
-			indicator = lipgloss.NewStyle().Foreground(styles.Accent).Render("▌ ")
 			nameStyle = nameStyle.Bold(true)
 		}
 
@@ -215,17 +217,11 @@ func (m Model) View(width int) string {
 			pad = 0
 		}
 		preview = preview + strings.Repeat(" ", pad)
-		row := fmt.Sprintf("%s%s  %s", indicator, preview, nameStyle.Render(":"+e.Name+":"))
+		row := chrome.PopupMarker(s, i == m.selected) + preview + "  " + nameStyle.Render(":"+e.Name+":")
 		rows = append(rows, row)
 	}
 
-	content := strings.Join(rows, "\n")
-	box := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		Background(styles.SurfaceDark).
-		Width(width - 2).
-		Render(content)
+	box := chrome.Popup(s, rows, width)
 
 	// Fire any kitty image upload callbacks the per-row Place calls
 	// produced. Done here (inside View) so the autocomplete dropdown

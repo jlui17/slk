@@ -265,7 +265,7 @@ func TestScrollbarAppearsOnOverflow(t *testing.T) {
 	lines := strings.Split(ansi.Strip(m.View(80, 30)), "\n")
 	// The gutter spans all rowLines lines of every visible row,
 	// separator included.
-	rows := lines[listTopOffset : listTopOffset+rowLines*cap]
+	rows := lines[listTopOffset() : listTopOffset()+rowLines*cap]
 	var thumbs, tracks int
 	for i, row := range rows {
 		switch gutterRune(row) {
@@ -303,7 +303,7 @@ func TestNoScrollbarWhenListFits(t *testing.T) {
 
 	// 30-row terminal: visibleRowCap(30) = 3, so all 3 items fit.
 	lines := strings.Split(ansi.Strip(m.View(80, 30)), "\n")
-	for i, row := range lines[listTopOffset : listTopOffset+rowLines*3] {
+	for i, row := range lines[listTopOffset() : listTopOffset()+rowLines*3] {
 		if g := gutterRune(row); g != ' ' {
 			t.Fatalf("line %d gutter = %q, want blank (no scrollbar)", i, g)
 		}
@@ -464,7 +464,7 @@ func TestScrollWindowEdges(t *testing.T) {
 // gives a 3-row window (visibleRowCap(30) = 3 at rowLines = 4).
 func resultLines(m Model, n int) []string {
 	lines := strings.Split(ansi.Strip(m.View(80, 30)), "\n")
-	return lines[listTopOffset : listTopOffset+n]
+	return lines[listTopOffset() : listTopOffset()+n]
 }
 
 // blankLine reports whether a rendered box line has no content between

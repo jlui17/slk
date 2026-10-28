@@ -28,33 +28,22 @@
 //
 // Geometry comes from each modal's BoxSize, mirroring the centering done
 // by overlay.DimmedOverlay so the hit-test lines up with what was drawn.
+// The contract (chrome.Boxed, chrome.Clickable) is declared in
+// internal/bubbles/chrome and asserted by each modal package.
 package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/bubbles/chrome"
 )
 
-// boxedOverlay is implemented by every modal overlay: it reports the
-// outer dimensions of its centered box so the router can detect clicks
-// that fall outside it.
-type boxedOverlay interface {
-	BoxSize(termWidth, termHeight int) (int, int)
-}
-
-// clickableOverlay is a boxedOverlay whose contents include a selectable
-// list. ClickRow moves the selection to the row at box-local localY and
-// reports whether a row was actually hit.
-type clickableOverlay interface {
-	boxedOverlay
-	ClickRow(termWidth, termHeight, localY int) bool
-}
-
-// pointClickable is a boxedOverlay whose hot spot is a single cell range
-// rather than a list row. ClickAt reports whether the box-local cell
-// (localX, localY) is on it. A modal implements this or
-// clickableOverlay, not both.
+// pointClickable is a chrome.Boxed modal whose hot spot is a single cell
+// range rather than a list row. ClickAt reports whether the box-local
+// cell (localX, localY) is on it. A modal implements this or
+// chrome.Clickable, not both.
 type pointClickable interface {
-	boxedOverlay
+	chrome.Boxed
 	ClickAt(termWidth, termHeight, localX, localY int) bool
 }
 
@@ -62,8 +51,8 @@ type pointClickable interface {
 // optional list- or point-hit-testing, and the key to synthesise on a
 // hit.
 type modalClickTarget struct {
-	box        boxedOverlay
-	click      clickableOverlay // nil for non-list modals (e.g. confirm)
+	box        chrome.Boxed
+	click      chrome.Clickable // nil for non-list modals (e.g. confirm)
 	activation tea.KeyMsg       // nil when a row click has no activation (help)
 	point      pointClickable   // nil unless the modal has a point hot spot
 	onPoint    func() tea.Cmd   // set: a point hit calls this instead of synthesising activation
@@ -90,6 +79,8 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{box: a.reactionPicker, click: a.reactionPicker, activation: enter}, true
 	case ModeNewMessage:
 		return modalClickTarget{box: &a.newMessagePicker, click: &a.newMessagePicker, activation: space}, true
+	case ModeMarks:
+		return modalClickTarget{box: &a.marksOverlay, click: &a.marksOverlay, activation: enter}, true
 	case ModeHelp:
 		// Help has no activation: clicking a row only moves the highlight.
 		return modalClickTarget{box: &a.help, click: &a.help, activation: nil}, true

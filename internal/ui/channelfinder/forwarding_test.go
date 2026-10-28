@@ -154,10 +154,10 @@ func TestForwardingNavigationAndClicks(t *testing.T) {
 	if w != lipgloss.Width(box) || h != lipgloss.Height(box) {
 		t.Fatalf("box size %dx%d differs from render %dx%d", w, h, lipgloss.Width(box), lipgloss.Height(box))
 	}
-	if m.ClickRow(100, 30, listTopOffset-1) || m.ClickRow(100, 30, listTopOffset+maxVisibleRows) {
+	if m.ClickRow(100, 30, listTopOffset()-1) || m.ClickRow(100, 30, listTopOffset()+maxVisibleRows) {
 		t.Fatal("click outside visible rows selected an item")
 	}
-	if !m.ClickRow(100, 30, listTopOffset) {
+	if !m.ClickRow(100, 30, listTopOffset()) {
 		t.Fatal("click on first scrolled row failed")
 	}
 	if result := m.HandleKey("enter"); result == nil || result.ID != "C03" {
@@ -210,7 +210,7 @@ func TestForwardingUpdates(t *testing.T) {
 				t.Fatalf("selection after removal = %+v, want C1", result)
 			}
 			m.Upsert(core.ChannelFinderItem{ID: "C1", Name: "eng-one", Type: "channel", Joined: false})
-			if len(m.FilteredItems()) != 0 || m.HandleKey("enter") != nil || m.ClickRow(100, 30, listTopOffset) {
+			if len(m.FilteredItems()) != 0 || m.HandleKey("enter") != nil || m.ClickRow(100, 30, listTopOffset()) {
 				t.Fatal("empty forwarding results remained selectable")
 			}
 			m.Upsert(core.ChannelFinderItem{ID: "B1", Name: "eng-browse", Type: "channel", Joined: true})

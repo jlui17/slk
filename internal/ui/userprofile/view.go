@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
@@ -127,12 +128,6 @@ func (m *Model) layout(termW, termH int, live Live) boxLayout {
 
 	bg := styles.Background
 
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("Profile")
-
 	nameRows := m.nameRows(innerW, live)
 	titleRow := m.titleRow(innerW)
 	statusRows := m.statusRows(innerW, live)
@@ -200,22 +195,14 @@ func (m *Model) layout(termW, termH int, live Live) boxLayout {
 		body = append(body, sec.rows...)
 	}
 
-	content := title + "\n\n" + strings.Join(body, "\n") + "\n\n" + footer
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(0, 1).
-		Width(boxW).
-		Render(content)
+	s := messages.ChromeStyles()
+	s.Box = s.Box.Padding(0, 1) // the card's own padding
+	box := chrome.Frame{Title: "Profile", Body: body, Footer: footer}.Render(s, boxW)
 
 	l := boxLayout{box: box, iconRow: -1}
 	if iconBodyIdx >= 0 {
-		// Box rows: top border, title, blank, then the body.
-		l.iconRow = 3 + iconBodyIdx
+		// Box rows: the frame's chrome, then the body.
+		l.iconRow = chrome.BodyTop(s, false) + iconBodyIdx
 		// Box columns: left border, left padding, then the row.
 		l.iconCol = 2 + emailIconCol
 	}

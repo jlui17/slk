@@ -5,8 +5,8 @@ import (
 
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"github.com/gammons/slk/internal/bubbles/ansi"
 	"github.com/gammons/slk/internal/bubbles/buttonrow"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 )
 
 // Box width as a share of the terminal, and the bounds it is clamped to.
@@ -14,8 +14,8 @@ const (
 	widthPercent = 35
 	minWidth     = 40
 	maxWidth     = 60
-	// chrome is the border and horizontal padding the content sits inside.
-	chrome = 4
+	// frameWidth is the border and horizontal padding the content sits inside.
+	frameWidth = 4
 	// buttonGap is the number of spaces between buttons.
 	buttonGap = 3
 	// maxBodyLines caps the wrapped body.
@@ -81,14 +81,14 @@ func (m Model) View() string {
 		return ""
 	}
 	width := boxWidth(m.width)
-	l := m.layoutAt(width - chrome)
+	l := m.layoutAt(width - frameWidth)
 	sections := []string{m.styles.Title.Render(strings.Join(l.title, "\n"))}
 	if len(l.body) > 0 {
 		sections = append(sections, m.styles.Body.Render(strings.Join(l.body, "\n")))
 	}
 	sections = append(sections, m.renderButtons(l.buttons))
 	content := strings.Join(sections, "\n\n")
-	return m.styles.Box.Width(width).Render(ansi.ReapplyAfterResets(content, m.styles.BaseANSI))
+	return chrome.Box(chrome.Styles{Box: m.styles.Box, BaseANSI: m.styles.BaseANSI}, content, width)
 }
 
 // ButtonAt reports which button, if any, is at cell (x, y) relative to the
@@ -97,7 +97,7 @@ func (m Model) ButtonAt(x, y int) (int, bool) {
 	if !m.visible {
 		return 0, false
 	}
-	l := m.layoutAt(boxWidth(m.width) - chrome)
+	l := m.layoutAt(boxWidth(m.width) - frameWidth)
 	top := m.styles.Box.GetBorderTopSize() + m.styles.Box.GetPaddingTop()
 	left := m.styles.Box.GetBorderLeftSize() + m.styles.Box.GetPaddingLeft()
 	firstRow := top + l.buttonRow()

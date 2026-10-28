@@ -11,11 +11,17 @@ import (
 	"unicode"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
 
 // Item is one search hit, rendered as a block: a "#channel  author
 // time" metadata line over two indented snippet lines. Built from
@@ -185,10 +191,8 @@ func (m *Model) HandleKey(keyStr string) Action {
 	return ActionNone
 }
 
-// listTopOffset is the box-local row of the first body row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-// Shared by renderBox (implicitly) and ClickRow's hit-testing.
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first body row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // rowLines is how many screen lines each result row occupies: a
 // metadata line (#channel  author  time), two snippet lines, and a
@@ -207,7 +211,7 @@ func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 		// Body rows in the input/loading/error states aren't results.
 		return false
 	}
-	line := localY - listTopOffset
+	line := localY - listTopOffset()
 	if line < 0 {
 		return false
 	}
@@ -262,15 +266,15 @@ func (m Model) visibleRowCap(termHeight int) int {
 	// Chrome: top border + top padding + title + input + blank +
 	// bottom padding + bottom border = 7 (see BoxSize), plus the
 	// "showing K of N" footer when the server reported more matches.
-	chrome := 7
+	frameRows := 7
 	if m.total > len(m.items) {
-		chrome++
+		frameRows++
 	}
 	budget := termHeight * 7 / 10
 	if budget > termHeight-2 {
 		budget = termHeight - 2
 	}
-	n := (budget - chrome) / rowLines
+	n := (budget - frameRows) / rowLines
 	if n < 1 {
 		n = 1
 	}
@@ -281,24 +285,7 @@ func (m Model) visibleRowCap(termHeight int) int {
 // shown in the results list for a terminal of termHeight lines,
 // applying the same scroll-window math the renderer uses.
 func (m *Model) visibleWindow(termHeight int) (int, int) {
-	maxVisible := m.visibleRowCap(termHeight)
-	total := len(m.items)
-	if maxVisible > total {
-		maxVisible = total
-	}
-	startIdx := 0
-	if m.selected >= maxVisible {
-		startIdx = m.selected - maxVisible + 1
-	}
-	endIdx := startIdx + maxVisible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - maxVisible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.selected, len(m.items), m.visibleRowCap(termHeight))
 }
 
 // BoxSize returns the outer dimensions of the rendered modal box for the
@@ -337,32 +324,16 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 	if !m.visible {
 		return ""
 	}
-
-	// Overlay dimensions
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
-	// All inner spans share the modal bg so the dimmed app behind the
-	// overlay doesn't bleed through where individual styled fragments end.
-	bg := styles.Background
-
-	// Title
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("Search Workspace")
-
-	// Query input with blue left border
-	var inputText string
-	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type a query, Enter to search...")
-		inputText = "█ " + placeholder
-	} else {
+	input := chrome.FilterInput(s, "", "Type a query, Enter to search...")
+	if m.query != "" {
 		// Truncate head-side (keep the tail and the cursor visible) so a
 		// long query can't wrap the input line and desync BoxSize. The
 		// input style spends 2 cols (left border + padding) of innerWidth.
-		inputText = m.query + "█"
+		inputText := m.query + "█"
 		if avail := innerWidth - 2; lipgloss.Width(inputText) > avail {
 			r := []rune(inputText)
 			for len(r) > 0 && lipgloss.Width("…"+string(r)) > avail {
@@ -370,33 +341,14 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 			}
 			inputText = "…" + string(r)
 		}
+		input = s.Input.Render(inputText)
 	}
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "▌"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(inputText)
 
-	content := title + "\n" + input + "\n\n" + strings.Join(m.bodyLines(innerWidth, termHeight), "\n")
-
-	// Re-paint modal bg+fg after every ANSI reset emitted by inner styled
-	// spans so trailing cells don't inherit the dimmed app behind the
-	// overlay.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	// Wrap in a bordered box
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	return chrome.Frame{
+		Title: "Search Workspace",
+		Input: input,
+		Body:  m.bodyLines(innerWidth, termHeight),
+	}.Render(s, overlayWidth)
 }
 
 // bodyLines renders the rows below the input line for the current state:
@@ -405,21 +357,20 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 // footer. innerWidth is the usable content width inside the box;
 // termHeight clamps the result-row window (see visibleWindow).
 func (m Model) bodyLines(innerWidth, termHeight int) []string {
-	bg := styles.Background
-	muted := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
+	s := messages.ChromeStyles()
 
 	switch m.st {
 	case stateLoading:
-		return []string{muted.Italic(true).Render("Searching…")}
+		return []string{s.Empty.Render("Searching…")}
 	case stateError:
-		errLine := lipgloss.NewStyle().Background(bg).Foreground(styles.Error).Render(m.errMsg)
+		errLine := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.Error).Render(m.errMsg)
 		if lipgloss.Width(errLine) > innerWidth {
 			errLine = truncate.StringWithTail(errLine, uint(innerWidth), "…")
 		}
 		return []string{errLine}
 	case stateResults:
 		if len(m.items) == 0 {
-			return []string{muted.Italic(true).Render("No results")}
+			return []string{s.Empty.Render("No results")}
 		}
 		return m.resultRows(innerWidth, termHeight)
 	default: // stateInput
@@ -454,51 +405,25 @@ func splitAtWidth(s string, w int) (head, tail string) {
 // lines (the second truncated with "…" when more remains, or blank
 // when the snippet fits on one), and a blank separator.
 // When the fetched list overflows the visible window a proportional
-// scrollbar gutter is drawn on the right (same pattern as
-// channelfinder/workspacefinder/themeswitcher), spanning all lines of
-// each row — separator included, for gutter continuity.
+// scrollbar gutter is drawn on the right (chrome.List's gutter),
+// spanning all lines of each row — separator included, for gutter
+// continuity.
 func (m Model) resultRows(innerWidth, termHeight int) []string {
+	s := messages.ChromeStyles()
 	bg := styles.Background
+	start, end := m.visibleWindow(termHeight)
+	list := chrome.List{Start: start, End: end, Total: len(m.items)}
+	contentWidth := list.ContentWidth(innerWidth)
 
-	total := len(m.items)
-	startIdx, endIdx := m.visibleWindow(termHeight)
-	maxVisible := endIdx - startIdx
-
-	showScrollbar := total > maxVisible
-	contentWidth := innerWidth - 1 // 1 col indicator/space prefix
-	if showScrollbar {
-		contentWidth-- // 1 col for the scrollbar gutter
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	// Highlight open/close SGRs, derived once per render. renderBox's
-	// ReapplyBgAfterResets pass restores the theme bg/fg after the
-	// close's reset.
+	// Highlight open/close SGRs, derived once per render (same guard
+	// as the messages pane's call site). The close carries the theme
+	// bg/fg restore so the highlighter's reset can't bleed
+	// terminal-default colors before chrome.Box re-asserts the base
+	// colours.
 	var hlStart, hlEnd string
 	if len(m.highlightTerms) > 0 {
-		if start, end, ok := messages.SearchHighlightSGR(); ok {
-			hlStart, hlEnd = start, end
+		if sgrOpen, sgrClose, ok := messages.SearchHighlightSGR(); ok {
+			hlStart, hlEnd = sgrOpen, sgrClose
 		}
 	}
 	// highlight wraps term matches in a styled snippet span. Applied
@@ -521,7 +446,7 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 	}
 
 	var rows []string
-	for i := startIdx; i < endIdx; i++ {
+	for i := start; i < end; i++ {
 		item := m.items[i]
 		isSelected := i == m.selected
 
@@ -584,32 +509,15 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 			if pad := contentWidth - lipgloss.Width(line); pad > 0 {
 				line += strings.Repeat(" ", pad)
 			}
-			var row string
-			if isSelected && !separator {
-				// Selected indicator spans the content lines of the row.
-				indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-				row = indicator + line
-			} else {
-				row = " " + line
-			}
-			if showScrollbar {
-				// Thumb math is row-based; all lines of a row share
-				// its gutter rune, so the gutter stays proportional.
-				rel := i - startIdx
-				if rel >= thumbStart && rel < thumbEnd {
-					row += thumbStyle.Render("█")
-				} else {
-					row += trackStyle.Render("│")
-				}
-			}
-			rows = append(rows, row)
+			// The marker spans the content lines of the selected row,
+			// not its blank separator; every line of a row shares the
+			// row's gutter cell, so the thumb stays row-proportional.
+			rows = append(rows, chrome.Marker(s, isSelected && !separator)+line+list.Gutter(s, i))
 		}
 	}
 
 	if m.total > len(m.items) {
-		footer := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).
-			Render(fmt.Sprintf("showing %d of %d", len(m.items), m.total))
-		rows = append(rows, footer)
+		rows = append(rows, s.Footer.Render(fmt.Sprintf("showing %d of %d", len(m.items), m.total)))
 	}
 	return rows
 }

@@ -69,7 +69,7 @@ func (a *App) pasteAsync(bracketed *tea.PasteMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	a.asyncPaste.inFlight = true
-	a.statusbar.SetToast(pastingToast)
+	toastUntilReplaced(a, pastingToast) // the paste result replaces it
 	read := a.asyncPaste.read
 	return func() tea.Msg {
 		msg := clipboardSnapshotMsg{bracketed: bracketed}

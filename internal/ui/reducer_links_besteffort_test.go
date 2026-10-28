@@ -25,7 +25,7 @@ func TestPendingLinkNavSurvivesBestEffortSelect(t *testing.T) {
 		{TS: "300.000003", Text: "three"},
 	}
 	a.messagepane.SetMessages(buf)
-	a.pendingLinkNav = &pendingLinkNav{channelID: "C1", messageTS: "200.000002"}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C1", MessageTS: "200.000002"}}
 
 	// Best-effort pass (cache render, fetch in flight): selects the
 	// target but keeps the nav.

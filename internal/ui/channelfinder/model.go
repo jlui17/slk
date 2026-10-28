@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -48,6 +49,11 @@ type Model struct {
 	// every SetItems.
 	statuses map[string]peerstatus.Status
 }
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
 
 // New creates a new channel finder.
 func New() Model {
@@ -207,10 +213,8 @@ func (m *Model) SetBrowseable(browseable []core.ChannelFinderItem) {
 	}
 }
 
-// listTopOffset is the box-local row of the first list row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-// Shared by renderBox (implicitly) and ClickRow's hit-testing.
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first list row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // maxVisibleRows is the height of the scroll window for the results list.
 const maxVisibleRows = 10
@@ -232,24 +236,7 @@ func boxWidth(termWidth int) int {
 // shown in the results list, applying the same scroll-window math the
 // renderer uses so hit-testing and rendering agree.
 func (m *Model) visibleWindow() (int, int) {
-	maxVisible := maxVisibleRows
-	total := len(m.filtered)
-	if maxVisible > total {
-		maxVisible = total
-	}
-	startIdx := 0
-	if m.selected >= maxVisible {
-		startIdx = m.selected - maxVisible + 1
-	}
-	endIdx := startIdx + maxVisible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - maxVisible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.selected, len(m.filtered), maxVisibleRows)
 }
 
 // BoxSize returns the outer dimensions of the rendered modal box for the
@@ -272,7 +259,7 @@ func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 // there and returns true; otherwise it returns false. termWidth/termHeight
 // are accepted for interface symmetry and currently unused.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 {
 		return false
 	}
@@ -571,8 +558,7 @@ func (m Model) renderBox(termWidth int) string {
 	if !m.visible {
 		return ""
 	}
-
-	// Overlay dimensions
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
@@ -580,74 +566,17 @@ func (m Model) renderBox(termWidth int) string {
 	// overlay doesn't bleed through where individual styled fragments end.
 	bg := styles.Background
 
-	// Title
 	titleText := "Switch Channel"
 	if m.forwarding {
 		titleText = "Forward message to…"
 	}
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render(titleText)
 
-	// Query input with blue left border
-	var inputText string
-	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter...")
-		inputText = "█ " + placeholder
-	} else {
-		inputText = m.query + "█"
-	}
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "▌"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(inputText)
+	start, end := m.visibleWindow()
+	list := chrome.List{Start: start, End: end, Total: len(m.filtered)}
+	contentWidth := list.ContentWidth(innerWidth)
 
-	// Results (max 10). Scroll window shared with ClickRow hit-testing.
-	total := len(m.filtered)
-	startIdx, endIdx := m.visibleWindow()
-	maxVisible := endIdx - startIdx
-
-	// Scrollbar: shown only when the list overflows the visible window. We
-	// reserve one column on the right; the row content shrinks by 1 to make
-	// room. Thumb size and position are proportional so users see at a
-	// glance how much more content is above/below the visible window.
-	showScrollbar := total > maxVisible
-	contentWidth := innerWidth - 1 // 1 col indicator/space prefix
-	if showScrollbar {
-		contentWidth-- // 1 col for the scrollbar gutter
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	var resultRows []string
-	for i := startIdx; i < endIdx; i++ {
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
 		idx := m.filtered[i]
 		item := m.items[idx]
 		st := m.statuses[item.ID]
@@ -703,53 +632,18 @@ func (m Model) renderBox(termWidth int) string {
 			line += strings.Repeat(" ", pad)
 		}
 
-		var row string
-		if isSelected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-			row = indicator + line
-		} else {
-			row = " " + line
-		}
-
-		if showScrollbar {
-			rel := i - startIdx
-			if rel >= thumbStart && rel < thumbEnd {
-				row += thumbStyle.Render("\u2588") // █ thumb
-			} else {
-				row += trackStyle.Render("\u2502") // │ track
-			}
-		}
-		resultRows = append(resultRows, row)
+		rows = append(rows, line)
 	}
 
-	if len(m.filtered) == 0 && m.query != "" {
-		noResults := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No matching channels")
-		resultRows = append(resultRows, noResults)
+	f := chrome.Frame{
+		Title: titleText,
+		Input: chrome.FilterInput(s, m.query, "Type to filter..."),
+		Body:  list.Rows(s, m.selected, rows),
 	}
-
-	// Compose the overlay content
-	content := title + "\n" + input + "\n\n" + strings.Join(resultRows, "\n")
-
-	// Re-paint modal bg+fg after every ANSI reset emitted by inner styled
-	// spans (channelPrefix glyphs, name fragments, etc.). Without this,
-	// trailing spaces and adjacent unstyled cells inherit the dimmed app
-	// behind the overlay, producing visible "highlight boxes" behind
-	// the styled text on the row.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	// Wrap in a bordered box
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	if m.query != "" {
+		f.Empty = "No matching channels"
+	}
+	return f.Render(s, overlayWidth)
 }
 
 // channelPrefix returns the display prefix for a channel type. st is

@@ -38,7 +38,7 @@ func TestOpenLinkInTab_NoOpener_RoutesInPlace(t *testing.T) {
 	app.activeChannelID = "CELSEWHERE"
 	_, cmd := app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139", InHerdr: HerdrTab})
 	drainCmd(cmd)
-	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "1779284733.270139" {
+	if app.pendingLinkNav == nil || string(app.pendingLinkNav.MessageTS) != "1779284733.270139" {
 		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
 	}
 	if *opened != "" {
@@ -244,7 +244,7 @@ func TestBestEffortParentOpen_AuthoritativeReselectsBehindPanel(t *testing.T) {
 	})
 	parent := messages.MessageItem{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139", ReplyCount: 3}
 	app.messagepane.SetMessages([]messages.MessageItem{parent})
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1779284733.270139"}, openParentThread: true}
 	// Best-effort (cache render) completion opens the thread.
 	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
 	if !app.threadVisible {
@@ -290,7 +290,7 @@ func TestAuthoritativePass_OpensParentThread_WhenCacheCountStale(t *testing.T) {
 	app.messagepane.SetMessages([]messages.MessageItem{
 		{TS: "1779284733.270139", Text: "parent", ThreadTS: "1779284733.270139"},
 	})
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1779284733.270139"}, openParentThread: true}
 	// Best-effort (cache render) completion: selects, sees no replies,
 	// keeps the nav armed.
 	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
@@ -332,7 +332,7 @@ func TestMessagesAroundLoaded_ArmedNavParent_OpensThread(t *testing.T) {
 		fetchedThread = string(threadTS)
 		return nil
 	})
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1779284733.270139"}, openParentThread: true}
 	_, cmd := app.Update(MessagesAroundLoadedMsg{
 		ChannelID: "C054JFCBN69",
 		TargetTS:  "1779284733.270139",
@@ -397,7 +397,7 @@ func TestOpenLink_UploadGuard_DropsNavAndKeepsThread(t *testing.T) {
 func TestMessagesAroundLoaded_ArmedNavLanding_ClosesThread(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0", openParentThread: true}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1.0"}, openParentThread: true}
 	// The user opened some thread during the fetch round-trip.
 	app.threadVisible = true
 	app.focusedPanel = PanelThread
@@ -430,7 +430,7 @@ func TestSearchNav_ParentHit_SelectsWithoutOpeningThread(t *testing.T) {
 	})
 	// Arm the nav the way handleWorkspaceSearchMode does: no
 	// openParentThread.
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139"}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1779284733.270139"}}
 	drainCmd(app.completePendingLinkNav("C054JFCBN69", true))
 	if app.threadVisible {
 		t.Fatal("search jump to a top-level hit opened the thread panel")
@@ -471,7 +471,7 @@ func TestMessagesAroundLoaded_NoNav_ParentStaysSelected(t *testing.T) {
 func TestMessagesAroundLoaded_StaleWindowRetiresArmedNav(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "COTHER" // focus moved during the fetch
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1.0"}}
 	_, cmd := app.Update(MessagesAroundLoadedMsg{
 		ChannelID: "C054JFCBN69",
 		TargetTS:  "1.0",
@@ -488,7 +488,7 @@ func TestMessagesAroundLoaded_StaleWindowRetiresArmedNav(t *testing.T) {
 func TestMessagesAroundLoaded_FailureRetiresArmedNav(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1.0"}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1.0"}}
 	_, cmd := app.Update(MessagesAroundLoadedMsg{ChannelID: "C054JFCBN69", TargetTS: "1.0", Err: errors.New("boom")})
 	drainCmd(cmd)
 	if app.pendingLinkNav != nil {
@@ -505,7 +505,7 @@ func TestAuthoritativeRecompletion_KeepsUserThread(t *testing.T) {
 	app.messagepane.SetMessages([]messages.MessageItem{
 		{TS: "1779284733.270139", Text: "target"},
 	})
-	app.pendingLinkNav = &pendingLinkNav{channelID: "C054JFCBN69", messageTS: "1779284733.270139", openParentThread: true}
+	app.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C054JFCBN69", MessageTS: "1779284733.270139"}, openParentThread: true}
 	// Best-effort (cache render) completion lands the jump.
 	drainCmd(app.completePendingLinkNav("C054JFCBN69", false))
 	if app.pendingLinkNav == nil || !app.pendingLinkNav.delivered {

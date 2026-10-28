@@ -25,8 +25,15 @@
 | `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
 | `n` / `N` | Normal | Next / previous search match (wraps) |
 | `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
-| `Ctrl+h` / `Ctrl+l` | Normal | Navigate back / forward through visited channels (`Ctrl+k` also works) |
+| `Ctrl+h` / `Ctrl+l` | Normal | Navigate back / forward through visited channels, returning to the message you were reading when you left (`Ctrl+k` also works) |
 | `Esc` | Normal (search active) | Clear active search |
+| `m{a-z}` | Normal (message) | Set a session mark on the selected message — lost when slk exits |
+| `m{A-Z}` | Normal (message) | Set a persistent mark — survives a restart |
+| `'{letter}` / `` `{letter} `` | Normal | Jump to a mark: opens the channel, loads history if needed, opens the thread and selects the reply |
+| `''` / ` `` ` | Normal | Back-jump to where you jumped from; press again to return |
+| `:marks` | Normal | List every mark in the workspace with its channel and message preview |
+| `:delmarks abc` | Normal | Delete marks by letter (`:delmarks a b c` works too) |
+| `Backspace` | Marks overlay | Delete the selected mark |
 | `Ctrl+f` | Any | Search workspace (Slack server-side; supports modifiers like `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
 | `Ctrl+b` | Any | Toggle sidebar |
 | `Ctrl+]` | Any | Toggle thread panel |
@@ -73,6 +80,7 @@
 | `:retitle` | Normal (thread open) | Re-derive the herdr tab label from the open thread, agent thread or not: `tab_name_model` reads the whole thread and judges the task id and names the work the thread is about (`tab_name_hints` steers the naming). It renames the tab even when something else set the current label; the automatic label never does. On a thread that isn't the tracked agent thread it only names the tab. The answer lands even after the thread is closed or another is opened; when `:retitle` runs again before an answer comes back, only the newest one lands |
 | `Ctrl+r` / `:reload` | Normal | Reload: force every workspace's websocket to reconnect and catch up, and refetch the open thread panel (the Slack app's `Cmd+R` analog) |
 | `Ctrl+y` | Any | Switch theme |
+| `Alt+y` / `Alt+Shift+y` | Normal | Next / previous theme (wraps; saved per workspace) |
 | `Ctrl+s` | Any | Set status (Active / Away / DND snooze) |
 | `q` | Normal | Quit (with confirmation) |
 | `Q` | Normal | Quit immediately |

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -49,6 +50,11 @@ type Model struct {
 	dndActive     bool
 	nowFn         func() time.Time
 }
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
 
 // New creates a new presence menu.
 func New() Model {
@@ -130,9 +136,8 @@ func (m *Model) Close() {
 // IsVisible returns whether the overlay is currently showing.
 func (m Model) IsVisible() bool { return m.visible }
 
-// listTopOffset is the box-local row of the first menu row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first list row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // boxWidth returns the modal's outer width for a given terminal width.
 func boxWidth(termWidth int) int {
@@ -160,7 +165,7 @@ func (m Model) BoxSize(termWidth, termHeight int) (int, int) {
 // ClickRow moves the selection to the menu row at box-local localY and
 // returns true when the click lands on a visible row.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 || row >= len(m.filtered) {
 		return false
 	}
@@ -242,90 +247,43 @@ func (m Model) ViewOverlay(termWidth, termHeight int, background string) string 
 }
 
 func (m Model) renderBox(termWidth int) string {
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4
-	bg := styles.Background
 
 	titleText := "Status"
 	if m.workspaceName != "" {
 		titleText = "Status — " + m.workspaceName
 	}
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render(titleText)
 
-	var inputText string
-	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter…")
-		inputText = "█ " + placeholder
-	} else {
-		inputText = m.query + "█"
-	}
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "▌"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(inputText)
-
-	var rows []string
+	list := chrome.List{Start: 0, End: len(m.filtered), Total: len(m.filtered)}
+	width := list.ContentWidth(innerWidth)
+	rows := make([]string, 0, len(m.filtered))
 	for i, idx := range m.filtered {
 		it := m.items[idx]
 		line := it.label
 		if it.current {
 			line = "✓ " + line
 		}
-		if lipgloss.Width(line) > innerWidth-1 {
-			line = truncate.StringWithTail(line, uint(innerWidth-1), "…")
+		if lipgloss.Width(line) > width {
+			line = truncate.StringWithTail(line, uint(width), "…")
 		}
-		var row string
-		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(innerWidth - 1).
-				Render(line)
-			row = indicator + label
-		} else {
-			fg := styles.TextPrimary
-			if it.current {
-				fg = styles.Accent
-			}
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(fg).
-				Width(innerWidth - 1).
-				Render(line)
-			row = " " + label
+		style := s.Row
+		switch {
+		case i == m.selected:
+			style = s.RowSelected
+		case it.current:
+			style = s.Row.Foreground(styles.Accent)
 		}
-		rows = append(rows, row)
-	}
-	if len(rows) == 0 {
-		rows = append(rows, lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No matching options"))
+		rows = append(rows, style.Width(width).Render(line))
 	}
 
-	content := title + "\n" + input + "\n\n" + strings.Join(rows, "\n")
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	return chrome.Frame{
+		Title: titleText,
+		Input: chrome.FilterInput(s, m.query, "Type to filter…"),
+		Body:  list.Rows(s, m.selected, rows),
+		Empty: "No matching options",
+	}.Render(s, overlayWidth)
 }
 
 // CustomSnoozeView returns a centered input box used by the
@@ -333,43 +291,11 @@ func (m Model) renderBox(termWidth int) string {
 // state itself; this helper just renders the box. query is the digits
 // typed so far.
 func CustomSnoozeView(termWidth, termHeight int, background, query string) string {
-	overlayWidth := termWidth / 2
-	if overlayWidth < 36 {
-		overlayWidth = 36
-	}
-	if overlayWidth > 60 {
-		overlayWidth = 60
-	}
-	bg := styles.Background
-
-	title := lipgloss.NewStyle().Bold(true).Background(bg).Foreground(styles.Primary).
-		Render("Snooze for how many minutes?")
-
-	cursor := query + "█"
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "▌"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(cursor)
-
-	hint := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Italic(true).
-		Render("Enter to snooze · Esc to cancel")
-
-	content := title + "\n\n" + input + "\n\n" + hint
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
-
+	s := messages.ChromeStyles()
+	box := chrome.Frame{
+		Title:  "Snooze for how many minutes?",
+		Body:   []string{s.Input.Render(query + "█")},
+		Footer: s.Empty.Render("Enter to snooze · Esc to cancel"),
+	}.Render(s, boxWidth(termWidth))
 	return overlay.DimmedOverlay(termWidth, termHeight, background, box, 0.5)
 }

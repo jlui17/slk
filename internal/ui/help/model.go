@@ -11,12 +11,18 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
 
 // Entry is one row in the help modal: a key label and its description.
 type Entry struct {
@@ -198,10 +204,8 @@ func (m *Model) filter() {
 	}
 }
 
-// listTopOffset is the box-local row of the first keybinding row: top
-// border (1) + top padding (1) + title (1) + search/filter line (1) +
-// blank separator (1).
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first keybinding row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // maxVisibleRows returns the height of the scroll window for a terminal
 // height, matching renderBox's computation.
@@ -219,24 +223,7 @@ func maxVisibleRows(termHeight int) int {
 // visibleWindow returns the [start, end) slice of m.filtered shown for a
 // given terminal height, using the same scroll math as the renderer.
 func (m *Model) visibleWindow(termHeight int) (int, int) {
-	total := len(m.filtered)
-	visible := maxVisibleRows(termHeight)
-	if visible > total {
-		visible = total
-	}
-	startIdx := 0
-	if m.selected >= visible {
-		startIdx = m.selected - visible + 1
-	}
-	endIdx := startIdx + visible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - visible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.selected, len(m.filtered), maxVisibleRows(termHeight))
 }
 
 // BoxSize returns the rendered modal box's outer dimensions. The help box
@@ -252,7 +239,7 @@ func (m Model) BoxSize(termWidth, termHeight int) (int, int) {
 // has no activation action, so the caller does not synthesize a key after
 // a successful ClickRow; the highlight simply follows the click.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 {
 		return false
 	}
@@ -278,6 +265,7 @@ func (m Model) ViewOverlay(termWidth, termHeight int, background string) string 
 }
 
 func (m Model) renderBox(termWidth, termHeight int) string {
+	s := messages.ChromeStyles()
 	// Sizing: roughly 60% of the terminal width, capped between 40 and 80
 	// columns so the modal stays readable on both small and large terminals.
 	overlayWidth := termWidth * 6 / 10
@@ -292,61 +280,23 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 	}
 	innerWidth := overlayWidth - 4 // account for border + padding
 
-	// Visible rows: leave headroom for title, search line, blank, footer (~6 lines).
-	maxVisible := maxVisibleRows(termHeight)
-
-	bg := styles.Background
-
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("Keybindings")
-
-	// Search input line: shown either as the active prompt or a hint.
+	// Search input line: the active prompt, the filter left behind after
+	// leaving search, or a hint.
 	var inputLine string
-	if m.searching {
-		var inputText string
-		if m.query == "" {
-			placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter...")
-			inputText = "\u2588 " + placeholder
-		} else {
-			inputText = m.query + "\u2588"
-		}
-		inputLine = lipgloss.NewStyle().
-			BorderStyle(lipgloss.Border{Left: "\u258c"}).
-			BorderLeft(true).
-			BorderForeground(styles.Primary).
-			BorderBackground(bg).
-			PaddingLeft(1).
-			Background(bg).
-			Foreground(styles.TextPrimary).
-			Render(inputText)
-	} else if m.query != "" {
-		// Show the active filter even after exiting search mode.
-		inputLine = lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("filter: " + m.query)
-	} else {
-		inputLine = lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Render("Press / to search")
+	switch {
+	case m.searching:
+		inputLine = chrome.FilterInput(s, m.query, "Type to filter...")
+	case m.query != "":
+		inputLine = s.Empty.Render("filter: " + m.query)
+	default:
+		inputLine = s.Footer.Render("Press / to search")
 	}
 
-	// Determine which window of the filtered list to render. Shared with
-	// ClickRow hit-testing via visibleWindow.
-	total := len(m.filtered)
-	startIdx, endIdx := m.visibleWindow(termHeight)
-
-	// Width budget per row: leave room for the scrollbar gutter when present.
-	showScrollbar := total > maxVisible
-	rowWidth := innerWidth
-	if showScrollbar {
-		rowWidth = innerWidth - 1
-	}
+	start, end := m.visibleWindow(termHeight)
+	list := chrome.List{Start: start, End: end, Total: len(m.filtered)}
+	// rowWidth includes the marker column: key, a space and the
+	// description share rowWidth-1 columns.
+	rowWidth := list.ContentWidth(innerWidth) + 1
 
 	// Reserve enough left-column width to hold the widest key label so
 	// descriptions line up. Cap at half the row to keep descriptions readable.
@@ -360,33 +310,10 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 		maxKeyWidth = rowWidth / 2
 	}
 
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	var rows []string
-	for i := startIdx; i < endIdx; i++ {
-		idx := m.filtered[i]
-		e := m.entries[idx]
+	keyStyle := s.Row.Foreground(styles.Accent)
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		e := m.entries[m.filtered[i]]
 
 		keyLabel := e.Key
 		if lipgloss.Width(keyLabel) > maxKeyWidth {
@@ -401,89 +328,28 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 			desc = truncate.StringWithTail(desc, uint(descBudget), "\u2026")
 		}
 
-		// Row layout: [indicator/space:1] + [keyStyled:maxKeyWidth] + [space:1] + [descStyled:descBudget]
-		// Sums to rowWidth exactly.
-		var row string
+		ks, ds := keyStyle, s.Row
 		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
-			keyStyled := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Accent).
-				Bold(true).
-				Width(maxKeyWidth).
-				Render(keyLabel)
-			descStyled := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(descBudget).
-				Render(desc)
-			row = indicator + keyStyled + " " + descStyled
-		} else {
-			keyStyled := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Accent).
-				Width(maxKeyWidth).
-				Render(keyLabel)
-			descStyled := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextPrimary).
-				Width(descBudget).
-				Render(desc)
-			row = " " + keyStyled + " " + descStyled
+			ks, ds = keyStyle.Bold(true), s.RowSelected
 		}
-
-		if showScrollbar {
-			rel := i - startIdx
-			var sb string
-			if rel >= thumbStart && rel < thumbEnd {
-				sb = thumbStyle.Render("\u2588")
-			} else {
-				sb = trackStyle.Render("\u2502")
-			}
-			row += sb
-		}
-		rows = append(rows, row)
+		rows = append(rows, ks.Width(maxKeyWidth).Render(keyLabel)+" "+ds.Width(descBudget).Render(desc))
 	}
 
-	if total == 0 && m.query != "" {
-		rows = append(rows, lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No matching keybindings"))
-	}
-
-	controlsFooter := lipgloss.NewStyle().
-		Background(bg).
-		Foreground(styles.TextMuted).
-		Render("/ search   esc/q close")
-
-	footer := controlsFooter
+	footer := s.Footer.Render("/ search   esc/q close")
 	if m.footer != "" {
 		// Attribution sits at the very bottom of the modal, centered
 		// across the inner width and below the controls line.
-		attribution := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Width(innerWidth).
-			Align(lipgloss.Center).
-			Render(m.footer)
-		footer = controlsFooter + "\n\n" + attribution
+		footer += "\n\n" + s.Footer.Width(innerWidth).Align(lipgloss.Center).Render(m.footer)
 	}
 
-	content := title + "\n" + inputLine + "\n\n" + strings.Join(rows, "\n") + "\n\n" + footer
-
-	// Re-paint modal bg+fg after every ANSI reset so trailing/unstyled
-	// cells don't leak the dimmed app behind the overlay.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	f := chrome.Frame{
+		Title:  "Keybindings",
+		Input:  inputLine,
+		Body:   list.Rows(s, m.selected, rows),
+		Footer: footer,
+	}
+	if m.query != "" {
+		f.Empty = "No matching keybindings"
+	}
+	return f.Render(s, overlayWidth)
 }

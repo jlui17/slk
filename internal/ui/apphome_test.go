@@ -318,7 +318,7 @@ func TestAppHome_EscFocusesTheSidebar(t *testing.T) {
 // message is.
 func TestAppHome_PermalinkOpensMessages(t *testing.T) {
 	a, _, _ := appHomeApp(t)
-	a.pendingLinkNav = &pendingLinkNav{channelID: "D1", messageTS: "1700000000.000100"}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "D1", MessageTS: "1700000000.000100"}}
 	a.Update(ChannelSelectedMsg{ID: "D1", Name: "Colony", Type: "app"})
 	if a.view != ViewChannels {
 		t.Errorf("view = %v", a.view)
@@ -378,7 +378,7 @@ func TestAppHome_ModalFromAHomeClickOpensTheForm(t *testing.T) {
 	if a.mode != ModeAppShortcuts || a.appShortcuts.model.Form() == nil {
 		t.Fatalf("mode %v, overlay:\n%s", a.mode, overlayText(a))
 	}
-	typeKeys(a, "ok")
+	typeAppKeys(a, "ok")
 	send(a, shortcutKey("tab"))
 	send(a, shortcutKey("space"))
 	toasts := send(a, shortcutKey("ctrl+s"))
@@ -534,7 +534,7 @@ func TestAppHome_ModalAnsweringOEndsTheWait(t *testing.T) {
 func TestAppHome_HomeOnlyAppPermalinkHasNoTabRow(t *testing.T) {
 	a, svc, _ := appHomeApp(t)
 	svc.home.MessagesTab = false
-	a.pendingLinkNav = &pendingLinkNav{channelID: "D1", messageTS: "1700000000.000100"}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "D1", MessageTS: "1700000000.000100"}}
 	send(a, ChannelSelectedMsg{ID: "D1", Name: "Colony", Type: "app"})
 	out := ansi.Strip(a.View().Content)
 	if a.view != ViewChannels || strings.Contains(out, "Home   Messages") || strings.Contains(out, "m home") {

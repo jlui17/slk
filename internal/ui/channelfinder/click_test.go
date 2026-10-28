@@ -32,7 +32,7 @@ func TestClickRowSelectsItem(t *testing.T) {
 	m.Open() // 6 items, empty query, selected starts at 0
 
 	// Third visible row (offset 2 from the first list row).
-	if !m.ClickRow(80, 24, listTopOffset+2) {
+	if !m.ClickRow(80, 24, listTopOffset()+2) {
 		t.Fatal("ClickRow on a populated row should return true")
 	}
 	if m.selected != 2 {
@@ -40,12 +40,12 @@ func TestClickRowSelectsItem(t *testing.T) {
 	}
 
 	// Clicking the input/title area (above the list) is a no-op.
-	if m.ClickRow(80, 24, listTopOffset-1) {
+	if m.ClickRow(80, 24, listTopOffset()-1) {
 		t.Error("ClickRow above the list should return false")
 	}
 
 	// Clicking past the last row is a no-op.
-	if m.ClickRow(80, 24, listTopOffset+6) {
+	if m.ClickRow(80, 24, listTopOffset()+6) {
 		t.Error("ClickRow past the last row should return false")
 	}
 }

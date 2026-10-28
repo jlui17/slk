@@ -411,7 +411,7 @@ func TestNoRoomForBodyKeepsButtons(t *testing.T) {
 	t.Parallel()
 	probe := New(WithWidth(80))
 	probe.OpenChoice(tallBodyChoice())
-	l := probe.layoutAt(boxWidth(80) - chrome)
+	l := probe.layoutAt(boxWidth(80) - frameWidth)
 	frame := 2 + 2 // border + padding, top and bottom
 	h := frame + len(l.title) + 1 + buttonRowCount(l)
 	m := New(WithWidth(80), WithHeight(h))

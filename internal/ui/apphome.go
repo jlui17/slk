@@ -127,7 +127,7 @@ func (a *App) appHomeChannelSelected(m ChannelSelectedMsg) tea.Cmd {
 	}
 	s.teamID, s.channelID, s.model = a.activeTeamID, m.ID, apphome.Open(m.Name)
 	s.visit++
-	linkNav := a.pendingLinkNav != nil && a.pendingLinkNav.channelID == m.ID
+	linkNav := a.pendingLinkNav != nil && string(a.pendingLinkNav.ChannelID) == m.ID
 	var spin tea.Cmd
 	if !linkNav {
 		a.view = ViewAppHome
@@ -454,7 +454,7 @@ var reduceAppHome reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case warningToastMsg:
 		a.statusbar.SetWarningToast(m.Text)
-		return copiedClearAfter(3 * time.Second), true
+		return copiedClearAfter(a, 3*time.Second), true
 
 	case AppViewMsg:
 		return a.applyAppHomeView(m)

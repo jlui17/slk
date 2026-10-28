@@ -13,7 +13,7 @@ import (
 // source file named here together.
 func TestSmokeMarkersStillEmitted(t *testing.T) {
 	for _, tc := range []struct{ file, marker string }{
-		{"main.go", "shutdown API request tally"},
+		{"shutdown.go", "shutdown API request tally"},
 		{"main.go", "failed to connect"},
 		{"reconnect_sync.go", "reconnect-sync"},
 	} {

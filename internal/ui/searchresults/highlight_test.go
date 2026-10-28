@@ -82,8 +82,8 @@ func TestSnippetHighlightsTerms(t *testing.T) {
 	}, 1)
 
 	lines := strings.Split(m.View(80, 30), "\n")
-	meta := lines[listTopOffset]
-	snippet := lines[listTopOffset+1]
+	meta := lines[listTopOffset()]
+	snippet := lines[listTopOffset()+1]
 	if !strings.Contains(snippet, hlStart+"deploy") {
 		t.Errorf("snippet line missing highlight around term:\n%q", snippet)
 	}
@@ -113,7 +113,7 @@ func TestSelectedRowSnippetStillHighlights(t *testing.T) {
 	m.HandleKey("down") // select row 1
 
 	lines := strings.Split(m.View(80, 30), "\n")
-	selSnippet := lines[listTopOffset+rowLines+1]
+	selSnippet := lines[listTopOffset()+rowLines+1]
 	if !strings.Contains(selSnippet, hlStart+"deploy") {
 		t.Errorf("selected row snippet missing highlight:\n%q", selSnippet)
 	}

@@ -58,9 +58,9 @@ func TestWorkspaceReadyStartupLink(t *testing.T) {
 	if sel, ok := findChannelSelected(cmd()); !ok || sel.ID != "C1" {
 		t.Errorf("link to C1: want C1 opened, got ok=%v id=%q", ok, sel.ID)
 	}
-	if a.pendingLinkNav == nil || a.pendingLinkNav.channelID != "C1" ||
-		a.pendingLinkNav.messageTS != "1779284733.270139" ||
-		a.pendingLinkNav.threadTS != "1779284000.000100" {
+	if a.pendingLinkNav == nil || string(a.pendingLinkNav.ChannelID) != "C1" ||
+		string(a.pendingLinkNav.MessageTS) != "1779284733.270139" ||
+		string(a.pendingLinkNav.ThreadTS) != "1779284000.000100" {
 		t.Errorf("link to C1: pendingLinkNav not armed, got %+v", a.pendingLinkNav)
 	}
 	if a.startupLinkNav != nil {

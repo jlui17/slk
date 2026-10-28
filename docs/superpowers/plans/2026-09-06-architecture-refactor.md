@@ -636,14 +636,77 @@ genuine per-widget behavior. Do **not** unify them — forcing them into a commo
 shape is the classic over-abstraction failure and would be worse than the
 duplication.
 
-**Exit:** modal cluster below ~3,000 lines (from 5,295); one `renderBox`; one
-`visibleWindow`; every modal package satisfying a declared chrome interface with
-a compile-time assertion; all 8 goldens byte-identical except
-`overlay_finder`, which is re-blessed once with a reviewed diff.
+**Exit:** modal cluster line count measured, not gated (see the Phase 4 spec
+§7); one `renderBox`; one `visibleWindow`; every modal package satisfying a
+declared chrome interface with a compile-time assertion; all goldens
+cell-identical to the step-0 baseline (as built: byte-identical, no re-bless;
+originally planned: all 8 byte-identical except `overlay_finder`, re-blessed once
+with a reviewed diff).
 
-**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden is
-expected to change. Consolidate incrementally — one modal migrated per commit,
+**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden was
+expected to change (as built, it did not). Consolidate incrementally — one modal migrated per commit,
 goldens green between each.
+
+> **As built:** the substrate is `internal/bubbles/chrome`, drawn with
+> `messages.ChromeStyles()`; it covers 15 dialogs and popups (the 13-package
+> cluster plus userprofile and reactionsview), and none of them needed a golden
+> re-bless. Design:
+> [`../specs/2026-10-12-phase4-modal-chrome-design.md`](../specs/2026-10-12-phase4-modal-chrome-design.md)
+> (with its "Addenda (implementation)"), plan:
+> [`2026-10-12-phase4-modal-chrome.md`](2026-10-12-phase4-modal-chrome.md).
+
+#### Achieved (branches `refactor/phase4/pr1-substrate`, `pr2-dialogs`, `refactor/phase4-modal-chrome`)
+
+Measured with the Step 1 commands of the plan's Task 18, at the tip of the
+close-out branch. Starting numbers are the spec's §2, taken at `cf9742c6`.
+
+| Exit criterion (spec §7) | Bar | Achieved |
+|---|---|---|
+| `renderBox` implementations | 0 outside `chrome` | **met**: no `RoundedBorder()` is left in any of the 14 `internal/ui` dialog packages; confirmprompt draws through `chrome.Box` too |
+| `visibleWindow` implementations | 0 outside `chrome` | **met**: no `selected - max + 1` window is left in `internal/ui` |
+| Hand-rolled scrollbar thumb math | 0 outside `bubbles/scrollbar` | **met**: `thumbHeight`/`thumbStart` appear only in `internal/bubbles/scrollbar/scrollbar.go` |
+| Compile-time `chrome` assertions | every dialog and popup package | **met**: 15 packages (the 14 `internal/ui` dialogs and popups, plus confirmprompt) |
+| Goldens | all cell-identical to the step-0 baseline | **met, and byte-identical**: no golden was re-blessed. `TestGoldenCellsMatchBaseline` compares every golden against the baseline |
+| `go test ./... -race` | PASS | **PASS** |
+| Cluster line count | measured and recorded; not a gate | **5,744 → 4,865** (−879) for the 13-package cluster; plus `chrome`'s own 229 lines, 5,094 (−650) |
+
+Non-test lines per package (before at `cf9742c6`, after at the close-out):
+
+| Package | Before | After |
+|---|---|---|
+| channelfinder | 830 | 724 |
+| newmessagepicker | 656 | 574 |
+| searchresults | 617 | 522 |
+| reactionpicker | 553 | 441 |
+| help | 489 | 355 |
+| themeswitcher | 376 | 258 |
+| presencemenu | 373 | 299 |
+| workspacefinder | 372 | 254 |
+| reactionsview | 228 | 212 |
+| linkpicker | 200 | 175 |
+| userprofile | 640 | 629 |
+| confirmprompt (`internal/bubbles`) | 528 | 534 |
+| mentionpicker | 335 | 325 |
+| emojipicker | 237 | 233 |
+| channelpicker | 178 | 171 |
+| **cluster of 13** (all but reactionsview and userprofile) | **5,744** | **4,865** |
+| `internal/bubbles/chrome` | — | 229 |
+
+The migration removed less than the spec's 1,200–1,400 estimate (−879 gross,
+−650 once `chrome` is counted): what is left is matching and row content, which
+stay in the dialogs by design.
+
+**PRs**, each green and behaviour-preserving, in stack order:
+
+| PR | Branch | What it did |
+|---|---|---|
+| 1 | `pr1-substrate` (`25e34415`) | Goldens for every dialog and popup (`7398d3f6`), `scrollbar.Thumb` (`586a8b0e`), the `chrome` package (`270bd584`), `messages.ChromeStyles` and the click router on `chrome`'s contract (`25e34415`) |
+| 2 | `pr2-dialogs` (`d538fcf6`) | Twelve commits, one each for the eleven dialogs and confirmprompt: `393876fb`, `d55ee045`, `3cc6b292`, `f5994378`, `373ddb9a`, `75496440`, `17edfc5d`, `c874da40`, `1cd9eace`, `5911c050`, `0172d3af`, `d538fcf6` |
+| 3 | `refactor/phase4-modal-chrome` | The emojipicker, channelpicker and mentionpicker popups, then this close-out |
+
+**Follow-ups** (spec §8.1 and §9): the workspacefinder row wrap (§8.1) is still
+open and is to be raised as an issue; the overlay move, `applyOverlays` collapse,
+the `/` command picker and width-clamp convergence are listed in spec §9.
 
 ---
 
@@ -751,7 +814,7 @@ dupl -t 75 -plumbing $(find . -name '*.go' \
 | 1 | `main.go` topical splits | — | [spec](../specs/2026-09-22-phase1-main-go-splits-design.md) | [plan](2026-09-22-phase1-main-go-splits.md) | **complete** |
 | 2 | `main.go` structural | 1 | — | — | not started |
 | 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (two exit criteria unmet: shared lines 206 vs < 50, and `thread/model.go` 1,353 lines vs ≤ 1,000; see Phase 3 "Achieved") |
-| 4 | Modal chrome substrate | 0, 3 | — | — | not started |
+| 4 | Modal chrome substrate | 0, 3 | [spec](../specs/2026-10-12-phase4-modal-chrome-design.md) | [plan](2026-10-12-phase4-modal-chrome.md) | **complete** |
 | 5 | Finish `App` decomposition | 0b | — | — | not started |
 | 6 | Opportunistic cleanup | 3, 4 | — | — | not started |
 
@@ -769,8 +832,8 @@ at a phase boundary.
 | `App` struct fields | 107 | < 60 |
 | `App` `Set*` methods | 45 | < 25 |
 | `internal/ui/thread/model.go` | 2,072 lines | < 900 — **1,353 after Phase 3** (the spec's ≤ 1,000 bar and this stretch target both missed; see Phase 3 "Achieved") |
-| Modal-widget cluster (13 pkgs) | 5,295 lines | < 3,000 |
-| `renderBox` implementations | 11 | 1 |
-| `visibleWindow` implementations | 7 | 1 |
+| Modal-widget cluster (13 pkgs) | 5,295 lines | 4,865 after Phase 4 (5,744 at its start), plus 229 in `chrome` — target retired (see the Phase 4 spec §7) |
+| `renderBox` implementations | 11 | 1 — **done (Phase 4)** |
+| `visibleWindow` implementations | 7 | 1 — **done (Phase 4)** |
 | Golden tests for `View()` | 0 | 8 — **done (Phase 0)** |
 | Known data races in `cmd/slk` | 3 | 0 |

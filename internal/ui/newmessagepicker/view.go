@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -44,36 +45,24 @@ func (m Model) renderBox(termWidth int) string {
 	if !m.visible {
 		return ""
 	}
-
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4
 	bg := styles.Background
 
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("New message")
-
-	input := m.renderInputRow(innerWidth, bg)
-	rows := m.renderResultRows(innerWidth, bg)
-	footer := m.renderFooter(innerWidth, bg)
-
-	content := title + "\n" + input + "\n\n" + strings.Join(rows, "\n") + "\n\n" + footer
-
-	// Re-paint modal bg+fg after every ANSI reset emitted by inner
-	// styled spans, otherwise trailing spaces inherit the dimmed-
-	// app background. Same fix channelfinder uses.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	f := chrome.Frame{
+		Title:  "New message",
+		Input:  m.renderInputRow(innerWidth, bg),
+		Body:   m.renderResultRows(s, innerWidth, bg),
+		Footer: m.renderFooter(innerWidth, bg),
+	}
+	if len(m.filtered) == 0 {
+		f.Empty = "No users available"
+		if m.query != "" {
+			f.Empty = fmt.Sprintf("No users match %q", m.query)
+		}
+	}
+	return f.Render(s, overlayWidth)
 }
 
 // renderInputRow renders the "To: [pill] [pill] |query█" row.
@@ -115,77 +104,20 @@ func (m Model) renderInputRow(innerWidth int, bg color.Color) string {
 // renderResultRows produces up to 10 visible result rows with a
 // scrollbar when the list overflows. Highlighted row gets a left bar
 // and the Primary foreground.
-func (m Model) renderResultRows(innerWidth int, bg color.Color) []string {
-	total := len(m.filtered)
-
-	if total == 0 {
-		var msg string
-		if m.query != "" {
-			msg = fmt.Sprintf("No users match %q", m.query)
-		} else {
-			msg = "No users available"
-		}
-		return []string{
-			lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextMuted).
-				Italic(true).
-				Render(msg),
-		}
+func (m Model) renderResultRows(s chrome.Styles, innerWidth int, bg color.Color) []string {
+	start, end := m.visibleWindow()
+	list := chrome.List{Start: start, End: end, Total: len(m.filtered)}
+	width := list.ContentWidth(innerWidth)
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		lines = append(lines, m.renderRow(m.users[m.filtered[i]], width, i == m.highlight, bg))
 	}
-
-	startIdx, endIdx := m.visibleWindow()
-	visible := endIdx - startIdx
-
-	showScrollbar := total > visible
-	contentWidth := innerWidth - 1 // 1 col for the highlight indicator
-	if showScrollbar {
-		contentWidth--
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := visible * visible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - visible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (visible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > visible-thumbHeight {
-			thumbStart = visible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	var rows []string
-	for i := startIdx; i < endIdx; i++ {
-		u := m.users[m.filtered[i]]
-		isHighlight := i == m.highlight
-
-		row := m.renderRow(u, contentWidth, isHighlight, bg)
-		if showScrollbar {
-			rel := i - startIdx
-			if rel >= thumbStart && rel < thumbEnd {
-				row += thumbStyle.Render("\u2588")
-			} else {
-				row += trackStyle.Render("\u2502")
-			}
-		}
-		rows = append(rows, row)
-	}
-	return rows
+	return list.Rows(s, m.highlight, lines)
 }
 
-// renderRow renders a single user row: display name, @handle, [ext]
-// tag if external, and a trailing "✓" if the user is in the pill bar.
+// renderRow renders a single user row's content, width wide: display
+// name, @handle, [ext] tag if external, and a trailing "✓" if the user
+// is in the pill bar. The marker column is the list's.
 func (m Model) renderRow(u User, width int, highlight bool, bg color.Color) string {
 	name := u.DisplayName
 	if u.IsExternal {
@@ -221,11 +153,7 @@ func (m Model) renderRow(u User, width int, highlight bool, bg color.Color) stri
 		line += strings.Repeat(" ", pad)
 	}
 
-	if highlight {
-		indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-		return indicator + line
-	}
-	return " " + line
+	return line
 }
 
 // renderFooter is the key-hints + N/8 counter row.

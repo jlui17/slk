@@ -8,6 +8,8 @@
 // (SetMultiSelect), dispatched as ui.OpenLinksInHerdrMsg.
 package linkpicker
 
+import "github.com/gammons/slk/internal/bubbles/chrome"
+
 // Item is one selectable row.
 type Item struct {
 	URL   string
@@ -54,6 +56,8 @@ type Model struct {
 	top         int
 	rowWidth    int
 }
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // New creates a hidden picker.
 func New() *Model { return &Model{} }

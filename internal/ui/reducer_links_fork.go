@@ -19,13 +19,7 @@ import (
 // program starts; the caller is responsible for making the link's
 // workspace the initial active one.
 func (a *App) SetStartupLink(channelID, messageTS, threadTS string) {
-	a.startupLinkNav = &pendingLinkNav{
-		channelID:        channelID,
-		messageTS:        messageTS,
-		threadTS:         threadTS,
-		openParentThread: true,
-		openEmptyThread:  true,
-	}
+	a.startupLinkNav = &pendingLinkNav{Location: Location{ChannelID: ids.ChannelID(channelID), MessageTS: ids.MessageTS(messageTS), ThreadTS: ids.ThreadTS(threadTS)}, openParentThread: true, openEmptyThread: true}
 }
 
 // HerdrTarget is where O and alt+o open a link: in a second slk

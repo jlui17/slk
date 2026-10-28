@@ -8,6 +8,7 @@
       │  ▾ Channels │  ctrl+o / alt+enter also send reply to channel         █ │                 ┃  
       │ ▌# general  │  m                  app's Home or Messages tab         █ │                 ┃  
       │  # incidents│  esc                back                               │ │                 ┃  
+      │             │  ''                 back-jump to where you jumped from │ │                 ┃  
       │             │  G                  bottom                             │ │                 ┃  
       │             │  ctrl+w o / :only   close other windows                │ │                 ┃  
       │             │  q                  close thread view                  │ │                 ┃  
@@ -17,10 +18,9 @@
       │             │  y                  copy message                       │ │                 ┃  
       │             │  Y/C                copy permalink                     │ │                 ┃  
       │             │  ctrl+w w           cycle windows                      │ │                 ┃  
+      │             │  :delmarks          delete marks by letter             │ │                 ┃  
       │             │  D                  delete message                     │ │                 ┃  
       │             │  j/down             down                               │ │                 ┃  
-      │             │  d                  download file in message           │ │                 ┃  
-      │             │  E                  edit message                       │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

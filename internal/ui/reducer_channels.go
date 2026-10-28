@@ -43,8 +43,8 @@
 //
 // Helpers (cancelEdit, CloseThread, clearSelections, SetChannels,
 // SetChannelMembership, notifyReadStateChanged, applyChannelMarkEcho,
-// uploadToastCmd, userNameFor, nowFormatted) stay on App; the
-// reducer calls them via `a`.
+// userNameFor, nowFormatted) stay on App; the reducer calls them via
+// `a`. The upload-in-progress toast goes through toastWithClear.
 //
 // Inbound image/avatar arms (imgrender.ImageReadyMsg,
 // imgrender.ImageFailedMsg, messages.AvatarReadyMsg) are NOT here:
@@ -67,13 +67,28 @@ import (
 var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ChannelSelectedMsg:
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			// Queued in a workspace the user has since left.
+			return nil, true
+		}
+		refused := a.compose.Uploading() || a.threadCompose.Uploading()
 		cmd, fetchFired := reduceChannelSelected(a, m)
 		cmd = tea.Batch(cmd, a.appHomeChannelSelected(m)) // fork: apphome.go; before the link nav completes, which it reads
 		cmd = tea.Batch(cmd, a.closeOffscreenActionPrompt())
+		if refused {
+			// reduceChannelSelected refused the switch, so a pending
+			// jump to this channel must not complete — not against
+			// another channel still on screen, and not in place when
+			// the target is the active channel.
+			if a.pendingLinkNav != nil && string(a.pendingLinkNav.ChannelID) == m.ID {
+				a.pendingLinkNav = nil
+			}
+			return cmd, true
+		}
 		// Permalink completion. !fetchFired means no MessagesLoadedMsg
-		// is coming (tier-1 fresh cache, or the upload-guard early
-		// return), so complete authoritatively now — otherwise the
-		// pending nav would leak and could later hijack the selection.
+		// is coming (tier-1 fresh cache), so complete authoritatively
+		// now — otherwise the pending nav would leak and could later
+		// hijack the selection.
 		// When a fetch WAS fired, defer to the authoritative
 		// MessagesLoadedMsg completion and only do a best-effort select
 		// here.
@@ -88,6 +103,9 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		//   nil       -> network failure, keep cached render
 		//   []        -> channel is genuinely empty, replace with empty
 		//   non-empty -> authoritative replace
+		if m.ChannelID == a.channelFetchInFlight {
+			a.channelFetchInFlight = ""
+		}
 		var kind string
 		switch {
 		case m.Messages == nil:
@@ -178,7 +196,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// or a failed fetch would leak and replay on the channel's
 		// next visit.
 		nav := a.pendingLinkNav
-		navMatches := nav != nil && nav.channelID == m.ChannelID && nav.messageTS == m.TargetTS
+		navMatches := nav != nil && string(nav.ChannelID) == m.ChannelID && string(nav.MessageTS) == m.TargetTS
 		if m.ChannelID != a.activeChannelID {
 			if navMatches {
 				a.pendingLinkNav = nil
@@ -352,6 +370,12 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 // The permalink-completion hook uses !fetchFired as its `authoritative`
 // flag.
 func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
+	// Capture the position the user is LEAVING before CloseThread and
+	// clearSelections below discard the outgoing selection: the history
+	// records where the user was at the moment of departure, not where
+	// they arrived. Reading the panes after the teardown would yield an
+	// empty position that still looks like a valid channel-level entry.
+	departing := a.currentPosition()
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		// A refused switch can't ever complete a pending permalink nav,
 		// and the caller's completion hook still runs against the OLD
@@ -359,7 +383,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		// user's thread panel and dispatch FetchAround for a channel
 		// that never became active. Drop the nav with the switch.
 		a.pendingLinkNav = nil
-		return a.uploadToastCmd("Upload in progress", 2*time.Second), false
+		return toastWithClear(a, "Upload in progress", 2*time.Second), false
 	}
 	// Perf instrumentation: wall-clock the synchronous portion of the
 	// channel-switch reducer. This covers everything up to and including
@@ -403,7 +427,17 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	a.channels.RecordVisit(ids.ChannelID(m.ID))
 	a.reportPaneState(m.ID, "")
 	if !m.FromHistory {
-		a.navHistory.Push(a.activeTeamID, m.ID)
+		// Fold the departing position into the entry being left (it
+		// was recorded channel-only on arrival), then push the
+		// ARRIVING channel exactly as the pre-position history did.
+		// Pushing the departure instead would leave the current
+		// location absent from the stack, so the cursor would sit one
+		// behind and Ctrl+H would skip a channel.
+		a.navHistory.UpdateCurrent(a.activeTeamID, departing)
+		a.navHistory.Push(a.activeTeamID, Location{
+			TeamID:    ids.TeamID(a.activeTeamID),
+			ChannelID: ids.ChannelID(m.ID),
+		})
 	}
 	// Tell the sidebar which channel is active so the staleness
 	// filter never hides it out from under the user.
@@ -480,6 +514,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(true)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=2_verify", m.ID)
 		tier = "2_verify"
+		a.channelFetchInFlight = m.ID
 		return fetchCmd(), true
 
 	default:
@@ -490,6 +525,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(false)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=3_spinner", m.ID)
 		tier = "3_spinner"
+		a.channelFetchInFlight = m.ID
 		return tea.Batch(spinnerTickCmd(), fetchCmd()), true
 	}
 }

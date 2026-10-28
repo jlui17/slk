@@ -26,16 +26,16 @@ func TestClickRowMovesHighlight(t *testing.T) {
 	m.SetUsers(testUsers())
 	m.Open() // 5 users, highlight starts at 0
 
-	if !m.ClickRow(80, 24, listTopOffset+2) {
+	if !m.ClickRow(80, 24, listTopOffset()+2) {
 		t.Fatal("ClickRow on a populated row should return true")
 	}
 	if m.highlight != 2 {
 		t.Errorf("ClickRow set highlight=%d, want 2", m.highlight)
 	}
-	if m.ClickRow(80, 24, listTopOffset-1) {
+	if m.ClickRow(80, 24, listTopOffset()-1) {
 		t.Error("ClickRow above the list should return false")
 	}
-	if m.ClickRow(80, 24, listTopOffset+5) {
+	if m.ClickRow(80, 24, listTopOffset()+5) {
 		t.Error("ClickRow past the last row should return false")
 	}
 }

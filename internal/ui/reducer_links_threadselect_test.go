@@ -16,11 +16,7 @@ func TestThreadPermalinkSelectsLinkedReply(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
 	a.activeChannelID = "C1"
-	a.pendingLinkNav = &pendingLinkNav{
-		channelID: "C1",
-		messageTS: "300.000003",
-		threadTS:  "100.000001",
-	}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C1", MessageTS: "300.000003", ThreadTS: "100.000001"}}
 
 	_ = a.completePendingLinkNav("C1", true)
 	if !a.threadVisible {
@@ -54,11 +50,7 @@ func TestThreadPermalinkSelectsLinkedReply(t *testing.T) {
 	// A link to the thread parent (thread_ts == message ts) lands on
 	// the parent row rather than the newest reply.
 	a.CloseThread()
-	a.pendingLinkNav = &pendingLinkNav{
-		channelID: "C1",
-		messageTS: "100.000001",
-		threadTS:  "100.000001",
-	}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C1", MessageTS: "100.000001", ThreadTS: "100.000001"}}
 	_ = a.completePendingLinkNav("C1", true)
 	_, _ = a.Update(ThreadRepliesLoadedMsg{
 		ThreadTS: "100.000001",
@@ -80,11 +72,7 @@ func TestThreadRefetchKeepsCursorAfterPermalink(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
 	a.activeChannelID = "C1"
-	a.pendingLinkNav = &pendingLinkNav{
-		channelID: "C1",
-		messageTS: "300.000003",
-		threadTS:  "100.000001",
-	}
+	a.pendingLinkNav = &pendingLinkNav{Location: Location{ChannelID: "C1", MessageTS: "300.000003", ThreadTS: "100.000001"}}
 	_ = a.completePendingLinkNav("C1", true)
 
 	replies := []messages.MessageItem{

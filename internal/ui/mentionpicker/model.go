@@ -3,12 +3,15 @@ package mentionpicker
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 )
+
+var _ chrome.Dialog = (*Model)(nil)
 
 const MaxVisible = 7
 
@@ -195,15 +198,11 @@ func (m *Model) View(width int) string {
 	if !m.visible || len(m.filtered) == 0 {
 		return ""
 	}
+	s := messages.ChromeStyles()
 
 	var rows []string
 	for i, u := range m.filtered {
 		selected := i == m.selected
-
-		indicator := "  "
-		if selected {
-			indicator = lipgloss.NewStyle().Foreground(styles.Accent).Render("▌ ")
-		}
 
 		// Name color: muted for not-in-channel rows at rest;
 		// upgraded to TextPrimary when selected (per spec).
@@ -224,7 +223,7 @@ func (m *Model) View(width int) string {
 			label = fmt.Sprintf("%s (%s)", u.DisplayName, u.Username)
 		}
 
-		row := indicator + nameStyle.Render(label)
+		row := chrome.PopupMarker(s, selected) + nameStyle.Render(label)
 
 		// Suffix in TextMuted, always (even when row is selected).
 		var suffix string
@@ -241,14 +240,5 @@ func (m *Model) View(width int) string {
 		rows = append(rows, row)
 	}
 
-	content := strings.Join(rows, "\n")
-
-	box := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		Background(styles.SurfaceDark).
-		Width(width - 2).
-		Render(content)
-
-	return box
+	return chrome.Popup(s, rows, width)
 }

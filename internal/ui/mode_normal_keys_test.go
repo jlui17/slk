@@ -231,9 +231,10 @@ func seedActiveSearch(t *testing.T, a *App) {
 
 // TestNormalModeKeys characterizes handleNormalMode (mode_normal.go:39).
 //
-// One row per `case key.Matches(...)` arm (49 of them) plus the three
-// early guards ahead of the switch and the numeric workspace-switch
-// default arm. Rows record CURRENT behaviour; where that behaviour
+// One row per `case key.Matches(...)` arm plus the three early guards
+// ahead of the switch and the numeric workspace-switch default arm. The
+// exceptions are the ThemeNext / ThemePrev arms (alt+y / alt+shift+y):
+// TestThemeCycleKeys (theme_test.go) has their rows. Rows record CURRENT behaviour; where that behaviour
 // looks wrong the row carries a `// BUG?:` and still asserts reality.
 //
 // Reachability note, which the runner's doc comment spells out in
@@ -1261,8 +1262,9 @@ func TestNormalModeKeys(t *testing.T) {
 		},
 
 		// -------------------------------------------------------------
-		// Arms 29 & 30: ThemeSwitcher / ThemeSwitcherGlobal
-		// (mode_normal.go:215, :222)
+		// Arms 29 & 30: ThemeSwitcher / ThemeSwitcherGlobal. The
+		// ThemeNext / ThemePrev arms that follow them in
+		// handleNormalMode are in TestThemeCycleKeys (theme_test.go).
 		// -------------------------------------------------------------
 		{
 			name:     "ctrl+y opens the theme switcher scoped to the workspace",
@@ -2396,7 +2398,7 @@ func navForwardCase(name string, r rune) keyCase {
 		opts: append(normalOpts(), withActiveTeam("T1"), navLookupOpt()),
 		setup: func(t *testing.T, a *App) {
 			seedNavHistory(t, a)
-			if _, _, _, ok := a.navHistory.Walk("T1", -1, a.channels.Lookup); !ok {
+			if _, ok := a.navHistory.Walk("T1", -1, a.channels.Lookup); !ok {
 				t.Fatal("precondition: could not step back before stepping forward")
 			}
 		},
@@ -2421,8 +2423,8 @@ func navForwardCase(name string, r rune) keyCase {
 // C2 so one step back lands on C1.
 func seedNavHistory(t *testing.T, a *App) {
 	t.Helper()
-	a.navHistory.Push("T1", "C1")
-	a.navHistory.Push("T1", "C2")
+	a.navHistory.Push("T1", Location{TeamID: "T1", ChannelID: "C1"})
+	a.navHistory.Push("T1", Location{TeamID: "T1", ChannelID: "C2"})
 	stack := a.navHistory.Stack("T1")
 	if stack == nil {
 		t.Fatal("precondition: nav stack was not created")

@@ -12,10 +12,12 @@
 //     alias for forward)
 //   - layout toggles: ctrl+b (sidebar), ctrl+] (thread), t (zoom thread over
 //     the messages region)
+//   - theme cycle: Alt-Y / Alt-Shift-Y apply the next / previous
+//     theme, wrapping around (saved per workspace, like Ctrl-Y)
 //   - message ops: y (copy message), Y/C (copy permalink), E (edit), D (delete),
-//     U (mark unread), v (open image preview), o (open link),
-//     O (open link in new herdr tab), c (copy code block or link),
-//     z (expand or collapse long attachment cards)
+//     U (mark unread), m (set mark), ' (jump to mark), v (open image
+//     preview), o (open link), O (open link in new herdr tab), c (copy
+//     code block or link), z (expand or collapse long attachment cards)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav, for either content pane)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -61,6 +63,21 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, a.keys.Escape):
 			return nil
 		}
+	}
+
+	// m pending sub-state: the next key names the mark to set
+	// (intercepted FIRST, like ctrl+w above).
+	if a.pendingMark {
+		a.pendingMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleMarkChord(msg)
+	}
+
+	// ' pending sub-state: the next key names the mark to jump to.
+	if a.pendingJumpMark {
+		a.pendingJumpMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleJumpChord(msg)
 	}
 
 	// Reaction-nav sub-state (intercept before normal keys).
@@ -275,6 +292,10 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.themeSwitcher.OpenWithScope(themeswitcher.ScopeGlobal, "Default theme for new workspaces")
 		a.SetMode(ModeThemeSwitcher)
 		return nil
+	case key.Matches(msg, a.keys.ThemeNext):
+		return a.cycleTheme(1)
+	case key.Matches(msg, a.keys.ThemePrev):
+		return a.cycleTheme(-1)
 
 	case key.Matches(msg, a.keys.PresenceMenu):
 		header := a.workspaceNameForActive()
@@ -355,6 +376,24 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.MarkUnread):
 		return a.markUnreadOfSelected()
 
+	case key.Matches(msg, a.keys.MarkSet):
+		a.pendingMark = true
+		a.statusbar.SetHelpHint("m…")
+		return nil
+
+	case key.Matches(msg, a.keys.JumpMark):
+		// With the jump overlay enabled (the default), ' opens the
+		// marks list; a letter then jumps immediately from there, so
+		// 'a behaves exactly as it does with the overlay suppressed.
+		if a.showJumpOverlay {
+			cmd := a.openMarksOverlay()
+			a.SetMode(ModeMarks)
+			return cmd
+		}
+		a.pendingJumpMark = true
+		a.statusbar.SetHelpHint("'…")
+		return nil
+
 	case key.Matches(msg, a.keys.NextUnread):
 		return a.jumpToUnread(1)
 
@@ -380,16 +419,12 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		keyStr := msg.String()
 		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
 			if a.compose.Uploading() || a.threadCompose.Uploading() {
-				return a.uploadToastCmd("Upload in progress", 2*time.Second)
+				return toastWithClear(a, "Upload in progress", 2*time.Second)
 			}
 			idx := int(keyStr[0] - '1') // 0-indexed
 			if idx < len(a.workspaceItems) && a.workspaceSvc != nil {
 				if a.workspaceItems[idx].ID != a.workspaceRail.SelectedID() {
-					switcher := a.workspaceSvc
-					teamID := a.workspaceItems[idx].ID
-					return func() tea.Msg {
-						return switcher.Switch(teamID)
-					}
+					return a.switchWorkspace(a.workspaceItems[idx].ID)
 				}
 			}
 		}

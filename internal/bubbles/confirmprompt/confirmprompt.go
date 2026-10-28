@@ -4,7 +4,11 @@
 // caller's job.
 package confirmprompt
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/bubbles/chrome"
+)
 
 // ConfirmFunc is the action a confirmation authorises. Update returns it as a
 // tea.Cmd rather than calling it.
@@ -24,6 +28,8 @@ type Model struct {
 	preset    bool // opened with Open: keys and labels follow KeyMap
 	highlight int  // highlighted button; -1 = none
 }
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // Option configures a Model at construction.
 type Option func(*Model)

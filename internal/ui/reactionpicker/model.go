@@ -8,13 +8,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
-	"github.com/gammons/slk/internal/ui/styles"
 )
 
 // ReactionResult is returned when the user selects an emoji.
@@ -72,6 +72,11 @@ func (m *Model) HandleEmojiImageReady(url string) {
 	// no-op; picker re-evaluates Place on every View().
 	_ = url
 }
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
 
 // New creates a new reaction picker with the full emoji list.
 func New() *Model {
@@ -157,9 +162,8 @@ func (m *Model) MessageTS() string {
 	return m.messageTS
 }
 
-// listTopOffset is the box-local row of the first list row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first list row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // maxVisibleRows is the height of the results scroll window.
 const maxVisibleRows = 10
@@ -179,24 +183,7 @@ func boxWidth(termWidth int) int {
 // visibleWindow returns the [start, end) slice of the displayed list
 // currently shown, using the same scroll math as the renderer.
 func (m *Model) visibleWindow() (int, int) {
-	total := len(m.displayedList())
-	maxVisible := maxVisibleRows
-	if maxVisible > total {
-		maxVisible = total
-	}
-	start := 0
-	if m.selected >= maxVisible {
-		start = m.selected - maxVisible + 1
-	}
-	end := start + maxVisible
-	if end > total {
-		end = total
-		start = end - maxVisible
-		if start < 0 {
-			start = 0
-		}
-	}
-	return start, end
+	return chrome.Window(m.selected, len(m.displayedList()), maxVisibleRows)
 }
 
 // BoxSize returns the rendered modal box's outer dimensions. termHeight is
@@ -214,7 +201,7 @@ func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 // ClickRow moves the selection to the list row at box-local localY and
 // returns true when the click lands on a visible row.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 {
 		return false
 	}
@@ -354,74 +341,14 @@ func (m *Model) renderBox(termWidth int) string {
 	if !m.visible {
 		return ""
 	}
-
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
-	// All inner spans share the modal bg so the dimmed app behind the
-	// overlay doesn't bleed through where individual styled fragments end.
-	bg := styles.Background
-
-	// Title
-	title := lipgloss.NewStyle().
-		Background(bg).
-		Foreground(styles.Primary).
-		Bold(true).
-		Render("Add Reaction")
-
-	// Query input with blue left border
-	var inputText string
-	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter...")
-		inputText = "█ " + placeholder
-	} else {
-		inputText = m.query + "█"
-	}
-	input := lipgloss.NewStyle().
-		BorderStyle(lipgloss.Border{Left: "▌"}).
-		BorderLeft(true).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		PaddingLeft(1).
-		Background(bg).
-		Foreground(styles.TextPrimary).
-		Render(inputText)
-
-	// Results (max 10). Scroll window shared with ClickRow hit-testing.
 	list := m.displayedList()
-	total := len(list)
 	start, end := m.visibleWindow()
-	maxVisible := end - start
-
-	// Scrollbar gutter on the right when the list overflows. Same pattern
-	// as channelfinder/themeswitcher/workspacefinder.
-	showScrollbar := total > maxVisible
-	rowWidth := innerWidth - 1
-	if !showScrollbar {
-		rowWidth = innerWidth
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = start * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
+	win := chrome.List{Start: start, End: end, Total: len(list)}
+	width := win.ContentWidth(innerWidth)
 
 	// Image-aware emoji-as-image path: active only when the
 	// process-global ImageMode is on AND a fetcher has been installed
@@ -442,7 +369,7 @@ func (m *Model) renderBox(termWidth int) string {
 	// reference a given emoji this session.
 	var pendingFlushes []func(io.Writer) error
 
-	var resultRows []string
+	rows := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		entry := list[i]
 		// Display Unicode emoji when the resolved form is composition-
@@ -477,66 +404,27 @@ func (m *Model) renderBox(termWidth int) string {
 			line += " ✓"
 		}
 
-		if lipgloss.Width(line) > rowWidth {
-			line = truncate.StringWithTail(line, uint(rowWidth), "…")
+		// Truncated one column wider than the row and clipped by
+		// MaxWidth: preserved as found (Phase 4 spec §8.1).
+		if lipgloss.Width(line) > width+1 {
+			line = truncate.StringWithTail(line, uint(width+1), "…")
 		}
-
-		var row string
+		style := s.Row
 		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(rowWidth - 1).
-				MaxWidth(rowWidth - 1).
-				Render(line)
-			row = indicator + label
-		} else {
-			label := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextPrimary).
-				Width(rowWidth - 1).
-				MaxWidth(rowWidth - 1).
-				Render(line)
-			row = " " + label
+			style = s.RowSelected
 		}
-
-		if showScrollbar {
-			rel := i - start
-			if rel >= thumbStart && rel < thumbEnd {
-				row += thumbStyle.Render("\u2588")
-			} else {
-				row += trackStyle.Render("\u2502")
-			}
-		}
-		resultRows = append(resultRows, row)
+		rows = append(rows, style.Width(width).MaxWidth(width).Render(line))
 	}
 
-	if len(list) == 0 && m.query != "" {
-		noResults := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No matching emoji")
-		resultRows = append(resultRows, noResults)
+	f := chrome.Frame{
+		Title: "Add Reaction",
+		Input: chrome.FilterInput(s, m.query, "Type to filter..."),
+		Body:  win.Rows(s, m.selected, rows),
 	}
-
-	// Compose content
-	content := title + "\n" + input + "\n\n" + strings.Join(resultRows, "\n")
-
-	// Re-paint modal bg+fg after every ANSI reset (see channelfinder).
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	// Wrap in bordered box
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	if m.query != "" {
+		f.Empty = "No matching emoji"
+	}
+	box := f.Render(s, overlayWidth)
 
 	// Fire any kitty image upload callbacks the per-row Place calls
 	// produced. Most are no-ops (the messages pane already triggered

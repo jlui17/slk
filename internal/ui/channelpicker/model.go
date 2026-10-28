@@ -19,9 +19,13 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 )
+
+var _ chrome.Dialog = (*Model)(nil)
 
 const MaxVisible = 5
 
@@ -153,26 +157,15 @@ func (m *Model) View(width int) string {
 		return ""
 	}
 
-	var rows []string
+	s := messages.ChromeStyles()
+	rows := make([]string, 0, len(m.filtered))
 	for i, c := range m.filtered {
-		indicator := "  "
 		nameStyle := lipgloss.NewStyle().Foreground(styles.TextPrimary)
 		if i == m.selected {
-			indicator = lipgloss.NewStyle().Foreground(styles.Accent).Render("▌ ")
 			nameStyle = nameStyle.Bold(true)
 		}
 		label := fmt.Sprintf("%s %s", glyphFor(c), c.Name)
-		rows = append(rows, indicator+nameStyle.Render(label))
+		rows = append(rows, chrome.PopupMarker(s, i == m.selected)+nameStyle.Render(label))
 	}
-
-	content := strings.Join(rows, "\n")
-
-	box := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		Background(styles.SurfaceDark).
-		Width(width - 2).
-		Render(content)
-
-	return box
+	return chrome.Popup(s, rows, width)
 }

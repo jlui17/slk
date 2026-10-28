@@ -8,6 +8,16 @@
 // is responsible for dispatching the conversations.open call.
 package newmessagepicker
 
+import (
+	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/ui/messages"
+)
+
+var _ interface {
+	chrome.Dialog
+	chrome.Clickable
+} = (*Model)(nil)
+
 // MaxRecipients is Slack's hard cap on the number of OTHER users in
 // a multi-person direct message (MPIM). Slack itself caps total
 // MPIM participants at 9, so up to 8 other users plus self.
@@ -93,9 +103,8 @@ func (m Model) IsVisible() bool {
 	return m.visible
 }
 
-// listTopOffset is the box-local row of the first result row: top border
-// (1) + top padding (1) + title (1) + To-input (1) + blank separator (1).
-const listTopOffset = 5
+// listTopOffset is the box-local row of the first result row.
+func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }
 
 // maxVisibleRows is the height of the results scroll window.
 const maxVisibleRows = 10
@@ -115,24 +124,7 @@ func boxWidth(termWidth int) int {
 // visibleWindow returns the [start, end) slice of m.filtered currently
 // shown, using the same scroll math as renderResultRows.
 func (m *Model) visibleWindow() (int, int) {
-	total := len(m.filtered)
-	visible := maxVisibleRows
-	if visible > total {
-		visible = total
-	}
-	startIdx := 0
-	if m.highlight >= visible {
-		startIdx = m.highlight - visible + 1
-	}
-	endIdx := startIdx + visible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - visible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.highlight, len(m.filtered), maxVisibleRows)
 }
 
 // ClickRow moves the highlight cursor to the result row at box-local
@@ -140,7 +132,7 @@ func (m *Model) visibleWindow() (int, int) {
 // the single-select finders this only moves the cursor; the caller
 // synthesizes a toggle (Space) so multi-select semantics are preserved.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset
+	row := localY - listTopOffset()
 	if row < 0 {
 		return false
 	}

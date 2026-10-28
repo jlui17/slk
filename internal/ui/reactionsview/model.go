@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
@@ -40,6 +41,8 @@ type Model struct {
 	offset  int // scroll offset in rendered content lines
 	maxOff  int // last computed maximum offset (set during render)
 }
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // New creates an empty, hidden modal.
 func New() *Model { return &Model{} }
@@ -160,6 +163,7 @@ func (m *Model) renderBox(termWidth, termHeight int) string {
 	if !m.visible {
 		return ""
 	}
+	s := messages.ChromeStyles()
 
 	overlayWidth := termWidth * 6 / 10
 	if overlayWidth < 30 {
@@ -174,12 +178,6 @@ func (m *Model) renderBox(termWidth, termHeight int) string {
 	innerWidth := overlayWidth - 4 // border + padding
 
 	bg := styles.Background
-
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("Reactions")
 
 	all := m.contentLines(bg, innerWidth)
 
@@ -206,23 +204,9 @@ func (m *Model) renderBox(termWidth, termHeight int) string {
 	}
 	window := all[m.offset:end]
 
-	footer := lipgloss.NewStyle().
-		Background(bg).
-		Foreground(styles.TextMuted).
-		Render("\u2191/\u2193 scroll   esc close")
-
-	content := title + "\n\n" + strings.Join(window, "\n") + "\n\n" + footer
-
-	// Re-paint modal bg+fg after every ANSI reset so trailing/unstyled cells
-	// don't leak the dimmed app behind the overlay (same as help/picker).
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	return chrome.Frame{
+		Title:  "Reactions",
+		Body:   window,
+		Footer: s.Footer.Render("\u2191/\u2193 scroll   esc close"),
+	}.Render(s, overlayWidth)
 }

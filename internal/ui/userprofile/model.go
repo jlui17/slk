@@ -4,12 +4,8 @@
 // it arrives, and renders itself as a centered lipgloss box over a
 // dimmed backdrop, the same way the other 13 modal packages do.
 //
-// The box chrome (RoundedBorder + overlay.DimmedOverlay) is written
-// directly here rather than through a shared package, because none
-// exists yet: AGENTS.md tracks 11 near-duplicate renderBox
-// implementations awaiting a Phase 4 consolidation. This modal moves
-// onto that shared chrome when it lands and should add no further
-// renderBox/visibleWindow copy in the meantime.
+// The card is drawn through bubbles/chrome (chrome.Frame) and composited
+// with overlay.DimmedOverlay.
 package userprofile
 
 import (
@@ -18,9 +14,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/peerstatus"
 )
+
+var _ interface {
+	chrome.Dialog
+	chrome.Boxed
+} = (*Model)(nil)
 
 // Seed is the cached identity the UI already knows about a user before
 // the profile fetch completes: enough to open the dialog and show a

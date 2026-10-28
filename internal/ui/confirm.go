@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/bubbles/confirmprompt"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
@@ -24,19 +25,15 @@ import (
 // workspace connects is still visible when the theme changes.
 func confirmPromptStyles() confirmprompt.Styles {
 	bg := styles.Background
+	cs := messages.ChromeStyles()
 	return confirmprompt.Styles{
-		Box: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(styles.Primary).
-			BorderBackground(bg).
-			Background(bg).
-			Padding(1, 1),
+		Box:          cs.Box,
 		Title:        lipgloss.NewStyle().Background(bg).Foreground(styles.Primary).Bold(true),
 		Body:         lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary),
 		Footer:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
 		Button:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
 		ButtonActive: lipgloss.NewStyle().Background(styles.Primary).Foreground(bg).Bold(true),
-		BaseANSI:     messages.BgANSI() + messages.FgANSI(),
+		BaseANSI:     cs.BaseANSI,
 	}
 }
 
@@ -69,11 +66,11 @@ func (a *App) confirmPromptOverlay(background string) string {
 	return out
 }
 
-// confirmPromptBox adapts the size-owning prompt to the boxedOverlay
+// confirmPromptBox adapts the size-owning prompt to chrome.Boxed, the
 // interface the modal click router shares with the other modals.
 type confirmPromptBox struct{ m *confirmprompt.Model }
 
-var _ boxedOverlay = confirmPromptBox{}
+var _ chrome.Boxed = confirmPromptBox{}
 
 // BoxSize returns the rendered box's outer size, or (0, 0) when hidden, like
 // the other modals. lipgloss.Height("") is 1, so the guard is needed.

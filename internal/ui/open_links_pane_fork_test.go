@@ -133,7 +133,7 @@ func TestOpenLinkPaneKey_NoPaneOpener_RoutesInPlace(t *testing.T) {
 	}
 	_, cmd := app.Update(open)
 	drainCmd(cmd)
-	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "1779284733.270139" || !app.pendingLinkNav.openEmptyThread {
+	if app.pendingLinkNav == nil || string(app.pendingLinkNav.MessageTS) != "1779284733.270139" || !app.pendingLinkNav.openEmptyThread {
 		t.Errorf("pendingLinkNav = %+v, want O's in-place nav", app.pendingLinkNav)
 	}
 	if *opened != "" {
