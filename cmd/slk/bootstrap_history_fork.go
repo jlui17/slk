@@ -29,6 +29,7 @@ func persistBootstrapHistory(db *cache.DB, teamID string, res *bootstrap.Result)
 		return
 	}
 	now := time.Now().Unix()
+	batch := make([]cache.Message, 0, len(res.Messages))
 	for _, raw := range res.Messages {
 		var m slack.Message
 		if err := json.Unmarshal(raw, &m); err != nil {
@@ -42,7 +43,7 @@ func persistBootstrapHistory(db *cache.DB, teamID string, res *bootstrap.Result)
 		if authorID == "" {
 			authorID = m.BotID
 		}
-		if err := db.UpsertMessage(cache.Message{
+		batch = append(batch, cache.Message{
 			TS:          m.Timestamp,
 			ChannelID:   res.OpenedChannelID,
 			WorkspaceID: teamID,
@@ -53,13 +54,13 @@ func persistBootstrapHistory(db *cache.DB, teamID string, res *bootstrap.Result)
 			Subtype:     m.SubType,
 			RawJSON:     string(raw),
 			CreatedAt:   now,
-		}); err != nil {
-			debuglog.Cache("persistBootstrapHistory: channel=%s ts=%s upsert: %v", res.OpenedChannelID, m.Timestamp, err)
-			continue
-		}
+		})
 		for _, r := range m.Reactions {
 			_ = db.UpsertReaction(m.Timestamp, res.OpenedChannelID, r.Name, r.Users, r.Count)
 		}
+	}
+	if err := db.UpsertMessages(batch); err != nil {
+		debuglog.Cache("persistBootstrapHistory: channel=%s upsert: %v", res.OpenedChannelID, err)
 	}
 	if err := db.SetChannelSyncedAt(res.OpenedChannelID, now); err != nil {
 		debuglog.Cache("persistBootstrapHistory: SetChannelSyncedAt %s: %v", res.OpenedChannelID, err)
