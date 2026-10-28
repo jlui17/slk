@@ -476,10 +476,10 @@ func (m *Model) stateJSON() json.RawMessage {
 
 // Hint is the key hint under the Home tab.
 func (m *Model) Hint(inHerdr bool) string {
-	switch {
-	case m.box == boxConfirm:
+	switch m.box {
+	case boxConfirm:
 		return "enter " + m.confirm.ConfirmText() + "  esc " + m.confirm.DenyText()
-	case m.box == boxSelect:
+	case boxSelect:
 		return "enter choose  esc close"
 	}
 	hint := m.stopHint(inHerdr)

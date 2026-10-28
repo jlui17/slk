@@ -128,12 +128,13 @@ func TestToggleAttachmentFoldAt_ClickOnTheFoldRow(t *testing.T) {
 // the next draw must work the first time.
 func TestToggleAttachmentFold_WorksRightAfterTheCacheWasDropped(t *testing.T) {
 	m := cardThread() // the newest reply is selected
-	plain := plainView(m, 60)
+	plainView(m, 60)
 	m.InvalidateCache()
 	if !m.ToggleAttachmentFold() {
 		t.Fatal("z on a reply after InvalidateCache did nothing")
 	}
-	if plain = plainView(m, 60); !strings.Contains(plain, "linked line 30") {
+	plain := plainView(m, 60)
+	if !strings.Contains(plain, "linked line 30") {
 		t.Fatalf("z on a reply after InvalidateCache did not expand:\n%s", plain)
 	}
 

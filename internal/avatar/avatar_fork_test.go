@@ -7,25 +7,18 @@ import (
 	imgpng "image/png"
 	"io"
 	"net/http"
-	"sync"
 	"testing"
 
 	imgpkg "github.com/gammons/slk/internal/image"
 )
 
-// recordingTransport serves a fixed PNG for every request and records
-// the URLs it was asked for, so tests can observe the exact URL the
-// avatar pipeline fetches without real network.
-type recordingTransport struct {
-	mu   sync.Mutex
-	urls []string
-	png  []byte
+// pngTransport serves a fixed PNG for every request, so tests run the
+// avatar pipeline without real network.
+type pngTransport struct {
+	png []byte
 }
 
-func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	rt.mu.Lock()
-	rt.urls = append(rt.urls, req.URL.String())
-	rt.mu.Unlock()
+func (rt *pngTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
@@ -33,12 +26,6 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		Body:       io.NopCloser(bytes.NewReader(rt.png)),
 		Request:    req,
 	}, nil
-}
-
-func (rt *recordingTransport) requested() []string {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return append([]string(nil), rt.urls...)
 }
 
 func pngBytesOfSize(t *testing.T, size int) []byte {
@@ -56,7 +43,7 @@ func pngBytesOfSize(t *testing.T, size int) []byte {
 	return buf.Bytes()
 }
 
-func fetcherWithTransport(t *testing.T, rt *recordingTransport) *imgpkg.Fetcher {
+func fetcherWithTransport(t *testing.T, rt *pngTransport) *imgpkg.Fetcher {
 	t.Helper()
 	cache, err := imgpkg.NewCache(t.TempDir(), 10)
 	if err != nil {
@@ -71,7 +58,7 @@ func fetcherWithTransport(t *testing.T, rt *recordingTransport) *imgpkg.Fetcher 
 // may exist.
 func TestPreloadSync_KittyDecodeIsBounded(t *testing.T) {
 	t.Setenv("TMUX", "")
-	rt := &recordingTransport{png: pngBytesOfSize(t, 512)}
+	rt := &pngTransport{png: pngBytesOfSize(t, 512)}
 	fetcher := fetcherWithTransport(t, rt)
 
 	saved := imgpkg.KittyOutput
@@ -105,7 +92,7 @@ func TestPreloadSync_KittyDecodeIsBounded(t *testing.T) {
 // on byte-identical half-block output, so the kitty bound must not
 // leak into this path.
 func TestPreloadSync_HalfblockDecodeTargetUnchanged(t *testing.T) {
-	rt := &recordingTransport{png: pngBytesOfSize(t, 512)}
+	rt := &pngTransport{png: pngBytesOfSize(t, 512)}
 	fetcher := fetcherWithTransport(t, rt)
 	c := NewCache(fetcher, nil, false)
 
