@@ -31,12 +31,11 @@ func imChannel(id, user string) slack.Channel {
 
 // The DM-sweep goroutine's write shape (resolveDMNames) against the WS
 // goroutine's read shape (OnConversationOpened → buildChannelItem).
-// Before BotUserIDs was store-backed this was a fatal concurrent-map
-// throw.
-func TestBotUserIDsConcurrentSweepWriteAndOpenRead(t *testing.T) {
+// Before the bot classification was synchronized this was a fatal
+// concurrent-map throw.
+func TestBotClassificationConcurrentSweepWriteAndOpenRead(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs: sharedmap.New[string, bool](),
-		UserNames:  usernames.NewStore(),
+		UserNames: usernames.NewStore(),
 	}
 	cfg := config.Config{}
 	const n = 500
@@ -44,7 +43,7 @@ func TestBotUserIDsConcurrentSweepWriteAndOpenRead(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < n; i++ {
-			wctx.BotUserIDs.Set(fmt.Sprintf("U%04d", i), true)
+			wctx.MarkBotUser(fmt.Sprintf("U%04d", i))
 		}
 	}()
 	for {

@@ -8,7 +8,6 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/service"
-	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/slack/boot"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/workspace"
@@ -145,7 +144,6 @@ func TestRailUnreadWorkspaces_MuteStoreNotReady(t *testing.T) {
 		MuteStore:         service.NewMuteStore(), // never bootstrapped: Ready() == false
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{
@@ -238,7 +236,6 @@ func TestRailUnreadWorkspaces_ArchivedChannelInCache(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	for _, ch := range bootConversations(res) {
 		item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")

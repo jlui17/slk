@@ -94,7 +94,6 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		UserNames:            usernames.NewStore(),
 		AvatarURLs:           &sync.Map{},
 		UserNamesByHandle:    make(map[string]string),
-		BotUserIDs:           sharedmap.New[string, bool](),
 		LastVisitedByChannel: sharedmap.New[string, int64](),
 		ThreadSubsGate:       threadSubsGate{window: threadSubsSyncInterval},
 	}
@@ -115,7 +114,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			wctx.UserNamesByHandle[u.Name] = name
 		}
 		if u.IsBot {
-			wctx.BotUserIDs.Set(u.ID, true)
+			wctx.MarkBotUser(u.ID)
 		}
 		// Record the avatar URL for lazy fetch on first render.
 		//
@@ -264,7 +263,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		return nil, fmt.Errorf("bootstrapping %s: %w", token.TeamName, bootErr)
 	}
 	// Order matters between these two: applyBootUsers fills
-	// wctx.BotUserIDs, which buildChannelItem reads to bucket app DMs,
+	// the synchronized bot classification, which buildChannelItem reads to bucket app DMs,
 	// and hydrateFirstSight writes the cache rows the sidebar's
 	// channel list is later reconciled against.
 	applyBootUsers(wctx, res)
@@ -351,7 +350,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	//
 	// A users.list sweep used to run in the background at this point,
 	// paginating the entire directory — ~50 pages on a 10k-user
-	// workspace — to fill UserNames, UserNamesByHandle, BotUserIDs and
+	// workspace — to fill UserNames, UserNamesByHandle, bot classification and
 	// the users cache. The official web client issues users.list zero
 	// times across all 8 captures, and it is the clearest single
 	// "scraping" signal slk emitted. Four sources cover the same

@@ -6,7 +6,6 @@ import (
 
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/service"
-	"github.com/gammons/slk/internal/sharedmap"
 	slk "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/usernames"
 	"github.com/slack-go/slack"
@@ -14,7 +13,6 @@ import (
 
 func TestBuildChannelItem_DM(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.FromMap(map[string]string{"U123": "alice"}),
 		UserNamesByHandle: map[string]string{"alice": "alice"},
 	}
@@ -45,7 +43,6 @@ func TestBuildChannelItem_DM(t *testing.T) {
 
 func TestBuildChannelItem_GroupDM(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
 	}
@@ -70,7 +67,6 @@ func TestBuildChannelItem_GroupDM(t *testing.T) {
 
 func TestBuildChannelItem_Channel(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 	}
@@ -137,7 +133,6 @@ func TestBuildChannelItem_StoreReady_StoreWins(t *testing.T) {
 		SectionStore:      bootstrappedStore(t, map[string][]string{"L_SLACK": {"C1"}}),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{
@@ -163,7 +158,6 @@ func TestBuildChannelItem_StoreReady_StoreMisses_FallsToGlob(t *testing.T) {
 		SectionStore:      bootstrappedStore(t, map[string][]string{}),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{
@@ -187,7 +181,6 @@ func TestBuildChannelItem_StoreNil_UsesGlob(t *testing.T) {
 		SectionStore:      nil,
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{
@@ -214,7 +207,6 @@ func TestBuildChannelItem_GlobMatchPopulatesChannelOrder(t *testing.T) {
 		SectionStore:      nil,
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	// "eng-general" matches the literal pattern first → order 1.
 	ch1 := slack.Channel{
@@ -257,7 +249,6 @@ func TestBuildChannelItem_SlackStoreWins_ChannelOrderZero(t *testing.T) {
 		SectionStore:      bootstrappedStore(t, map[string][]string{"L_SLACK": {"C1"}}),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{
@@ -286,7 +277,6 @@ func TestBuildChannelItem_StoreNotReady_UsesGlob(t *testing.T) {
 		SectionStore:      service.NewSectionStore(),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 	}
 	ch := slack.Channel{
 		GroupConversation: slack.GroupConversation{

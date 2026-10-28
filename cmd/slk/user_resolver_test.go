@@ -14,7 +14,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/usernames"
@@ -569,7 +568,6 @@ func TestResolveDMNames(t *testing.T) {
 	wctx := &WorkspaceContext{
 		TeamID:       "T1",
 		UserNames:    usernames.NewStore(),
-		BotUserIDs:   sharedmap.New[string, bool](),
 		UserResolver: newUserResolver("T1", nil, db, nil, nil, batcher, nil),
 		UnresolvedDMs: []UnresolvedDM{
 			{ChannelID: "D_ALICE", UserID: "U_ALICE"},
@@ -605,8 +603,8 @@ func TestResolveDMNames(t *testing.T) {
 	if app == nil || app.DisplayName != "Some App" || !app.IsBot {
 		t.Errorf("D_APP got %+v; want a DMNameResolvedMsg naming Some App with IsBot true — that flag re-buckets the row into the Apps section", app)
 	}
-	if isBot, _ := wctx.BotUserIDs.Get("U_APP"); !isBot {
-		t.Error("U_APP was not recorded in BotUserIDs")
+	if !wctx.IsBotUser("U_APP") {
+		t.Error("U_APP was not recorded as a bot peer")
 	}
 	if n := len(batcher.calls()); n != 1 {
 		t.Errorf("the sweep made %d edge calls; want 1 for any number of DMs", n)
@@ -636,7 +634,6 @@ func TestResolveDMNames_FallbackPersistsStatusAndEmitsMessage(t *testing.T) {
 		TeamID:       "T1",
 		Client:       client,
 		UserNames:    usernames.NewStore(),
-		BotUserIDs:   sharedmap.New[string, bool](),
 		UserResolver: newUserResolver("T1", nil, db, nil, nil, batcher, nil),
 		UnresolvedDMs: []UnresolvedDM{
 			{ChannelID: "D_BOB", UserID: "U_BOB"},

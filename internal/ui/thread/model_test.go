@@ -18,6 +18,7 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/usernames"
 )
 
 func TestSetThread(t *testing.T) {
@@ -570,21 +571,36 @@ func TestThreadPatchUserName_UpdatesMatchingRowsAndUserNamesMap(t *testing.T) {
 	}
 }
 
-func TestThreadPatchUserName_NoOpWhenUnchanged(t *testing.T) {
+// Mirrors messages' TestPatchUserName_AppliesWhenSharedMapAlreadyHasName:
+// the thread panel shares the App's name map, which already holds the
+// name by the time PatchUserName reaches this pane.
+func TestThreadPatchUserName_AppliesWhenSharedMapAlreadyHasName(t *testing.T) {
+	shared := usernames.NewStore()
 	m := New()
-	parent := messages.MessageItem{TS: "1.0", UserID: "U2", UserName: "alice", Text: "p"}
+	m.SetUserNames(shared)
+	parent := messages.MessageItem{TS: "1.0", UserID: "U1", UserName: "U1", Text: "p"}
 	replies := []messages.MessageItem{
 		{TS: "1.001", UserID: "U1", UserName: "U1", Text: "hi"},
+		{TS: "1.002", UserID: "U2", UserName: "alice", Text: "hey <@U1>"},
 	}
 	m.SetThread(parent, replies, "C1", "1.0")
+	_ = m.View(20, 80)
+	verBefore, namesVBefore := m.Version(), m.userNamesV
 
-	m.PatchUserName("U1", "bob") // prime the userNames map
-	verBefore := m.Version()
+	shared.Set("U1", "bob") // another pane (or the App) got there first
+	m.PatchUserName("U1", "bob")
 
-	m.PatchUserName("U1", "bob") // second call, identical
-
-	if m.Version() != verBefore {
-		t.Error("Version should NOT bump on no-op PatchUserName")
+	if m.parent.UserName != "bob" || m.replies[0].UserName != "bob" {
+		t.Errorf("parent/reply UserName = %q/%q, want bob/bob", m.parent.UserName, m.replies[0].UserName)
+	}
+	if m.cache != nil {
+		t.Error("PatchUserName should invalidate the cache so the <@U1> mention re-resolves")
+	}
+	if m.userNamesV == namesVBefore {
+		t.Error("userNamesV should bump (chromeCache renders the parent header)")
+	}
+	if m.Version() == verBefore {
+		t.Error("Version should bump after PatchUserName")
 	}
 }
 

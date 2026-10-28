@@ -5,6 +5,21 @@ import (
 	"strings"
 )
 
+// decodeTarget is the fetcher decode target for one avatar URL. Source
+// size differs by protocol:
+//   - half-block: (AvatarCols, AvatarRows*2) gives the renderer exactly
+//     the pixel grid it samples, matching the original pre-kitty
+//     pipeline byte-for-byte (parity test relies on this).
+//   - kitty: a bounded square decode (kittyAvatarTarget), per URL, so
+//     the sized variant decodes native and an original fetched as the
+//     fallback stays bounded.
+func (c *Cache) decodeTarget(url string) image.Point {
+	if c.useKitty {
+		return kittyAvatarTarget(url)
+	}
+	return image.Pt(AvatarCols, AvatarRows*2)
+}
+
 // kittyAvatarDecodeSize bounds the fetcher-side decode of kitty avatar
 // sources, which is retained for the process lifetime in the fetcher's
 // decoded memo and the kitty registry. The renderer stretches the
@@ -47,23 +62,4 @@ func trailingSizeMarker(u string) (int, bool) {
 		n = n*10 + int(r-'0')
 	}
 	return n, true
-}
-
-// sizedAvatarURL rewrites a slack-edge avatar URL ending in
-// _original.<ext> to the _192 variant, a size Slack serves for every
-// workspace avatar and that stays sharp above kittyAvatarTarget. Any
-// other URL passes through unchanged.
-func sizedAvatarURL(u string) string {
-	if !strings.HasPrefix(u, "https://avatars.slack-edge.com/") {
-		return u
-	}
-	i := strings.LastIndex(u, "_original.")
-	if i < 0 {
-		return u
-	}
-	ext := u[i+len("_original."):]
-	if ext == "" || strings.ContainsAny(ext, "./?#") {
-		return u
-	}
-	return u[:i] + "_192." + ext
 }

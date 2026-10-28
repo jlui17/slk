@@ -18,7 +18,6 @@ import (
 
 	"github.com/gammons/slk/internal/bootstrap"
 	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/sharedmap"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/boot"
 	"github.com/gammons/slk/internal/slack/edge"
@@ -676,7 +675,6 @@ func TestApplyBootUsers_FillsTheMapsTheSidebarReads(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
-		BotUserIDs:        sharedmap.New[string, bool](),
 		AvatarURLs:        &sync.Map{},
 	}
 	applyBootUsers(wctx, &bootstrap.Result{Users: []boot.User{
@@ -696,10 +694,8 @@ func TestApplyBootUsers_FillsTheMapsTheSidebarReads(t *testing.T) {
 	if got := wctx.UserNamesByHandle["pat"]; got != "Pat" {
 		t.Errorf("UserNamesByHandle[pat] = %q; want Pat", got)
 	}
-	u4, _ := wctx.BotUserIDs.Get("U4")
-	u1, _ := wctx.BotUserIDs.Get("U1")
-	if !u4 || u1 {
-		t.Errorf("BotUserIDs = %+v; want only U4", wctx.BotUserIDs.Current())
+	if !wctx.IsBotUser("U4") || wctx.IsBotUser("U1") {
+		t.Errorf("bot classification: U4=%v U1=%v; want only U4", wctx.IsBotUser("U4"), wctx.IsBotUser("U1"))
 	}
 	if v, ok := wctx.AvatarURLs.Load("U1"); !ok || v.(string) != "https://cdn/pat.png" {
 		t.Errorf("AvatarURLs[U1] = %v/%v; want the image_original URL", v, ok)

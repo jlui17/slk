@@ -348,8 +348,8 @@ func bootUserDisplayName(u boot.User) string {
 // Called on the connectWorkspace goroutine before the UI is told the
 // workspace is ready, which is why the plain UserNamesByHandle map
 // can be written directly: after that point it has other readers and
-// no synchronization. UserNames (store-backed, batch-applied) and
-// BotUserIDs (store-backed) need no such ordering.
+// no synchronization. UserNames (store-backed, batch-applied) and the
+// bot classification (MarkBotUser, synchronized) need no such ordering.
 func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 	bootNames := make(map[string]string, len(res.Users))
 	for _, u := range res.Users {
@@ -363,7 +363,7 @@ func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 		// second, and this flag decides whether a DM lands in the
 		// "Apps" sidebar section.
 		if u.IsBot || u.IsAppUser {
-			wctx.BotUserIDs.Set(u.ID, true)
+			wctx.MarkBotUser(u.ID)
 		}
 		if u.Profile.ImageOriginal != "" {
 			wctx.AvatarURLs.Store(u.ID, u.Profile.ImageOriginal)

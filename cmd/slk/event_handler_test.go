@@ -13,7 +13,6 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/core"
-	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/usernames"
@@ -26,7 +25,6 @@ import (
 // nil — the handler must guard all three.
 func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 		Channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
@@ -70,7 +68,6 @@ func TestOnConversationOpened_SeedsDMStatusFromCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.FromMap(map[string]string{"U1": "alice"}),
 		UserNamesByHandle: map[string]string{},
 	}
@@ -108,7 +105,6 @@ func TestOnConversationOpened_SeedsDMStatusFromCache(t *testing.T) {
 // overwrite and FinderItems dedupe are the only behaviors that remain.
 func TestOnConversationOpened_DedupesByID(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
 		Channels: []sidebar.ChannelItem{
@@ -154,7 +150,6 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 // beyond the scope of this task.
 func TestOnConversationOpened_InactiveWorkspace_PersistsContext(t *testing.T) {
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 	}
@@ -379,7 +374,6 @@ func (f sendFunc) Send(msg tea.Msg) { f(msg) }
 func TestOnMessage_UnknownConversation_AddsItUnread(t *testing.T) {
 	db := newTestDB(t)
 	wctx := &WorkspaceContext{
-		BotUserIDs:        sharedmap.New[string, bool](),
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 	}
@@ -440,7 +434,6 @@ func TestOnMessage_UnknownConversation_RetryDependsOnFailure(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wctx := &WorkspaceContext{
-				BotUserIDs:        sharedmap.New[string, bool](),
 				UserNames:         usernames.NewStore(),
 				UserNamesByHandle: map[string]string{},
 			}
