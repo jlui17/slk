@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/slack-go/slack"
 )
@@ -132,24 +133,8 @@ func applyBootstrappedStatus(wctx *WorkspaceContext, program teaSender, tok boot
 		wctx.selfStatus.ApplyBootstrapPresence(tok, presence.Presence)
 	}
 
-	// Slack's dnd_enabled flag means "the user has a DND schedule
-	// configured", NOT "currently in DND". The user is currently in DND
-	// only when (a) a manual snooze is active, or (b) the current time
-	// falls inside the next scheduled window. The same rule lives in
-	// internal/slack/events.go's computeDNDState for the WS event path.
 	if dnd != nil {
-		now := time.Now().Unix()
-		var isDND bool
-		var endUnix int64
-		switch {
-		case dnd.SnoozeEnabled && int64(dnd.SnoozeEndTime) > now:
-			isDND = true
-			endUnix = int64(dnd.SnoozeEndTime)
-		case dnd.Enabled && int64(dnd.NextStartTimestamp) > 0 &&
-			int64(dnd.NextStartTimestamp) <= now && now < int64(dnd.NextEndTimestamp):
-			isDND = true
-			endUnix = int64(dnd.NextEndTimestamp)
-		}
+		isDND, endUnix := slackclient.DNDStateFromStatus(*dnd, time.Now().Unix())
 		var endTS time.Time
 		if endUnix > 0 {
 			endTS = time.Unix(endUnix, 0)
