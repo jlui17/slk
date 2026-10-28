@@ -1894,14 +1894,38 @@ func TestGolden_DragSelectionIsActuallySelected(t *testing.T) {
 	}
 
 	drag := a.View().Content
-	undragged := goldenDragApp(t, false).View().Content
+	undraggedApp := goldenDragApp(t, false)
+	undragged := undraggedApp.View().Content
 	base := goldenScenarioNamed(t, "base").build(t).View().Content
 
 	if len(drag) <= len(undragged) {
 		t.Errorf("drag_selection renders %d bytes, the same frame without the drag renders %d; "+
 			"the highlight emitted no escape sequences", len(drag), len(undragged))
 	}
-	if got, want := stripANSI(drag), stripANSI(undragged); got != want {
+	// The one intended content difference: the baseline's selected row
+	// shows the long, date-qualified timestamp. In the dragged frame no
+	// row does -- the press moved the cursor elsewhere, and while a text
+	// selection exists the selected row shows its short timestamp because
+	// the overlay splices short-form plain text into it by column
+	// (messages.Model selectedLines). Normalise exactly that one row: its
+	// text must match once the long form is swapped for the short one;
+	// only its padding may differ. Every other row stays byte-exact.
+	wantLines := strings.Split(stripANSI(undragged), "\n")
+	gotLines := strings.Split(stripANSI(drag), "\n")
+	if sel, ok := undraggedApp.messagepane.SelectedMessage(); ok {
+		long := messages.LongTimestamp(sel.TS, sel.Timestamp)
+		collapse := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+		for i, l := range wantLines {
+			if strings.Contains(l, long) && i < len(gotLines) {
+				if collapse(strings.Replace(l, long, sel.Timestamp, 1)) == collapse(gotLines[i]) {
+					wantLines[i] = gotLines[i]
+				}
+				break
+			}
+		}
+	}
+	want := strings.Join(wantLines, "\n")
+	if got := strings.Join(gotLines, "\n"); got != want {
 		t.Errorf("drag_selection's stripped text differs from the undragged frame's; the drag "+
 			"changed CONTENT, not just styling: %s", firstLineDiff(want, got))
 	}

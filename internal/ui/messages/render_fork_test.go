@@ -194,7 +194,7 @@ func TestRenderMessagePlain_HighlightsSearchTerms(t *testing.T) {
 	hlStart, _ := searchHighlightSGRForTest(t)
 	m := New(nil, "general")
 	m.SetSearchTerms([]string{"deploy"})
-	content, _, _, _, _ := m.renderMessagePlain(MessageItem{TS: "1.0", UserName: "u", Text: "deploy went fine"}, 80, "", nil, nil, false, nil)
+	content, _, _, _, _, _, _ := m.renderMessagePlain(MessageItem{TS: "1.0", UserName: "u", Text: "deploy went fine"}, 80, "", nil, nil, false, nil)
 	if !strings.Contains(content, hlStart+"deploy") {
 		t.Errorf("messages pane body lost search highlighting: %q", content)
 	}

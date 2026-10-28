@@ -171,7 +171,7 @@ func summarizeCachedRows(rows []cache.Message) string {
 // unknown user IDs render with their userID as a fallback rather than
 // triggering a fresh GetUserProfile RPC. Resolving them on-demand would
 // defeat the cache-first goal (and is what fetchChannelMessages already
-// does on the network path, populating userNames for next time).
+// does on the network path, populating the name store for next time).
 //
 // raw_json unmarshal failures on a single row degrade gracefully: that
 // row renders as text-only (no attachments / blocks / legacy

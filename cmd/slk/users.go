@@ -106,6 +106,14 @@ func resolveUser(client *slackclient.Client, userID string, userNames *usernames
 			IsExternal:  isExternal,
 		})
 		applyProfileStatus(client.TeamID(), userID, u.Profile, db, send)
+		if send != nil {
+			send(ui.UserResolvedMsg{
+				TeamID:      client.TeamID(),
+				UserID:      userID,
+				DisplayName: name,
+				IsBot:       isBot,
+			})
+		}
 		return name, isBot
 	}
 	return userID, false

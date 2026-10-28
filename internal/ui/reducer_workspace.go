@@ -457,5 +457,10 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	if m.RefreshPeerDND != nil {
 		batch = append(batch, m.RefreshPeerDND)
 	}
+	// Same ordering reason: names it reports as UserResolvedMsg are
+	// dropped unless m.TeamID is already active.
+	if m.AfterSwitch != nil {
+		batch = append(batch, m.AfterSwitch)
+	}
 	return tea.Batch(batch...)
 }

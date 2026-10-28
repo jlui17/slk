@@ -23,7 +23,7 @@ func TestRenderThreadMessage_ColonyEphemeral(t *testing.T) {
 		Blocks:      blockkittest.ColonyEphemeral("https://x.slack.com/archives/C1/p1", "https://x.slack.com/archives/C1/p1787300000000100"),
 		IsEphemeral: true,
 	}
-	got, _, _ := m.renderThreadMessage(msg, 100, nil, nil, false)
+	got, _, _, _, _ := m.renderThreadMessage(msg, 100, nil, nil, false)
 	plain := ansi.Strip(got)
 	if header := strings.Split(plain, "\n")[0]; !strings.Contains(header, "only visible to you") {
 		t.Errorf("header row = %q, want \"only visible to you\"", header)

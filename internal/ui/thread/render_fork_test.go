@@ -24,7 +24,7 @@ func TestRenderThreadMessageTableBetweenParagraphs(t *testing.T) {
 			blockkittest.Paragraph("second paragraph"),
 		},
 	}
-	got, _, _ := m.renderThreadMessage(msg, 100, nil, nil, false)
+	got, _, _, _, _ := m.renderThreadMessage(msg, 100, nil, nil, false)
 	plain := ansi.Strip(got)
 	for _, want := range []string{"first paragraph", "Step", "Auth()", "second paragraph"} {
 		if n := strings.Count(plain, want); n != 1 {

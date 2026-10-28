@@ -356,6 +356,12 @@ type (
 		// batch after the switch applies. It fetches DM peers' DND for
 		// this workspace and delivers results as UserDNDChangeMsg.
 		RefreshPeerDND tea.Cmd
+		// AfterSwitch, if set, is appended to reduceWorkspaceSwitched's
+		// batch after activeTeamID is updated, like RefreshPeerDND. cmd/slk
+		// uses it to start reporting the workspace's newly learned user
+		// names as UserResolvedMsg; any sent before the switch applied
+		// would be dropped as belonging to an inactive workspace.
+		AfterSwitch tea.Cmd
 	}
 	// ReadStateChangedMsg is sent whenever the persistent read state changes,
 	// so panels that read from cache.GetWorkspaceReadState re-render.

@@ -75,6 +75,17 @@ that no longer exists. Do not trust it.** Current structural documentation:
 - **Per-mode key handling is a table**, `modeHandlers` in
   `internal/ui/mode_handlers.go`. One `mode_*.go` file per mode.
 - **SQLite is a cache.** Slack remains authoritative.
+- **A map shared across goroutines is never written.** Every map the UI holds
+  is either built for it (a copy, like `userNameStore.SnapshotForUI()` or the
+  per-message `ExternalUsers` set) or published once and never mutated
+  again (`WorkspaceContext.CustomEmoji` / `UserGroups`, swapped whole via
+  `atomic.Pointer`). A copy handed to the UI is the UI's from then on: the
+  sender must not keep reading it (the UI writes it). The same goes for maps
+  captured by a `tea.Cmd` (`saveThreadToFile` clones them). A plain map
+  written while another goroutine reads it is a `fatal error: concurrent map
+  read and map write`, which bubbletea cannot recover from; it crashed slk on
+  2026-10-02 via the user-name map (see `cmd/slk/usernames.go`). Engine state
+  several goroutines write is locked (`userNameStore`) instead.
 
 ## Shared code — check here before writing a helper
 
@@ -95,6 +106,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Does message text mention the current user? | `mention.InText(text, selfUserID)` |
 | Reaction pill rendering | `messages.ReactionPillText` |
 | Date label from a Slack ts | `messages.DateFromTS`, `messages.FormatDateSeparator` |
+| Date-qualified timestamp for the selected message header | `messages.LongTimestamp(ts, short)`, `messages.SelectedHeader(rendered, header, ts, short, maxWidth)` |
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |
 | Channel-type glyph (`#` / `◆` / `●`) | `messages.ChannelGlyph(chType)` |
 | Slack permalink parsing | `slackurl.Parse` |
@@ -103,6 +115,8 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Current DND state from a Slack API result | `slack.DNDStateFromStatus` |
 | Peer custom status, DND and huddle rendering | `ui/peerstatus` (`Status`, glyph/expiry/summary methods); `messages.AuthorStatusSuffix` for author headers |
 | Usergroup map helpers | `usergroups.Copy`, `usergroups.Equal`, `usergroups.Display` |
+| A workspace's user ID → display name, from any goroutine in `cmd/slk` | `wctx.UserNames` (`*userNameStore`: `Get`/`Set`, `MentionedNames(text)` for one message; `lookupUserCached` / `resolveUserCached` add the SQLite fallback). Just `Set`: hand the UI the map from `SnapshotForUI()` and pass only its version to `NotifyFrom`, which makes every later new or changed name reach the UI as `UserResolvedMsg`. Never keep or read the map you handed over |
+| User IDs mentioned in message text | `slackfmt.MentionedUserIDs(text)` |
 | Copy text to the clipboard | `App.clipboardWrite` / `SetClipboardWriter`; `cmd/slk/newClipboardWriter` selects local macOS `pbcopy` or terminal OSC 52 |
 
 ### UI chrome

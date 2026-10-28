@@ -31,7 +31,7 @@ func TestRenderMessageTableCellEmojiUploads(t *testing.T) {
 	msg := MessageItem{TS: "1.0", UserName: "claude", Blocks: []blockkit.Block{
 		blockkit.TableBlock{Rows: [][]string{{"Status"}, {":thumbsup: done"}}},
 	}}
-	content, flushes, _, _, _ := m.renderMessagePlain(msg, 80, "", nil, nil, false, nil)
+	content, flushes, _, _, _, _, _ := m.renderMessagePlain(msg, 80, "", nil, nil, false, nil)
 	if !strings.Contains(content, "\U0010EEEE") {
 		t.Fatalf("table cell emoji did not render as a kitty placement:\n%q", content)
 	}
