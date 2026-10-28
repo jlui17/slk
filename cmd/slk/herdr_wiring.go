@@ -108,3 +108,16 @@ func (h *rtmEventHandler) sendAssistantStatus(s slackclient.AssistantStatus) {
 		Status:    s.Status,
 	})
 }
+
+// reactionReachesUI reports whether a reaction event is sent to the UI. A
+// background workspace's reactions matter there only as the tracked agent
+// thread's ack, which only a bot gives, and each one sent costs a full
+// Update and View. Bot-ness is read where agent-thread detection reads it,
+// the user cache, so the tracked thread's bot always passes.
+func (h *rtmEventHandler) reactionReachesUI(userID string) bool {
+	if h.isActive == nil || h.isActive() {
+		return true
+	}
+	u, err := h.db.GetUser(userID)
+	return err == nil && u.IsBot
+}

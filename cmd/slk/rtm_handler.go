@@ -550,9 +550,12 @@ func (h *rtmEventHandler) OnReactionAdded(channelID, ts, userID, emojiName strin
 		}
 	}
 
-	// Dispatched for every workspace, tagged like NewMessageMsg: the
-	// reducer skips background-team pane updates itself, and the tracked
-	// agent thread's ack hook runs ahead of that skip.
+	// Tagged like NewMessageMsg: the reducer skips background-team pane
+	// updates itself, and the tracked agent thread's ack hook runs ahead
+	// of that skip, so a background workspace sends bots' reactions.
+	if !h.reactionReachesUI(userID) { // fork: herdr_wiring.go
+		return
+	}
 	h.program.Send(ui.ReactionAddedMsg{
 		TeamID:    h.workspaceID,
 		ChannelID: channelID,
@@ -584,6 +587,9 @@ func (h *rtmEventHandler) OnReactionRemoved(channelID, ts, userID, emojiName str
 		}
 	}
 
+	if !h.reactionReachesUI(userID) { // fork: herdr_wiring.go
+		return
+	}
 	h.program.Send(ui.ReactionRemovedMsg{
 		TeamID:    h.workspaceID,
 		ChannelID: channelID,
