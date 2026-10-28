@@ -17,7 +17,7 @@
           pname = "slk";
           version = "0.0.0";
           src = ./.;
-          vendorHash = "sha256-yVbKhQOflQwOi4JFC/LSNJyzxi2rLTbEuj66kJzQgpg=";
+          vendorHash = "sha256-CPfCMGnlzIWvLIp6W8LVNC0csn3PNF28tz7yV2U9d6k=";
           buildInputs = [pkgs.libX11];
           # The test suite spins up httptest servers on loopback. The macOS
           # Nix sandbox denies all networking by default, so allow loopback
