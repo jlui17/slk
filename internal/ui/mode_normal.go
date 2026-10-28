@@ -373,6 +373,16 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.DownloadFile):
 		return a.downloadFilesOfSelected()
 
+	case a.view == ViewActivity && a.focusedPanel == PanelMessages && key.Matches(msg, a.keys.MarkUnread):
+		// In the Activity view U toggles the selected item's read
+		// state. The channel pane is hidden behind the view, so the
+		// arm below would mark a message nobody can see.
+		it, ok := a.activityView.SelectedItem()
+		if !ok {
+			return nil
+		}
+		return a.setActivityItemRead(it, it.IsUnread)
+
 	case key.Matches(msg, a.keys.MarkUnread):
 		return a.markUnreadOfSelected()
 

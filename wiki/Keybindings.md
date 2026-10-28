@@ -41,6 +41,7 @@
 | `Ctrl+a` | Normal | Toggle the Activity view (mentions, thread replies, reactions, DMs) |
 | `:activity` | Normal | Open the Activity view |
 | `u` | Normal (activity) | Toggle the Activity view's unread-only filter |
+| `U` | Normal (activity) | Toggle the selected Activity item read/unread |
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |
 | `:ws` | Normal | Workspace picker |
 | `1`–`9` | Normal | Jump to workspace N |

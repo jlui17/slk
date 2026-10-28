@@ -1097,7 +1097,8 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	// the rule under it. The rule is not selectable text (Plain stops
 	// before it). The parent renders on every View, so its image uploads
 	// go out here rather than with the replies'. We discard the parent's
-	// reaction hits in v1, as before.
+	// reaction hits in v1, as before; its image hits are kept so a click
+	// on its image opens the preview.
 	parentIsSelected := m.selected == parentSelected
 	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
 	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
@@ -1163,13 +1164,19 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if m.parent.TS != "" {
 		// A parent without a ts cannot be clicked or text-selected.
 		parent.Plain = parentPlain
+		for _, h := range parentRendered.Hits {
+			if h.Kind == entrylist.HitImage {
+				parent.Hits = append(parent.Hits, h)
+			}
+		}
 	}
 
 	if len(m.replies) == 0 {
 		// "No replies yet" under the parent. It goes through the list so
 		// a parent taller than the pane still scrolls; the scrollbar
-		// reflects the parent's own height. No snap, no hits, no
-		// selection overlay: as before (plan decision P1 for the totals).
+		// reflects the parent's own height. No snap and no selection
+		// overlay, as before (plan decision P1 for the totals); the
+		// parent's image hits are translated so its image is clickable.
 		emptyHeight := max(replyAreaHeight-len(parent.Lines), 1)
 		empty := lipgloss.NewStyle().
 			Width(width).
@@ -1348,6 +1355,24 @@ func (m *Model) HitTestReaction(row, col int) (replyIdx int, emoji string, ok bo
 	return h.Ref, h.Key, true
 }
 
+// HitTestImage returns the ts of the message (the parent or a reply)
+// and the attachment index of the inline image at (row, col) within the
+// thread's content area, or ok=false when no image footprint covers
+// that cell. Coordinate frame mirrors HitTestReaction.
+func (m *Model) HitTestImage(row, col int) (ts string, attIdx int, ok bool) {
+	h, ok := m.list.HitTest(entrylist.HitImage, row, col)
+	if !ok || h.Key == "" {
+		return "", 0, false
+	}
+	switch {
+	case h.Ref == parentSelected:
+		return m.parent.TS, h.Aux, m.parent.TS != ""
+	case h.Ref >= 0 && h.Ref < len(m.replies):
+		return m.replies[h.Ref].TS, h.Aux, true
+	}
+	return "", 0, false
+}
+
 // fitHeight keeps the first height rows of s, as the old outer
 // MaxHeight(height) did when a floored reply area (height < chrome + 1)
 // made the pane one row too tall.
@@ -1386,7 +1411,8 @@ func (m *Model) renderContext() *messages.RenderContext {
 
 // renderMessage renders msg with the thread pane's options: no avatar
 // (even with SetAvatarFunc), no "(edited)", no broadcast label, no reply
-// affordance and no image hits or sixel rows (plan decision P3).
+// affordance and no sixel rows (plan decision P3). Image hits are
+// recorded so a click opens the preview, as in the channel pane.
 func (m *Model) renderMessage(msg messages.MessageItem, width int, isSelected bool) messages.RenderedMessage {
-	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected})
+	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected, ImageHits: true})
 }

@@ -172,30 +172,44 @@ func (t threadAdapter) ThreadLastRead(channelID ids.ChannelID, threadTS ids.Thre
 	return t.fns.ThreadLastRead(channelID, threadTS)
 }
 
-// NewActivityService builds an ActivityService from closures. Either
-// may be nil; the resulting service no-ops that operation (returns a
-// nil Msg).
-func NewActivityService(fetch ActivityFetchFunc, hydrate ActivityHydrateFunc) ActivityService {
-	return activityAdapter{fetch: fetch, hydrate: hydrate}
+// ActivityServiceFuncs is the closure bundle accepted by
+// NewActivityService. Any field may be nil; the resulting service
+// no-ops that operation (returns a nil Msg).
+type ActivityServiceFuncs struct {
+	Fetch   ActivityFetchFunc
+	Hydrate ActivityHydrateFunc
+	SetRead ActivitySetReadFunc
+}
+
+// NewActivityService builds an ActivityService from an
+// ActivityServiceFuncs bundle.
+func NewActivityService(fns ActivityServiceFuncs) ActivityService {
+	return activityAdapter{fns: fns}
 }
 
 type activityAdapter struct {
-	fetch   ActivityFetchFunc
-	hydrate ActivityHydrateFunc
+	fns ActivityServiceFuncs
 }
 
 func (a activityAdapter) Fetch(teamID ids.TeamID, limit int, unreadOnly bool) Msg {
-	if a.fetch == nil {
+	if a.fns.Fetch == nil {
 		return nil
 	}
-	return a.fetch(teamID, limit, unreadOnly)
+	return a.fns.Fetch(teamID, limit, unreadOnly)
 }
 
 func (a activityAdapter) Hydrate(teamID ids.TeamID, refs map[string][]string) Msg {
-	if a.hydrate == nil {
+	if a.fns.Hydrate == nil {
 		return nil
 	}
-	return a.hydrate(teamID, refs)
+	return a.fns.Hydrate(teamID, refs)
+}
+
+func (a activityAdapter) SetRead(teamID ids.TeamID, item ActivityItem, read bool) Msg {
+	if a.fns.SetRead == nil {
+		return nil
+	}
+	return a.fns.SetRead(teamID, item, read)
 }
 
 // MessageServiceFuncs is the closure bundle accepted by
@@ -715,6 +729,10 @@ type ActivityFetchFunc func(teamID ids.TeamID, limit int, unreadOnly bool) Msg
 // ActivityHydrateFunc fetches message bodies for a page's refs.
 // Returns the resulting Msg (typically ActivityBodiesLoadedMsg).
 type ActivityHydrateFunc func(teamID ids.TeamID, refs map[string][]string) Msg
+
+// ActivitySetReadFunc marks one Activity item read (read=true) or
+// unread in teamID's feed.
+type ActivitySetReadFunc func(teamID ids.TeamID, item ActivityItem, read bool) Msg
 
 type ReactionAddFunc func(channelID ids.ChannelID, messageTS ids.MessageTS, emoji string) error
 type ReactionRemoveFunc func(channelID ids.ChannelID, messageTS ids.MessageTS, emoji string) error

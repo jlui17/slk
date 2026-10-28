@@ -120,8 +120,8 @@ type ThreadService interface {
 // view — @mentions, thread replies, reactions to your messages, and
 // DMs. Implementations are wired by cmd/slk/main.go.
 //
-// Marking items read is out of scope: opening an item marks the
-// underlying conversation read via existing paths.
+// SetRead changes one item's read state in the feed itself; opening an
+// item also marks its conversation read through the existing paths.
 type ActivityService interface {
 	// Fetch loads the first page of the Activity feed for teamID.
 	// limit is the max items; unreadOnly requests the server-side
@@ -133,6 +133,11 @@ type ActivityService interface {
 	// wanted message timestamps. Returns a Msg (typically
 	// ActivityBodiesLoadedMsg), or nil when there's nothing to fetch.
 	Hydrate(teamID ids.TeamID, refs map[string][]string) Msg
+
+	// SetRead marks item read (read=true) or unread in teamID's
+	// Activity feed. Returns a Msg (typically ActivityReadSetMsg,
+	// carrying any error so the caller can undo an optimistic change).
+	SetRead(teamID ids.TeamID, item ActivityItem, read bool) Msg
 }
 
 // MessageService is the App's interface to Slack's per-message

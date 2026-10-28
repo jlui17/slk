@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -248,6 +249,11 @@ func run(startupLink *slackurl.Permalink) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+
+	// <!date tokens render their {time} clock with the same
+	// timestamp_format the message stamps use, so every clock in the
+	// TUI follows one setting.
+	messages.SetDateTokenTimeLayout(cfg.Appearance.TimestampFormat)
 
 	// Load custom themes and apply the active theme
 	themesDir := filepath.Join(configDir, "themes")
@@ -1321,10 +1327,11 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 		}))
 
-		app.SetActivityService(core.NewActivityService(
-			activityFetchFunc(router),
-			activityHydrateFunc(router),
-		))
+		app.SetActivityService(core.NewActivityService(core.ActivityServiceFuncs{
+			Fetch:   activityFetchFunc(router),
+			Hydrate: activityHydrateFunc(router),
+			SetRead: activitySetReadFunc(router),
+		}))
 
 		app.SetMarksPersistStore(ui.NewMarksPersistStore(ui.MarksPersistStoreFuncs{
 			Upsert: func(teamID, letter string, m ui.Mark) error {
@@ -1746,9 +1753,10 @@ func run(startupLink *slackurl.Permalink) error {
 			// is the publication point for cross-goroutine readers
 			// (reloader, wake detector), so RTMHandler/ConnMgr above must
 			// be assigned before it — an Add any earlier lets a reader
-			// observe a wctx whose fields aren't yet visible.
+			// observe a wctx whose fields aren't yet visible. The
+			// connection manager itself starts below, after the
+			// WorkspaceReadyMsg snapshots.
 			router.Add(wctx)
-			go wctx.ConnMgr.Run(ctx)
 
 			// Use the same workspace-relative cache projection as switching,
 			// including profiles first cached by a different workspace.
@@ -1758,13 +1766,14 @@ func run(startupLink *slackurl.Permalink) error {
 			readyStatuses := cachedPeerStatuses(db, wctx.TeamID)
 			wctx.PeerStatus.SeedHuddles(readyStatuses)
 			p.Send(ui.WorkspaceReadyMsg{
-				TeamID:           wctx.TeamID,
-				TeamName:         wctx.TeamName,
-				Domain:           wctx.Client.TeamSubdomain(),
-				Theme:            cfgSnap.ResolveTheme(wctx.TeamID),
-				SidebarWidth:     cfgSnap.ResolveWidth(wctx.TeamID),
-				Channels:         wctx.Channels,
-				FinderItems:      wctx.FinderItems,
+				TeamID:       wctx.TeamID,
+				TeamName:     wctx.TeamName,
+				Domain:       wctx.Client.TeamSubdomain(),
+				Theme:        cfgSnap.ResolveTheme(wctx.TeamID),
+				SidebarWidth: cfgSnap.ResolveWidth(wctx.TeamID),
+				// Detach both UI snapshots before the event owner starts.
+				Channels:         slices.Clone(wctx.Channels),
+				FinderItems:      slices.Clone(wctx.FinderItems),
 				UserNames:        wctx.UserNames,
 				UserStatuses:     readyStatuses,
 				ExternalUsers:    external,
@@ -1775,6 +1784,10 @@ func run(startupLink *slackurl.Permalink) error {
 				InitialActive:    isInitial,
 				LastChannelID:    restoredChannelFor(paneRestore, wctx.TeamID, wctx.LastVisitedByChannel.Current()),
 			})
+
+			// Live repairs may mutate workspace slices. Start their owner only
+			// after cloning and handing off the startup snapshots above.
+			go wctx.ConnMgr.Run(ctx)
 
 			// Fetch the workspace's custom emoji in the background. When
 			// done, a follow-up message makes rendering and the emoji

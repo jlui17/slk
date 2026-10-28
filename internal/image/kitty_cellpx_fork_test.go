@@ -104,6 +104,9 @@ func kittyPayloadDims(t *testing.T, r Render) (int, int) {
 		if !ok {
 			continue // leading empty split element
 		}
+		if strings.HasPrefix(body, "a=d,") {
+			continue // the delete that precedes each upload carries no payload
+		}
 		_, chunk, ok := strings.Cut(body, ";")
 		if !ok {
 			t.Fatalf("kitty sequence has no payload separator: %q", body)

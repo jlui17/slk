@@ -158,7 +158,7 @@ func TestGetStarredChannels_ReadsGroupStars(t *testing.T) {
 	defer srv.Close()
 	c := &Client{token: "xoxc-test", cookie: "d", apiBaseURL: srv.URL + "/api/"}
 
-	got, err := c.GetStarredChannels(context.Background())
+	got, err := c.GetStarredConversations(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

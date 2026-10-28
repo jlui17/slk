@@ -290,10 +290,8 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
 			if ok && panel == PanelMessages && py >= 0 && a.activityView.ClickAt(py) {
 				if it, ok := a.activityView.SelectedItem(); ok {
-					channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
-					return func() tea.Msg {
-						return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
-					}
+					team := a.activeTeamID
+					return func() tea.Msg { return ActivitySelectedMsg{TeamID: team, Item: it} }
 				}
 			}
 			return nil
@@ -320,22 +318,8 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if cmd, hit := a.toggleReactionAt(a.messagepane, a.activeChannelID, a.messagepane.Messages(), px, py); hit {
 			return cmd
 		}
-		if contentY := py - a.messagepane.ChromeHeight(); contentY >= 0 {
-			if hitMsgIdx, attIdx, fileID, hit := a.messagepane.HitTest(contentY, px); hit && fileID != "" {
-				msgs := a.messagepane.Messages()
-				if hitMsgIdx >= 0 && hitMsgIdx < len(msgs) {
-					ch := a.activeChannelID
-					messageTS := msgs[hitMsgIdx].TS
-					idx := attIdx
-					return func() tea.Msg {
-						return messages.OpenImagePreviewMsg{
-							Channel: ch,
-							TS:      messageTS,
-							AttIdx:  idx,
-						}
-					}
-				}
-			}
+		if cmd, hit := a.openImagePreviewAt(a.messagepane, a.activeChannelID, px, py); hit {
+			return cmd
 		}
 		a.drag.Begin(PanelMessages, px, py)
 		a.drag.link = a.messagepane.LinkURLAt(py, px)
@@ -359,8 +343,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.threadPanel.ToggleAttachmentFoldAt(py) {
 			return nil
 		}
-		// Hit-test reactions first on the thread pane too.
+		// Hit-test reactions and inline images first on the thread
+		// pane too.
 		if cmd, hit := a.toggleReactionAt(a.threadPanel, a.threadPanel.ChannelID(), a.threadPanel.Replies(), px, py); hit {
+			return cmd
+		}
+		if cmd, hit := a.openImagePreviewAt(a.threadPanel, a.threadPanel.ChannelID(), px, py); hit {
 			return cmd
 		}
 		a.drag.Begin(PanelThread, px, py)
@@ -384,4 +372,20 @@ func (a *App) toggleReactionAt(p contentPane, channelID string, items []messages
 		}
 	}
 	return nil, false
+}
+
+// openImagePreviewAt opens the full-screen preview of the inline image
+// at pane-local (px, py) in p, if there is one.
+func (a *App) openImagePreviewAt(p contentPane, channelID string, px, py int) (tea.Cmd, bool) {
+	contentY := py - p.ChromeHeight()
+	if contentY < 0 {
+		return nil, false
+	}
+	ts, attIdx, hit := p.HitTestImage(contentY, px)
+	if !hit {
+		return nil, false
+	}
+	return func() tea.Msg {
+		return messages.OpenImagePreviewMsg{Channel: channelID, TS: ts, AttIdx: attIdx}
+	}, true
 }

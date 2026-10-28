@@ -210,6 +210,7 @@ type ActivityItem struct {
 	ThreadTS  string // set for thread_v2 (== thread root)
 	AuthorID  string // message author (mentions); "" when unknown
 	Reaction  string // emoji short name, for message_reaction only
+	Subtype   string // saved_reminder's item_type ("reminder"); "" for other types
 }
 
 // ActivityMessage is a hydrated message body for one activity ref

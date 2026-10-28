@@ -237,12 +237,13 @@ type (
 		Items  []core.ActivityItem
 	}
 	// ActivitySelectedMsg is dispatched when the user presses Enter on
-	// an Activity row. The App opens the underlying thread (ThreadTS
-	// set) or channel message (jumps to TS) reusing existing helpers.
+	// (or clicks) an Activity row. The App opens the underlying thread
+	// (ThreadTS set) or channel message (jumps to TS); an item with no
+	// channel has nothing to open and is acknowledged instead. Ignored
+	// if TeamID is not the active team.
 	ActivitySelectedMsg struct {
-		ChannelID string
-		TS        string
-		ThreadTS  string
+		TeamID string
+		Item   core.ActivityItem
 	}
 	// ActivityBodiesLoadedMsg carries hydrated message bodies for the
 	// refs in a freshly loaded Activity page (fetched via messages.list
@@ -258,7 +259,17 @@ type (
 	// the filtering). Dispatched by the unread-toggle key while the
 	// Activity view is focused.
 	ActivityToggleUnreadMsg struct{}
-	ConnectionStateMsg      struct {
+	// ActivityReadSetMsg reports the result of asking Slack to mark one
+	// Activity item read (Read=true) or unread. The App changed the
+	// item before asking; a non-nil Err makes it undo that change.
+	// Ignored if TeamID is not the active team.
+	ActivityReadSetMsg struct {
+		TeamID string
+		Key    string
+		Read   bool
+		Err    error
+	}
+	ConnectionStateMsg struct {
 		// TeamID scopes the state to one workspace; the statusbar
 		// segment shows only the active workspace's state, others are
 		// cached and applied on workspace switch. "" applies directly
