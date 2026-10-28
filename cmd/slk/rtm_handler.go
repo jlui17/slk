@@ -468,6 +468,7 @@ func (h *rtmEventHandler) OnEphemeralMessage(m slackclient.EphemeralMessage) {
 	item := h.messageItemFromEvent(authorID, m.UserID, m.Username, m.TS, m.Text, m.ThreadTS, m.Subtype, false, nil, m.Blocks, m.Attachments)
 	applyActionIDs(item.LegacyAttachments, m.ActionIDs)
 	item.Ephemeral = true
+	item.BotID = m.BotID
 	debuglog.Cache("OnEphemeralMessage: team=%s channel=%s ts=%s thread_ts=%s decision=dispatched_to_app",
 		h.workspaceID, m.ChannelID, m.TS, m.ThreadTS)
 	if h.program != nil {

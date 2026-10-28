@@ -391,6 +391,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// the queued ChannelSelectedMsg below paints it via the
 	// three-tier dispatch. For empty workspaces (no Channels) the
 	// pane's empty state is confirmed in the else branch below.
+	a.resetActionPrompts()
 	a.SetMode(ModeNormal)
 	a.compose.Blur()
 	a.sidebar.SetSectionsProvider(m.SectionsProvider)

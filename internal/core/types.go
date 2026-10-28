@@ -50,6 +50,10 @@ type MessageItem struct {
 	// (Slack's is_ephemeral). It is never cached and never a
 	// read-marking target; Slack does not return it from history.
 	Ephemeral bool
+
+	// BotID is the Slack bot_id of the app that posted the message. Set for
+	// ephemerals; sent as service_id when one of their buttons is pressed.
+	BotID string
 }
 
 // Attachment represents a file or image attached to a message.

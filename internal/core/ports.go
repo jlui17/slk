@@ -10,6 +10,7 @@ import (
 	"image"
 	"io/fs"
 
+	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
 )
@@ -39,6 +40,20 @@ type ReactionService interface {
 	// LoadFrecent calls surface it. Called after every successful
 	// reaction add.
 	RecordFrecent(emoji string)
+}
+
+// InteractionService presses interactive message elements. Pressing is
+// intent from the action dialog; on success Slack answers over the
+// WebSocket (an ephemeral is deleted), so only the error comes back and App
+// turns it into a toast. Blocking: callers run it from a tea.Cmd.
+//
+// Build one with NewInteractionService.
+type InteractionService interface {
+	// PressAttachmentAction presses a legacy attachment button, echoing
+	// action back as received (chat.attachmentAction). serviceID is the
+	// posting app's bot ID.
+	PressAttachmentAction(channelID ids.ChannelID, messageTS ids.MessageTS,
+		attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error
 }
 
 // ThreadService is the App's interface to Slack's thread surfaces:

@@ -115,7 +115,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.SetMode(ModeNormal)
 		a.compose.Blur()
 		a.threadCompose.Blur()
-		return nil
+		return a.tryOpenActionPrompt()
 	}
 
 	code := msg.Key().Code
@@ -209,7 +209,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
 				a.exitInsertAfterSend()
-				return func() tea.Msg {
+				send := func() tea.Msg {
 					return SendThreadReplyMsg{
 						ChannelID: channelID,
 						ThreadTS:  threadTS,
@@ -217,6 +217,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 						Broadcast: broadcast,
 					}
 				}
+				return tea.Batch(send, a.tryOpenActionPrompt())
 			}
 			return nil
 		}
@@ -260,12 +261,13 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			channelID := a.activeChannelID
 			a.compose.Reset()
 			a.exitInsertAfterSend()
-			return func() tea.Msg {
+			send := func() tea.Msg {
 				return SendMessageMsg{
 					ChannelID: channelID,
 					Text:      text,
 				}
 			}
+			return tea.Batch(send, a.tryOpenActionPrompt())
 		}
 		return nil
 	}

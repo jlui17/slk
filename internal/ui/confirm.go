@@ -7,6 +7,7 @@ package ui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/slk/internal/bubbles/confirmprompt"
@@ -30,17 +31,26 @@ func confirmPromptStyles() confirmprompt.Styles {
 			BorderBackground(bg).
 			Background(bg).
 			Padding(1, 1),
-		Title:    lipgloss.NewStyle().Background(bg).Foreground(styles.Primary).Bold(true),
-		Body:     lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary),
-		Footer:   lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
-		BaseANSI: messages.BgANSI() + messages.FgANSI(),
+		Title:        lipgloss.NewStyle().Background(bg).Foreground(styles.Primary).Bold(true),
+		Body:         lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary),
+		Footer:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
+		Button:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
+		ButtonActive: lipgloss.NewStyle().Background(styles.Primary).Foreground(bg).Bold(true),
+		BaseANSI:     messages.BgANSI() + messages.FgANSI(),
 	}
+}
+
+// prepareConfirmPrompt pushes the current theme and size before the
+// prompt opens.
+func (a *App) prepareConfirmPrompt() {
+	a.confirmPrompt.SetStyles(confirmPromptStyles())
+	a.confirmPrompt.SetWidth(a.width)
+	a.confirmPrompt.SetHeight(a.height)
 }
 
 // openConfirmPrompt raises the prompt and switches to ModeConfirm.
 func (a *App) openConfirmPrompt(title, body string, onConfirm confirmprompt.ConfirmFunc) {
-	a.confirmPrompt.SetStyles(confirmPromptStyles())
-	a.confirmPrompt.SetWidth(a.width)
+	a.prepareConfirmPrompt()
 	a.confirmPrompt.Open(title, body, onConfirm)
 	a.SetMode(ModeConfirm)
 }
@@ -73,4 +83,25 @@ func (b confirmPromptBox) BoxSize(int, int) (int, int) {
 		return 0, 0
 	}
 	return lipgloss.Width(box), lipgloss.Height(box)
+}
+
+var _ pointClickable = confirmPromptBox{}
+
+// ClickAt highlights the button under the box-local cell and reports
+// whether there was one; the router then calls the target's onPoint.
+func (b confirmPromptBox) ClickAt(_, _, localX, localY int) bool {
+	i, ok := b.m.ButtonAt(localX, localY)
+	if ok {
+		b.m.Highlight(i)
+	}
+	return ok
+}
+
+// pressConfirmPromptHighlighted presses the button a click just
+// highlighted. It does not go through a synthesised key: in a yes/no prompt
+// Enter is a Confirm key, so "click Cancel, send Enter" would confirm.
+func (a *App) pressConfirmPromptHighlighted() tea.Cmd {
+	var cmd tea.Cmd
+	a.confirmPrompt, cmd = a.confirmPrompt.PressHighlighted()
+	return a.afterConfirmPrompt(cmd)
 }

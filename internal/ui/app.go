@@ -480,6 +480,18 @@ type App struct {
 	reactionPicker *reactionpicker.Model
 	reactionsView  *reactionsview.Model
 	confirmPrompt  confirmprompt.Model
+	// shownPrompt is the ephemeral message whose buttons the confirm
+	// prompt is showing; nil when it shows anything else, or nothing.
+	shownPrompt *actionPromptRef
+	// shownPromptInsert records that shownPrompt opened over insert mode
+	// (shownPromptThread: over the thread composer), so closing it puts
+	// the user back to typing.
+	shownPromptInsert, shownPromptThread bool
+	// actionQueue holds ephemerals with buttons waiting for the action
+	// dialog, oldest first; promptToasted records which have shown the
+	// "press b" toast, so it appears once per message.
+	actionQueue   []actionPromptRef
+	promptToasted map[string]bool
 	// userProfile is the K-opened read-only "who is this person?"
 	// modal (see internal/ui/userprofile). profileSvc fetches the
 	// full profile; defaulted to noopProfileService in NewApp so the
@@ -497,6 +509,7 @@ type App struct {
 	// internal/ui/services.go. Defaulted to a no-op adapter in NewApp
 	// so call sites can dispatch without nil-checks.
 	reactions     core.ReactionService
+	interactions  core.InteractionService
 	currentUserID string
 
 	// editing tracks in-progress message edit state. See
@@ -907,6 +920,7 @@ func NewApp() *App {
 		preview:               newImagePreviewController(),
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
+		interactions:          noopInteractionService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
@@ -1066,6 +1080,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceActivity,
 		reduceFocus,
 		reduceSend,
+		reduceActionPrompt,
 		reduceChannels,
 		reduceLinks,
 		reduceFiles,
@@ -1137,6 +1152,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.forceSixelRepaint = true
 		}
 		a.confirmPrompt.SetWidth(msg.Width)
+		a.confirmPrompt.SetHeight(msg.Height)
 		return a, a.linkPreviewsInView()
 
 	case scrollFlushMsg:
@@ -2168,6 +2184,9 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 	msg, ok := a.messagepane.SelectedMessage()
 	if !ok {
 		return nil
+	}
+	if cmd, blocked := ephemeralGuard(msg); blocked {
+		return cmd
 	}
 	// Use the message's own TS as the thread parent. If it's a thread
 	// reply (a thread_broadcast row in the channel feed), the selected
@@ -3372,6 +3391,16 @@ func (a *App) SetReactionService(r core.ReactionService) {
 		r = noopReactionService
 	}
 	a.reactions = r
+}
+
+// SetInteractionService wires the service the action dialog presses
+// buttons through. A nil s restores the no-op, whose presses fail with
+// errors.ErrUnsupported and so surface as a toast.
+func (a *App) SetInteractionService(s core.InteractionService) {
+	if s == nil {
+		s = noopInteractionService
+	}
+	a.interactions = s
 }
 
 // SetProfileService wires the App's ProfileService collaborator, used

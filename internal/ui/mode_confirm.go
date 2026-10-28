@@ -11,8 +11,27 @@ import (
 func handleConfirmMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	a.confirmPrompt, cmd = a.confirmPrompt.Update(msg)
+	return a.afterConfirmPrompt(cmd)
+}
+
+// afterConfirmPrompt runs after every key or click the confirm prompt
+// handles: once the prompt reports hidden, mode drops back to normal.
+func (a *App) afterConfirmPrompt(cmd tea.Cmd) tea.Cmd {
 	if !a.confirmPrompt.IsVisible() {
+		restore, thread := a.shownPromptInsert, a.shownPromptThread
+		a.clearShownPrompt()
+		if restore {
+			a.SetMode(ModeInsert)
+			var focus tea.Cmd
+			if thread {
+				focus = a.threadCompose.Focus()
+			} else {
+				focus = a.compose.Focus()
+			}
+			return tea.Batch(cmd, focus, a.tryOpenActionPrompt())
+		}
 		a.SetMode(a.modeAfterConfirm()) // fork: appshortcuts.go
+		return tea.Batch(cmd, a.tryOpenActionPrompt())
 	}
 	return cmd
 }

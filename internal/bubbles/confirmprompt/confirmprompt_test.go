@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type sentinelMsg struct{}
@@ -153,32 +154,45 @@ func TestViewHelpFollowsKeyMap(t *testing.T) {
 	}
 }
 
-func TestViewFlattensBody(t *testing.T) {
+func plainLines(view string) []string { return strings.Split(ansi.Strip(view), "\n") }
+
+// The body wraps and keeps its paragraph breaks (spec: it used to be
+// flattened to one line).
+func TestViewWrapsBodyKeepingParagraphs(t *testing.T) {
 	t.Parallel()
 	m := New(WithWidth(80))
 	m.Open("Title", "line1\nline2\tline3", nil)
-
-	out := m.View()
-	if strings.Contains(out, "line1\nline2") {
-		t.Errorf("body newlines should collapse:\n%s", out)
-	}
-	for _, want := range []string{"line1", "line2", "line3"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("body lost %q:\n%s", want, out)
+	var one, two int = -1, -1
+	for i, l := range plainLines(m.View()) {
+		if strings.Contains(l, "line1") {
+			one = i
 		}
+		if strings.Contains(l, "line2 line3") {
+			two = i
+		}
+	}
+	if one < 0 || two < 0 || two != one+1 {
+		t.Errorf("want line1 and 'line2 line3' on consecutive lines:\n%s", m.View())
 	}
 }
 
-func TestViewTruncatesLongBody(t *testing.T) {
+func TestViewCapsBodyAtEightLines(t *testing.T) {
 	t.Parallel()
 	m := New(WithWidth(40))
-	m.Open("Title", strings.Repeat("long ", 40), nil)
-
-	out := m.View()
-	if !strings.Contains(out, "…") {
-		t.Errorf("over-wide body should be truncated with a tail:\n%s", out)
+	m.Open("Title", strings.Repeat("long ", 100), nil)
+	var body []string
+	for _, l := range plainLines(m.View()) {
+		if strings.Contains(l, "long") {
+			body = append(body, l)
+		}
 	}
-	if got := lipgloss.Width(out); got != minWidth {
+	if len(body) != maxBodyLines {
+		t.Errorf("body lines = %d, want %d:\n%s", len(body), maxBodyLines, m.View())
+	}
+	if last := strings.TrimRight(strings.TrimRight(body[len(body)-1], " │"), " "); !strings.HasSuffix(last, "…") {
+		t.Errorf("last body line should end with …: %q", last)
+	}
+	if got := lipgloss.Width(m.View()); got != minWidth {
 		t.Errorf("box width = %d, want %d", got, minWidth)
 	}
 }

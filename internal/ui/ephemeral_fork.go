@@ -19,24 +19,32 @@ type ephemerals map[string][]messages.MessageItem
 // reduceEphemeral handles a NewMessageMsg carrying an ephemeral: it is
 // remembered, and shown in the panes on its channel or its thread, in
 // place of the one with its ts when it replaces one. It is not a reply to
-// count, a message to mark read, or agent-thread activity.
+// count, a message to mark read, or agent-thread activity. One on screen
+// with buttons queues upstream's action dialog, as upstream's
+// reduceNewMessage does for the ephemerals it shows.
 func reduceEphemeral(a *App, m NewMessageMsg) tea.Cmd {
 	a.ephemerals.remember(m.ChannelID, m.Message)
 	if m.TeamID != "" && m.TeamID != a.activeTeamID {
 		return nil
 	}
+	onScreen := false
 	if threadTS := m.Message.ThreadTS; threadTS == "" || threadTS == m.Message.TS {
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
 			if !mm.ReplaceEphemeral(cloneMessageItem(m.Message)) {
 				mm.AppendMessage(cloneMessageItem(m.Message))
 			}
 		}
-		return nil
-	}
-	if a.threadVisible && m.ChannelID == a.threadPanel.ChannelID() && m.Message.ThreadTS == a.threadPanel.ThreadTS() {
+		onScreen = a.view == ViewChannels && m.ChannelID == a.activeChannelID
+	} else if a.threadVisible && m.ChannelID == a.threadPanel.ChannelID() && m.Message.ThreadTS == a.threadPanel.ThreadTS() {
 		if !a.threadPanel.ReplaceEphemeral(cloneMessageItem(m.Message)) {
 			a.threadPanel.AddIncomingReply(cloneMessageItem(m.Message))
 		}
+		onScreen = true
+	}
+	if onScreen && messages.HasButtonActions(m.Message) {
+		return a.enqueueActionPrompt(actionPromptRef{
+			channelID: m.ChannelID, ts: m.Message.TS, threadTS: m.Message.ThreadTS,
+		})
 	}
 	return nil
 }

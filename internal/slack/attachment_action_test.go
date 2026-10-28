@@ -83,6 +83,53 @@ func TestAttachmentAction_PostsPayloadForm(t *testing.T) {
 	}
 }
 
+func TestAttachmentAction_SendsServiceID(t *testing.T) {
+	var gotServiceID, gotPayload string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotServiceID = r.PostForm.Get("service_id")
+		gotPayload = r.PostForm.Get("payload")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := NewClient("xoxc-test", "d-cookie")
+	pointClientAtTestServer(t, c, srv)
+
+	req := dismissRequest()
+	req.ServiceID = "B01"
+	if err := c.AttachmentAction(context.Background(), req); err != nil {
+		t.Fatalf("AttachmentAction: %v", err)
+	}
+	if gotServiceID != "B01" {
+		t.Errorf("service_id = %q, want B01", gotServiceID)
+	}
+	if gotPayload != capturedDismissPayload {
+		t.Errorf("payload form field =\n  %s\nwant\n  %s", gotPayload, capturedDismissPayload)
+	}
+}
+
+func TestAttachmentAction_OmitsEmptyServiceID(t *testing.T) {
+	var present bool
+	var values []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		values, present = r.PostForm["service_id"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := NewClient("xoxc-test", "d-cookie")
+	pointClientAtTestServer(t, c, srv)
+
+	if err := c.AttachmentAction(context.Background(), dismissRequest()); err != nil {
+		t.Fatalf("AttachmentAction: %v", err)
+	}
+	if present || values != nil {
+		t.Errorf("service_id = %v, want no such field", values)
+	}
+}
+
 func TestAttachmentAction_OKFalseIsAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -157,3 +157,18 @@ func TestRenderThreadMessageEphemeralLabel(t *testing.T) {
 		t.Errorf("reaction hit row = %d, want %d (the reaction line); got %q", row, len(lines)-1, lines)
 	}
 }
+
+func TestRenderThreadMessageEphemeralButtonsHint(t *testing.T) {
+	m := New()
+	msg := messages.MessageItem{
+		TS: "1700000006.000000", UserName: "Slackbot", Timestamp: "10:35 AM", Ephemeral: true,
+		Text: "not in channel",
+		LegacyAttachments: []blockkit.LegacyAttachment{{
+			Actions: []blockkit.LegacyAction{{Name: "ignore", Text: "Dismiss", Type: "button"}},
+		}},
+	}
+	got, _, _, _, _ := m.renderThreadMessage(msg, 60, nil, nil, false)
+	if plain := ansi.Strip(got); !strings.Contains(plain, "b to respond") || strings.Contains(plain, "open in Slack") {
+		t.Errorf("want the b hint in the thread pane too: %q", plain)
+	}
+}

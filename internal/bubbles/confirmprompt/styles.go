@@ -10,6 +10,11 @@ type Styles struct {
 	Body   lipgloss.Style
 	Footer lipgloss.Style
 
+	// Button and ButtonActive draw the buttons; ButtonActive is the
+	// highlighted one.
+	Button       lipgloss.Style
+	ButtonActive lipgloss.Style
+
 	// BaseANSI is re-asserted after every SGR reset, because nested lipgloss
 	// renders emit resets that would drop the box background. Empty disables it.
 	BaseANSI string
@@ -35,5 +40,8 @@ func DefaultStyles(isDark bool) Styles {
 		Title:  lipgloss.NewStyle().Background(bg).Foreground(accent).Bold(true),
 		Body:   lipgloss.NewStyle().Background(bg).Foreground(text),
 		Footer: lipgloss.NewStyle().Background(bg).Foreground(muted),
+
+		Button:       lipgloss.NewStyle().Background(bg).Foreground(muted),
+		ButtonActive: lipgloss.NewStyle().Background(accent).Foreground(bg).Bold(true),
 	}
 }

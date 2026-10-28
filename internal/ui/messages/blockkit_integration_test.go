@@ -357,3 +357,21 @@ func TestBuildCache_EphemeralLabelReactionHitRow(t *testing.T) {
 	}
 	t.Fatal("no entry with msgIdx 0 in cache")
 }
+
+func TestEphemeralButtonsHintSaysPressB(t *testing.T) {
+	msg := MessageItem{
+		TS: "1700000000.000000", UserName: "Slackbot", Timestamp: "1:23 PM", Ephemeral: true,
+		Text: "not in channel",
+		LegacyAttachments: []blockkit.LegacyAttachment{{
+			Actions: []blockkit.LegacyAction{{Name: "ignore", Text: "Dismiss", Type: "button"}},
+		}},
+	}
+	plain := renderedFor(t, msg, 100)
+	if !strings.Contains(plain, "b to respond") || strings.Contains(plain, "open in Slack") {
+		t.Errorf("want the b hint instead of the Slack one: %q", plain)
+	}
+	msg.Ephemeral = false
+	if plain := renderedFor(t, msg, 100); !strings.Contains(plain, "↗ open in Slack to interact") {
+		t.Errorf("a non-ephemeral keeps the Slack hint: %q", plain)
+	}
+}

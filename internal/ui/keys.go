@@ -63,6 +63,7 @@ type KeyMap struct {
 	Reload              key.Binding
 	Help                key.Binding
 	SaveThread          key.Binding
+	RespondButtons      key.Binding
 	ListReactions       key.Binding
 	UserProfile         key.Binding
 	WindowPrefix        key.Binding
@@ -143,12 +144,13 @@ func DefaultKeyMap() KeyMap {
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		// ctrl+k was the original forward key. It stays bound for
 		// existing users but is left out of the help overlay.
-		NavForward:    key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
-		Reload:        key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r / :reload", "reload connections")),
-		Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
-		SaveThread:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
-		ListReactions: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
-		UserProfile:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
+		NavForward:     key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
+		Reload:         key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r / :reload", "reload connections")),
+		Help:           key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		SaveThread:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
+		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
+		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
+		UserProfile:    key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
 		// Window commands (design §4). WindowPrefix is the only real
 		// binding; the Win* entries are keyless help-only bindings
 		// (same trick as WorkspaceFinder above) — actual dispatch of

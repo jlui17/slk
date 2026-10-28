@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,23 +25,39 @@ func newTestAppWithMessages(t *testing.T) *App {
 	)
 }
 
-// drainBatch fully expands a tea.Cmd (including nested tea.BatchMsg) and
-// returns all leaf messages. Test-only; ignores nil cmds.
+// drainBatch fully expands a tea.Cmd (including nested tea.BatchMsg and
+// tea.Sequence) and returns all leaf messages, in order. Test-only; ignores
+// nil cmds.
 func drainBatch(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
 	msg := cmd()
-	switch v := msg.(type) {
-	case tea.BatchMsg:
+	if cmds, ok := cmdListOf(msg); ok {
 		var out []tea.Msg
-		for _, c := range v {
+		for _, c := range cmds {
 			out = append(out, drainBatch(c)...)
 		}
 		return out
-	default:
-		return []tea.Msg{msg}
 	}
+	return []tea.Msg{msg}
+}
+
+// cmdListOf reports whether msg is a tea.BatchMsg or tea.Sequence's
+// message (unexported, a []tea.Cmd underneath) and returns its commands.
+func cmdListOf(msg tea.Msg) ([]tea.Cmd, bool) {
+	if msg == nil {
+		return nil, false
+	}
+	v := reflect.ValueOf(msg)
+	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeOf(tea.Cmd(nil)) {
+		return nil, false
+	}
+	cmds := make([]tea.Cmd, v.Len())
+	for i := range cmds {
+		cmds[i], _ = v.Index(i).Interface().(tea.Cmd)
+	}
+	return cmds, true
 }
 
 func TestApp_DragInMessagesEmitsClipboardAndToast(t *testing.T) {

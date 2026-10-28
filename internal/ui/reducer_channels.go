@@ -69,6 +69,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case ChannelSelectedMsg:
 		cmd, fetchFired := reduceChannelSelected(a, m)
 		cmd = tea.Batch(cmd, a.appHomeChannelSelected(m)) // fork: apphome.go; before the link nav completes, which it reads
+		cmd = tea.Batch(cmd, a.closeOffscreenActionPrompt())
 		// Permalink completion. !fetchFired means no MessagesLoadedMsg
 		// is coming (tier-1 fresh cache, or the upload-guard early
 		// return), so complete authoritatively now — otherwise the

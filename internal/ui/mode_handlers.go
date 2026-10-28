@@ -91,12 +91,25 @@ func normalizeFinderKey(msg tea.KeyMsg) string {
 
 // dispatchModeKey looks up the handler for the App's current
 // mode and invokes it; falls back to the Normal handler when no
-// entry exists. Returns the handler's tea.Cmd unchanged.
+// entry exists. Returns the handler's tea.Cmd; if the key closed a modal, a
+// re-check of the waiting action dialogs (if any) follows it in sequence, so a
+// navigation the cmd performs (the channel finder's ChannelSelectedMsg) has
+// landed before the dialog is considered.
 func dispatchModeKey(a *App, msg tea.KeyMsg) tea.Cmd {
-	if h, ok := modeHandlers[a.mode]; ok {
-		return h(a, msg)
+	wasModal := a.mode.IsModalOverlay()
+	h, ok := modeHandlers[a.mode]
+	if !ok {
+		h = handleNormalMode
 	}
-	return handleNormalMode(a, msg)
+	cmd := h(a, msg)
+	if wasModal && !a.mode.IsModalOverlay() && len(a.actionQueue) > 0 {
+		recheck := func() tea.Msg { return actionPromptRecheckMsg{} }
+		if cmd == nil {
+			return recheck
+		}
+		return tea.Sequence(cmd, recheck)
+	}
+	return cmd
 }
 
 // Compile-time assertion: the free-function form of every

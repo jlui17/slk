@@ -902,6 +902,9 @@ func TestOnEphemeralMessage_DisplaysButTouchesNoDurableState(t *testing.T) {
 	if sent[0].ChannelID != "C1" || !item.Ephemeral || item.TS != "1791541429.559220" {
 		t.Errorf("sent %+v, want an ephemeral item for C1", sent[0])
 	}
+	if item.BotID != "B01" {
+		t.Errorf("BotID = %q, want B01", item.BotID)
+	}
 	if len(item.LegacyAttachments) != 1 || len(item.LegacyAttachments[0].Actions) != 3 {
 		t.Fatalf("legacy attachments = %+v", item.LegacyAttachments)
 	}

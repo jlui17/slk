@@ -20,7 +20,11 @@
 //     single glyph rather than a row (the
 //     profile dialog's 📋), ClickAt tests
 //     the exact cell and a hit synthesises
-//     the modal's activation key.
+//     the modal's activation key. The
+//     confirm prompt's buttons are point
+//     targets too, but a hit calls onPoint
+//     to press the clicked button directly:
+//     a synthesised Enter would confirm.
 //
 // Geometry comes from each modal's BoxSize, mirroring the centering done
 // by overlay.DimmedOverlay so the hit-test lines up with what was drawn.
@@ -62,6 +66,7 @@ type modalClickTarget struct {
 	click      clickableOverlay // nil for non-list modals (e.g. confirm)
 	activation tea.KeyMsg       // nil when a row click has no activation (help)
 	point      pointClickable   // nil unless the modal has a point hot spot
+	onPoint    func() tea.Cmd   // set: a point hit calls this instead of synthesising activation
 }
 
 // activeModalClickTarget resolves the modal addressed by the current
@@ -89,8 +94,10 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		// Help has no activation: clicking a row only moves the highlight.
 		return modalClickTarget{box: &a.help, click: &a.help, activation: nil}, true
 	case ModeConfirm:
-		// Confirm has no list: outside dismisses, inside is a no-op.
-		return modalClickTarget{box: confirmPromptBox{&a.confirmPrompt}}, true
+		// A click on a button presses it directly; elsewhere inside is a
+		// no-op, outside dismisses.
+		box := confirmPromptBox{&a.confirmPrompt}
+		return modalClickTarget{box: box, point: box, onPoint: a.pressConfirmPromptHighlighted}, true
 	case ModeProfileCard: // fork: profilecard.go
 		return modalClickTarget{box: &a.profileCard.model}, true
 	case ModeUserProfile:
@@ -128,10 +135,15 @@ func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return esc()
 	}
 
-	// Inside the box on a point hot spot -> its activation.
+	// Inside the box on a point hot spot -> its press, or its activation.
 	if target.point != nil {
-		if target.activation != nil && target.point.ClickAt(a.width, a.height, m.X-startX, m.Y-startY) {
-			return dispatchModeKey(a, target.activation)
+		if target.point.ClickAt(a.width, a.height, m.X-startX, m.Y-startY) {
+			if target.onPoint != nil {
+				return target.onPoint()
+			}
+			if target.activation != nil {
+				return dispatchModeKey(a, target.activation)
+			}
 		}
 		return nil
 	}

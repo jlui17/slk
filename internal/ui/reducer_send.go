@@ -243,7 +243,7 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				a.CloseThread()
 			}
 		}
-		return nil, true
+		return a.dropActionPrompt(m.ChannelID, m.TS), true
 	}
 	return nil, false
 }
@@ -349,6 +349,13 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		// make the threads list dirty. Display only.
 		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=ephemeral_display_only",
 			m.ChannelID, m.Message.TS)
+		onScreen := inOpenThreadPanel ||
+			(a.view == ViewChannels && m.ChannelID == a.activeChannelID && (m.Message.ThreadTS == "" || m.Message.ThreadTS == m.Message.TS))
+		if onScreen && messages.HasButtonActions(m.Message) {
+			return a.enqueueActionPrompt(actionPromptRef{
+				channelID: m.ChannelID, ts: m.Message.TS, threadTS: m.Message.ThreadTS,
+			})
+		}
 		return nil
 	}
 	isThreadReply := m.Message.ThreadTS != "" && m.Message.ThreadTS != m.Message.TS

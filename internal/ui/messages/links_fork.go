@@ -100,16 +100,18 @@ func blockLinks(blocks []blockkit.Block) (body, below []Link) {
 // InteractHint is the line drawn under a message's interactive Block
 // Kit elements. When every one of them is a link button, o opens them,
 // so the hint says that; a control in a card is never one o offers.
+// Otherwise it is upstream's InteractiveHint: b answers an ephemeral's
+// legacy buttons, anything else needs Slack.
 func InteractHint(msg MessageItem) string {
 	all, links := controls(msg.Blocks)
 	for _, a := range msg.LegacyAttachments {
 		n, _ := controls(a.Blocks)
 		all += n
 	}
-	if all > 0 && all == links {
+	if all > 0 && all == links && !HasButtonActions(msg) {
 		return "o to open"
 	}
-	return "↗ open in Slack to interact"
+	return InteractiveHint(msg)
 }
 
 // controls counts the controls blocks draw, a section's non-image

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gammons/slk/internal/core/blocks"
+	"github.com/gammons/slk/internal/debuglog"
 )
 
 // AttachmentActionRequest identifies one press of a legacy attachment
@@ -19,8 +20,11 @@ type AttachmentActionRequest struct {
 	MessageTS    string
 	AttachmentID int
 	CallbackID   string
-	Ephemeral    bool
-	Action       blocks.LegacyAction
+	// ServiceID is the posting app's bot ID; sent as the `service_id` form
+	// field (Slack requires it or `bot_user_id`).
+	ServiceID string
+	Ephemeral bool
+	Action    blocks.LegacyAction
 }
 
 // AttachmentAction presses a legacy attachment button, as Slack's web
@@ -32,11 +36,21 @@ func (c *Client) AttachmentAction(ctx context.Context, req AttachmentActionReque
 	if err != nil {
 		return err
 	}
-	raw, err := c.postForm(ctx, "chat.attachmentAction", url.Values{"payload": {payload}})
+	form := url.Values{"payload": {payload}}
+	if req.ServiceID != "" {
+		form.Set("service_id", req.ServiceID)
+	}
+	debuglog.General("chat.attachmentAction: service_id=%q payload=%s", req.ServiceID, payload)
+	raw, err := c.postForm(ctx, "chat.attachmentAction", form)
+	if err == nil {
+		err = parseOKResponse("chat.attachmentAction", raw)
+	}
 	if err != nil {
+		debuglog.General("chat.attachmentAction: error=%v", err)
 		return err
 	}
-	return parseOKResponse("chat.attachmentAction", raw)
+	debuglog.General("chat.attachmentAction: ok")
+	return nil
 }
 
 // attachmentActionPayload is the `payload` form field, key for key in
