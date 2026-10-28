@@ -234,17 +234,17 @@ func TestAddIncomingReplyKeepsViewport(t *testing.T) {
 	m := New()
 	m.SetThread(messages.MessageItem{TS: "100.000001", Text: "parent"}, replies, "C1", "100.000001")
 	m.View(h, w)
-	bottom := m.vp.YOffset()
+	bottom := m.yOffset
 	m.SelectByTS("210.000000")
 	m.View(h, w)
-	before := m.vp.YOffset()
+	before := m.yOffset
 	if before == 0 || before == bottom {
 		t.Fatalf("test setup: want the viewport mid-thread, got YOffset=%d (bottom %d)", before, bottom)
 	}
 
 	m.AddIncomingReply(messages.MessageItem{TS: "300.000000", UserName: "eve", Text: "new"})
 	m.View(h, w)
-	if got := m.vp.YOffset(); got != before {
+	if got := m.yOffset; got != before {
 		t.Errorf("viewport moved on an incoming reply: YOffset %d -> %d", before, got)
 	}
 }

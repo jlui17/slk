@@ -21,7 +21,7 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	if y < m.chromeHeight {
 		return "", false
 	}
-	line := y - m.chromeHeight + m.vp.YOffset()
+	line := y - m.chromeHeight + m.yOffset
 	entry, start, _, ok := m.selectionEntryAt(line)
 	if !ok {
 		return "", false

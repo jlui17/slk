@@ -9,7 +9,7 @@ func (m *Model) LinkURLAt(viewportY, x int) string {
 	if viewportY < m.chromeHeight {
 		return ""
 	}
-	abs := viewportY - m.chromeHeight + m.vp.YOffset()
+	abs := viewportY - m.chromeHeight + m.yOffset
 	entry, start, _, ok := m.selectionEntryAt(abs)
 	if !ok {
 		return ""

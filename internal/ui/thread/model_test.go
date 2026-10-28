@@ -1004,7 +1004,7 @@ func TestScrollAnchorPreservedAcrossWidening(t *testing.T) {
 	// Anchor on the last line of a mid-list entry, away from either end
 	// so the final maxYOffset clamp doesn't mask the bug.
 	midIdx := 75
-	m.vp.SetYOffset(m.entryOffsets[midIdx] + m.cache[midIdx].height - 1)
+	m.setYOffset(m.entryOffsets[midIdx] + m.cache[midIdx].height - 1)
 	before := m.View(20, 30)
 	beforeTop := topMarkedReply(t, before)
 
@@ -1026,9 +1026,9 @@ func TestScrollAnchorBottomPreservedAcrossWidthResize(t *testing.T) {
 
 	_ = m.View(20, 40) // narrower pane: content grows taller
 
-	if m.vp.YOffset()+m.vp.Height() < m.totalLines {
+	if m.yOffset+m.areaHeight < m.totalLines {
 		t.Errorf("resize un-pinned a bottom-anchored viewport: YOffset=%d vpHeight=%d totalLines=%d",
-			m.vp.YOffset(), m.vp.Height(), m.totalLines)
+			m.yOffset, m.areaHeight, m.totalLines)
 	}
 }
 
@@ -1042,11 +1042,11 @@ func TestScrollAnchorAtTopOfThreadPreservedAcrossWidthResize(t *testing.T) {
 	m := New()
 	m.SetThread(parent, markedReplies(40), "C1", "100.0")
 	_ = m.View(20, 80)
-	m.vp.SetYOffset(0)
+	m.setYOffset(0)
 
 	_ = m.View(20, 40) // narrower pane: parent block also rewraps
 
-	if got := m.vp.YOffset(); got != 0 {
+	if got := m.yOffset; got != 0 {
 		t.Errorf("resize scrolled a top-of-thread viewport away from the top: YOffset=%d, want 0", got)
 	}
 }
@@ -1064,7 +1064,7 @@ func TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize(t *testing.
 	m := New()
 	m.SetThread(parent, markedReplies(40), "C1", "100.0")
 	_ = m.View(20, 30) // narrow: parent wraps to many lines
-	m.vp.SetYOffset(40)
+	m.setYOffset(40)
 
 	before := m.View(20, 30)
 	if threadMarkRE.MatchString(before) {

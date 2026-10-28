@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/debuglog"
@@ -122,14 +121,21 @@ type Model struct {
 	// open (SetPendingSelectTS) and by a same-thread reload whose
 	// content lost the cursor's message (restoreSelection); both live
 	// in select.go.
-	pendingSelectTS   string
-	focused           bool
-	coloredUsernames  bool
-	avatarFn          messages.AvatarFunc
-	userNames         *usernames.Store
-	userStatuses      map[string]peerstatus.Status
-	channelNames      map[string]string
-	vp                viewport.Model
+	pendingSelectTS  string
+	focused          bool
+	coloredUsernames bool
+	avatarFn         messages.AvatarFunc
+	userNames        *usernames.Store
+	userStatuses     map[string]peerstatus.Status
+	channelNames     map[string]string
+	// Scroll offset into viewContent. Hand-rolled since Phase 3; it keeps
+	// the eager clamp bubbles/viewport had (spec §5.2 U6): every
+	// assignment goes through setYOffset, which bounds it to
+	// [0, maxYOffset()]. contentLines/areaHeight are the extent the
+	// clamp uses, recorded by setContent each frame.
+	yOffset           int
+	contentLines      int
+	areaHeight        int
 	reactionNavActive bool
 	reactionNavIndex  int
 	// currentUserID is the authenticated user; UpdateReaction uses it to
@@ -846,7 +852,9 @@ func (m *Model) SelectByIndex(i int) {
 // won't pull the viewport back to keep selection visible on the next render.
 func (m *Model) ScrollUp(n int) {
 	if n > 0 {
-		m.vp.ScrollUp(n)
+		if m.yOffset > 0 && m.contentLines > 0 {
+			m.setYOffset(m.yOffset - n)
+		}
 		m.snappedSelection = m.selected
 		m.hasSnapped = true
 		m.dirty()
@@ -858,7 +866,9 @@ func (m *Model) ScrollUp(n int) {
 // won't pull the viewport back on the next render.
 func (m *Model) ScrollDown(n int) {
 	if n > 0 {
-		m.vp.ScrollDown(n)
+		if m.yOffset < m.maxYOffset() && m.contentLines > 0 {
+			m.setYOffset(m.yOffset + n)
+		}
 		m.snappedSelection = m.selected
 		m.hasSnapped = true
 		m.dirty()
@@ -869,7 +879,7 @@ func (m *Model) ScrollDown(n int) {
 // Used by the app layer to detect a wheel-up / PageUp that hit the top of the
 // reply stream (cosmetic only -- no thread backfill exists today).
 func (m *Model) ViewportAtTop() bool {
-	return m.vp.YOffset() == 0
+	return m.yOffset == 0
 }
 
 func (m *Model) MoveUp() {
@@ -1236,7 +1246,7 @@ func (m *Model) absoluteLineAt(viewportY int) int {
 	if contentY < 0 {
 		contentY = 0
 	}
-	abs := contentY + m.vp.YOffset()
+	abs := contentY + m.yOffset
 	if abs < 0 {
 		abs = 0
 	}
@@ -1436,6 +1446,36 @@ func (m *Model) entryAndOffsetForLine(line int) (idx, within int, ok bool) {
 	return 0, 0, false
 }
 
+// maxYOffset is the largest offset that still fills the reply area.
+func (m *Model) maxYOffset() int { return max(0, m.contentLines-m.areaHeight) }
+
+// setYOffset assigns the scroll offset, clamped to [0, maxYOffset()].
+func (m *Model) setYOffset(n int) { m.yOffset = min(max(n, 0), m.maxYOffset()) }
+
+// setContent records the extent of the content about to be shown and
+// pulls the offset back inside it, as viewport.SetContent did.
+func (m *Model) setContent(lines, height int) {
+	m.contentLines, m.areaHeight = lines, height
+	if m.yOffset > m.maxYOffset() {
+		m.yOffset = m.maxYOffset()
+	}
+}
+
+// windowLines returns rows [yOffset, yOffset+height) of content, padded
+// to height with full-width background rows (the channel pane's padding).
+func windowLines(content string, yOffset, height, width int) []string {
+	lines := strings.Split(content, "\n")
+	start := min(max(yOffset, 0), len(lines))
+	end := min(start+height, len(lines))
+	out := make([]string, 0, max(height, 0))
+	out = append(out, lines[start:end]...)
+	spacer := lipgloss.NewStyle().Width(width).Background(styles.Background).Render("")
+	for len(out) < height {
+		out = append(out, spacer)
+	}
+	return out
+}
+
 // View renders the thread panel content without a border.
 // The parent App is responsible for adding the border.
 func (m *Model) View(height, width int) string {
@@ -1510,7 +1550,7 @@ func (m *Model) View(height, width int) string {
 
 	// chromeHeight already counts every visual row of `chrome`; joining with
 	// a single "\n" between chrome and the viewport produces exactly
-	// chromeHeight+vp.Height() lines total. No extra row is consumed.
+	// chromeHeight+replyAreaHeight lines total. No extra row is consumed.
 	replyAreaHeight := height - chromeHeight
 	if replyAreaHeight < 1 {
 		replyAreaHeight = 1
@@ -1570,6 +1610,11 @@ func (m *Model) View(height, width int) string {
 			BorderForeground(styles.Background).BorderBackground(styles.Background).
 			Render(parentContent)
 	}
+	// Pad every parent row to the pane width with the theme background.
+	// The outer wrapper used to do this (the parent, unlike a reply, is
+	// not width-filled when rendered); this is the same per-row padding,
+	// applied where it is needed.
+	parentContent = lipgloss.NewStyle().Width(width).Background(styles.Background).Render(parentContent)
 	m.parentEntry.linesNormal = strings.Split(parentContent, "\n")
 	parentSeparator := lipgloss.NewStyle().
 		Width(width).
@@ -1595,18 +1640,15 @@ func (m *Model) View(height, width int) string {
 		// reflects the parent's own height.
 		emptyContent := parentBlock + "\n" + empty
 		emptyTotalLines := lipgloss.Height(emptyContent)
-		m.vp.SetWidth(width)
-		m.vp.SetHeight(replyAreaHeight)
-		m.vp.KeyMap = viewport.KeyMap{}
-		m.vp.SetContent(emptyContent)
-		visibleLines := strings.Split(m.vp.View(), "\n")
+		m.setContent(emptyTotalLines, replyAreaHeight)
+		visibleLines := windowLines(emptyContent, m.yOffset, replyAreaHeight, width)
 		visibleLines = scrollbar.Overlay(
 			visibleLines, width,
-			emptyTotalLines, m.vp.YOffset(), replyAreaHeight,
+			emptyTotalLines, m.yOffset, replyAreaHeight,
 			styles.Background, styles.Border, styles.Primary,
 		)
 		result := chrome + "\n" + strings.Join(visibleLines, "\n")
-		return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+		return fitHeight(result, height)
 	}
 
 	// A width change rewraps every reply, so re-anchor YOffset to the same
@@ -1616,11 +1658,11 @@ func (m *Model) View(height, width int) string {
 	// width change.
 	oldEntryCount := len(m.entryOffsets)
 	widthChanged := m.viewCacheValid && m.viewWidth != width
-	wasAnchoredAtBottom := m.totalLines > 0 && m.vp.YOffset()+m.vp.Height() >= m.totalLines
+	wasAnchoredAtBottom := m.totalLines > 0 && m.yOffset+m.areaHeight >= m.totalLines
 	var anchorEntryIdx, anchorWithin int
 	var anchorOK bool
 	if widthChanged {
-		anchorEntryIdx, anchorWithin, anchorOK = m.entryAndOffsetForLine(m.vp.YOffset())
+		anchorEntryIdx, anchorWithin, anchorOK = m.entryAndOffsetForLine(m.yOffset)
 	}
 
 	// Rebuild render cache if replies or width changed
@@ -1921,11 +1963,7 @@ func (m *Model) View(height, width int) string {
 		}
 	}
 
-	// Configure viewport
-	m.vp.SetWidth(width)
-	m.vp.SetHeight(replyAreaHeight)
-	m.vp.KeyMap = viewport.KeyMap{}
-	m.vp.SetContent(m.viewContent)
+	m.setContent(m.totalLines, replyAreaHeight)
 
 	if widthChanged {
 		// Known limitation (gammons/slk#254): when anchorOK is false, the
@@ -1935,7 +1973,7 @@ func (m *Model) View(height, width int) string {
 		// here to keep this fix reviewable; tracked separately.
 		switch {
 		case wasAnchoredAtBottom:
-			m.vp.SetYOffset(m.totalLines) // clamps to the new bottom
+			m.setYOffset(m.totalLines) // clamps to the new bottom
 		case oldEntryCount == len(m.replies) && anchorOK && anchorEntryIdx < len(m.entryOffsets):
 			within := anchorWithin
 			if h := m.cache[anchorEntryIdx].height; within >= h {
@@ -1944,7 +1982,7 @@ func (m *Model) View(height, width int) string {
 			if within < 0 {
 				within = 0
 			}
-			m.vp.SetYOffset(m.entryOffsets[anchorEntryIdx] + within)
+			m.setYOffset(m.entryOffsets[anchorEntryIdx] + within)
 		}
 	}
 
@@ -1954,11 +1992,11 @@ func (m *Model) View(height, width int) string {
 	// selected reply without the next render yanking it back. Mirrors the
 	// same guard used in messages.Model.View().
 	if !m.hasSnapped || m.snappedSelection != m.selected {
-		if m.selectedEndLine > m.vp.YOffset()+m.vp.Height() {
-			m.vp.SetYOffset(m.selectedEndLine - m.vp.Height())
+		if m.selectedEndLine > m.yOffset+replyAreaHeight {
+			m.setYOffset(m.selectedEndLine - replyAreaHeight)
 		}
-		if m.selectedStartLine < m.vp.YOffset() {
-			m.vp.SetYOffset(m.selectedStartLine)
+		if m.selectedStartLine < m.yOffset {
+			m.setYOffset(m.selectedStartLine)
 		}
 		m.snappedSelection = m.selected
 		m.hasSnapped = true
@@ -1971,7 +2009,7 @@ func (m *Model) View(height, width int) string {
 	// invisible entry's hits don't survive the next render. Capacity
 	// is preserved across frames (typical case: a handful of pills).
 	m.lastReactionHits = m.lastReactionHits[:0]
-	yOff := m.vp.YOffset()
+	yOff := m.yOffset
 	for i, e := range m.cache {
 		if len(e.reactionHits) == 0 {
 			continue
@@ -2010,21 +2048,35 @@ func (m *Model) View(height, width int) string {
 	// Overlay the active selection on top of viewContent. Done after
 	// scroll-snapping so YOffset is settled, then re-apply the overlayed
 	// content to the viewport for the final View() render.
+	content := m.viewContent
 	if m.hasSelection {
-		m.vp.SetContent(m.applySelectionOverlay(m.viewContent))
+		content = m.applySelectionOverlay(m.viewContent)
 	}
+	visibleLines := windowLines(content, m.yOffset, replyAreaHeight, width)
 
 	// Scrollbar overlay on the right edge of the scrollable area. Chrome
 	// (header + separator) is left alone since it does not scroll. Same
 	// pattern as messages.Model.View().
-	visibleLines := strings.Split(m.vp.View(), "\n")
 	visibleLines = scrollbar.Overlay(
 		visibleLines, width,
-		m.totalLines, m.vp.YOffset(), replyAreaHeight,
+		m.totalLines, m.yOffset, replyAreaHeight,
 		styles.Background, styles.Border, styles.Primary,
 	)
 	result := chrome + "\n" + strings.Join(visibleLines, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+	return fitHeight(result, height)
+}
+
+// fitHeight keeps the first height rows of s, as the old outer
+// MaxHeight(height) did when a floored reply area (height < chrome + 1)
+// made the pane one row too tall.
+func fitHeight(s string, height int) string {
+	if height <= 0 {
+		return s
+	}
+	if rows := strings.Split(s, "\n"); len(rows) > height {
+		return strings.Join(rows[:height], "\n")
+	}
+	return s
 }
 
 // HitTestReaction returns the (reply index, reaction emoji name) at

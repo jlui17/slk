@@ -173,7 +173,7 @@ func TestThreadSelectedTimestamp_TinyWidthFallsBack(t *testing.T) {
 // the short form or the header is garbled.
 func TestThreadSelectedTimestamp_DragOverReplyHeaderKeepsTextIntact(t *testing.T) {
 	m, _ := threadLongTS(t, "priya", "lee", 80, 30)
-	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.vp.YOffset()
+	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.yOffset
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
@@ -193,7 +193,7 @@ func TestThreadSelectedTimestamp_DragOverParentHeaderKeepsTextIntact(t *testing.
 	m.MoveDown() // fork: GoToTop selects the parent; the first reply leaves it unselected
 	m.MoveUp()   // parent
 	_ = m.View(30, 80)
-	y := m.chromeHeight - m.vp.YOffset()
+	y := m.chromeHeight - m.yOffset
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
@@ -215,7 +215,7 @@ func TestThreadSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 			t.Fatalf("reply %d built a short variant with no text selection", i)
 		}
 	}
-	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.vp.YOffset()
+	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.yOffset
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	_ = m.View(30, 80)
@@ -247,7 +247,7 @@ func TestThreadParentDate_CopyAndDragMatchDisplay(t *testing.T) {
 	m.GoToTop()
 	m.MoveDown() // fork: GoToTop selects the parent; the first reply leaves it unselected
 	_ = m.View(30, 80)
-	y := m.chromeHeight - m.vp.YOffset()
+	y := m.chromeHeight - m.yOffset
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 79)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")

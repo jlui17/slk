@@ -32,7 +32,7 @@ func firstContentY(m *Model) int {
 	if len(m.entryOffsets) == 0 {
 		return m.chromeHeight
 	}
-	return m.chromeHeight + m.entryOffsets[0] - m.vp.YOffset()
+	return m.chromeHeight + m.entryOffsets[0] - m.yOffset
 }
 
 func TestThreadSelection_BeginExtendEnd(t *testing.T) {
