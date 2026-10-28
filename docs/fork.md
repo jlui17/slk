@@ -137,12 +137,14 @@ there and resolve them knowing what the fork wants:
   Slack message draws as that message's chip (`PermalinkChips` in
   `permalinkchip_fork.go`), checked on the raw label before upstream's
   entity decode.
-  Strikethrough only marks its run (`markStrike`, `strike_fork.go`), and
-  `drawSpans` (`stylespans_fork.go`), the pass's last line, strikes it
-  once the links, mentions and emoji inside it are drawn, keeping their
-  escape sequences whole and striking on after each inner reset;
-  upstream's lipgloss render cuts them apart and prints their pieces, or
-  a `<@U1>`, as text.
+  Bold, italic (`renderItalics`) and strikethrough (`markStrike`,
+  `strike_fork.go`) only mark their spans (`markSpan`), and `drawSpans`
+  (`stylespans_fork.go`), the pass's last line, styles them once the
+  links, mentions and emoji inside are drawn, keeping their escape
+  sequences whole and turning the style back on after each inner reset;
+  upstream styles on the spot, so lipgloss's strike cuts a `<@U1>` apart
+  and prints it as text, the text after an inner span loses bold or
+  italic, and `*_x_*` draws its underscores.
 - `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream

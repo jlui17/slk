@@ -10,17 +10,19 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 )
 
-// A styled span is found on the raw text, where Slack's markers are, but
-// drawn last, once the link, mention and emoji passes have drawn what
-// sits inside it: its pass wraps it in a pair of marks (markSpan), and
-// drawSpans turns the marks into SGR at the end of
+// A bold, italic or struck span is found on the raw text, where Slack's
+// markers are, but drawn last, once the link, mention and emoji passes
+// have drawn what sits inside it: its pass wraps it in a pair of marks
+// (markSpan), and drawSpans turns the marks into SGR at the end of
 // renderInlineFormattingWith. Styling it on the spot would cut an inner
 // <@U1> or :tada: apart before its pass could match it, and the reset
 // that ends an inner span would end the outer style with it.
 type spanAttr rune
 
 const (
-	spanStrike spanAttr = iota
+	spanBold spanAttr = iota
+	spanItalic
+	spanStrike
 	spanAttrs
 )
 
@@ -30,9 +32,9 @@ const (
 const spanMarkFirst = '﷐'
 
 var (
-	spanStyles = [spanAttrs]func() lipgloss.Style{strikethroughStyle}
-	spanSGR    = [spanAttrs]string{"9"}
-	spanOffSGR = [spanAttrs]string{"29"}
+	spanStyles = [spanAttrs]func() lipgloss.Style{boldStyle, italicStyle, strikethroughStyle}
+	spanSGR    = [spanAttrs]string{"1", "3", "9"}
+	spanOffSGR = [spanAttrs]string{"22", "23", "29"}
 )
 
 func markSpan(a spanAttr, inner string) string {

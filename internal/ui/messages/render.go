@@ -713,7 +713,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// Bold
 	text = boldRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := boldRe.FindStringSubmatch(match)[1]
-		return boldStyle().Render(inner)
+		return markSpan(spanBold, inner)
 	})
 
 	// Italic — manual scan so intra-word underscores (e.g.,
@@ -1064,7 +1064,7 @@ func renderItalics(text string) string {
 			continue
 		}
 		inner := string(runes[i+1 : j])
-		b.WriteString(italicStyle().Render(inner))
+		b.WriteString(markSpan(spanItalic, inner))
 		i = j + 1
 	}
 	return b.String()

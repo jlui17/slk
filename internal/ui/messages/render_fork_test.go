@@ -895,15 +895,21 @@ func TestStruckSentenceWithInlineCodeRendersLikeSlack(t *testing.T) {
 
 // struckText returns the characters s draws with strikethrough on.
 func struckText(s string) string {
+	return sgrAttrText(s, "9", "29")
+}
+
+// sgrAttrText returns the characters s draws with the SGR attribute that
+// on turns on and off (or a reset) turns off.
+func sgrAttrText(s, on, off string) string {
 	var b strings.Builder
-	struck := false
+	set := false
 	rest := s
 	for rest != "" {
 		loc := sgrSeqRe.FindStringIndex(rest)
 		if loc == nil {
 			loc = []int{len(rest), len(rest)}
 		}
-		if struck {
+		if set {
 			b.WriteString(ansi.Strip(rest[:loc[0]]))
 		}
 		if loc[0] == len(rest) {
@@ -912,10 +918,10 @@ func struckText(s string) string {
 		params := strings.Split(rest[loc[0]+2:loc[1]-1], ";")
 		for i := 0; i < len(params); i++ {
 			switch params[i] {
-			case "", "0", "29":
-				struck = false
-			case "9":
-				struck = true
+			case "", "0", off:
+				set = false
+			case on:
+				set = true
 			case "38", "48", "58":
 				if i+1 < len(params) && params[i+1] == "2" {
 					i += 4

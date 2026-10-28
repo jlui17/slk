@@ -17,9 +17,10 @@ import (
 // non-word rune. When the first `~` after an opener fails the closer
 // test, the opener is literal (mirroring renderItalics' scan).
 //
-// This pass runs after bold/italic are ANSI-rendered, so a nested
-// `*~x~*` opener is preceded by an SGR sequence's terminating "m";
-// strikeBoundaryBefore treats that terminator as a boundary.
+// This pass runs after inline code is ANSI-rendered, so an opener right
+// after a code span is preceded by an SGR sequence's terminating "m";
+// strikeBoundaryBefore treats that terminator as a boundary. A nested
+// `*~x~*` opener follows bold's span mark, a non-word rune.
 func replaceStrikethroughs(text string, render func(inner string) string) string {
 	if !strings.ContainsRune(text, '~') {
 		return text
