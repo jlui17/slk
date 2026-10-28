@@ -269,30 +269,13 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 					}
 				}
 			}
-			id, name, chType := target.ID, target.Name, target.Type
-			// A queued startup navigation (a command-line permalink, or
-			// a pane-state thread being restored) overrides the channel
-			// restore: promote it to pendingLinkNav so the completion
-			// hooks in reducer_channels.go select the target message /
-			// open the thread panel, exactly as an in-app link click
-			// would.
-			if nav := a.startupLinkNav; nav != nil {
-				a.startupLinkNav = nil
-				if n, t, found := lookupChannelIn(string(nav.ChannelID), m.Channels, m.FinderItems); found {
-					a.pendingLinkNav = nav
-					id, name, chType = string(nav.ChannelID), n, t
-				} else {
-					batch = append(batch, func() tea.Msg {
-						return ToastMsg{Text: "Linked channel not found in this workspace"}
-					})
-				}
-			}
-			a.sidebar.SelectByID(id)
+			batch = append(batch, a.promoteStartupLinkNav(&target, m)) // fork: reducer_workspace_fork.go
+			a.sidebar.SelectByID(target.ID)
 			a.messagepane.SetLoading(true)
 			a.messagepane.SetMessages(nil)
 			batch = append(batch, spinnerTickCmd())
 			batch = append(batch, func() tea.Msg {
-				return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
+				return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type}
 			})
 		}
 		// Prime the sidebar Activity badge on connect (the feed is a
