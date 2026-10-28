@@ -65,9 +65,13 @@ func TestIsAgentTodoText(t *testing.T) {
 // openWorkingAgentThread opens a tracked agent thread through the real
 // panel path (setThreadPanel, so the last-message snapshot runs) with the
 // user's unanswered root as the newest message — the canonical derived
-// working state.
+// working state. The replies are the loaded ones: nil opens a thread with
+// none, which loads as an empty list (a nil list is the root-only paint).
 func openWorkingAgentThread(a *App, replies []messages.MessageItem) {
 	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> take a look at the CI workflows", UserID: "UHUMAN"}
+	if replies == nil {
+		replies = []messages.MessageItem{}
+	}
 	a.setThreadPanel(parent, replies, "C1", "100.0")
 	a.threadVisible = true
 }

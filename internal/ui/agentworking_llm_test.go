@@ -650,6 +650,26 @@ func TestOpeningFinishedThreadPublishesNoCompletion(t *testing.T) {
 	assertHerdrSequence(t, seq, AgentIdle)
 }
 
+// Every open path paints the root alone before the replies load
+// (openThreadPanel, openSelectedThreadCmd). That paint has not read the
+// thread, so the user's root on top must not read working, or the loaded
+// agent's finished reply publishes working→idle: herdr shows "done" for a
+// run that ended long ago.
+func TestOpeningFinishedThreadRootFirstPublishesNoCompletion(t *testing.T) {
+	a, reports, unreads := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	seq := withHerdrSequence(a, reports, unreads)
+	parent := messages.MessageItem{TS: "100.0", Text: "<@UBOT> take a look at the CI workflows", UserID: "UHUMAN"}
+	a.setThreadPanel(parent, nil, "C1", "100.0")
+	a.threadVisible = true
+	a.setThreadPanel(parent, []messages.MessageItem{agentReply("101.0", "Done, all green.").Message}, "C1", "100.0")
+	if len(*judged) != 1 {
+		t.Fatalf("expected the loaded snapshot to ask the judge, got %+v", *judged)
+	}
+	a.Update(verdictFor(t, judged, 0, AgentIdle))
+	assertHerdrSequence(t, seq, AgentIdle)
+}
+
 func TestUnjudgedReplyKeepsSyntheticCompletion(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

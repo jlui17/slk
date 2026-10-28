@@ -245,8 +245,13 @@ func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
 // snapshotAgentThreadLast re-derives the last-message state from the
 // thread panel's authoritative content — the fetch path carries reactions,
 // so an ack that happened while slk wasn't running is seen here.
+//
+// nil replies is the root painted alone before the replies load (a thread
+// with no replies loads as an empty list): that paint has not read the
+// thread, and the user's root on top would read working, so a finished
+// reply arriving with the load would publish a false completion.
 func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
-	if !a.tracksThread("", channelID, threadTS) {
+	if replies == nil || !a.tracksThread("", channelID, threadTS) {
 		return
 	}
 	thread := append([]messages.MessageItem{parent}, replies...)
