@@ -66,28 +66,6 @@ type viewEntry struct {
 	attachmentFoldRows []int
 }
 
-// entryHit is one inline-image hit-rect relative to a rendered entry,
-// in display columns that already include the avatar gutter and the
-// thick left border.
-type entryHit struct {
-	rowStartInEntry int
-	rowEndInEntry   int // exclusive
-	colStart        int
-	colEnd          int // exclusive
-	fileID          string
-	attIdx          int // index into MessageItem.Attachments
-}
-
-// reactionEntryHit is one reaction-pill hit-rect relative to a rendered
-// entry, carrying the emoji name the click toggles.
-type reactionEntryHit struct {
-	rowStartInEntry int
-	rowEndInEntry   int // exclusive
-	colStart        int
-	colEnd          int // exclusive
-	emoji           string
-}
-
 // sixelEntry holds the pre-computed sixel bytes for one inline image,
 // plus the halfblock fallback used when the image is only partially
 // visible (Phase 6 cannot emit a half-image with sixel).
@@ -149,14 +127,8 @@ type Model struct {
 	// Configured for the channel pane's behaviour in New.
 	list *entrylist.Model
 
-	// bodyCopyLabels is render scratch: the copy labels of the body
-	// renderMessagePlain drew last, until renderMessageEntry takes them.
-	bodyCopyLabels []CodeBlockCopyLabel
-
-	// attachmentFoldRows is render scratch like bodyCopyLabels.
 	// expandedAttachments holds the TS of each message whose cards show
 	// in full; SetMessages leaves it alone. See attachmentfold_fork.go.
-	attachmentFoldRows  []int
 	expandedAttachments map[string]bool
 
 	// Chrome cache: header line(s). Depends on width, channelName, and
@@ -236,7 +208,7 @@ type Model struct {
 //
 // Perf: m.focused only affects the SELECTED row's cached `linesSelected`
 // (via cs.borderSelect, the selectedFill background, RepaintBgToSelectionTint,
-// and renderMessagePlain's isSelected branch -- see buildCacheStyles at
+// and RenderMessage's IsSelected option -- see buildCacheStyles at
 // model.go:1292 and renderMessageEntry at model.go:1338). Every other
 // row's `linesNormal` is focus-independent and the flatten loop at
 // model.go:2548 picks linesSelected ONLY for the entry where
@@ -1454,7 +1426,7 @@ func (m *Model) renderLoadingOlderHint(width int) string {
 
 // entryPerfStats accumulates per-sub-step timing across a single
 // buildCache invocation. Populated only when debuglog.Enabled();
-// callers pass nil otherwise. renderMessageEntry / renderMessagePlain
+// callers pass nil otherwise. renderMessageEntry / RenderMessage
 // guard every measurement with `if stats != nil` so the nil path adds
 // only a couple of branch-predicted checks per message — negligible
 // compared to the lipgloss / regex / blockkit work it surrounds.
@@ -1465,7 +1437,7 @@ func (m *Model) renderLoadingOlderHint(width int) string {
 type entryPerfStats struct {
 	count int // number of messages processed
 
-	// renderMessagePlain sub-steps
+	// RenderMessage sub-steps
 	bodyTotal      time.Duration // RenderSlackMarkdown + WordWrap + styles.MessageText.Render
 	reactionsTotal time.Duration // pill rendering, emoji width, wrap math
 	reactionsCount int
@@ -1499,9 +1471,31 @@ type entryPerfStats struct {
 	attachmentsTotal          time.Duration // imgRenderer.RenderBlock loop over msg.Attachments
 	attachmentsCount          int
 
-	// renderMessageEntry sub-steps (post renderMessagePlain)
+	// renderMessageEntry sub-steps (post RenderMessage)
 	borderWrapTotal time.Duration // borderFill/borderInvis/borderSelect renders + RepaintBgToSelectionTint
 	plainLinesTotal time.Duration // ANSI-stripping for the plain-text mirror
+}
+
+// renderContext is what RenderMessage reads from the channel pane.
+func (m *Model) renderContext() *RenderContext {
+	if m.imgRenderer == nil {
+		m.imgRenderer = imgrender.NewRenderer()
+	}
+	return &RenderContext{
+		ColoredUsernames: m.coloredUsernames,
+		UserStatuses:     m.userStatuses,
+		UserNames:        m.userNames.Current(),
+		ChannelNames:     m.channelNames,
+		UserGroups:       m.userGroups,
+		Emoji:            m.emojiCtx,
+		Images:           m.imgRenderer,
+		ImageChannel:     m.channelName,
+		SearchTerms:      m.searchTerms,
+		Nav:              m.nav,
+
+		WorkspaceDomain:     m.workspaceDomain,
+		ExpandedAttachments: m.expandedAttachments,
+	}
 }
 
 // renderMessageEntry builds a single viewEntry for m.messages[i] using
@@ -1524,11 +1518,22 @@ type entryPerfStats struct {
 // number of entries produced.
 func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, viewEntry) {
 	msg := m.messages[i]
-	avatarStr := ""
-	if m.avatarFn != nil {
-		avatarStr = m.avatarFn(msg.UserID)
+	opt := RenderOptions{
+		IsSelected:      i == m.selected,
+		ReplyAffordance: true,
+		EditedMark:      true,
+		BroadcastLabel:  true,
+		ImageHits:       true,
+		stats:           stats,
 	}
-	rendered, attachFlushes, attachSixel, attachHits, reactHits, header, headerBudget := m.renderMessagePlain(msg, width, avatarStr, m.userNames.Current(), m.channelNames, i == m.selected, stats)
+	if m.avatarFn != nil {
+		opt.Avatar = m.avatarFn(msg.UserID)
+	}
+	r := RenderMessage(msg, width, m.renderContext(), opt)
+	rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
+	// The channel pane's kitty upload order: blocks, attachments, then
+	// body and reaction emoji.
+	flushes := slices.Concat(r.BlockFlushes, r.AttachmentFlushes, r.BodyFlushes, r.ReactionFlushes)
 	// The selected variant carries the date-qualified timestamp. Only
 	// it: linesNormal and linesPlain keep the short form, so clipboard
 	// text and mouse->column mapping are unchanged.
@@ -1589,21 +1594,6 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		linesP = append(linesP, plainLine{Text: "", Bytes: []int{0}})
 		trail = len(cs.spacerLines)
 	}
-	hits := make([]entrylist.Hit, 0, len(attachHits)+len(reactHits))
-	for _, h := range attachHits {
-		hits = append(hits, entrylist.Hit{
-			RowStart: h.rowStartInEntry, RowEnd: h.rowEndInEntry,
-			ColStart: h.colStart, ColEnd: h.colEnd,
-			Kind: entrylist.HitImage, Key: h.fileID, Aux: h.attIdx,
-		})
-	}
-	for _, h := range reactHits {
-		hits = append(hits, entrylist.Hit{
-			RowStart: h.rowStartInEntry, RowEnd: h.rowEndInEntry,
-			ColStart: h.colStart, ColEnd: h.colEnd,
-			Kind: entrylist.HitReaction, Key: h.emoji,
-		})
-	}
 	entry := entrylist.Entry{
 		ID:         msg.TS,
 		Ref:        i,
@@ -1613,11 +1603,11 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		Plain:      linesP,
 		ColOffset:  1, // thick left border ▌ occupies column 0 of Lines
 		Trail:      trail,
-		Hits:       hits,
+		Hits:       r.Hits,
 	}
-	return entry, viewEntry{shortSrc: shortSrc, flushes: attachFlushes, sixelRows: attachSixel,
-		codeBlockCopyLabels: m.takeBodyCopyLabels(msg, avatarStr != ""), // fork: codeblocks_fork.go
-		attachmentFoldRows:  m.takeAttachmentFoldRows(),                 // fork: attachmentfold_fork.go
+	return entry, viewEntry{shortSrc: shortSrc, flushes: flushes, sixelRows: r.SixelRows,
+		codeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
+		attachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 	}
 }
 
@@ -1644,7 +1634,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 	// plainLines. Aggregated into a single [perf] line after the loop
 	// to keep log volume O(1) per buildCache rather than O(N) per
 	// message. nil disables every call site's timing (see
-	// renderMessageEntry / renderMessagePlain).
+	// renderMessageEntry / RenderMessage).
 	var stats *entryPerfStats
 	if debuglog.Enabled() {
 		stats = &entryPerfStats{}
@@ -1721,7 +1711,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 // full buildCache.
 //
 // Critical perf invariant: this function MUST NOT call
-// renderMessagePlain for any message that isn't in m.staleEntries.
+// RenderMessage for any message that isn't in m.staleEntries.
 // The whole point of per-entry invalidation is to skip the per-message
 // lipgloss / wordwrap / blockkit work for siblings during an image
 // burst.
@@ -1761,563 +1751,6 @@ func (m *Model) partialRebuild(width int) {
 	}
 }
 
-// blockkitContext bundles the blockkit-package dependencies sourced
-// from the model's image context, theme, and per-message identity.
-// Wired here rather than in the constructor so it picks up runtime
-// changes to imgCtx (e.g., when image_protocol is reconfigured).
-// Emoji placed in block text append their kitty uploads to
-// emojiFlushes, which may be nil when nothing draws the result.
-func (m *Model) blockkitContext(msg MessageItem, userNames, channelNames map[string]string, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
-	var imgCtx imgrender.ImageContext
-	if m.imgRenderer != nil {
-		imgCtx = m.imgRenderer.Context()
-	}
-	send := imgCtx.SendMsg
-	return blockkit.Context{
-		Protocol:    imgCtx.Protocol,
-		Fetcher:     imgCtx.Fetcher,
-		KittyRender: imgCtx.KittyRender,
-		CellPixels:  imgCtx.CellPixels,
-		MaxRows:     imgCtx.MaxRows,
-		MaxCols:     imgCtx.MaxCols,
-		UserNames:   userNames,
-		MessageTS:   msg.TS,
-		Channel:     m.channelName,
-		Card:        CardContext(m.expandedAttachments[msg.TS], channelNames),
-		// Capture channelNames in a closure so blockkit's
-		// RenderTextForWidth signature stays stable; channel-name
-		// resolution is a host concern.
-		RenderTextForWidth: func(s string, un map[string]string, width int) string {
-			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
-				UserNames:    un,
-				ChannelNames: channelNames,
-				UserGroups:   m.userGroups,
-				PlaceCtx:     m.emojiCtx.PlaceCtx,
-				EmojiCells:   m.emojiCtx.Cells,
-				Customs:      m.emojiCtx.Customs,
-				EmojiFlushes: emojiFlushes,
-				Width:        width,
-				SearchTerms:  m.searchTerms,
-
-				WorkspaceDomain: m.workspaceDomain,
-			})
-		},
-		WrapText: WordWrap,
-		SendMsg: func(v any) {
-			// tea.Msg is interface{}, so any non-nil v satisfies the inner
-			// send signature. The nil-guard is the only meaningful check.
-			if send != nil {
-				send(v)
-			}
-		},
-	}
-}
-
-// renderMessagePlain renders a message without selection highlight.
-//
-// Returns the message content (multi-line string), per-frame flushes
-// (kitty image upload callbacks), a row-keyed map of sixel bytes, the
-// per-image hit rects for the rendered attachments, and the per-pill
-// hit rects for the rendered reactions. Row indices in sixelRows AND
-// in the returned hits are relative to linesNormal AFTER the
-// surrounding buildCache wraps (avatar+border) are applied — the
-// avatar gutter adds columns but no rows, and the border adds 1
-// column (col 0) but no rows, so row indices computed pre-wrap stay
-// valid. Column extents in the returned hits are absolute display
-// columns within linesNormal, including the border (col 0) and the
-// avatar gutter (5 cols when an avatar is present), so View() can
-// translate directly to pane-local mouse columns.
-func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string, userNames map[string]string, channelNames map[string]string, isSelected bool, stats *entryPerfStats) (
-	content string, flushes []func(io.Writer) error, sixelRows map[int]sixelEntry, hits []entryHit, reactionHits []reactionEntryHit, header string, headerBudget int,
-) {
-	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
-
-	// If we have an avatar, reserve space on the left for it
-	contentWidth := width - 4
-	if avatarStr != "" {
-		contentWidth = width - 7 // 4 cols avatar + 1 space + 2 padding
-	}
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	var bodyT0 time.Time
-	if stats != nil {
-		bodyT0 = time.Now()
-	}
-	// Emoji-image opts pass through the active EmojiContext; when
-	// image mode is off (or PlaceCtx.Fetcher is nil) RenderSlackMarkdownWith
-	// falls through to the legacy glyph/shortcode-text path. Warm-path
-	// emoji flushes land in the same per-message `flushes` named-return
-	// slice the View() loop walks for inline-image attachments.
-	bodyOpts := RenderSlackMarkdownOpts{
-		UserNames:    userNames,
-		ChannelNames: channelNames,
-		UserGroups:   m.userGroups,
-		PlaceCtx:     m.emojiCtx.PlaceCtx,
-		EmojiCells:   m.emojiCtx.Cells,
-		Customs:      m.emojiCtx.Customs,
-		EmojiFlushes: &flushes,
-		Width:        contentWidth,
-		SearchTerms:  m.searchTerms,
-
-		CodeBlockCopyLabels: m.newBodyCopyLabels(),
-		PermalinkChips:      PermalinkChipsOf(msg, channelNames),
-		WorkspaceDomain:     m.workspaceDomain,
-	}
-	// Blocks that render the body suppress Slack's notification-fallback
-	// text and its row. See BlocksCarryBody.
-	hasBody := !BlocksCarryBody(msg)
-	bodySrc := MessageTextSource(msg)
-	if !hasBody {
-		bodySrc = ""
-	}
-	rendered := RenderSlackMarkdownWith(bodySrc, bodyOpts)
-	text := styles.MessageText.Render(WordWrap(rendered, contentWidth))
-	if stats != nil {
-		stats.bodyTotal += time.Since(bodyT0)
-	}
-
-	var threadLine string
-	if msg.ReplyCount > 0 {
-		word := "replies"
-		if msg.ReplyCount == 1 {
-			word = "reply"
-		}
-		threadLine = "\n" + styles.ThreadIndicator.Render(
-			fmt.Sprintf("[%d %s ->]", msg.ReplyCount, word))
-	}
-
-	var reactionLine string
-	// reactionLineCount is the number of rendered reaction rows below
-	// the body / attachments. Used downstream (after the row layout is
-	// known) to translate per-pill specs into absolute row indices.
-	reactionLineCount := 0
-	// pillSpecs captures one entry per real (non-"+") reaction pill in
-	// rendering order, with line index and column extents relative to
-	// the reaction-line block. Converted into absolute reactionEntryHit
-	// rects below (once we know the row offset of the reaction block).
-	type pillSpec struct {
-		lineIdx  int
-		colStart int
-		colEnd   int
-		emoji    string
-	}
-	var pillSpecs []pillSpec
-	var reactT0 time.Time
-	if stats != nil && len(msg.Reactions) > 0 {
-		reactT0 = time.Now()
-	}
-	if len(msg.Reactions) > 0 {
-		var pills []string
-		// pillEmojis parallels pills; empty string marks the trailing
-		// "+" pill that appears only in reaction nav mode (no toggle
-		// target). Tracked separately because the index in pills can
-		// exceed len(msg.Reactions).
-		var pillEmojis []string
-		// Image-aware emoji-as-image path is active only when the
-		// process-global ImageMode is on AND a fetcher has been
-		// installed via SetEmojiContext. Otherwise the legacy
-		// glyph/shortcode-text branch renders.
-		imageOK := emojiutil.ImageModeActive() && m.emojiCtx.PlaceCtx.Fetcher != nil
-		pillCells := m.emojiCtx.Cells
-		if pillCells <= 0 {
-			pillCells = 2
-		}
-		for i, r := range msg.Reactions {
-			// Image path: pass r.Emoji directly (including any skin-tone
-			// suffix) — URLForShortcode composes the per-tone CDN URL
-			// natively. Stripping skin tone was a workaround for
-			// glyph-rendering width inconsistencies that no longer apply
-			// at the kitty-image cell footprint.
-			//
-			// Legacy path: still strip the suffix because the glyph
-			// renderer suffers the original width-inconsistency problem
-			// (multi-codepoint ZWJ / skin-tone sequences render at
-			// terminal-dependent widths and break border alignment).
-			// See internal/emoji/shouldrender.go for the rule.
-			var emojiStr string
-			var placedFlush func(io.Writer) error
-			if imageOK {
-				if url, ok := emojiutil.URLForShortcode(r.Emoji, m.emojiCtx.Customs); ok {
-					if placement, flush, ok := emojiutil.Place(m.emojiCtx.PlaceCtx, url, pillCells); ok {
-						emojiStr = placement
-						placedFlush = flush
-					}
-				}
-			}
-			if emojiStr == "" {
-				// Legacy fallback path (image mode off, no URL, or
-				// Place returned false). Strip skin tone here only —
-				// the glyph renderer still needs the workaround.
-				legacyName := emojiutil.StripSkinTone(r.Emoji)
-				resolved := emojiutil.Sprint(":" + legacyName + ":")
-				if emojiutil.ShouldRenderUnicode(resolved) {
-					emojiStr = resolved
-				} else {
-					emojiStr = ":" + legacyName + ":"
-				}
-			}
-			var style lipgloss.Style
-			if isSelected && m.nav.Active && i == m.nav.Index {
-				style = styles.ReactionPillSelected
-			} else if r.HasReacted {
-				style = styles.ReactionPillOwn
-			} else {
-				style = styles.ReactionPillOther
-			}
-			pillText := ReactionPillText(emojiStr, r.Count, style, placedFlush != nil)
-			pills = append(pills, style.Render(pillText))
-			pillEmojis = append(pillEmojis, r.Emoji)
-			// Image emoji in reaction pills land in the same per-frame
-			// flush list as body text and inline image attachments —
-			// the View() loop walks `flushes` once per visible frame.
-			if placedFlush != nil {
-				flushes = append(flushes, placedFlush)
-			}
-		}
-		if isSelected && m.nav.Active {
-			plusStyle := styles.ReactionPillPlus
-			if m.nav.Index >= len(msg.Reactions) {
-				plusStyle = styles.ReactionPillSelected
-			}
-			pills = append(pills, plusStyle.Render("+"))
-			pillEmojis = append(pillEmojis, "")
-		}
-		// Join pills with wrapping. emojiutil.Width() consults the
-		// terminal-probed width cache so wrapping decisions match what
-		// the user's terminal will actually render.
-		bgSpace := lipgloss.NewStyle().Background(styles.Background).Render(" ")
-		var reactionLines []string
-		currentLine := ""
-		lineIdx := 0
-		for i, pill := range pills {
-			candidate := currentLine
-			sepWidth := 0
-			if i > 0 {
-				candidate += bgSpace
-				sepWidth = 1
-			}
-			candidate += pill
-			pillW := emojiutil.Width(pill)
-			if emojiutil.Width(candidate) > contentWidth && currentLine != "" {
-				reactionLines = append(reactionLines, currentLine)
-				lineIdx++
-				currentLine = pill
-				// After wrap the pill starts at col 0 of the new line.
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: 0,
-						colEnd:   pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-			} else {
-				colStart := emojiutil.Width(currentLine) + sepWidth
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: colStart,
-						colEnd:   colStart + pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-				currentLine = candidate
-			}
-		}
-		if currentLine != "" {
-			reactionLines = append(reactionLines, currentLine)
-		}
-		reactionLine = "\n" + strings.Join(reactionLines, "\n")
-		reactionLineCount = len(reactionLines)
-	}
-	if stats != nil && len(msg.Reactions) > 0 {
-		stats.reactionsTotal += time.Since(reactT0)
-		stats.reactionsCount++
-	}
-
-	var editedMark string
-	if msg.IsEdited {
-		editedMark = " " + styles.Timestamp.Render("(edited)")
-	}
-
-	// Pre-attachment row count, so attachment rows can compute their
-	// absolute row index (used as the sixelRows key).
-	//
-	//   rows 0..: label rows (ephemeral, then thread_broadcast), each optional
-	//   next row: username line + editedMark
-	//   row N: wrapped body text (lipgloss.Height of styled `text`);
-	//          absent when BlocksCarryBody
-	//
-	// Attachments begin immediately after the body text.
-	var labelRows string
-	preAttachmentRows := 0
-	if msg.Ephemeral {
-		labelRows += EphemeralLabel() + "\n"
-		preAttachmentRows++ // the ephemeral label occupies its own row
-	}
-	if msg.Subtype == "thread_broadcast" {
-		labelRows += styles.Timestamp.Render("\u21b3 replied to a thread") + "\n"
-		preAttachmentRows++ // the broadcast label occupies its own row
-	}
-	preAttachmentRows++ // username + ts row
-	if hasBody {
-		preAttachmentRows += lipgloss.Height(text) // wrapped body text
-	}
-
-	// contentColBase is the display column at which message content
-	// begins inside the cached entry's linesNormal. buildCache wraps
-	// the rendered content with a thick-left-border (▌, 1 col) at
-	// column 0; placeAvatarBeside (when an avatar is present) prepends
-	// 4 cols of avatar + 1 col of spacing in front of every content
-	// row. So the in-content column 0 lands at:
-	//
-	//   col 1 + 5 = 6   when an avatar is present
-	//   col 1           when no avatar
-	//
-	// We compute it here (before calling imgRenderer.RenderBlock) and
-	// pass it down so the per-image hit rects come back in absolute
-	// linesNormal columns, ready for direct viewport translation in
-	// View() without any further offset arithmetic.
-	contentColBase := 1
-	if avatarStr != "" {
-		contentColBase += 5
-	}
-
-	var attachLineSlices [][]string
-	var allFlushes []func(io.Writer) error
-	allSixel := map[int]sixelEntry{}
-
-	// Block Kit blocks render between the body text and file attachments.
-	bkCtx := m.blockkitContext(msg, userNames, channelNames, &allFlushes)
-	var bkLines []string
-	bkInteractive := false
-	if len(msg.Blocks) > 0 {
-		var bkT0 time.Time
-		if stats != nil {
-			bkT0 = time.Now()
-		}
-		startInBk := len(bkLines)
-		res := blockkit.RenderMessageBlocks(msg.Blocks, bkCtx, contentWidth)
-		if stats != nil {
-			stats.blockKitTotal += time.Since(bkT0)
-			stats.blockKitCount++
-		}
-		bkLines = append(bkLines, res.Lines...)
-		allFlushes = append(allFlushes, res.Flushes...)
-		rowOffset := preAttachmentRows + startInBk
-		for k, v := range res.SixelRows {
-			allSixel[rowOffset+k] = sixelEntry{bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
-		}
-		// Note: res.Hits is intentionally NOT appended to `hits` in
-		// v1. App-level click routing (app.go) currently uses entryHit
-		// to look up file attachments by attIdx; routing for "BK-"
-		// (Block Kit URL-keyed) hits is deferred. Recording them here
-		// without routing would mis-route clicks to msg.Attachments[0].
-		// See Phase 7 of the plan for the future wiring.
-		_ = res.Hits
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if len(msg.LegacyAttachments) > 0 {
-		var lgT0 time.Time
-		var lgPerf *blockkit.LegacyPerf
-		legacyCtx := bkCtx
-		if stats != nil {
-			lgT0 = time.Now()
-			lgPerf = &blockkit.LegacyPerf{}
-			legacyCtx.Perf = lgPerf
-		}
-		startInBk := len(bkLines)
-		res := blockkit.RenderLegacy(msg.LegacyAttachments, legacyCtx, contentWidth)
-		m.attachmentFoldRows = OffsetAttachmentFoldRows(res.FoldRows, preAttachmentRows+startInBk)
-		if stats != nil {
-			stats.legacyTotal += time.Since(lgT0)
-			stats.legacyCount++
-			stats.legacyTextTotal += lgPerf.TextTotal()
-			stats.legacyImageTotal += lgPerf.ImageTotal()
-			stats.legacyOtherTotal += lgPerf.OtherTotal()
-			stats.legacyAttCount += lgPerf.AttachmentCount()
-			ccTotal, ccCount := lgPerf.ImgCachedCheck()
-			stats.legacyImgCachedCheckTotal += ccTotal
-			stats.legacyImgCachedCheckCount += ccCount
-			kTotal, kCount := lgPerf.ImgKitty()
-			stats.legacyImgKittyTotal += kTotal
-			stats.legacyImgKittyCount += kCount
-			riTotal, riCount := lgPerf.ImgRenderImage()
-			stats.legacyImgRenderImageTotal += riTotal
-			stats.legacyImgRenderImageCount += riCount
-			phTotal, phCount := lgPerf.ImgPlaceholder()
-			stats.legacyImgPlaceholderTotal += phTotal
-			stats.legacyImgPlaceholderCount += phCount
-		}
-		bkLines = append(bkLines, res.Lines...)
-		allFlushes = append(allFlushes, res.Flushes...)
-		rowOffset := preAttachmentRows + startInBk
-		for k, v := range res.SixelRows {
-			allSixel[rowOffset+k] = sixelEntry{bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
-		}
-		// Note: res.Hits is intentionally NOT appended to `hits` in
-		// v1. App-level click routing (app.go) currently uses entryHit
-		// to look up file attachments by attIdx; routing for "BK-"
-		// (Block Kit URL-keyed) hits is deferred. Recording them here
-		// without routing would mis-route clicks to msg.Attachments[0].
-		// See Phase 7 of the plan for the future wiring.
-		_ = res.Hits
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if bkInteractive {
-		hint := styles.Timestamp.Render(InteractHint(msg)) // fork: links_fork.go
-		bkLines = append(bkLines, hint)
-	}
-	preAttachmentRows += len(bkLines)
-
-	bkBlock := ""
-	if len(bkLines) > 0 {
-		// Re-apply the background after every reset, the same treatment
-		// the body text gets from styles.MessageText.
-		//
-		// The inline styles (bold, italic, link, mention) deliberately
-		// omit .Background() and rely on an outer style providing it —
-		// see the comment on boldStyle in render.go. Body text has that
-		// outer style; Block Kit lines do not. They are composed from a
-		// gutter prefix plus rendered content, and the prefix's closing
-		// reset clears the background for everything after it on that
-		// line, so styled and plain runs alike drew on the terminal's
-		// default background while only the trailing pad kept the
-		// theme's. On a selected message that reads as the selection
-		// tint stopping at the glyphs.
-		//
-		// Background only, no foreground: kitty image placeholders
-		// encode their image ID in the cell foreground (see
-		// image.PlaceholderRune) and must not be repainted.
-		//
-		// Each line is also PREFIXED with the background, not just
-		// patched after its own resets. The reset that strips the
-		// background is not in these lines at all — it closes the
-		// avatar gutter that placeAvatarBeside prepends to every line
-		// afterwards, so the run at the start of the content has no
-		// preceding reset here to attach a background to.
-		bkBlock = "\n" + WithBackground(bkLines, BgANSI())
-	}
-
-	if len(msg.Attachments) > 0 {
-		var attT0 time.Time
-		if stats != nil {
-			attT0 = time.Now()
-		}
-		rowCursor := preAttachmentRows
-		for attIdx, att := range msg.Attachments {
-			if m.imgRenderer == nil {
-				m.imgRenderer = imgrender.NewRenderer()
-			}
-			imgThumbs := make([]imgrender.ThumbSpec, len(att.Thumbs))
-			for i, t := range att.Thumbs {
-				imgThumbs[i] = imgrender.ThumbSpec{URL: t.URL, W: t.W, H: t.H}
-			}
-			res := m.imgRenderer.RenderBlock(imgrender.Block{
-				Kind:   att.Kind,
-				FileID: att.FileID,
-				Name:   att.Name,
-				URL:    att.URL,
-				Thumbs: imgThumbs,
-			}, m.channelName, msg.TS, contentWidth, rowCursor, attIdx, contentColBase)
-			attachLineSlices = append(attachLineSlices, res.Lines)
-			allFlushes = append(allFlushes, res.Flushes...)
-			for k, v := range convertSixelMap(res.SixelRows) {
-				allSixel[k] = v
-			}
-			// Only record hits for actual image-block renders (the
-			// fallback-to-link path returns a zero Hit, which we
-			// skip — clicking a single-line "[Image] <url>" doesn't
-			// open the preview overlay; that's a hyperlink.).
-			if res.Hit.RowEndInEntry > res.Hit.RowStartInEntry {
-				hits = append(hits, convertHit(res.Hit))
-			}
-			rowCursor += res.Height
-		}
-		if stats != nil {
-			stats.attachmentsTotal += time.Since(attT0)
-			stats.attachmentsCount++
-		}
-	}
-	var attachmentLines string
-	attachmentLineCount := 0
-	if len(attachLineSlices) > 0 {
-		flat := make([]string, 0)
-		for _, ls := range attachLineSlices {
-			flat = append(flat, ls...)
-		}
-		attachmentLines = "\n" + strings.Join(flat, "\n")
-		attachmentLineCount = len(flat)
-	}
-
-	bodyRow := ""
-	if hasBody {
-		bodyRow = "\n" + text
-	}
-	msgContent := labelRows + line + editedMark + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
-
-	// Translate per-pill specs into entry-relative reaction hit rects.
-	// reactionRowBase is the row index (within linesNormal) where the
-	// first reaction line lands. Row layout:
-	//   preAttachmentRows = label rows (ephemeral and/or thread_broadcast)
-	//   + username + body + bk
-	//   + attachmentLineCount (each attachment line is 1 row)
-	//   + 1 if threadLine is present
-	// (placeAvatarBeside does not change row counts.)
-	if len(pillSpecs) > 0 && reactionLineCount > 0 {
-		reactionRowBase := preAttachmentRows + attachmentLineCount
-		if threadLine != "" {
-			reactionRowBase++
-		}
-		for _, ps := range pillSpecs {
-			row := reactionRowBase + ps.lineIdx
-			reactionHits = append(reactionHits, reactionEntryHit{
-				rowStartInEntry: row,
-				rowEndInEntry:   row + 1,
-				colStart:        contentColBase + ps.colStart,
-				colEnd:          contentColBase + ps.colEnd,
-				emoji:           ps.emoji,
-			})
-		}
-	}
-
-	// Place avatar next to message content (avatar is side-by-side, no
-	// extra rows; row indices for sixelRows remain valid).
-	if avatarStr != "" {
-		msgContent = placeAvatarBeside(avatarStr, msgContent)
-	}
-
-	if len(allSixel) == 0 {
-		allSixel = nil
-	} else {
-		// Stamp every entry with the message's content column. Block kit,
-		// legacy, and attachment entries all start at contentColBase
-		// within linesNormal; without this the painter would place the
-		// image at the pane's content-left edge (col 0) instead of its
-		// placeholder, shifting it left under the avatar / border.
-		for k, v := range allSixel {
-			v.col = contentColBase
-			allSixel[k] = v
-		}
-	}
-	// Merge body-text + reaction-pill emoji flushes (the named-return
-	// `flushes` slice, appended to at lines ~1811 / ~1914) with
-	// blockkit / legacy-attachment / image-attachment flushes
-	// (`allFlushes`). The two parallel accumulators are a v1 quirk of
-	// Phase 6's wiring; without this merge the body+reaction emoji
-	// kitty uploads would be silently dropped here and the terminal
-	// would show blank cells where placeholder runes were rendered.
-	//
-	// The header row is the only row SelectedHeader may lengthen. It
-	// must fit both the width the body wraps to and the columns the row
-	// really has: contentWidth is floored at 20, which at narrow widths
-	// exceeds width-1 (the fill) minus the avatar gutter.
-	headerBudget = min(contentWidth, width-1-(contentColBase-1))
-	return msgContent, append(allFlushes, flushes...), allSixel, hits, reactionHits, line + editedMark, headerBudget
-}
-
 // placeAvatarBeside renders the avatar to the left of the message content.
 // The avatar is 4 cols wide, 2 rows tall. Message content flows to the right.
 func placeAvatarBeside(avatar, content string) string {
@@ -2351,21 +1784,6 @@ func placeAvatarBeside(avatar, content string) string {
 	}
 
 	return strings.Join(result, "\n")
-}
-
-// convertHit translates an imgrender.Hit into the messages-pane's
-// private entryHit cache type. Field names differ in capitalization
-// because imgrender's are exported and entryHit's are kept private to
-// the messages package.
-func convertHit(h imgrender.Hit) entryHit {
-	return entryHit{
-		rowStartInEntry: h.RowStartInEntry,
-		rowEndInEntry:   h.RowEndInEntry,
-		colStart:        h.ColStart,
-		colEnd:          h.ColEnd,
-		fileID:          h.FileID,
-		attIdx:          h.AttIdx,
-	}
 }
 
 // convertSixelMap translates imgrender.SixelEntry values into the

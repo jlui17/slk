@@ -25,7 +25,7 @@ func (m *Model) headerRowLine(width int) string {
 // renders a message's blocks: the same user, channel and emoji names.
 // Images draw as their links.
 func (m *Model) HomeBlockKitContext() blockkit.Context {
-	ctx := m.blockkitContext(MessageItem{}, m.userNames.Current(), m.channelNames, nil)
+	ctx := BlockkitContextFork(MessageItem{}, m.renderContext(), nil)
 	ctx.Fetcher = nil
 	return ctx
 }

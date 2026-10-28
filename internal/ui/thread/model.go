@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
@@ -50,16 +50,6 @@ type viewEntry struct {
 	// attachmentFoldRows are the rows of Lines that hold a card's fold
 	// row. See attachmentfold_fork.go.
 	attachmentFoldRows []int
-}
-
-// reactionEntryHit is one reaction-pill hit-rect relative to a rendered
-// reply, carrying the emoji name the click toggles.
-type reactionEntryHit struct {
-	rowStartInEntry int
-	rowEndInEntry   int // exclusive
-	colStart        int
-	colEnd          int // exclusive
-	emoji           string
 }
 
 // Model represents the thread panel UI component.
@@ -146,16 +136,10 @@ type Model struct {
 
 	workspaceDomain string // fork: profilelink_fork.go
 
-	// bodyCopyLabels is render scratch: the copy labels of the body
-	// renderThreadMessage drew last, until View takes them for the entry.
-	bodyCopyLabels []messages.CodeBlockCopyLabel
-
-	// attachmentFoldRows is render scratch like bodyCopyLabels.
 	// expandedAttachments holds the TS of each message whose cards show
 	// in full; SetThread leaves it alone. parentEntry carries the
-	// parent's labels and fold rows, which the reply cache does not. See
-	// attachmentfold_fork.go.
-	attachmentFoldRows  []int
+	// parent's copy labels and fold rows, which the reply cache does
+	// not. See attachmentfold_fork.go.
 	expandedAttachments map[string]bool
 	parentEntry         viewEntry
 
@@ -1149,15 +1133,16 @@ func (m *Model) View(height, width int) string {
 	// go out here rather than with the replies'. We discard the parent's
 	// reaction hits in v1, as before.
 	parentIsSelected := m.selected == parentSelected
-	parentContent, parentFlushes, _, parentHeader, parentHeaderBudget := m.renderThreadMessage(m.parent, width, m.userNames.Current(), m.channelNames, parentIsSelected)
-	for _, fl := range parentFlushes {
+	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
+	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
+	for _, fl := range slices.Concat(parentRendered.BodyFlushes, parentRendered.BlockFlushes, parentRendered.ReactionFlushes, parentRendered.AttachmentFlushes) {
 		if fl != nil {
 			_ = fl(imgpkg.KittyOutput)
 		}
 	}
 	m.parentEntry = viewEntry{
-		codeBlockCopyLabels: m.takeBodyCopyLabels(),
-		attachmentFoldRows:  m.takeAttachmentFoldRows(),
+		codeBlockCopyLabels: parentRendered.CodeBlockCopyLabels,
+		attachmentFoldRows:  parentRendered.AttachmentFoldRows,
 	}
 	// Replies only get a day divider when their day differs from the
 	// parent's, so the parent header carries its own date; otherwise a
@@ -1240,7 +1225,7 @@ func (m *Model) View(height, width int) string {
 	//
 	// The predicate intentionally excludes m.selected, m.focused,
 	// m.nav.Active/Index and the theme version. The cache holds
-	// renderThreadMessage output, which depends on those fields, so any
+	// renderMessage output, which depends on those fields, so any
 	// state that can change rendered output for a given (reply, width)
 	// MUST call InvalidateCache() on its mutation path. EnterReactionNav /
 	// ExitReactionNav / ReactionNavLeft / ReactionNavRight all do;
@@ -1276,9 +1261,13 @@ func (m *Model) View(height, width int) string {
 			BorderForeground(styles.Background).BorderBackground(styles.Background)
 		borderSelect := m.borderSelectStyle()
 		for i, reply := range m.replies {
-			// renderThreadMessage's last arg ("isSelected") drives reaction-
+			// renderMessage's last arg ("isSelected") drives reaction-
 			// nav pill highlighting, so it MUST be i == m.selected.
-			rendered, attachFlushes, reactHits, header, headerBudget := m.renderThreadMessage(reply, width, m.userNames.Current(), m.channelNames, i == m.selected)
+			r := m.renderMessage(reply, width, i == m.selected)
+			rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
+			// The thread pane's kitty upload order: body, blocks,
+			// reactions, then attachments.
+			flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
 			// Selected variant only; Lines / Plain keep the short form.
 			renderedSel := messages.SelectedHeader(rendered, header, reply.TS, reply.Timestamp, headerBudget)
 			// Two filled variants, so the trailing whitespace of every
@@ -1294,14 +1283,6 @@ func (m *Model) View(height, width int) string {
 			if renderedSel != rendered {
 				shortSrc = rendered
 			}
-			hits := make([]entrylist.Hit, 0, len(reactHits))
-			for _, h := range reactHits {
-				hits = append(hits, entrylist.Hit{
-					RowStart: h.rowStartInEntry, RowEnd: h.rowEndInEntry,
-					ColStart: h.colStart, ColEnd: h.colEnd,
-					Kind: entrylist.HitReaction, Key: h.emoji,
-				})
-			}
 			m.replyEntries = append(m.replyEntries, entrylist.Entry{
 				ID:         reply.TS,
 				Ref:        i,
@@ -1310,11 +1291,11 @@ func (m *Model) View(height, width int) string {
 				Selected:   linesS,
 				Plain:      messages.PlainLines(filledNormal),
 				ColOffset:  1,
-				Hits:       hits,
+				Hits:       r.Hits,
 			})
-			m.cache = append(m.cache, viewEntry{shortSrc: shortSrc, flushes: attachFlushes,
-				codeBlockCopyLabels: m.takeBodyCopyLabels(),     // fork: codeblocks_fork.go
-				attachmentFoldRows:  m.takeAttachmentFoldRows(), // fork: attachmentfold_fork.go
+			m.cache = append(m.cache, viewEntry{shortSrc: shortSrc, flushes: flushes,
+				codeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
+				attachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 			})
 			m.replyIDToIdx[reply.TS] = i
 		}
@@ -1432,330 +1413,32 @@ func fitHeight(s string, height int) string {
 	return s
 }
 
-// renderThreadMessage renders a single message for the thread panel.
-// Returns the content string, any per-frame kitty flush callbacks for
-// inline image attachments, and the per-pill hit rects for the
-// rendered reactions (in coordinates relative to the rendered content
-// AFTER buildCache wraps it with the thick left border in column 0).
-// The flushes are consumed by View() when the entry is visible
-// (mirroring messages.Model). v1: per-block Hit and SixelRows from
-// imgrender are discarded — click-to-preview from a thread reply and
-// inline sixel emission are out of scope.
-// blockkitContext wires the thread pane's host dependencies into a
-// blockkit.Context. Mirrors messages.Model.blockkitContext so Block
-// Kit blocks and legacy attachments render identically in the thread
-// panel and the main message pane.
-func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelNames map[string]string, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
-	var imgCtx imgrender.ImageContext
-	if m.imgRenderer != nil {
-		imgCtx = m.imgRenderer.Context()
+// renderContext is what messages.RenderMessage reads from the thread
+// pane. ImageChannel is the channel ID, where the channel pane uses the
+// channel name (plan decision P3).
+func (m *Model) renderContext() *messages.RenderContext {
+	if m.imgRenderer == nil {
+		m.imgRenderer = imgrender.NewRenderer()
 	}
-	send := imgCtx.SendMsg
-	return blockkit.Context{
-		Protocol:    imgCtx.Protocol,
-		Fetcher:     imgCtx.Fetcher,
-		KittyRender: imgCtx.KittyRender,
-		CellPixels:  imgCtx.CellPixels,
-		MaxRows:     imgCtx.MaxRows,
-		MaxCols:     imgCtx.MaxCols,
-		UserNames:   userNames,
-		MessageTS:   msg.TS,
-		Channel:     m.channelID,
-		Card:        messages.CardContext(m.expandedAttachments[msg.TS], channelNames),
-		RenderTextForWidth: func(s string, un map[string]string, width int) string {
-			return messages.RenderSlackMarkdownWith(s, messages.RenderSlackMarkdownOpts{
-				UserNames:    un,
-				ChannelNames: channelNames,
-				UserGroups:   m.userGroups,
-				PlaceCtx:     m.emojiCtx.PlaceCtx,
-				EmojiCells:   m.emojiCtx.Cells,
-				Customs:      m.emojiCtx.Customs,
-				EmojiFlushes: emojiFlushes,
-				Width:        width,
+	return &messages.RenderContext{
+		ColoredUsernames: m.coloredUsernames,
+		UserStatuses:     m.userStatuses,
+		UserNames:        m.userNames.Current(),
+		ChannelNames:     m.channelNames,
+		UserGroups:       m.userGroups,
+		Emoji:            messages.EmojiContext(m.emojiCtx),
+		Images:           m.imgRenderer,
+		ImageChannel:     m.channelID,
+		Nav:              m.nav,
 
-				WorkspaceDomain: m.workspaceDomain,
-			})
-		},
-		WrapText: messages.WordWrap,
-		SendMsg: func(v any) {
-			if send != nil {
-				send(v)
-			}
-		},
+		WorkspaceDomain:     m.workspaceDomain,
+		ExpandedAttachments: m.expandedAttachments,
 	}
 }
 
-func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit, string, int) {
-	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + messages.AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
-
-	// Label rows above the author line; mirrors the messages pane.
-	labelRows, labelRowCount := "", 0
-	if msg.Ephemeral {
-		labelRows, labelRowCount = messages.EphemeralLabel()+"\n", 1
-	}
-
-	contentWidth := width - 4
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	// flushes aggregates per-frame side effects (kitty image upload
-	// escapes) from body-text emoji, reaction-pill emoji, and inline
-	// image attachments. Walked by the View() loop for visible entries.
-	// Mirrors the messages-pane named-return `flushes` slice.
-	var flushes []func(io.Writer) error
-	bodyOpts := messages.RenderSlackMarkdownOpts{
-		UserNames:    userNames,
-		ChannelNames: channelNames,
-		UserGroups:   m.userGroups,
-		PlaceCtx:     m.emojiCtx.PlaceCtx,
-		EmojiCells:   m.emojiCtx.Cells,
-		Customs:      m.emojiCtx.Customs,
-		EmojiFlushes: &flushes,
-		Width:        contentWidth,
-
-		CodeBlockCopyLabels: m.newBodyCopyLabels(),
-		PermalinkChips:      messages.PermalinkChipsOf(msg, channelNames),
-		WorkspaceDomain:     m.workspaceDomain,
-	}
-	// Match the main pane: content-bearing blocks suppress the fallback
-	// text and its row. See messages.BlocksCarryBody.
-	hasBody := !messages.BlocksCarryBody(msg)
-	bodySrc := messages.MessageTextSource(msg)
-	if !hasBody {
-		bodySrc = ""
-	}
-	text := styles.MessageText.Render(messages.WordWrap(messages.RenderSlackMarkdownWith(bodySrc, bodyOpts), contentWidth))
-	bodyRow, bodyRows := "", 0
-	if hasBody {
-		bodyRow, bodyRows = "\n"+text, lipgloss.Height(text)
-	}
-
-	// Block Kit blocks + legacy attachments render between the body
-	// text and file attachments, mirroring the main message pane's
-	// renderMessagePlain. Image flushes are aggregated into the shared
-	// `flushes` slice; per-image Hit/SixelRows are discarded (v1 thread
-	// rendering, consistent with the file-attachment path below).
-	bkCtx := m.blockkitContext(msg, userNames, channelNames, &flushes)
-	var bkLines []string
-	bkInteractive := false
-	if len(msg.Blocks) > 0 {
-		res := blockkit.RenderMessageBlocks(msg.Blocks, bkCtx, contentWidth)
-		bkLines = append(bkLines, res.Lines...)
-		flushes = append(flushes, res.Flushes...)
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if len(msg.LegacyAttachments) > 0 {
-		res := blockkit.RenderLegacy(msg.LegacyAttachments, bkCtx, contentWidth)
-		m.attachmentFoldRows = messages.OffsetAttachmentFoldRows(res.FoldRows, 1+bodyRows+len(bkLines))
-		bkLines = append(bkLines, res.Lines...)
-		flushes = append(flushes, res.Flushes...)
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if bkInteractive {
-		bkLines = append(bkLines, styles.Timestamp.Render(messages.InteractHint(msg))) // fork: messages/links_fork.go
-	}
-	bkBlock := ""
-	bkLineCount := len(bkLines)
-	if bkLineCount > 0 {
-		// Same background treatment the message pane applies; see the
-		// comment at the matching site in messages/model.go. Block Kit
-		// lines have no outer background-providing style, so without
-		// this the run after the gutter's closing reset draws on the
-		// terminal default instead of the theme's.
-		bkBlock = "\n" + messages.WithBackground(bkLines, messages.BgANSI())
-	}
-
-	var reactionLine string
-	// pillSpecs captures one entry per real (non-"+") reaction pill in
-	// rendering order, with line index and column extents relative to
-	// the reaction-line block. Translated to absolute reactionEntryHit
-	// rects below (once we know the row offset of the reaction block).
-	type pillSpec struct {
-		lineIdx  int
-		colStart int
-		colEnd   int
-		emoji    string
-	}
-	var pillSpecs []pillSpec
-	reactionLineCount := 0
-	if len(msg.Reactions) > 0 {
-		var pills []string
-		var pillEmojis []string
-		// Image-aware emoji-as-image path is active only when the
-		// process-global ImageMode is on AND a fetcher has been
-		// installed via SetEmojiContext. Otherwise the legacy
-		// glyph/shortcode-text branch renders. Mirrors the
-		// messages-pane reaction-pill loop.
-		imageOK := emojiutil.ImageModeActive() && m.emojiCtx.PlaceCtx.Fetcher != nil
-		pillCells := m.emojiCtx.Cells
-		if pillCells <= 0 {
-			pillCells = 2
-		}
-		for i, r := range msg.Reactions {
-			// Image path: pass r.Emoji directly (including any skin-tone
-			// suffix) — URLForShortcode composes the per-tone CDN URL
-			// natively. Stripping skin tone was a workaround for
-			// glyph-rendering width inconsistencies that no longer apply
-			// at the kitty-image cell footprint. Mirror of the
-			// messages-pane reaction-pill loop.
-			//
-			// Legacy path: still strip the suffix because the glyph
-			// renderer suffers the original width-inconsistency problem
-			// (multi-codepoint ZWJ / skin-tone sequences render at
-			// terminal-dependent widths and break border alignment).
-			var emojiStr string
-			var placedFlush func(io.Writer) error
-			if imageOK {
-				if url, ok := emojiutil.URLForShortcode(r.Emoji, m.emojiCtx.Customs); ok {
-					if placement, flush, ok := emojiutil.Place(m.emojiCtx.PlaceCtx, url, pillCells); ok {
-						emojiStr = placement
-						placedFlush = flush
-					}
-				}
-			}
-			if emojiStr == "" {
-				// Legacy fallback path (image mode off, no URL, or
-				// Place returned false). Strip skin tone here only —
-				// the glyph renderer still needs the workaround.
-				legacyName := emojiutil.StripSkinTone(r.Emoji)
-				resolved := emojiutil.Sprint(":" + legacyName + ":")
-				if emojiutil.ShouldRenderUnicode(resolved) {
-					emojiStr = resolved
-				} else {
-					emojiStr = ":" + legacyName + ":"
-				}
-			}
-			var style lipgloss.Style
-			if isSelected && m.nav.Active && i == m.nav.Index {
-				style = styles.ReactionPillSelected
-			} else if r.HasReacted {
-				style = styles.ReactionPillOwn
-			} else {
-				style = styles.ReactionPillOther
-			}
-			pillText := messages.ReactionPillText(emojiStr, r.Count, style, placedFlush != nil)
-			pills = append(pills, style.Render(pillText))
-			pillEmojis = append(pillEmojis, r.Emoji)
-			// Image emoji in reaction pills land in the same per-frame
-			// flush list as body text and inline image attachments.
-			if placedFlush != nil {
-				flushes = append(flushes, placedFlush)
-			}
-		}
-		if isSelected && m.nav.Active {
-			plusStyle := styles.ReactionPillPlus
-			if m.nav.Index >= len(msg.Reactions) {
-				plusStyle = styles.ReactionPillSelected
-			}
-			pills = append(pills, plusStyle.Render("+"))
-			pillEmojis = append(pillEmojis, "")
-		}
-		bgSpace := lipgloss.NewStyle().Background(styles.Background).Render(" ")
-		var reactionLines []string
-		currentLine := ""
-		lineIdx := 0
-		for i, pill := range pills {
-			candidate := currentLine
-			sepWidth := 0
-			if i > 0 {
-				candidate += bgSpace
-				sepWidth = 1
-			}
-			candidate += pill
-			pillW := emojiutil.Width(pill)
-			if emojiutil.Width(candidate) > contentWidth && currentLine != "" {
-				reactionLines = append(reactionLines, currentLine)
-				lineIdx++
-				currentLine = pill
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: 0,
-						colEnd:   pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-			} else {
-				colStart := emojiutil.Width(currentLine) + sepWidth
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: colStart,
-						colEnd:   colStart + pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-				currentLine = candidate
-			}
-		}
-		if currentLine != "" {
-			reactionLines = append(reactionLines, currentLine)
-		}
-		reactionLine = "\n" + strings.Join(reactionLines, "\n")
-		reactionLineCount = len(reactionLines)
-	}
-
-	// Attachments: per-attachment inline render via imgrender.Renderer.
-	// v1: flushes are aggregated into the unified `flushes` slice for
-	// the cache layer to invoke during View(); the per-block Hit and
-	// SixelRows are discarded (click-to-preview from threads and inline
-	// sixel emission are out of scope for v1; sixel images render their
-	// res.Lines placeholder/sentinel only).
-	var attachmentLines string
-	attachmentLineCount := 0
-	if len(msg.Attachments) > 0 {
-		if m.imgRenderer == nil {
-			m.imgRenderer = imgrender.NewRenderer()
-		}
-		blocks := make([]string, 0, len(msg.Attachments))
-		for attIdx, att := range msg.Attachments {
-			imgThumbs := make([]imgrender.ThumbSpec, len(att.Thumbs))
-			for i, t := range att.Thumbs {
-				imgThumbs[i] = imgrender.ThumbSpec{URL: t.URL, W: t.W, H: t.H}
-			}
-			res := m.imgRenderer.RenderBlock(imgrender.Block{
-				Kind:   att.Kind,
-				FileID: att.FileID,
-				Name:   att.Name,
-				URL:    att.URL,
-				Thumbs: imgThumbs,
-			}, m.channelID, msg.TS, contentWidth, 0 /* baseRow */, attIdx, 0 /* contentColBase */)
-			blocks = append(blocks, strings.Join(res.Lines, "\n"))
-			flushes = append(flushes, res.Flushes...)
-			attachmentLineCount += len(res.Lines)
-		}
-		attachmentLines = "\n" + strings.Join(blocks, "\n")
-	}
-
-	// Translate per-pill specs into reactionEntryHit rects. Row layout
-	// of the reply content (pre-border, pre-tint):
-	//   rows [0 .. labelRowCount): label rows (ephemeral)
-	//   next row: username + timestamp line
-	//   rows [labelRowCount+1 .. +textRows): wrapped body text
-	//   rows [.. +bkLineCount): block kit + legacy attachment content
-	//   rows [.. +attachmentLineCount): file attachments
-	//   rows [reactionRowBase ..): reaction lines
-	// buildCache wraps the content with a thick left border in col 0
-	// (so contentColBase = 1); it adds no rows.
-	var reactionHits []reactionEntryHit
-	if len(pillSpecs) > 0 && reactionLineCount > 0 {
-		const contentColBase = 1 // thick left border occupies col 0 of linesNormal
-		reactionRowBase := labelRowCount + 1 + bodyRows + bkLineCount + attachmentLineCount
-		for _, ps := range pillSpecs {
-			row := reactionRowBase + ps.lineIdx
-			reactionHits = append(reactionHits, reactionEntryHit{
-				rowStartInEntry: row,
-				rowEndInEntry:   row + 1,
-				colStart:        contentColBase + ps.colStart,
-				colEnd:          contentColBase + ps.colEnd,
-				emoji:           ps.emoji,
-			})
-		}
-	}
-
-	// Header width budget for messages.SelectedHeader: the body's wrap
-	// width, capped at the columns the row really has (width-1 after the
-	// thick left border) because contentWidth is floored at 20.
-	return labelRows + line + bodyRow + bkBlock + attachmentLines + reactionLine, flushes, reactionHits, line, min(contentWidth, width-1)
+// renderMessage renders msg with the thread pane's options: no avatar
+// (even with SetAvatarFunc), no "(edited)", no broadcast label, no reply
+// affordance and no image hits or sixel rows (plan decision P3).
+func (m *Model) renderMessage(msg messages.MessageItem, width int, isSelected bool) messages.RenderedMessage {
+	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected})
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func TestBlockquote_BlockKitTextWrapsInsideBar(t *testing.T) {
-	ctx := New().blockkitContext(messages.MessageItem{TS: "1.0"}, nil, nil, nil)
+	ctx := messages.BlockkitContextFork(messages.MessageItem{TS: "1.0"}, New().renderContext(), nil)
 	out := ctx.RenderTextForWidth("&gt; "+strings.Repeat("word ", 20), nil, 30)
 	lines := strings.Split(ansi.Strip(out), "\n")
 	if len(lines) < 3 {

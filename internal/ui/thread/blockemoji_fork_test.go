@@ -3,6 +3,7 @@ package thread
 import (
 	stdimage "image"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,8 @@ func TestRenderThreadMessageTableCellEmojiUploads(t *testing.T) {
 	msg := messages.MessageItem{TS: "1.1", UserName: "claude", Blocks: []blockkit.Block{
 		blockkit.TableBlock{Rows: [][]string{{"Status"}, {":thumbsup: done"}}},
 	}}
-	got, flushes, _, _, _ := m.renderThreadMessage(msg, 80, nil, nil, false)
+	r := m.renderMessage(msg, 80, false)
+	got, flushes := r.Content, slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
 	if !strings.Contains(got, "\U0010EEEE") {
 		t.Fatalf("table cell emoji did not render as a kitty placement:\n%q", got)
 	}

@@ -245,7 +245,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		// Thread panel: v1 uses coarse cache invalidation. If any
 		// reply in the open thread has a matching TS, blow the
-		// thread cache so renderThreadMessage runs again with the
+		// thread cache so the reply renderer runs again with the
 		// now-cached image bytes. HasReply guards against churning
 		// the thread cache on every messages-pane image arrival.
 		if a.threadPanel.HasReply(m.TS) {

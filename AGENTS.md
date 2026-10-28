@@ -115,6 +115,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Every link a message offers to `o` (text links + permalinks of messages it shares, from attachment `from_url`) | `messages.MessageLinks(msg)` |
 | Does message text mention the current user? | `mention.InText(text, selfUserID)` |
 | Reaction pill rendering | `messages.ReactionPillText` |
+| Render one `MessageItem` (author line, body, Block Kit, attachments, reactions, hits) for a content pane | `messages.RenderMessage(msg, width, rc, opt)` with a `RenderContext` the pane builds (`renderContext()` in each pane) and `RenderOptions` for its differences; `messages.BlockkitContext(msg, rc)` for the Block Kit host context. Both panes; the thread pane's options are `thread.(*Model).renderMessage` |
 | Date label from a Slack ts | `messages.DateFromTS`, `messages.FormatDateSeparator`, `messages.FormatShortDate` (compact form for a message header: "Today", "Jan 2") |
 | Date-qualified timestamp for the selected message header | `messages.LongTimestamp(ts, short)`, `messages.SelectedHeader(rendered, header, ts, short, maxWidth)`; any other header timestamp swap that must fit the width budget: `messages.ReplaceHeaderTimestamp(rendered, header, short, replacement, maxWidth)` |
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |

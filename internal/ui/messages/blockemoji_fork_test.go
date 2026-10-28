@@ -3,6 +3,7 @@ package messages
 import (
 	stdimage "image"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,8 @@ func TestRenderMessageTableCellEmojiUploads(t *testing.T) {
 	msg := MessageItem{TS: "1.0", UserName: "claude", Blocks: []blockkit.Block{
 		blockkit.TableBlock{Rows: [][]string{{"Status"}, {":thumbsup: done"}}},
 	}}
-	content, flushes, _, _, _, _, _ := m.renderMessagePlain(msg, 80, "", nil, nil, false, nil)
+	r := RenderMessage(msg, 80, m.renderContext(), RenderOptions{})
+	content, flushes := r.Content, slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
 	if !strings.Contains(content, "\U0010EEEE") {
 		t.Fatalf("table cell emoji did not render as a kitty placement:\n%q", content)
 	}

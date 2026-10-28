@@ -42,12 +42,6 @@ func OffsetAttachmentFoldRows(rows []int, by int) []int {
 	return out
 }
 
-func (m *Model) takeAttachmentFoldRows() []int {
-	rows := m.attachmentFoldRows
-	m.attachmentFoldRows = nil
-	return rows
-}
-
 // freshenCache brings the cache up to date the way View does. Events
 // drop the cache between draws; a key or a click that lands before the
 // next draw must still find the fold rows.

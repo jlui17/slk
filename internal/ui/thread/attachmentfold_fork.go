@@ -2,12 +2,6 @@ package thread
 
 import "slices"
 
-func (m *Model) takeAttachmentFoldRows() []int {
-	rows := m.attachmentFoldRows
-	m.attachmentFoldRows = nil
-	return rows
-}
-
 // redraw runs View at the size it last drew. Events drop the cache
 // between draws, and the cache is built inside View; a key or a click
 // that lands before the next draw must still find the fold rows.

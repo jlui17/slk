@@ -40,7 +40,7 @@ type EmojiImageReadyMsg = emojiutil.EmojiImageReadyMsg
 // surface. All EmojiImageReadyMsg arrivals during the debounce window
 // collapse to this one invalidation — without coalescing a busy channel
 // with N cold-cache emoji would produce N full rebuilds (a few hundred
-// renderMessagePlain calls each) on the UI thread in rapid succession,
+// RenderMessage calls each) on the UI thread in rapid succession,
 // presenting as a multi-second freeze.
 //
 // Lowercase (unexported) because no other package dispatches this — it

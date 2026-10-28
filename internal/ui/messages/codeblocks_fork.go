@@ -106,26 +106,6 @@ func CodeBlockCopyLabelAt(labels []CodeBlockCopyLabel, row, col int) (block int,
 	return 0, false
 }
 
-func (m *Model) newBodyCopyLabels() *[]CodeBlockCopyLabel {
-	m.bodyCopyLabels = nil
-	return &m.bodyCopyLabels
-}
-
-// The body starts under the header row (and the broadcast row above
-// it), right of the selection border and the avatar gutter.
-func (m *Model) takeBodyCopyLabels(msg MessageItem, hasAvatar bool) []CodeBlockCopyLabel {
-	rows, cols := 1, 1
-	if msg.Subtype == "thread_broadcast" {
-		rows++
-	}
-	if hasAvatar {
-		cols += 5
-	}
-	labels := OffsetCodeBlockCopyLabels(m.bodyCopyLabels, rows, cols)
-	m.bodyCopyLabels = nil
-	return labels
-}
-
 // CodeBlockAt returns the code of the fenced block whose copy label is
 // drawn at pane-local (y, x), the frame ClickAt takes.
 func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {

@@ -25,7 +25,7 @@ import (
 // `borderFill.Width(width - 1).Render(...)` is now solely responsible
 // for width enforcement when the cached output is composed for display.
 func TestRenderThreadMessageAttachmentLinesFit(t *testing.T) {
-	const width = 50 // panel content width passed to renderThreadMessage
+	const width = 50 // panel content width passed to renderMessage
 	m := New()
 	msg := messages.MessageItem{
 		TS:        "1700000001.000000",
@@ -36,9 +36,9 @@ func TestRenderThreadMessageAttachmentLinesFit(t *testing.T) {
 			{Kind: "file", Name: "specright_roi_-_final_data_-_704193", URL: "https://userevidence.slack.com/files/U05AZM7KJ1H/F0ATTEVCLUC/specright_roi_-_final_data_-_704193"},
 		},
 	}
-	got, _, _, _, _ := m.renderThreadMessage(msg, width, nil, nil, false)
+	got := m.renderMessage(msg, width, false).Content
 	if got == "" {
-		t.Fatal("renderThreadMessage returned empty output")
+		t.Fatal("renderMessage returned empty output")
 	}
 	if !strings.Contains(got, "specright_roi_-_final_data_-_704193") {
 		t.Fatalf("expected rendered output to contain the file URL; got %q", got)
@@ -71,7 +71,7 @@ func TestRenderThreadMessageLegacyAttachmentBlocks(t *testing.T) {
 			},
 		}},
 	}
-	got, _, _, _, _ := m.renderThreadMessage(msg, width, nil, nil, false)
+	got := m.renderMessage(msg, width, false).Content
 	if !strings.Contains(got, "TRU-111 Customer Facing Blacklist Monitoring") {
 		t.Errorf("thread render missing legacy-attachment block content; got %q", got)
 	}
@@ -94,7 +94,7 @@ func TestRenderThreadMessageTopLevelBlocks(t *testing.T) {
 			blockkit.SectionBlock{Text: "Deploy finished: v1.2.3"},
 		},
 	}
-	got, _, _, _, _ := m.renderThreadMessage(msg, width, nil, nil, false)
+	got := m.renderMessage(msg, width, false).Content
 	if !strings.Contains(got, "Deploy finished: v1.2.3") {
 		t.Errorf("thread render missing top-level block content; got %q", got)
 	}
@@ -118,7 +118,8 @@ func TestRenderThreadMessageBlocksCarryBody(t *testing.T) {
 		},
 		Reactions: []messages.ReactionItem{{Emoji: "tada", Count: 1}},
 	}
-	got, _, hits, _, _ := m.renderThreadMessage(msg, width, nil, nil, false)
+	r := m.renderMessage(msg, width, false)
+	got, hits := r.Content, r.Hits
 	plain := ansi.Strip(got)
 	if strings.Contains(plain, "deploy notification fallback") {
 		t.Errorf("fallback text drawn beside its blocks; got %q", plain)
@@ -130,7 +131,7 @@ func TestRenderThreadMessageBlocksCarryBody(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatal("no reaction hits recorded")
 	}
-	if row := hits[0].rowStartInEntry; row != len(lines)-1 {
+	if row := hits[0].RowStart; row != len(lines)-1 {
 		t.Errorf("reaction hit row = %d, want %d (the reaction line); got %q", row, len(lines)-1, lines)
 	}
 }
@@ -145,7 +146,8 @@ func TestRenderThreadMessageEphemeralLabel(t *testing.T) {
 		Text: "not in channel", Ephemeral: true,
 		Reactions: []messages.ReactionItem{{Emoji: "tada", Count: 1}},
 	}
-	got, _, hits, _, _ := m.renderThreadMessage(msg, width, nil, nil, false)
+	r := m.renderMessage(msg, width, false)
+	got, hits := r.Content, r.Hits
 	lines := strings.Split(ansi.Strip(got), "\n")
 	if len(lines) < 2 || !strings.Contains(lines[0], "Only visible to you") || !strings.Contains(lines[1], "slackbot") {
 		t.Fatalf("want the label on row 0 and the author on row 1; got %q", lines)
@@ -153,7 +155,7 @@ func TestRenderThreadMessageEphemeralLabel(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatal("no reaction hits recorded")
 	}
-	if row := hits[0].rowStartInEntry; row != len(lines)-1 {
+	if row := hits[0].RowStart; row != len(lines)-1 {
 		t.Errorf("reaction hit row = %d, want %d (the reaction line); got %q", row, len(lines)-1, lines)
 	}
 }
@@ -167,7 +169,7 @@ func TestRenderThreadMessageEphemeralButtonsHint(t *testing.T) {
 			Actions: []blockkit.LegacyAction{{Name: "ignore", Text: "Dismiss", Type: "button"}},
 		}},
 	}
-	got, _, _, _, _ := m.renderThreadMessage(msg, 60, nil, nil, false)
+	got := m.renderMessage(msg, 60, false).Content
 	if plain := ansi.Strip(got); !strings.Contains(plain, "b to respond") || strings.Contains(plain, "open in Slack") {
 		t.Errorf("want the b hint in the thread pane too: %q", plain)
 	}
