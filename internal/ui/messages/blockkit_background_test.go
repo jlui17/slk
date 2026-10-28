@@ -170,12 +170,12 @@ func TestBuildCache_BlockKitRunsKeepBackground(t *testing.T) {
 	// bug cannot appear. Only the avatar's content is stood in for
 	// here; the composition order is the renderer's own.
 	m.SetAvatarFunc(func(string) string { return styles.MessageText.Render("  ") })
-	m.buildCache(100)
+	m.buildCache(100, false)
 
 	var lines []string
-	for _, e := range m.cache {
-		if e.msgIdx == 0 {
-			lines = e.linesSelected
+	for _, e := range m.list.Entries() {
+		if e.Ref == 0 {
+			lines = e.Selected
 			break
 		}
 	}

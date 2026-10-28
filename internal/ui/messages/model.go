@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/bubbles/scrollbar"
-	"github.com/gammons/slk/internal/bubbles/selection"
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	emojiutil "github.com/gammons/slk/internal/emoji"
@@ -36,102 +34,41 @@ type (
 // AvatarFunc returns the rendered half-block avatar for a user ID, or empty string.
 type AvatarFunc func(userID string) string
 
-// viewEntry is a pre-rendered row in the message list (message or date separator).
-//
-// For messages we pre-render BOTH the selected and unselected bordered variants
-// during buildCache so that selection movement (j/k) is a near-O(1) operation
-// in View(): no lipgloss calls per keypress, just string concatenation.
-//
-// For separators (msgIdx == -1) only `content` is populated.
-//
-// linesPlain is a column-aligned, ANSI-stripped mirror of linesNormal used
-// by the selection layer to extract clipboard text and check column
-// membership. Each entry pairs the line's plain text with a column→byte
-// index (preserving multi-rune grapheme clusters intact); see plainLine
-// and sliceColumns in render.go for the slicing contract.
+// viewEntry is the message layer's payload for one entry of m.list,
+// index-aligned with m.list.Entries(): the parts the substrate does not
+// need. m.cache == nil means the render cache was discarded and the
+// next View rebuilds it (see dropCache).
 type viewEntry struct {
-	// linesNormal / linesSelected hold the entry's rendered lines pre-split on
-	// "\n" so View() can append them directly into the visible window without
-	// any string scanning, splitting, or width measurement at render time.
-	// For separator entries (msgIdx == -1) the two slices are identical.
-	linesNormal   []string
-	linesSelected []string
-	// linesSelectedShort is the selected variant with the short
-	// timestamp, shown while a text selection exists: the drag overlay
-	// splices linesPlain (short form) into the displayed row by column,
-	// so the long header would garble. Built on demand by selectedLines
-	// from shortSrc, the unmodified content, which is empty when the
-	// selected variant carries no long timestamp.
-	linesSelectedShort []string
+	// shortSrc is the selected row's content with the short timestamp,
+	// set only when the selected variant carries a long one;
+	// linesSelectedShort is built from it on demand (selectedLines) and
+	// shown while a text selection exists, because the drag overlay
+	// splices the short-form plain text into the row by column.
 	shortSrc           string
-	linesPlain         []plainLine // column-aligned mirror of CONTENT (sans border)
-	// contentColOffset is the number of display columns at the START of each
-	// linesNormal[i] that belong to chrome (e.g. the thick left border ▌ on
-	// message entries) and should be skipped when mapping mouse columns to
-	// columns in linesPlain. Plain lines DO NOT include these chrome columns,
-	// so a mouse column of N maps to a plain column of N - contentColOffset.
-	// Default 0 (separators have no border); message entries set 1.
-	contentColOffset int
-	height           int // == len(linesNormal); cached for scroll math
-	msgIdx           int // index into messages, or -1 for separator
+	linesSelectedShort []string
 
-	// flushes are per-frame side effects (kitty image uploads). Phase 6
-	// invokes these from Model.View() once-per-frame, deduplicated by
-	// image ID via the package-level kitty registry. nil for entries
-	// with no inline image attachments.
+	// flushes are per-frame kitty image uploads, invoked once per frame
+	// for visible entries. nil when the entry has no inline images.
 	flushes []func(io.Writer) error
 
-	// sixelRows maps absolute row index within linesNormal to the sixel
-	// byte stream for an image whose top-left cell sits on that row.
-	// Phase 6 emits the bytes via the active output writer only when the
-	// image's full vertical extent is on-screen; otherwise it substitutes
-	// the entry's halfblock fallback. nil for entries with no sixel
-	// attachments.
+	// sixelRows maps a row within the entry to the sixel image whose
+	// top-left cell is on it. View paints an image out-of-band when it
+	// is fully visible and substitutes its halfblock fallback otherwise.
 	sixelRows map[int]sixelEntry
 
-	// imageHits records the column extents of inline image attachments
-	// rendered in this entry, keyed by row-start within linesNormal.
-	// View() translates these to viewport-absolute coordinates and
-	// appends to Model.lastHits per frame so the app-level mouse handler
-	// can route clicks to the click-to-preview overlay (Phase 7).
-	imageHits []entryHit
-
-	// reactionHits records the column extents of each rendered
-	// reaction pill on this message, in coordinates relative to
-	// linesNormal (same frame as imageHits). View() translates these
-	// to viewport-absolute coordinates and appends to
-	// Model.lastReactionHits per frame so the app-level mouse handler
-	// can route clicks to a toggle-reaction command.
-	reactionHits []reactionEntryHit
-
 	// codeBlockCopyLabels locates the copy label of each fenced block in
-	// the body, in linesNormal cells (the frame reactionHits uses).
+	// the body, in Lines cells (the frame the reaction hits use).
 	// CodeBlockAt reads them. See codeblocks_fork.go.
 	codeBlockCopyLabels []CodeBlockCopyLabel
 
-	// attachmentFoldRows are the rows of linesNormal that hold a card's
-	// fold row. See attachmentfold_fork.go.
+	// attachmentFoldRows are the rows of Lines that hold a card's fold
+	// row. See attachmentfold_fork.go.
 	attachmentFoldRows []int
 }
 
-// reactionEntryHit is one reaction-pill hit-rect, expressed in
-// coordinates relative to a single viewEntry's linesNormal. Identical
-// shape to entryHit but carries the emoji name (rather than a file
-// ID / attachment index) so the click handler can dispatch a toggle.
-type reactionEntryHit struct {
-	rowStartInEntry int
-	rowEndInEntry   int // exclusive
-	colStart        int
-	colEnd          int // exclusive
-	emoji           string
-}
-
-// entryHit is one inline-image hit-rect, expressed in coordinates
-// relative to a single viewEntry's linesNormal. rowStart/rowEnd are
-// row indices into linesNormal; colStart/colEnd are display columns
-// within those lines (i.e., they ALREADY include the avatar gutter and
-// the thick-left-border column added by buildCache, so they map
-// directly to mouse columns at View() time after viewport translation).
+// entryHit is one inline-image hit-rect relative to a rendered entry,
+// in display columns that already include the avatar gutter and the
+// thick left border.
 type entryHit struct {
 	rowStartInEntry int
 	rowEndInEntry   int // exclusive
@@ -141,33 +78,14 @@ type entryHit struct {
 	attIdx          int // index into MessageItem.Attachments
 }
 
-// hitRect is one clickable image footprint in the messages pane,
-// expressed in viewport-absolute coordinates. rowStart/rowEnd are
-// rows within the message-content area (0 = first row below the
-// channel-header chrome). colStart/colEnd are display columns within
-// the messages pane. msgIdx and attIdx identify the message and
-// attachment so the mouse handler can construct an OpenImagePreviewMsg.
-type hitRect struct {
-	rowStart int
-	rowEnd   int // exclusive
-	colStart int
-	colEnd   int // exclusive
-	fileID   string
-	msgIdx   int
-	attIdx   int
-}
-
-// reactionHitRect is one clickable reaction pill footprint in the
-// messages pane, in the same viewport-absolute frame as hitRect.
-// emoji is the Slack reaction name (no colons), suitable for passing
-// directly to ReactionAddFunc / ReactionRemoveFunc.
-type reactionHitRect struct {
-	rowStart int
-	rowEnd   int // exclusive
-	colStart int
-	colEnd   int // exclusive
-	msgIdx   int
-	emoji    string
+// reactionEntryHit is one reaction-pill hit-rect relative to a rendered
+// entry, carrying the emoji name the click toggles.
+type reactionEntryHit struct {
+	rowStartInEntry int
+	rowEndInEntry   int // exclusive
+	colStart        int
+	colEnd          int // exclusive
+	emoji           string
 }
 
 // sixelEntry holds the pre-computed sixel bytes for one inline image,
@@ -226,6 +144,21 @@ type Model struct {
 	cacheSpacer    string // pre-rendered blank spacer line (1 row, full width, themed background)
 	cacheMoreBelow string // pre-rendered "-- more below --" line
 
+	// list is the shared substrate: entries, offsets, scroll, the
+	// visible window, text selection, hit translation and the scrollbar.
+	// Configured for the channel pane's behaviour in New.
+	list *entrylist.Model
+
+	// bodyCopyLabels is render scratch: the copy labels of the body
+	// renderMessagePlain drew last, until renderMessageEntry takes them.
+	bodyCopyLabels []CodeBlockCopyLabel
+
+	// attachmentFoldRows is render scratch like bodyCopyLabels.
+	// expandedAttachments holds the TS of each message whose cards show
+	// in full; SetMessages leaves it alone. See attachmentfold_fork.go.
+	attachmentFoldRows  []int
+	expandedAttachments map[string]bool
+
 	// Chrome cache: header line(s). Depends on width, channelName, and
 	// channelTopic only -- never on selection or scroll position.
 	chromeCache       string
@@ -236,31 +169,6 @@ type Model struct {
 	chromeChannelType string
 	headerRow         func(width int) string // fork: apphome_fork.go
 	chromeCacheValid  bool
-
-	// Cumulative line offsets, computed in buildCache (only when content
-	// changes). entryOffsets[i] is the line index where entry i starts in the
-	// flattened content; totalLines is the total line count.
-	entryOffsets []int
-	totalLines   int
-
-	// Custom scroll state -- replaces bubbles/viewport for the scrolling case
-	// where we already know our content's line count and width. The bubbles
-	// viewport calls ansi.StringWidth on every line of content per SetContent
-	// (~55% of CPU on j/k); we skip that entirely.
-	yOffset int
-
-	// snappedSelection tracks the last selection index that View() snapped
-	// yOffset to. While snappedSelection == selected, View() leaves yOffset
-	// alone -- this allows the mouse wheel (or programmatic ScrollUp/Down)
-	// to scroll freely without the next render yanking the viewport back to
-	// the selected message.
-	snappedSelection int
-	hasSnapped       bool
-
-	// Tracks the start / end line of the currently-selected entry so View()
-	// can adjust yOffset to keep it on screen.
-	selectedStartLine int
-	selectedEndLine   int
 
 	reactionNavActive bool
 	reactionNavIndex  int
@@ -278,15 +186,6 @@ type Model struct {
 	// keystrokes (where version is unchanged) we reuse the previous wrap.
 	version int64
 
-	// Mouse selection state. selRange is the user's drag selection.
-	// messageIDToEntryIdx maps Slack TS -> entry index in m.cache for
-	// O(1) anchor resolution; rebuilt on every buildCache. lastViewHeight
-	// is captured during View() so ScrollHintForDrag knows the pane
-	// bounds without needing the App to plumb them through.
-	selRange            selection.Range
-	hasSelection        bool
-	messageIDToEntryIdx map[string]int
-	lastViewHeight      int
 	// countedReplies tracks reply TSes already counted into a parent's
 	// ReplyCount, so optimistic + WS-echo paths don't double-increment.
 	countedReplies map[string]map[string]struct{}
@@ -316,31 +215,6 @@ type Model struct {
 	// of partialRebuild and by full buildCache invocations. nil is
 	// equivalent to "nothing stale".
 	staleEntries map[string]struct{}
-
-	// lastHits holds the inline-image hit rects captured during the most
-	// recent View() call, in viewport-absolute coordinates relative to
-	// the message-content area (excludes the channel-header chrome).
-	// Cleared (length 0, capacity preserved) at the start of each View;
-	// consumed by the app-level mouse handler via HitTest. See Phase 7
-	// (click-to-preview) for the consumer.
-	lastHits []hitRect
-
-	// lastReactionHits holds the reaction-pill hit rects captured
-	// during the most recent View() call, in the same viewport-
-	// absolute coordinate frame as lastHits. Consumed by
-	// HitTestReaction so the app-level mouse handler can toggle a
-	// reaction when the user clicks a pill.
-	lastReactionHits []reactionHitRect
-
-	// bodyCopyLabels is render scratch: the copy labels of the body
-	// renderMessagePlain drew last, until renderMessageEntry takes them.
-	bodyCopyLabels []CodeBlockCopyLabel
-
-	// attachmentFoldRows is render scratch like bodyCopyLabels.
-	// expandedAttachments holds the TS of each message whose cards show
-	// in full; SetMessages leaves it alone. See attachmentfold_fork.go.
-	attachmentFoldRows  []int
-	expandedAttachments map[string]bool
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
@@ -411,7 +285,7 @@ func (m *Model) SetFocused(focused bool) {
 // tested.
 func (m *Model) HandleEmojiImageReady(url string) {
 	debuglog.ImgFetch("messages.HandleEmojiImageReady: url=%s wholesale_invalidate", url)
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -448,7 +322,7 @@ func (m *Model) HandleImageReady(channel, ts, key string) {
 		// back to the wholesale invalidation that the new fast path
 		// is meant to avoid. Used by tests that drive transitions
 		// synchronously without a real fetch key.
-		m.cache = nil
+		m.dropCache()
 		if m.imgRenderer != nil {
 			m.imgRenderer.ResetFailed()
 		}
@@ -468,7 +342,7 @@ func (m *Model) HandleImageReady(channel, ts, key string) {
 	} else {
 		// No TS to target (or no cache to mutate): fall back to a
 		// full rebuild on the next View().
-		m.cache = nil
+		m.dropCache()
 	}
 	m.dirty()
 }
@@ -544,7 +418,7 @@ func (m *Model) HandleImageFailed(key string) {
 
 // Version returns a counter that increments every time the View() output
 // could change.
-func (m *Model) Version() int64 { return m.version }
+func (m *Model) Version() int64 { return m.version + m.list.Version() }
 
 // MessageTextSource returns the mrkdwn string that should be rendered
 // as the visible message body. For most messages it's just msg.Text,
@@ -585,6 +459,30 @@ func BlocksCarryBody(msg MessageItem) bool {
 // dirty bumps the render-version counter.
 func (m *Model) dirty() { m.version++ }
 
+// dropCache discards the render cache; the next View rebuilds it. Until
+// then the entries on screen are no longer current, so clicks and
+// selections find none (the scroll extent is kept).
+func (m *Model) dropCache() {
+	m.cache = nil
+	m.list.KeepLookups(0)
+}
+
+// newChannelList configures the substrate for the channel pane (spec
+// §5): the cursor follows the scroll (U1), a bottom-anchored pane stays
+// pinned when it shrinks (U2), a press on a divider snaps to a message
+// (8c), and the bottom test on resize uses the new height (U5). The
+// offset clamps lazily (U6) and a drag bumps Version once (U4): the
+// defaults.
+func newChannelList() *entrylist.Model {
+	return entrylist.New(
+		entrylist.WithStyles(themeListStyles()),
+		entrylist.WithCursorFollowsScroll(),
+		entrylist.WithPinBottomOnShrink(),
+		entrylist.WithSnapDecorationAnchors(),
+		entrylist.WithReanchor(entrylist.ReanchorPolicy{BottomUsesNewHeight: true}),
+	)
+}
+
 func New(msgs []MessageItem, channelName string) Model {
 	selected := 0
 	if len(msgs) > 0 {
@@ -595,13 +493,14 @@ func New(msgs []MessageItem, channelName string) Model {
 		selected:    selected,
 		channelName: channelName,
 		imgRenderer: imgrender.NewRenderer(),
+		list:        newChannelList(),
 	}
 }
 
 // InvalidateCache forces the render cache to be rebuilt on next View().
 // Call this after theme changes or style updates.
 func (m *Model) InvalidateCache() {
-	m.cache = nil
+	m.dropCache()
 	m.chromeCacheValid = false
 	m.dirty()
 }
@@ -683,11 +582,11 @@ func (m *Model) SetMessages(msgs []MessageItem) {
 	}
 	m.messages = msgs
 	m.ClearSelection()
-	m.cache = nil // invalidate cache
+	m.dropCache()
 	// Force the next View() to re-snap yOffset to the new selection -- without
 	// this, switching to a channel that happens to have the same selected
 	// index as the previous channel would leave yOffset at its old value.
-	m.hasSnapped = false
+	m.list.ResetSnap()
 	m.dirty()
 
 	if len(msgs) == 0 {
@@ -715,12 +614,12 @@ func (m *Model) AppendMessage(msg MessageItem) {
 		}
 	}
 	m.messages = append(m.messages, msg)
-	m.cache = nil // invalidate cache
+	m.dropCache()
 	m.dirty()
 
 	// Always scroll to the newest message. Advancing `selected` to the
 	// last index forces View() to re-snap yOffset to the bottom on the
-	// next render (because snappedSelection != selected).
+	// next render (because the snap mark != selected).
 	m.selected = len(m.messages) - 1
 }
 
@@ -744,12 +643,12 @@ func (m *Model) SwapLocalSent(localTS string, msg MessageItem) bool {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].TS == localTS {
 			m.messages[i] = msg
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
 			// Same rationale as UpsertSelfSent's replace branch: the
 			// authoritative entry may differ in height (e.g. server-
 			// rendered blocks) and the snap anchor needs to refresh.
-			m.hasSnapped = false
+			m.list.ResetSnap()
 			return true
 		}
 	}
@@ -767,9 +666,9 @@ func (m *Model) RemoveLocalSent(localTS string) bool {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].TS == localTS {
 			m.messages = append(m.messages[:i], m.messages[i+1:]...)
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
-			m.hasSnapped = false
+			m.list.ResetSnap()
 			if m.selected >= len(m.messages) && len(m.messages) > 0 {
 				m.selected = len(m.messages) - 1
 			}
@@ -803,18 +702,18 @@ func (m *Model) UpsertSelfSent(msg MessageItem) {
 		for i := len(m.messages) - 1; i >= 0; i-- {
 			if m.messages[i].TS == msg.TS {
 				m.messages[i] = msg
-				m.cache = nil
+				m.dropCache()
 				m.dirty()
 				// Force the next View() to re-snap yOffset to the
 				// updated selected entry's range, even when m.selected
 				// hasn't changed.
-				m.hasSnapped = false
+				m.list.ResetSnap()
 				return
 			}
 		}
 	}
 	m.messages = append(m.messages, msg)
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 	m.selected = len(m.messages) - 1
 }
@@ -858,7 +757,7 @@ func (m *Model) SelectByTS(ts string) bool {
 	for i := range m.messages {
 		if m.messages[i].TS == ts {
 			m.selected = i
-			m.hasSnapped = false
+			m.list.ResetSnap()
 			m.dirty()
 			return true
 		}
@@ -895,16 +794,19 @@ type HitRect struct {
 // must use HitTest. Returns a freshly-allocated slice so callers
 // cannot mutate the internal cache.
 func (m *Model) LastHitsForTest() []HitRect {
-	out := make([]HitRect, 0, len(m.lastHits))
-	for _, h := range m.lastHits {
+	out := []HitRect{}
+	for _, h := range m.list.Hits() {
+		if h.Kind != entrylist.HitImage {
+			continue
+		}
 		out = append(out, HitRect{
-			RowStart: h.rowStart,
-			RowEnd:   h.rowEnd,
-			ColStart: h.colStart,
-			ColEnd:   h.colEnd,
-			FileID:   h.fileID,
-			MsgIdx:   h.msgIdx,
-			AttIdx:   h.attIdx,
+			RowStart: h.RowStart,
+			RowEnd:   h.RowEnd,
+			ColStart: h.ColStart,
+			ColEnd:   h.ColEnd,
+			FileID:   h.Key,
+			MsgIdx:   h.Ref,
+			AttIdx:   h.Aux,
 		})
 	}
 	return out
@@ -925,18 +827,7 @@ func (m *Model) MoveUp() {
 // edge, View() clamps the selection to the bottommost still-visible message
 // (see the cursor-clamp step in viewInternal).
 func (m *Model) ScrollUp(n int) {
-	if n <= 0 {
-		return
-	}
-	m.yOffset -= n
-	if m.yOffset < 0 {
-		m.yOffset = 0
-	}
-	// Mark the current selection as already snapped so View() leaves yOffset
-	// alone on the next render.
-	m.snappedSelection = m.selected
-	m.hasSnapped = true
-	m.dirty()
+	m.list.ScrollUp(n, m.selected)
 }
 
 // ScrollDown moves the viewport down by n lines. View() clamps yOffset to the
@@ -945,13 +836,7 @@ func (m *Model) ScrollUp(n int) {
 // top edge, View() clamps it to the topmost still-visible message (see the
 // cursor-clamp step in viewInternal).
 func (m *Model) ScrollDown(n int) {
-	if n <= 0 {
-		return
-	}
-	m.yOffset += n
-	m.snappedSelection = m.selected
-	m.hasSnapped = true
-	m.dirty()
+	m.list.ScrollDown(n, m.selected)
 }
 
 func (m *Model) MoveDown() {
@@ -991,14 +876,14 @@ func (m *Model) AtTop() bool {
 // on a wheel-up / PageUp gesture that scrolls the viewport without moving
 // selection (selection-based backfill goes through AtTop()).
 func (m *Model) ViewportAtTop() bool {
-	return m.yOffset == 0 && len(m.messages) > 0
+	return m.list.YOffset() == 0 && len(m.messages) > 0
 }
 
 // YOffset returns the current viewport scroll offset (first visible line
 // index inside the flattened message buffer). Exposed for tests and the
 // debug overlay; do not use for navigation -- call ScrollUp/ScrollDown.
 func (m *Model) YOffset() int {
-	return m.yOffset
+	return m.list.YOffset()
 }
 
 func (m *Model) PrependMessages(msgs []MessageItem) {
@@ -1033,7 +918,7 @@ func (m *Model) PrependMessages(msgs []MessageItem) {
 	}
 	// fork: ephemeral_fork.go
 	m.prependOlder(msgs)
-	m.cache = nil // invalidate cache
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1041,7 +926,7 @@ func (m *Model) EnterReactionNav() {
 	if msg, ok := m.SelectedMessage(); ok && len(msg.Reactions) > 0 {
 		m.reactionNavActive = true
 		m.reactionNavIndex = 0
-		m.cache = nil
+		m.dropCache()
 		m.dirty()
 	}
 }
@@ -1052,7 +937,7 @@ func (m *Model) ExitReactionNav() {
 	}
 	m.reactionNavActive = false
 	m.reactionNavIndex = 0
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1067,7 +952,7 @@ func (m *Model) ReactionNavLeft() {
 	}
 	total := len(msg.Reactions) + 1 // +1 for [+] pill
 	m.reactionNavIndex = (m.reactionNavIndex - 1 + total) % total
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1078,7 +963,7 @@ func (m *Model) ReactionNavRight() {
 	}
 	total := len(msg.Reactions) + 1
 	m.reactionNavIndex = (m.reactionNavIndex + 1) % total
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1103,7 +988,7 @@ func (m *Model) ClampReactionNav() {
 	if m.reactionNavIndex >= total {
 		m.reactionNavIndex = total - 1
 	}
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1133,28 +1018,22 @@ func (m *Model) IncrementReplyCount(parentTS, replyTS string) {
 	// the height delta so the message stays pinned to the bottom instead
 	// of being pushed under the fold.
 	wasAnchoredAtBottom := false
-	oldTotalLines := m.totalLines
-	if m.cache != nil && m.lastViewHeight > 0 && m.totalLines > 0 {
-		wasAnchoredAtBottom = m.yOffset+m.lastViewHeight >= m.totalLines
+	oldTotalLines := m.list.Total()
+	if m.cache != nil && m.list.Height() > 0 && m.list.Total() > 0 {
+		wasAnchoredAtBottom = m.list.YOffset()+m.list.Height() >= m.list.Total()
 	}
 
 	for i, msg := range m.messages {
 		if msg.TS == parentTS {
 			m.messages[i].ReplyCount++
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
 			if wasAnchoredAtBottom && m.cacheWidth > 0 {
-				m.buildCache(m.cacheWidth)
-				if delta := m.totalLines - oldTotalLines; delta > 0 {
-					m.yOffset += delta
-					if maxOffset := m.totalLines - m.lastViewHeight; m.yOffset > maxOffset {
-						m.yOffset = maxOffset
-					}
-					if m.yOffset < 0 {
-						m.yOffset = 0
-					}
-					m.snappedSelection = m.selected
-					m.hasSnapped = true
+				m.buildCache(m.cacheWidth, false)
+				if delta := m.list.Total() - oldTotalLines; delta > 0 {
+					y := min(m.list.YOffset()+delta, m.list.Total()-m.list.Height())
+					m.list.SetYOffset(max(y, 0))
+					m.list.MarkSnapped(m.selected)
 				}
 			}
 			return
@@ -1170,7 +1049,7 @@ func (m *Model) UpdateMessageInPlace(ts, newText string) bool {
 		if msg.TS == ts {
 			m.messages[i].Text = newText
 			m.messages[i].IsEdited = true
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
 			return true
 		}
@@ -1195,7 +1074,7 @@ func (m *Model) RemoveMessageByTS(ts string) bool {
 					m.selected = len(m.messages) - 1
 				}
 			}
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
 			return true
 		}
@@ -1212,9 +1091,9 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 	// reaction to push content *up* (yOffset++) instead, keeping the
 	// reacted-to message anchored to the bottom of the pane.
 	wasAnchoredAtBottom := false
-	oldTotalLines := m.totalLines
-	if m.cache != nil && m.lastViewHeight > 0 && m.totalLines > 0 {
-		wasAnchoredAtBottom = m.yOffset+m.lastViewHeight >= m.totalLines
+	oldTotalLines := m.list.Total()
+	if m.cache != nil && m.list.Height() > 0 && m.list.Total() > 0 {
+		wasAnchoredAtBottom = m.list.YOffset()+m.list.Height() >= m.list.Total()
 	}
 
 	for i, msg := range m.messages {
@@ -1276,7 +1155,7 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 					})
 				}
 			}
-			m.cache = nil
+			m.dropCache()
 			m.dirty()
 			if m.reactionNavActive {
 				m.ClampReactionNav()
@@ -1285,19 +1164,13 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 			// We need the new totalLines, which only buildCache computes;
 			// rebuild now (cheap, and the next View() would do it anyway).
 			if wasAnchoredAtBottom && m.cacheWidth > 0 {
-				m.buildCache(m.cacheWidth)
-				if delta := m.totalLines - oldTotalLines; delta > 0 {
-					m.yOffset += delta
-					if maxOffset := m.totalLines - m.lastViewHeight; m.yOffset > maxOffset {
-						m.yOffset = maxOffset
-					}
-					if m.yOffset < 0 {
-						m.yOffset = 0
-					}
+				m.buildCache(m.cacheWidth, false)
+				if delta := m.list.Total() - oldTotalLines; delta > 0 {
+					y := min(m.list.YOffset()+delta, m.list.Total()-m.list.Height())
+					m.list.SetYOffset(max(y, 0))
 					// Mark snapped so View() doesn't re-snap to the
 					// (unchanged) selection and undo our adjustment.
-					m.snappedSelection = m.selected
-					m.hasSnapped = true
+					m.list.MarkSnapped(m.selected)
 				}
 			}
 			return
@@ -1340,7 +1213,7 @@ func (m *Model) ResolveUserName(userID string) string {
 // SetUserNames sets the user-name store used to resolve @mentions.
 func (m *Model) SetUserNames(names *usernames.Store) {
 	m.userNames = names
-	m.cache = nil // invalidate cache so mentions re-render
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1349,7 +1222,7 @@ func (m *Model) SetUserNames(names *usernames.Store) {
 // with the new coloring.
 func (m *Model) SetColoredUsernames(enabled bool) {
 	m.coloredUsernames = enabled
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1385,7 +1258,7 @@ func (m *Model) PatchUserName(userID, displayName string) {
 	// (RenderSlackMarkdown consults userNames at render time), so any
 	// cached row that mentioned <@userID> is now stale. Mirror
 	// SetUserNames's behavior: invalidate unconditionally on map change.
-	m.cache = nil
+	m.dropCache()
 	for i := range m.messages {
 		if m.messages[i].UserID == userID && m.messages[i].UserName != displayName {
 			m.messages[i].UserName = displayName
@@ -1402,7 +1275,7 @@ func (m *Model) SetUserStatuses(statuses map[string]peerstatus.Status) {
 	for id, st := range statuses {
 		m.userStatuses[id] = st
 	}
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1418,7 +1291,7 @@ func (m *Model) PatchUserStatus(userID string, st peerstatus.Status) {
 	}
 	m.userStatuses[userID] = st
 	if m.hasAuthor(userID) {
-		m.cache = nil
+		m.dropCache()
 		m.dirty()
 	}
 }
@@ -1436,7 +1309,7 @@ func (m *Model) ExpireStatuses(now time.Time) bool {
 		}
 	}
 	if changed {
-		m.cache = nil
+		m.dropCache()
 		m.dirty()
 	}
 	return changed
@@ -1467,7 +1340,7 @@ func AuthorStatusSuffix(statuses map[string]peerstatus.Status, userID string, no
 // channel mentions without the embedded |name).
 func (m *Model) SetChannelNames(names map[string]string) {
 	m.channelNames = names
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1480,7 +1353,7 @@ func (m *Model) SetUserGroups(groups map[string]string) {
 		return
 	}
 	m.userGroups = usergroups.Copy(groups)
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1503,7 +1376,7 @@ func (m *Model) SetEmojiContext(ctx EmojiContext) {
 		ctx.Cells = 2
 	}
 	m.emojiCtx = ctx
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1515,7 +1388,7 @@ func (m *Model) SetEmojiContext(ctx EmojiContext) {
 // from the workspace bootstrap.
 func (m *Model) SetEmojiCustoms(customs map[string]string) {
 	m.emojiCtx.Customs = customs
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1537,7 +1410,7 @@ func (m *Model) SetImageContext(ctx imgrender.ImageContext) {
 			ctx.Fetcher.ConfigurePrerenderKitty(nil)
 		}
 	}
-	m.cache = nil
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1548,7 +1421,7 @@ func (m *Model) SetLastReadTS(ts string) {
 		return
 	}
 	m.lastReadTS = ts
-	m.cache = nil // invalidate render cache
+	m.dropCache()
 	m.dirty()
 }
 
@@ -1714,7 +1587,7 @@ type entryPerfStats struct {
 // it for later aggregation. Callers must NOT increment stats.count --
 // renderMessageEntry does that itself so the count always matches the
 // number of entries produced.
-func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) viewEntry {
+func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, viewEntry) {
 	msg := m.messages[i]
 	avatarStr := ""
 	if m.avatarFn != nil {
@@ -1759,7 +1632,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	// linesPlain mirrors the UNBORDERED content (filled) so that the
 	// thick left-border column is NOT present in plain text and never
 	// bleeds into clipboard output via SelectionText. The mouse-column
-	// to plain-column mapping happens in anchorAt via contentColOffset.
+	// to plain-column mapping happens in the substrate via Entry.ColOffset.
 	var plT0 time.Time
 	if stats != nil {
 		plT0 = time.Now()
@@ -1774,61 +1647,43 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	// The plain mirror of the spacer is the empty string -- selection
 	// extraction trims trailing whitespace, and no real content lives
 	// in the spacer row.
+	trail := 0
 	if i < len(m.messages)-1 {
 		linesN = append(linesN, cs.spacerLines...)
 		linesS = append(linesS, cs.spacerLines...)
 		linesP = append(linesP, plainLine{Text: "", Bytes: []int{0}})
+		trail = len(cs.spacerLines)
 	}
-	return viewEntry{
-		linesNormal:      linesN,
-		linesSelected:    linesS,
-		shortSrc:         shortSrc,
-		linesPlain:       linesP,
-		contentColOffset: 1, // thick left border ▌ occupies column 0 of linesNormal
-		height:           len(linesN),
-		msgIdx:           i,
-		flushes:          attachFlushes,
-		sixelRows:        attachSixel,
-		imageHits:        attachHits,
-		reactionHits:     reactHits,
-
-		codeBlockCopyLabels: m.takeBodyCopyLabels(msg, avatarStr != ""),
-		attachmentFoldRows:  m.takeAttachmentFoldRows(),
+	hits := make([]entrylist.Hit, 0, len(attachHits)+len(reactHits))
+	for _, h := range attachHits {
+		hits = append(hits, entrylist.Hit{
+			RowStart: h.rowStartInEntry, RowEnd: h.rowEndInEntry,
+			ColStart: h.colStart, ColEnd: h.colEnd,
+			Kind: entrylist.HitImage, Key: h.fileID, Aux: h.attIdx,
+		})
 	}
-}
-
-// recomputeEntryOffsets walks m.cache and rewrites m.entryOffsets +
-// m.totalLines from the cached per-entry heights. Cheap (O(N) integer
-// adds with no rendering work), called by both buildCache (full) and
-// partialRebuild (after a stale slot is replaced -- height may have
-// changed when a placeholder was swapped for the real image).
-func (m *Model) recomputeEntryOffsets() {
-	if cap(m.entryOffsets) < len(m.cache) {
-		m.entryOffsets = make([]int, len(m.cache))
-	} else {
-		m.entryOffsets = m.entryOffsets[:len(m.cache)]
+	for _, h := range reactHits {
+		hits = append(hits, entrylist.Hit{
+			RowStart: h.rowStartInEntry, RowEnd: h.rowEndInEntry,
+			ColStart: h.colStart, ColEnd: h.colEnd,
+			Kind: entrylist.HitReaction, Key: h.emoji,
+		})
 	}
-	off := 0
-	for i, e := range m.cache {
-		m.entryOffsets[i] = off
-		off += e.height
+	entry := entrylist.Entry{
+		ID:         msg.TS,
+		Ref:        i,
+		Selectable: true,
+		Lines:      linesN,
+		Selected:   linesS,
+		Plain:      linesP,
+		ColOffset:  1, // thick left border ▌ occupies column 0 of Lines
+		Trail:      trail,
+		Hits:       hits,
 	}
-	m.totalLines = off
-}
-
-// entryAndOffsetForLine maps a flattened line number to the entry that
-// contains it, plus the offset within that entry. ok is false if line
-// falls before the first entry.
-func (m *Model) entryAndOffsetForLine(line int) (idx, within int, ok bool) {
-	if len(m.entryOffsets) == 0 || line < m.entryOffsets[0] {
-		return 0, 0, false
+	return entry, viewEntry{shortSrc: shortSrc, flushes: attachFlushes, sixelRows: attachSixel,
+		codeBlockCopyLabels: m.takeBodyCopyLabels(msg, avatarStr != ""), // fork: codeblocks_fork.go
+		attachmentFoldRows:  m.takeAttachmentFoldRows(),                 // fork: attachmentfold_fork.go
 	}
-	for i := len(m.entryOffsets) - 1; i >= 0; i-- {
-		if m.entryOffsets[i] <= line {
-			return i, line - m.entryOffsets[i], true
-		}
-	}
-	return 0, 0, false
 }
 
 // buildCache pre-renders all messages and day separators, splitting each
@@ -1837,21 +1692,13 @@ func (m *Model) entryAndOffsetForLine(line int) (idx, within int, ok bool) {
 // / theme / reaction changes -- never on simple j/k navigation, and never
 // on a single-image arrival (HandleImageReady marks one TS stale and the
 // View()-time guard dispatches to partialRebuild instead).
-func (m *Model) buildCache(width int) {
+func (m *Model) buildCache(width int, keepPosition bool) {
 	m.cache = m.cache[:0]
 	m.cacheWidth = width
 	m.cacheMsgLen = len(m.messages)
 	// A full rebuild supersedes any pending per-entry invalidations.
 	for k := range m.staleEntries {
 		delete(m.staleEntries, k)
-	}
-
-	if m.messageIDToEntryIdx == nil {
-		m.messageIDToEntryIdx = make(map[string]int, len(m.messages))
-	} else {
-		for k := range m.messageIDToEntryIdx {
-			delete(m.messageIDToEntryIdx, k)
-		}
 	}
 
 	cs := m.buildCacheStyles(width)
@@ -1871,16 +1718,17 @@ func (m *Model) buildCache(width int) {
 	if cap(m.cache) < len(m.messages)+8 {
 		m.cache = make([]viewEntry, 0, len(m.messages)+8)
 	}
+	entries := make([]entrylist.Entry, 0, cap(m.cache))
 
 	appendSeparator := func(rendered string) {
 		lines := strings.Split(rendered, "\n")
-		m.cache = append(m.cache, viewEntry{
-			linesNormal:   lines,
-			linesSelected: lines,
-			linesPlain:    plainLines(rendered),
-			height:        len(lines),
-			msgIdx:        -1,
+		entries = append(entries, entrylist.Entry{
+			Ref:      -1,
+			Lines:    lines,
+			Selected: lines,
+			Plain:    plainLines(rendered),
 		})
+		m.cache = append(m.cache, viewEntry{})
 	}
 
 	var lastDate string
@@ -1907,11 +1755,12 @@ func (m *Model) buildCache(width int) {
 			newMsgLandmarkInserted = true
 		}
 
-		m.messageIDToEntryIdx[msg.TS] = len(m.cache)
-		m.cache = append(m.cache, m.renderMessageEntry(i, width, cs, stats))
+		e, p := m.renderMessageEntry(i, width, cs, stats)
+		entries = append(entries, e)
+		m.cache = append(m.cache, p)
 	}
 
-	m.recomputeEntryOffsets()
+	m.list.SetEntries(entries, width, keepPosition)
 
 	if stats != nil {
 		debuglog.Perf("messages.buildCache.breakdown N=%d body=%s reactions(n=%d)=%s blockKit(n=%d)=%s legacy(n=%d, atts=%d)=%s [text=%s image=%s other=%s] img[cachedCheck(n=%d)=%s kitty(n=%d)=%s renderImage(n=%d)=%s placeholder(n=%d)=%s] attachments(n=%d)=%s borderWrap=%s plainLines=%s",
@@ -1950,7 +1799,7 @@ func (m *Model) buildCache(width int) {
 func (m *Model) partialRebuild(width int) {
 	cs := m.buildCacheStyles(width)
 	for ts := range m.staleEntries {
-		idx, ok := m.messageIDToEntryIdx[ts]
+		idx, ok := m.list.IndexOf(ts)
 		if !ok {
 			// Entry has gone away (message removed since the
 			// invalidation was queued); silently drop.
@@ -1961,20 +1810,20 @@ func (m *Model) partialRebuild(width int) {
 		}
 		// Sanity: the slot must still belong to a message (msgIdx >= 0).
 		// Separators are not addressable by TS and must never appear here.
-		old := m.cache[idx]
-		if old.msgIdx < 0 || old.msgIdx >= len(m.messages) {
+		old := m.list.Entries()[idx]
+		if !old.Selectable || old.Ref >= len(m.messages) {
 			continue
 		}
-		m.cache[idx] = m.renderMessageEntry(old.msgIdx, width, cs, nil)
+		e, p := m.renderMessageEntry(old.Ref, width, cs, nil)
+		// ReplaceEntry recomputes offsets: heights may have changed (a
+		// placeholder swapped for a real image). No render work for the
+		// siblings.
+		m.list.ReplaceEntry(idx, e)
+		m.cache[idx] = p
 	}
 	for k := range m.staleEntries {
 		delete(m.staleEntries, k)
 	}
-	// Heights may have changed (e.g. placeholder swapped for a real
-	// image of the same reserved height -- equal in practice but we
-	// don't rely on it), so reset the cumulative offsets from the
-	// cached per-entry heights. No render work happens here.
-	m.recomputeEntryOffsets()
 }
 
 // blockkitContext bundles the blockkit-package dependencies sourced
@@ -2607,31 +2456,27 @@ func convertSixelMap(in map[int]imgrender.SixelEntry) map[int]sixelEntry {
 // matched the hit), false when the click missed -- callers use the bool to
 // distinguish "clicked a message" from "clicked empty space" so that
 // click-to-open-thread doesn't fire on chrome / dead-space clicks.
+//
+// Unlike the thread pane, a click below the content misses: the line is
+// not clamped to the content.
 func (m *Model) ClickAt(y int) bool {
 	contentY := y - m.chromeHeight
 	if contentY < 0 {
 		return false // click on chrome (header / separator) — ignore
 	}
-	absoluteY := contentY + m.yOffset
-
-	// Walk through cached view entries to find which message is at this line
-	currentLine := 0
-	for _, entry := range m.cache {
-		if entry.msgIdx < 0 {
-			// Date separator or "new messages" line — skip
-			currentLine += entry.height
-			continue
-		}
-		if absoluteY >= currentLine && absoluteY < currentLine+entry.height {
-			if m.selected != entry.msgIdx {
-				m.selected = entry.msgIdx
-				m.dirty()
-			}
-			return true
-		}
-		currentLine += entry.height
+	i, _, ok := m.list.EntryAt(contentY + m.list.YOffset())
+	if !ok {
+		return false
 	}
-	return false
+	e := m.list.Entries()[i]
+	if !e.Selectable {
+		return false // date separator or "new messages" line
+	}
+	if m.selected != e.Ref {
+		m.selected = e.Ref
+		m.dirty()
+	}
+	return true
 }
 
 // HitTest returns the message index, attachment index, and Slack file
@@ -2640,379 +2485,97 @@ func (m *Model) ClickAt(y int) bool {
 //
 // Coordinate frame: row=0 is the FIRST row of message content (i.e.,
 // just below the channel-header chrome); col=0 is the leftmost column
-// of the messages pane. The app-level mouse handler is responsible for
-// subtracting the panel border (handled by panelAt) AND the chrome
-// height before calling HitTest, mirroring the convention used by
-// ClickAt and BeginSelectionAt. Out-of-range coordinates always return
-// ok=false; the method does no scrolling, mutation, or side effects.
-//
-// Hits are populated from the most recent View() call. Callers must
-// invoke View at least once between cache invalidations and a HitTest
-// query, which is the natural order in a tea.Program: View runs every
-// frame, then a click event arrives.
-//
-// In Phase 7 the returned (msgIdx, attIdx, fileID) tuple is wrapped in
-// an OpenImagePreviewMsg and dispatched from the app-level mouse
-// handler. Clicking a placeholder (image still loading) is a valid hit
-// — the open handler guards against "no bytes yet" and is a no-op for
-// the preview overlay in that case.
+// of the messages pane. The app-level mouse handler subtracts the
+// chrome height before calling. Hits come from the most recent View().
 func (m *Model) HitTest(row, col int) (msgIdx, attIdx int, fileID string, ok bool) {
-	for _, h := range m.lastHits {
-		if row >= h.rowStart && row < h.rowEnd && col >= h.colStart && col < h.colEnd {
-			return h.msgIdx, h.attIdx, h.fileID, true
-		}
+	h, ok := m.list.HitTest(entrylist.HitImage, row, col)
+	if !ok {
+		return 0, 0, "", false
 	}
-	return 0, 0, "", false
+	return h.Ref, h.Aux, h.Key, true
 }
 
 // HitTestReaction returns the (message index, reaction emoji name) at
 // (row, col) within the messages-pane content area, or ok=false when
-// no reaction pill covers that cell. Coordinate frame mirrors HitTest
-// (the app-level mouse handler subtracts chromeHeight before calling).
-// Hits are populated from the most recent View() call.
+// no reaction pill covers that cell. Coordinate frame mirrors HitTest.
 func (m *Model) HitTestReaction(row, col int) (msgIdx int, emoji string, ok bool) {
-	for _, h := range m.lastReactionHits {
-		if row >= h.rowStart && row < h.rowEnd && col >= h.colStart && col < h.colEnd {
-			return h.msgIdx, h.emoji, true
-		}
+	h, ok := m.list.HitTest(entrylist.HitReaction, row, col)
+	if !ok {
+		return 0, "", false
 	}
-	return 0, "", false
+	return h.Ref, h.Key, true
 }
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
 
-// absoluteLineAt returns the global line index in the flattened cache for a
-// pane-local y coordinate. The incoming viewportY is what App.panelAt
-// returns: zero at the top of the panel's content area (just below the
-// panel border), so rows 0..chromeHeight-1 are the channel header /
-// separator chrome and chromeHeight onward is message content. We strip the
-// chrome offset before mapping into cache lines, and clamp negative
-// (in-chrome) values to the first content line. The result is clamped to
-// [0, totalLines-1] for out-of-range inputs.
-func (m *Model) absoluteLineAt(viewportY int) int {
-	contentY := viewportY - m.chromeHeight
-	if contentY < 0 {
-		contentY = 0
-	}
-	abs := contentY + m.yOffset
-	if abs < 0 {
-		abs = 0
-	}
-	if m.totalLines > 0 && abs >= m.totalLines {
-		abs = m.totalLines - 1
-	}
-	return abs
-}
-
-// anchorAt converts an absolute line index + display column into an
-// Anchor. Returns ok=false when no entry covers the line (empty cache).
-// Anchors on separator entries (msgIdx < 0) carry MessageID == "" so
-// downstream code can recognize them as line boundaries.
-//
-// The incoming col is a MOUSE column (relative to linesNormal[i]). The
-// stored Anchor.Col is a PLAIN column (relative to linesPlain[i]); the
-// two differ by the entry's contentColOffset (e.g. the thick left
-// border on message entries occupies one mouse column but no plain
-// column). Mouse columns falling inside the chrome (col < offset) clamp
-// to plain col 0.
-func (m *Model) anchorAt(absLine, col int) (selection.Anchor, bool) {
-	for i, e := range m.cache {
-		start := m.entryOffsets[i]
-		end := start + e.height
-		if absLine < start || absLine >= end {
-			continue
-		}
-		lineIdx := absLine - start
-		// Translate mouse column -> plain column.
-		plainCol := col - e.contentColOffset
-		if plainCol < 0 {
-			plainCol = 0
-		}
-		// Clamp plainCol to the plain-line's width so we never anchor
-		// past the end of visible content.
-		if lineIdx < len(e.linesPlain) {
-			if w := displayWidthOfPlain(e.linesPlain[lineIdx]); plainCol > w {
-				plainCol = w
-			}
-		}
-		var msgID string
-		if e.msgIdx >= 0 && e.msgIdx < len(m.messages) {
-			msgID = m.messages[e.msgIdx].TS
-		}
-		return selection.Anchor{MessageID: msgID, Line: lineIdx, Col: plainCol}, true
-	}
-	return selection.Anchor{}, false
-}
-
-// snapToMessageAnchor takes an Anchor that may sit on a separator entry
-// (MessageID == "") and returns an equivalent Anchor pointing at a real
-// message. Snaps forward to the next message's first line; if none
-// exists forward, snaps backward to the previous message's last content
-// line. Returns ok=false when no real-message entry exists in the cache.
-// Real-message anchors pass through unchanged.
-func (m *Model) snapToMessageAnchor(a selection.Anchor, absLine int) (selection.Anchor, bool) {
-	if a.MessageID != "" {
-		return a, true
-	}
-	// Find the entry covering absLine, then walk forward looking for a
-	// real message; if none, walk backward.
-	startEntry := -1
-	for i, e := range m.cache {
-		s := m.entryOffsets[i]
-		if absLine >= s && absLine < s+e.height {
-			startEntry = i
-			break
-		}
-	}
-	if startEntry < 0 {
-		return selection.Anchor{}, false
-	}
-	for i := startEntry + 1; i < len(m.cache); i++ {
-		e := m.cache[i]
-		if e.msgIdx >= 0 && e.msgIdx < len(m.messages) {
-			return selection.Anchor{MessageID: m.messages[e.msgIdx].TS, Line: 0, Col: 0}, true
-		}
-	}
-	for i := startEntry - 1; i >= 0; i-- {
-		e := m.cache[i]
-		if e.msgIdx >= 0 && e.msgIdx < len(m.messages) {
-			lastLine := e.height - 1
-			col := 0
-			if lastLine < len(e.linesPlain) {
-				col = displayWidthOfPlain(e.linesPlain[lastLine])
-			}
-			return selection.Anchor{MessageID: m.messages[e.msgIdx].TS, Line: lastLine, Col: col}, true
-		}
-	}
-	return selection.Anchor{}, false
-}
-
-// resolveAnchor returns the absolute line + col for an Anchor, using the
-// current cache. Returns ok=false when the message is no longer present
-// (deleted, or cache rebuilt for a different channel) or when MessageID
-// is empty (separator anchors don't survive cache rebuilds).
-func (m *Model) resolveAnchor(a selection.Anchor) (absLine, col int, ok bool) {
-	if a.MessageID == "" {
-		return 0, 0, false
-	}
-	idx, found := m.messageIDToEntryIdx[a.MessageID]
-	if !found || idx >= len(m.cache) {
-		return 0, 0, false
-	}
-	e := m.cache[idx]
-	if a.Line < 0 || a.Line >= e.height {
-		return 0, 0, false
-	}
-	return m.entryOffsets[idx] + a.Line, a.Col, true
-}
-
 // BeginSelectionAt anchors a new selection at the given pane-local
-// coordinates. The selection becomes Active. Coordinates are clamped to
-// the rendered area; out-of-range inputs are silently no-ops. Clicks on
-// the chrome (channel header / separator at pane-local y < chromeHeight)
-// are ignored — there's no message content there to anchor on. If the
-// click lands on a separator entry inside the message area, the anchor
-// snaps to the nearest real message.
+// coordinates. Clicks on the chrome are ignored; a press on a date
+// separator snaps to the nearest message (the channel pane's
+// WithSnapDecorationAnchors).
 func (m *Model) BeginSelectionAt(viewportY, x int) {
 	if viewportY < m.chromeHeight {
 		return
 	}
-	abs := m.absoluteLineAt(viewportY)
-	a, ok := m.anchorAt(abs, x)
-	if !ok {
-		return
-	}
-	a, ok = m.snapToMessageAnchor(a, abs)
-	if !ok {
-		return
-	}
-	m.selRange = selection.Range{Start: a, End: a, Active: true}
-	if !m.hasSelection {
-		// The one exception to the rule below: the selected row swaps to
-		// its short-timestamp variant (see selectedLines), which changes
-		// the bordered output. Once per drag, not per cell of motion.
-		m.dirty()
-	}
-	m.hasSelection = true
-	// No m.dirty() here: the App-layer bordered render cache stores
-	// the SELECTION-FREE output (see ViewBare + ApplySelectionToBordered),
-	// so selection mutations must not bump Version() -- otherwise we
-	// invalidate the cache on every cell of mouse-drag motion and pay
-	// the multi-pass O(height x width) ansi re-border cost per cell.
-	// Bubbletea's main loop re-runs App.View() after every Update, so
-	// the new overlay is visible on the very next frame without needing
-	// a Version bump.
+	m.list.BeginSelection(m.list.AbsLine(viewportY-m.chromeHeight), x)
 }
 
 // ExtendSelectionAt updates the End anchor of the active selection.
-// No-op if BeginSelectionAt was never called. Separator anchors snap
-// to the nearest real message.
 func (m *Model) ExtendSelectionAt(viewportY, x int) {
-	if !m.hasSelection {
-		return
-	}
-	abs := m.absoluteLineAt(viewportY)
-	a, ok := m.anchorAt(abs, x)
-	if !ok {
-		return
-	}
-	a, ok = m.snapToMessageAnchor(a, abs)
-	if !ok {
-		return
-	}
-	if a == m.selRange.End {
-		return
-	}
-	m.selRange.End = a
-	// No m.dirty() here either -- see BeginSelectionAt for the rationale.
-	// The selection lives in ApplySelectionToBordered's post-cache pass,
-	// which reads selRange directly each frame.
+	m.list.ExtendSelection(m.list.AbsLine(viewportY-m.chromeHeight), x)
 }
 
 // EndSelection finalizes the drag, returning the plain-text contents of
 // the selection. Returns ok=false when the selection is empty (a click
 // without drag). The selection itself remains visible until ClearSelection
 // is called or a new drag begins.
-func (m *Model) EndSelection() (string, bool) {
-	if !m.hasSelection {
-		return "", false
-	}
-	m.selRange.Active = false
-	if m.selRange.IsEmpty() {
-		m.hasSelection = false
-		m.selRange = selection.Range{}
-		m.dirty() // selectedLines swaps back to the long timestamp
-		return "", false
-	}
-	text := m.SelectionText()
-	if text == "" {
-		return "", false
-	}
-	return text, true
-}
+func (m *Model) EndSelection() (string, bool) { return m.list.EndSelection() }
 
 // ClearSelection removes the current selection, if any.
-func (m *Model) ClearSelection() {
-	if !m.hasSelection {
-		return
-	}
-	m.hasSelection = false
-	m.selRange = selection.Range{}
-	m.dirty() // selectedLines swaps back to the long timestamp
-}
-
-// selectedLines returns the lines to draw for the selected entry e: the
-// long-timestamp variant, or the short one while a text selection exists.
-// The drag overlay (applySelectionToRows) splices linesPlain, which holds
-// the short form, into the displayed row by column; the long header would
-// come out garbled.
-//
-// The short variant is memoised into e, which must point into m.cache.
-func (m *Model) selectedLines(e *viewEntry) []string {
-	if !m.hasSelection || e.shortSrc == "" {
-		return e.linesSelected
-	}
-	if e.linesSelectedShort == nil {
-		short := m.selectedVariant(e.shortSrc, m.cacheWidth, m.borderSelectStyle())
-		if len(short) > len(e.linesSelected) {
-			return e.linesSelected // unreachable: variants share a height
-		}
-		// Trailing spacer rows are shared by every variant.
-		e.linesSelectedShort = append(short, e.linesSelected[len(short):]...)
-	}
-	return e.linesSelectedShort
-}
+func (m *Model) ClearSelection() { m.list.ClearSelection() }
 
 // HasSelection reports whether a selection is currently active or
 // pinned-on-screen post-drag.
-func (m *Model) HasSelection() bool {
-	return m.hasSelection
-}
+func (m *Model) HasSelection() bool { return m.list.HasSelection() }
+
+// SelectionText extracts the plain-text contents of the current
+// selection.
+func (m *Model) SelectionText() string { return m.list.SelectionText() }
 
 // ScrollHintForDrag returns -1 if the cursor is within 1 row of the top
 // edge of the message-content area, +1 if within 1 row of the bottom, else 0.
-// The incoming viewportY is pane-local (0 == top of panel content, just
-// below the border); we offset by m.chromeHeight so "top edge" is measured
-// against the message content, not the channel header. A cursor sitting on
-// the chrome (or above) is treated the same as the top content row, so an
-// upward drag continues to auto-scroll toward older messages.
 func (m *Model) ScrollHintForDrag(viewportY int) int {
-	h := m.lastViewHeight
-	if h <= 0 {
-		return 0
-	}
-	contentY := viewportY - m.chromeHeight
-	if contentY <= 0 {
-		return -1
-	}
-	if contentY >= h-1 {
-		return +1
-	}
-	return 0
+	return m.list.ScrollHint(viewportY - m.chromeHeight)
 }
 
-// SelectionText extracts the plain-text contents of the current
-// selection. Trailing whitespace is trimmed per line; a final trailing
-// newline is removed. Multi-rune grapheme clusters (ZWJ, skin-tone
-// modifiers, ❤️+VS16) are preserved intact.
-func (m *Model) SelectionText() string {
-	if !m.hasSelection || m.selRange.IsEmpty() {
-		return ""
+// selectedLines returns the rows to draw for the selected entry i: the
+// long-timestamp variant, or the short one while a text selection exists.
+// The drag overlay splices the plain text, which holds the short form,
+// into the displayed row by column; the long header would come out
+// garbled. The short variant is memoised in m.cache[i].
+func (m *Model) selectedLines(i int) []string {
+	e := &m.list.Entries()[i]
+	p := &m.cache[i]
+	if !m.list.HasSelection() || p.shortSrc == "" {
+		return e.Selected
 	}
-	loA, hiA := m.selRange.Normalize()
-	loLine, loCol, ok1 := m.resolveAnchor(loA)
-	hiLine, hiCol, ok2 := m.resolveAnchor(hiA)
-	if !ok1 || !ok2 {
-		return ""
-	}
-	if loLine > hiLine || (loLine == hiLine && loCol >= hiCol) {
-		return ""
-	}
-
-	var b strings.Builder
-	for i, e := range m.cache {
-		entryStart := m.entryOffsets[i]
-		entryEnd := entryStart + e.height
-		if entryEnd <= loLine {
-			continue
+	if p.linesSelectedShort == nil {
+		short := m.selectedVariant(p.shortSrc, m.cacheWidth, m.borderSelectStyle())
+		if len(short) > len(e.Selected) {
+			return e.Selected // unreachable: variants share a height
 		}
-		if entryStart > hiLine {
-			break
-		}
-		for j, plain := range e.linesPlain {
-			absLine := entryStart + j
-			if absLine < loLine {
-				continue
-			}
-			if absLine > hiLine {
-				break
-			}
-			from := 0
-			to := displayWidthOfPlain(plain)
-			if absLine == loLine {
-				from = loCol
-			}
-			if absLine == hiLine {
-				to = hiCol
-			}
-			seg := sliceColumns(plain, from, to)
-			seg = strings.TrimRight(seg, " ")
-			b.WriteString(seg)
-			if absLine != hiLine {
-				b.WriteByte('\n')
-			}
-		}
+		// Trailing spacer rows are shared by every variant.
+		p.linesSelectedShort = append(short, e.Selected[len(short):]...)
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return p.linesSelectedShort
 }
 
 // viewInternal is the body shared by View and ViewBare. When
 // applySelection is true, the selection-highlight overlay is applied
-// to the inner content before the scrollbar overlay (preserving the
-// pre-refactor render order). When false, the overlay is skipped so
-// the App-layer cache can store a selection-free bordered output and
-// run ApplySelectionToBordered as a cheap post-pass.
+// to the inner content before the scrollbar overlay. When false, the
+// overlay is skipped so the App-layer cache can store a selection-free
+// bordered output and run ApplySelectionToBordered as a cheap post-pass.
 func (m *Model) viewInternal(height, width int, applySelection bool) string {
+	m.list.SetStyles(themeListStyles())
 	// Chrome (header + separator) is cached; only rebuilt on width / channel
 	// name / topic change. This avoids per-keypress strings.Repeat + lipgloss
 	// renders that don't depend on the selection.
@@ -3058,23 +2621,9 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if msgAreaHeight < 1 {
 		msgAreaHeight = 1
 	}
-	// If the available height shrank since the last render (e.g. the
-	// compose box grew an extra row to fit a soft-wrapped line) and the
-	// viewport was anchored at the bottom, advance yOffset by the delta
-	// so the bottom of the content stays pinned. Without this, the
-	// last message would be pushed below the fold and the
-	// "-- more below --" hint would replace it on the next render.
-	if m.lastViewHeight > 0 && msgAreaHeight < m.lastViewHeight && m.totalLines > 0 &&
-		m.yOffset+m.lastViewHeight >= m.totalLines {
-		delta := m.lastViewHeight - msgAreaHeight
-		m.yOffset += delta
-		// Mark "snapped" so the selection-snap branch below doesn't undo
-		// the adjustment if selection is unchanged. The post-snap clamp
-		// at the end of View() still bounds yOffset to maxOffset.
-		m.snappedSelection = m.selected
-		m.hasSnapped = true
-	}
-	m.lastViewHeight = msgAreaHeight
+	// A bottom-anchored pane that got shorter (the compose box grew a
+	// row) stays pinned to the bottom: WithPinBottomOnShrink.
+	m.list.SetHeight(msgAreaHeight, m.selected)
 
 	if len(m.messages) == 0 {
 		text := "No messages yet"
@@ -3091,22 +2640,13 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		return chrome + "\n" + empty
 	}
 
-	// A width change rewraps every entry, so re-anchor yOffset to the same
-	// entry instead of reusing the now-stale line count. A bottom-anchored
-	// viewport is re-pinned to the new bottom instead.
-	widthChanged := m.cache != nil && m.cacheWidth != width && m.cacheMsgLen == len(m.messages)
-	wasAnchoredAtBottom := m.totalLines > 0 && m.yOffset+msgAreaHeight >= m.totalLines
-	var anchorEntryIdx, anchorWithin int
-	var anchorOK bool
-	if widthChanged {
-		anchorEntryIdx, anchorWithin, anchorOK = m.entryAndOffsetForLine(m.yOffset)
-	}
-
 	// Rebuild cache if messages or width changed. If only individual
 	// message TSes have been marked stale (e.g. by HandleImageReady
 	// landing one image at a time), take the targeted partial-rebuild
 	// path that re-renders only those slots and reuses every other
-	// entry verbatim -- the perf invariant for image bursts.
+	// entry verbatim -- the perf invariant for image bursts. A width
+	// change with the previous cache intact re-anchors the scroll
+	// position (spec §5.2 U5), which SetEntries does.
 	switch {
 	case m.cache == nil || m.cacheWidth != width || m.cacheMsgLen != len(m.messages):
 		// Perf instrumentation: classify which predicate fired so we
@@ -3125,7 +2665,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			}
 		}
 		start := time.Now()
-		m.buildCache(width)
+		m.buildCache(width, m.cache != nil)
 		debuglog.Perf("messages.buildCache N=%d width=%d took=%s reason=%s",
 			len(m.messages), width, time.Since(start), reason)
 	case len(m.staleEntries) > 0:
@@ -3136,306 +2676,57 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			len(m.messages), stale, width, time.Since(start))
 	}
 
-	if widthChanged {
-		switch {
-		case wasAnchoredAtBottom:
-			m.yOffset = m.totalLines // clamped to maxOffset below
-		case anchorOK && anchorEntryIdx < len(m.entryOffsets):
-			within := anchorWithin
-			if h := m.cache[anchorEntryIdx].height; within >= h {
-				within = h - 1
-			}
-			if within < 0 {
-				within = 0
-			}
-			m.yOffset = m.entryOffsets[anchorEntryIdx] + within
-		}
-	}
+	// Snap to the selection if it moved, clamp, let the cursor follow the
+	// scroll (WithCursorFollowsScroll), and slice the visible rows.
+	frame := m.list.Layout(m.selected, m.selectedLines)
+	m.selected = frame.Cursor
 
-	entries := m.cache
-
-	// Locate selected entry's line range. O(N) scan over entryOffsets; cheap.
-	m.selectedStartLine = 0
-	m.selectedEndLine = 0
-	for i, e := range entries {
-		if e.msgIdx == m.selected {
-			m.selectedStartLine = m.entryOffsets[i]
-			m.selectedEndLine = m.selectedStartLine + e.height
-			// The trailing spacer is part of e.height; subtract it from the
-			// scroll-to-keep-visible target so we don't push the spacer into
-			// view above the selection.
-			if i < len(entries)-1 && e.msgIdx >= 0 {
-				m.selectedEndLine--
-			}
-			break
-		}
-	}
-
-	// Adjust yOffset to keep selection visible -- but only when the selection
-	// has actually changed since the last snap. This lets the mouse wheel
-	// (or programmatic ScrollUp/Down) move the viewport away from the
-	// selected message without the next render yanking it back.
-	if !m.hasSnapped || m.snappedSelection != m.selected {
-		if m.selectedEndLine > m.yOffset+msgAreaHeight {
-			m.yOffset = m.selectedEndLine - msgAreaHeight
-		}
-		if m.selectedStartLine < m.yOffset {
-			m.yOffset = m.selectedStartLine
-		}
-		m.snappedSelection = m.selected
-		m.hasSnapped = true
-	}
-	if m.yOffset < 0 {
-		m.yOffset = 0
-	}
-	maxOffset := m.totalLines - msgAreaHeight
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.yOffset > maxOffset {
-		m.yOffset = maxOffset
-	}
-
-	// Clamp the selected-message cursor to the visible viewport so it follows
-	// scrolling. When the user scrolls the viewport (wheel / page keys) far
-	// enough that the selected message leaves the visible window, drag the
-	// selection to the nearest still-visible message instead of letting it
-	// scroll off-screen. This is a no-op when the selection already has at
-	// least one line on-screen, so it runs harmlessly on every render. Date
-	// separators (msgIdx < 0) are never selectable, so they are skipped.
-	visibleTop := m.yOffset
-	visibleBottom := m.yOffset + msgAreaHeight
-	selectionAbove := m.selectedEndLine <= visibleTop
-	selectionBelow := m.selectedStartLine >= visibleBottom
-	if selectionAbove || selectionBelow {
-		newSelected := -1
-		for i, e := range entries {
-			if e.msgIdx < 0 {
-				continue
-			}
-			entryStart := m.entryOffsets[i]
-			entryEnd := entryStart + e.height
-			if entryEnd <= visibleTop || entryStart >= visibleBottom {
-				continue // entry not visible
-			}
-			if selectionAbove {
-				// Topmost visible message: take the first one and stop.
-				newSelected = e.msgIdx
-				break
-			}
-			// selectionBelow: bottommost visible message; keep the last one.
-			newSelected = e.msgIdx
-		}
-		if newSelected >= 0 && newSelected != m.selected {
-			m.selected = newSelected
-			m.snappedSelection = m.selected
-			// Recompute the selected entry's line range so the render loop
-			// below picks the correct selected-variant lines this frame.
-			m.selectedStartLine = 0
-			m.selectedEndLine = 0
-			for i, e := range entries {
-				if e.msgIdx == m.selected {
-					m.selectedStartLine = m.entryOffsets[i]
-					m.selectedEndLine = m.selectedStartLine + e.height
-					if i < len(entries)-1 && e.msgIdx >= 0 {
-						m.selectedEndLine--
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// Build the visible window directly from per-entry pre-split line slices.
-	// No lipgloss, no uniseg, no width measurement.
-	//
 	// Per-frame image side effects:
 	//   * Kitty image uploads (entry.flushes) are collected from every
-	//     visible entry and rendered into a single byte stream that is
-	//     prepended to the first visible line. Repeat invocations of an
-	//     upload escape for the same image ID are benign (the terminal
-	//     discards them); the kitty registry inside the renderer also
-	//     dedupes at first-render-of-id, so most frames have nothing to
-	//     emit at all.
-	//   * Sixel images (entry.sixelRows) are emitted INLINE as bytes
-	//     appended to the first row of the image's sentinel placeholder
-	//     — but only when the image's full vertical extent fits in the
-	//     visible window. Under partial visibility (image clipped at the
-	//     top or bottom edge), the per-row halfblock fallback substitutes
-	//     for the visible rows so users always see something. Acknowledged
-	//     tradeoff: visible flicker as a sixel image scrolls past an edge,
-	//     in exchange for correctness under arbitrary scroll positions.
-	// Reset the per-frame hit-rect slice. Capacity is preserved so the
-	// common case (a few visible images at most) reuses the underlying
-	// array without reallocation.
-	m.lastHits = m.lastHits[:0]
-	m.lastReactionHits = m.lastReactionHits[:0]
-
-	visible := make([]string, 0, msgAreaHeight)
-	want := msgAreaHeight
+	//     visible entry and written straight to the terminal (below).
+	//   * Sixel images are painted out-of-band when the image's full
+	//     vertical extent is in the window; under partial visibility, or
+	//     where an indicator row would cover it, the per-row halfblock
+	//     fallback substitutes for the visible rows.
+	//
 	// kittyFlushBuf collects the APC upload bytes for any kitty images
-	// that need uploading this frame. Per spec, the upload escape and
-	// placeholder cells must reach the terminal in the same byte stream
-	// for kitty to associate the placement with the image. We write
-	// these bytes DIRECTLY to os.Stdout rather than embedding them in
-	// the View() return string — lipgloss / bubbletea v2's renderer is
-	// known to mangle APC sequences embedded in line content. Writing
-	// to os.Stdout from this goroutine (bubbletea's Update goroutine)
-	// is race-free wrt bubbletea's own writes, and the upload bytes
-	// land in stdout BEFORE bubbletea's frame buffer is flushed for
-	// this redraw — kitty parses APC sequences out of the stream
-	// regardless of position.
+	// that need uploading this frame. They are written DIRECTLY to the
+	// terminal output rather than embedded in the View() string —
+	// lipgloss / bubbletea v2's renderer is known to mangle APC sequences
+	// embedded in line content.
 	var kittyFlushBuf bytes.Buffer
-	// sixelEmissions records, per visible-window row, the action to take
-	// for sixel images intersecting that row. Populated below as we walk
-	// entries; consumed AFTER the visible slice is fully built so partial
-	// visibility decisions know the slice's final extent.
-	type sixelAction struct {
-		fallback string // replace visible[row] with this (partial-visibility row)
-	}
-	var sixelActions map[int]sixelAction
+	var sixelFallback map[int]string
 	// Placements for this frame, pane-local. Reset every render: the App
 	// reconciles the full set against what is currently on screen, so a
 	// stale entry here would keep a vanished image alive.
 	pendingSixel := make([]imgpkg.SixelPaint, 0, 2)
-
-	// Whether the "-- more below --" indicator will replace the last
-	// visible row. An image that intersects that row (or the loading
-	// row at the top) is not fully paintable: the indicator assignment
-	// below is authoritative and must stay visible, so such an image
-	// uses half-block fallback instead of an out-of-band placement.
-	moreBelow := m.yOffset+msgAreaHeight < m.totalLines
-
-	for i, e := range entries {
-		if want == 0 {
-			break
-		}
-		entryStart := m.entryOffsets[i]
-		entryEnd := entryStart + e.height
-		if entryEnd <= m.yOffset {
-			continue
-		}
-		if entryStart >= m.yOffset+msgAreaHeight {
-			break
-		}
-		var lines []string
-		if e.msgIdx == m.selected {
-			lines = m.selectedLines(&entries[i])
-		} else {
-			lines = e.linesNormal
-		}
-		// Slice the portion of this entry that falls within [yOffset, yOffset+height).
-		from := 0
-		if entryStart < m.yOffset {
-			from = m.yOffset - entryStart
-		}
-		to := len(lines)
-		if entryEnd > m.yOffset+msgAreaHeight {
-			to = len(lines) - (entryEnd - (m.yOffset + msgAreaHeight))
-		}
-		// Visible-window row index where this entry's first emitted line lands.
-		windowRowBase := len(visible)
-		visible = append(visible, lines[from:to]...)
-		want = msgAreaHeight - len(visible)
-
-		// Collect kitty per-image upload escapes for this entry.
-		for _, fl := range e.flushes {
+	yOffset := m.list.YOffset()
+	offsets := m.list.Offsets()
+	for _, v := range frame.Visible {
+		p := &m.cache[v.Index]
+		for _, fl := range p.flushes {
 			if fl != nil {
 				_ = fl(&kittyFlushBuf)
 			}
 		}
-
-		// Translate this entry's per-image hit rects into viewport-
-		// absolute coordinates and record them for HitTest. Rows
-		// outside the visible window are clipped; an image that
-		// straddles the top/bottom edge yields a hit rect for only
-		// its visible rows. Coordinate frame: rowStart/rowEnd are
-		// rows within the message-content area (chrome rows are NOT
-		// included here; the app-level mouse handler subtracts
-		// chromeHeight before calling HitTest, mirroring the
-		// convention already used by ClickAt and BeginSelectionAt).
-		for _, h := range e.imageHits {
-			absStart := entryStart + h.rowStartInEntry
-			absEnd := entryStart + h.rowEndInEntry
-			if absEnd <= m.yOffset || absStart >= m.yOffset+msgAreaHeight {
-				continue
-			}
-			clipStart := absStart - m.yOffset
-			if clipStart < 0 {
-				clipStart = 0
-			}
-			clipEnd := absEnd - m.yOffset
-			if clipEnd > msgAreaHeight {
-				clipEnd = msgAreaHeight
-			}
-			m.lastHits = append(m.lastHits, hitRect{
-				rowStart: clipStart,
-				rowEnd:   clipEnd,
-				colStart: h.colStart,
-				colEnd:   h.colEnd,
-				fileID:   h.fileID,
-				msgIdx:   e.msgIdx,
-				attIdx:   h.attIdx,
-			})
-		}
-
-		// Translate reaction-pill hits into the same viewport-absolute
-		// coordinate frame as lastHits. Pills are always exactly one
-		// row tall; clipping logic mirrors the image hit-test above so
-		// pills straddling the top/bottom edge of the visible window
-		// still register a click target for their visible row.
-		for _, h := range e.reactionHits {
-			absStart := entryStart + h.rowStartInEntry
-			absEnd := entryStart + h.rowEndInEntry
-			if absEnd <= m.yOffset || absStart >= m.yOffset+msgAreaHeight {
-				continue
-			}
-			clipStart := absStart - m.yOffset
-			if clipStart < 0 {
-				clipStart = 0
-			}
-			clipEnd := absEnd - m.yOffset
-			if clipEnd > msgAreaHeight {
-				clipEnd = msgAreaHeight
-			}
-			m.lastReactionHits = append(m.lastReactionHits, reactionHitRect{
-				rowStart: clipStart,
-				rowEnd:   clipEnd,
-				colStart: h.colStart,
-				colEnd:   h.colEnd,
-				msgIdx:   e.msgIdx,
-				emoji:    h.emoji,
-			})
-		}
-
-		// Schedule sixel emissions for any image whose start row falls
-		// inside this entry. Keys in sixelRows are the image's first row
-		// within the entry's linesNormal.
-		for startRowInEntry, sx := range e.sixelRows {
+		entryStart := offsets[v.Index]
+		for startRowInEntry, sx := range p.sixelRows {
 			absStart := entryStart + startRowInEntry
 			absEnd := absStart + sx.height
-			fullyVisible := absStart >= m.yOffset && absEnd <= m.yOffset+msgAreaHeight
-			windowRow := windowRowBase + (startRowInEntry - from)
+			fullyVisible := absStart >= yOffset && absEnd <= yOffset+msgAreaHeight
+			windowRow := v.Row + (startRowInEntry - v.From)
 			// Indicator rows replace window row 0 (loading hint) and
 			// row msgAreaHeight-1 (more below). An image whose footprint
 			// includes either is not fully paintable: the indicator is
 			// authoritative and must stay visible, so the image takes
-			// the existing partial-visibility fallback path instead.
+			// the partial-visibility fallback path instead.
 			intersectsLoading := m.loading && windowRow <= 0 && windowRow+sx.height > 0
-			intersectsMoreBelow := moreBelow && windowRow <= msgAreaHeight-1 && windowRow+sx.height > msgAreaHeight-1
-			fullyPaintable := fullyVisible && !intersectsLoading && !intersectsMoreBelow
-			if sixelActions == nil {
-				sixelActions = make(map[int]sixelAction)
-			}
-			if fullyPaintable {
-				if windowRow >= 0 && windowRow < len(visible) {
+			intersectsMoreBelow := frame.MoreBelow && windowRow <= msgAreaHeight-1 && windowRow+sx.height > msgAreaHeight-1
+			if fullyVisible && !intersectsLoading && !intersectsMoreBelow {
+				if windowRow >= 0 && windowRow < len(frame.Rows) {
 					// Record the placement instead of appending the bytes
-					// to the line. Bytes in the frame string force a
-					// re-emit every render (bubbletea rewrites the line
-					// whenever its content changes, so omitting them once
-					// erases the image) and leave no way to clear a region
-					// the image has left. The App paints these out-of-band
-					// after the frame is flushed; see SixelPlacements.
+					// to the line; the App paints these out-of-band after
+					// the frame is flushed. See SixelPlacements.
 					pendingSixel = append(pendingSixel, imgpkg.SixelPaint{
 						Key:   imgpkg.PlacementKey(sx.key, sx.bytes, sx.width, sx.height),
 						Row:   windowRow,
@@ -3447,82 +2738,40 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 				}
 				continue
 			}
-			// Partial visibility or an indicator intersection: walk every
-			// row of the image, emitting fallback for rows that ARE in
-			// the visible window. The later indicator assignments
-			// overwrite their rows and remain authoritative.
 			for k := 0; k < sx.height; k++ {
 				abs := absStart + k
-				if abs < m.yOffset || abs >= m.yOffset+msgAreaHeight {
+				if abs < yOffset || abs >= yOffset+msgAreaHeight {
 					continue
 				}
-				windowRow := abs - m.yOffset
-				if windowRow >= 0 && windowRow < len(visible) && k < len(sx.fallback) {
-					sixelActions[windowRow] = sixelAction{fallback: sx.fallback[k]}
+				row := abs - yOffset
+				if row >= 0 && row < len(frame.Rows) && k < len(sx.fallback) {
+					if sixelFallback == nil {
+						sixelFallback = make(map[int]string)
+					}
+					sixelFallback[row] = sx.fallback[k]
 				}
 			}
 		}
 	}
-
-	// Apply sixel substitutions / appends. Done after the slice is built
-	// so we know its final length and can safely mutate by index.
-	for row, act := range sixelActions {
-		if row < 0 || row >= len(visible) {
-			continue
-		}
-		if act.fallback != "" {
-			visible[row] = act.fallback
+	for row, fb := range sixelFallback {
+		if fb != "" {
+			frame.Rows[row] = fb
 		}
 	}
-
-	// Write kitty upload escapes DIRECTLY to the terminal output,
-	// bypassing bubbletea's frame buffer entirely. See the
-	// kittyFlushBuf declaration above for rationale. We do this
-	// before returning the View string so the upload reaches the
-	// terminal before the placeholder cells in the bubbletea frame.
 	if kittyFlushBuf.Len() > 0 {
 		_, _ = imgpkg.KittyOutput.Write(kittyFlushBuf.Bytes())
 	}
 
-	// Pad vertically with the themed spacer if content is shorter than the pane.
-	for len(visible) < msgAreaHeight {
-		visible = append(visible, m.cacheSpacer)
+	// Pad to the pane height, put the loading hint on the first row and
+	// "-- more below --" on the last (when content continues below),
+	// overlay the selection unless the App paints it as a post-pass, and
+	// draw the scrollbar. The loading hint is rendered fresh per frame:
+	// it MUST reflect the current spinner frame.
+	top := ""
+	if m.loading {
+		top = m.renderLoadingOlderHint(width)
 	}
-
-	// Scroll indicators replace the first / last line when applicable.
-	// applySelectionToRows recomputes the same conditions (m.loading and
-	// m.yOffset+msgAreaHeight < m.totalLines) so it can skip the override
-	// rows without us threading skip flags through -- this is what lets
-	// the bordered post-pass (ApplySelectionToBordered, which operates
-	// on cached output and so doesn't see this scope) protect indicators
-	// using the same logic.
-	if m.loading && len(visible) > 0 {
-		// Render the hint fresh per frame -- it MUST reflect the
-		// current m.spinnerFrame, which advances independently of
-		// the cache rebuild signals (width / message count). See
-		// buildCacheStyles' comment for the rationale.
-		visible[0] = m.renderLoadingOlderHint(width)
-	}
-	if m.yOffset+msgAreaHeight < m.totalLines && len(visible) > 0 {
-		visible[len(visible)-1] = m.cacheMoreBelow
-	}
-
-	// Selection overlay is intentionally NOT applied here when applySelection
-	// is false. The App layer caches the bordered form of this output (keyed
-	// on Version) and overlays the selection via ApplySelectionToBordered as
-	// a cheap post-pass, so selection-only mutations no longer bust the
-	// bordered render cache. The top-level View() public method below sets
-	// applySelection=true so direct callers (tests, anything not going
-	// through the bordered cache) still see the highlighted output.
-	if applySelection && m.hasSelection {
-		m.applySelectionToRows(visible, 0, 0, msgAreaHeight)
-	}
-
-	// Overlay a 1-col scrollbar on the right of the message area when content
-	// exceeds the visible height. Chrome (header + separator) is left alone
-	// since it does not scroll.
-	visible = scrollbar.Overlay(visible, width, m.totalLines, m.yOffset, msgAreaHeight,
-		styles.Background, styles.Border, styles.Primary)
+	visible := m.list.Compose(frame, top, m.cacheMoreBelow, applySelection)
 
 	m.sixelPaints = pendingSixel
 	return chrome + "\n" + strings.Join(visible, "\n")
@@ -3547,139 +2796,19 @@ func (m *Model) ViewBare(height, width int) string {
 	return m.viewInternal(height, width, false)
 }
 
-// applySelectionToRows is the shared selection-overlay loop. It
-// paints the rows in `lines` covered by the active selection,
-// shifting display columns by leftColOffset to absorb any outer
-// left border.
-//
-// startRow is the index in `lines` where the message-area band
-// begins:
-//   - 0 when operating on the msg-area-only slice produced inside
-//     View() (called by the View wrapper at chromeHeight=0 since
-//     the slice itself contains only msg-area rows -- chrome and
-//     border live in separate strings at that point).
-//   - topBorderRows + chromeHeight when operating on the bordered
-//     output produced by the App layer (see ApplySelectionToBordered).
-//
-// msgAreaHeight is the number of message-area rows. Scroll-indicator
-// rows (loading hint at vRow=0 when m.loading, "more below" at
-// vRow=msgAreaHeight-1 when content exceeds the viewport) are
-// skipped so the overlay does not corrupt them.
-//
-// Mutates lines in place. No-op when !m.hasSelection or the
-// selection resolves to empty.
-func (m *Model) applySelectionToRows(lines []string, startRow, leftColOffset, msgAreaHeight int) {
-	if !m.hasSelection {
-		return
-	}
-	loA, hiA := m.selRange.Normalize()
-	loLine, loCol, ok1 := m.resolveAnchor(loA)
-	hiLine, hiCol, ok2 := m.resolveAnchor(hiA)
-	if !ok1 || !ok2 {
-		return
-	}
-	if loLine > hiLine || (loLine == hiLine && loCol >= hiCol) {
-		return
-	}
-	overrodeFirst := m.loading
-	overrodeLast := m.yOffset+msgAreaHeight < m.totalLines
-
-	selStyle := styles.SelectionStyle()
-
-	for vRow := 0; vRow < msgAreaHeight; vRow++ {
-		row := startRow + vRow
-		if row < 0 || row >= len(lines) {
-			continue
-		}
-		if (vRow == 0 && overrodeFirst) || (vRow == msgAreaHeight-1 && overrodeLast) {
-			continue
-		}
-		absLine := m.yOffset + vRow
-		if absLine < loLine || absLine > hiLine {
-			continue
-		}
-		// Find the entry covering this absolute line.
-		entryIdx := -1
-		for i := range m.cache {
-			start := m.entryOffsets[i]
-			if absLine >= start && absLine < start+m.cache[i].height {
-				entryIdx = i
-				break
-			}
-		}
-		if entryIdx < 0 {
-			continue
-		}
-		e := m.cache[entryIdx]
-		j := absLine - m.entryOffsets[entryIdx]
-		if j < 0 || j >= len(e.linesPlain) {
-			continue
-		}
-		plain := e.linesPlain[j]
-		styled := lines[row]
-
-		// from / to are PLAIN columns. They become display columns by
-		// adding contentColOffset + leftColOffset.
-		from := 0
-		to := displayWidthOfPlain(plain)
-		if absLine == loLine {
-			from = loCol
-		}
-		if absLine == hiLine {
-			to = hiCol
-		}
-		if from < 0 {
-			from = 0
-		}
-		if to > displayWidthOfPlain(plain) {
-			to = displayWidthOfPlain(plain)
-		}
-		if from >= to {
-			continue
-		}
-		dispFrom := from + e.contentColOffset + leftColOffset
-		dispTo := to + e.contentColOffset + leftColOffset
-
-		styledWidth := ansi.StringWidth(styled)
-		if dispFrom >= styledWidth {
-			continue
-		}
-		if dispTo > styledWidth {
-			dispTo = styledWidth
-		}
-		prefix := ansi.Cut(styled, 0, dispFrom)
-		suffix := ansi.Cut(styled, dispTo, styledWidth)
-		seg := sliceColumns(plain, from, to)
-		lines[row] = prefix + selStyle.Render(seg) + suffix
-	}
-}
-
 // ApplySelectionToBordered overlays the active selection on top of
 // a pre-bordered, pre-cached pane output produced by the App layer.
 // Splitting the overlay out of View() lets the App layer cache the
 // (selection-free) bordered output keyed on messagepane.Version()
-// and survive selection-only mutations: the cache key no longer
-// churns on every cell of mouse-drag motion, which used to invalidate
-// the bordered render (a multi-pass O(height x width) ansi-aware
-// re-render) on every cell.
+// and survive selection-only mutations.
 //
 // topBorderRows is the number of border rows above the chrome
 // (1 for the standard top-bordered panel). leftBorderCols is the
 // number of border columns at the start of each row (1 for the
-// standard side-bordered panel).
-//
-// No-op when there is no active selection or the model has not
-// rendered yet (lastViewHeight == 0).
+// standard side-bordered panel). Indicator rows are left alone.
 func (m *Model) ApplySelectionToBordered(bordered string, topBorderRows, leftBorderCols int) string {
-	if !m.hasSelection {
-		return bordered
-	}
-	if m.lastViewHeight <= 0 {
-		return bordered
-	}
-	lines := strings.Split(bordered, "\n")
-	m.applySelectionToRows(lines, topBorderRows+m.chromeHeight, leftBorderCols, m.lastViewHeight)
-	return strings.Join(lines, "\n")
+	m.list.SetStyles(themeListStyles())
+	return m.list.ApplySelectionToBordered(bordered, topBorderRows+m.chromeHeight, leftBorderCols)
 }
 
 // DateFromTS returns the local-day date string ("2006-01-02") for a

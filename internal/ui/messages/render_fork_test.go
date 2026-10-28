@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/slack-go/slack"
 
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -869,10 +870,10 @@ func TestStruckSentenceWithInlineCodeRendersLikeSlack(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New([]MessageItem{{TS: "1.0", UserName: "bot", Blocks: blockkit.Parse(blocks)}}, "general")
-	m.buildCache(50)
-	i := slices.IndexFunc(m.cache, func(e viewEntry) bool { return e.msgIdx == 0 })
+	m.buildCache(50, false)
+	i := slices.IndexFunc(m.list.Entries(), func(e entrylist.Entry) bool { return e.Ref == 0 })
 	var drawn, struck []string
-	for _, row := range m.cache[i].linesNormal[1:] {
+	for _, row := range m.list.Entries()[i].Lines[1:] {
 		drawn = append(drawn, strings.TrimRight(strings.TrimPrefix(ansi.Strip(row), "▌"), " "))
 		struck = append(struck, struckText(row))
 	}
@@ -945,11 +946,11 @@ func TestStruckPhraseWithLinkRendersLikeSlack(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New([]MessageItem{{TS: "1.0", UserName: "bot", Blocks: blockkit.Parse(blocks)}}, "general")
-	m.buildCache(50)
-	i := slices.IndexFunc(m.cache, func(e viewEntry) bool { return e.msgIdx == 0 })
+	m.buildCache(50, false)
+	i := slices.IndexFunc(m.list.Entries(), func(e entrylist.Entry) bool { return e.Ref == 0 })
 	var drawn, struck []string
 	linked := false
-	for _, row := range m.cache[i].linesNormal[1:] {
+	for _, row := range m.list.Entries()[i].Lines[1:] {
 		drawn = append(drawn, strings.TrimRight(strings.TrimPrefix(ansi.Strip(row), "▌"), " "))
 		struck = append(struck, struckText(row))
 		linked = linked || strings.Contains(row, "\x1b]8;;https://git.example.com/org/repo/pulls/3478")

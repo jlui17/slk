@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 	"github.com/gammons/slk/internal/config"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -169,9 +170,9 @@ func TestScrollPreservedAcrossRenders(t *testing.T) {
 	m := New(msgs, "general")
 	// Render once so selection is snapped to bottom, then scroll up.
 	_ = m.View(20, 80)
-	startOffset := m.yOffset
+	startOffset := m.list.YOffset()
 	m.ScrollUp(10)
-	scrolled := m.yOffset
+	scrolled := m.list.YOffset()
 	if scrolled >= startOffset {
 		t.Fatalf("ScrollUp did not decrease yOffset: before=%d after=%d", startOffset, scrolled)
 	}
@@ -180,16 +181,16 @@ func TestScrollPreservedAcrossRenders(t *testing.T) {
 	// The cursor follows the scroll and clamps to the bottommost visible
 	// message, but the scroll position itself is preserved.
 	_ = m.View(20, 80)
-	if m.yOffset != scrolled {
-		t.Errorf("yOffset snapped back after render: want %d, got %d", scrolled, m.yOffset)
+	if m.list.YOffset() != scrolled {
+		t.Errorf("yOffset snapped back after render: want %d, got %d", scrolled, m.list.YOffset())
 	}
 
 	// Moving selection DOWN past the bottom edge of the (scrolled) viewport
 	// should re-snap the viewport down to keep the new selection visible.
 	m.MoveDown()
 	_ = m.View(20, 80)
-	if m.yOffset <= scrolled {
-		t.Errorf("expected yOffset to re-snap down after moving selection below the fold: scrolled=%d got=%d", scrolled, m.yOffset)
+	if m.list.YOffset() <= scrolled {
+		t.Errorf("expected yOffset to re-snap down after moving selection below the fold: scrolled=%d got=%d", scrolled, m.list.YOffset())
 	}
 }
 
@@ -254,7 +255,7 @@ func TestScrollAnchorPreservedAcrossWidening(t *testing.T) {
 	// Anchor on the last line of a mid-list entry, away from either end
 	// so the final maxOffset clamp doesn't mask the bug.
 	midIdx := 150
-	m.yOffset = m.entryOffsets[midIdx] + m.cache[midIdx].height - 1
+	m.list.SetYOffset(m.list.Offsets()[midIdx] + len(m.list.Entries()[midIdx].Lines) - 1)
 	before := m.View(20, 30)
 	beforeTop := topMarkedMessage(t, before)
 
@@ -276,9 +277,9 @@ func TestScrollAnchorBottomPreservedAcrossWidthResize(t *testing.T) {
 
 	// IsAtBottom reflects the selection cursor, not scroll position, so
 	// check yOffset directly.
-	if m.yOffset+m.lastViewHeight < m.totalLines {
+	if m.list.YOffset()+m.list.Height() < m.list.Total() {
 		t.Errorf("resize un-pinned a bottom-anchored viewport: yOffset=%d lastViewHeight=%d totalLines=%d",
-			m.yOffset, m.lastViewHeight, m.totalLines)
+			m.list.YOffset(), m.list.Height(), m.list.Total())
 	}
 }
 
@@ -286,9 +287,10 @@ func TestScrollAnchorBottomPreservedAcrossWidthResize(t *testing.T) {
 // (as computed by the most recent View()) has at least one line inside the
 // visible viewport window.
 func selectionVisible(m *Model) bool {
-	top := m.yOffset
-	bottom := m.yOffset + m.lastViewHeight
-	return m.selectedStartLine < bottom && m.selectedEndLine > top
+	top := m.list.YOffset()
+	bottom := m.list.YOffset() + m.list.Height()
+	start, end := m.list.CursorSpan()
+	return start < bottom && end > top
 }
 
 // TestCursorFollowsScrollUp asserts that scrolling the viewport up far enough
@@ -314,7 +316,7 @@ func TestCursorFollowsScrollUp(t *testing.T) {
 	}
 	if !selectionVisible(&m) {
 		t.Errorf("selection not visible after scroll up: sel=[%d,%d) window=[%d,%d)",
-			m.selectedStartLine, m.selectedEndLine, m.yOffset, m.yOffset+m.lastViewHeight)
+			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -342,7 +344,7 @@ func TestCursorFollowsScrollDown(t *testing.T) {
 	}
 	if !selectionVisible(&m) {
 		t.Errorf("selection not visible after scroll down: sel=[%d,%d) window=[%d,%d)",
-			m.selectedStartLine, m.selectedEndLine, m.yOffset, m.yOffset+m.lastViewHeight)
+			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -535,9 +537,9 @@ func TestImageReady_DoesNotChangeMessageHeight(t *testing.T) {
 	_ = m.View(height, width)
 
 	heightBefore := -1
-	for _, e := range m.cache {
-		if e.msgIdx == 0 {
-			heightBefore = e.height
+	for _, e := range m.list.Entries() {
+		if e.Ref == 0 {
+			heightBefore = len(e.Lines)
 			break
 		}
 	}
@@ -563,9 +565,9 @@ func TestImageReady_DoesNotChangeMessageHeight(t *testing.T) {
 	_ = m.View(height, width)
 
 	heightAfter := -1
-	for _, e := range m.cache {
-		if e.msgIdx == 0 {
-			heightAfter = e.height
+	for _, e := range m.list.Entries() {
+		if e.Ref == 0 {
+			heightAfter = len(e.Lines)
 			break
 		}
 	}
@@ -723,9 +725,9 @@ func TestView_SixelPartialVisibility_UsesFallback(t *testing.T) {
 	// the image in the middle.
 	_ = m.View(60, 80)
 	var entryHeight int
-	for _, e := range m.cache {
-		if e.msgIdx == 0 {
-			entryHeight = e.height
+	for _, e := range m.list.Entries() {
+		if e.Ref == 0 {
+			entryHeight = len(e.Lines)
 			break
 		}
 	}
@@ -778,22 +780,22 @@ func TestHitTest_OnImageRegion(t *testing.T) {
 	// Drive a render to populate m.lastHits.
 	_ = m.View(60, 80)
 
-	if len(m.lastHits) == 0 {
+	if len(frameHits(m.list, entrylist.HitImage)) == 0 {
 		t.Fatal("expected at least one hit rect after View() with a cached image attachment")
 	}
 
-	h := m.lastHits[0]
+	h := frameHits(m.list, entrylist.HitImage)[0]
 
 	// Sanity: the rect must be non-empty in both dimensions.
-	if h.rowEnd <= h.rowStart || h.colEnd <= h.colStart {
-		t.Fatalf("hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.rowStart, h.rowEnd, h.colStart, h.colEnd)
+	if h.RowEnd <= h.RowStart || h.ColEnd <= h.ColStart {
+		t.Fatalf("hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.RowStart, h.RowEnd, h.ColStart, h.ColEnd)
 	}
 
 	// Hit-test the center of the image footprint. We expect the
 	// fixture's fileID and (msgIdx=0, attIdx=0) since the test
 	// model has exactly one message with exactly one attachment.
-	rowMid := (h.rowStart + h.rowEnd) / 2
-	colMid := (h.colStart + h.colEnd) / 2
+	rowMid := (h.RowStart + h.RowEnd) / 2
+	colMid := (h.ColStart + h.ColEnd) / 2
 	msgIdx, attIdx, fileID, ok := m.HitTest(rowMid, colMid)
 	if !ok {
 		t.Fatalf("HitTest(%d,%d) returned ok=false for a coordinate inside the recorded hit rect", rowMid, colMid)
@@ -820,8 +822,8 @@ func TestHitTest_OnImageRegion(t *testing.T) {
 	}
 
 	// A coordinate just past the right edge must not register.
-	if _, _, _, ok := m.HitTest(rowMid, h.colEnd); ok {
-		t.Errorf("HitTest at colEnd=%d (exclusive boundary) should not hit", h.colEnd)
+	if _, _, _, ok := m.HitTest(rowMid, h.ColEnd); ok {
+		t.Errorf("HitTest at colEnd=%d (exclusive boundary) should not hit", h.ColEnd)
 	}
 }
 
@@ -864,18 +866,18 @@ func TestModel_HandleImageReady_PerEntryInvalidation(t *testing.T) {
 
 	// Snapshot the sibling entries (indices for the first and third
 	// messages) so we can compare them after the invalidation.
-	firstIdx, ok := m.messageIDToEntryIdx["1700000001.000000"]
-	if !ok {
+	firstIdx := m.entryIdx("1700000001.000000")
+	if firstIdx < 0 {
 		t.Fatal("could not find first message entry index")
 	}
-	thirdIdx, ok := m.messageIDToEntryIdx["1700000003.000000"]
-	if !ok {
+	thirdIdx := m.entryIdx("1700000003.000000")
+	if thirdIdx < 0 {
 		t.Fatal("could not find third message entry index")
 	}
-	firstBefore := append([]string(nil), m.cache[firstIdx].linesNormal...)
-	thirdBefore := append([]string(nil), m.cache[thirdIdx].linesNormal...)
-	firstHeightBefore := m.cache[firstIdx].height
-	thirdHeightBefore := m.cache[thirdIdx].height
+	firstBefore := append([]string(nil), m.list.Entries()[firstIdx].Lines...)
+	thirdBefore := append([]string(nil), m.list.Entries()[thirdIdx].Lines...)
+	firstHeightBefore := len(m.list.Entries()[firstIdx].Lines)
+	thirdHeightBefore := len(m.list.Entries()[thirdIdx].Lines)
 
 	// Simulate an image arriving for the SECOND message only. The
 	// non-empty key is what the prefetcher dispatches in production
@@ -891,26 +893,26 @@ func TestModel_HandleImageReady_PerEntryInvalidation(t *testing.T) {
 	// Sibling entries must be present and identical after the render.
 	_ = m.View(20, 60)
 
-	firstIdxAfter, ok := m.messageIDToEntryIdx["1700000001.000000"]
-	if !ok {
+	firstIdxAfter := m.entryIdx("1700000001.000000")
+	if firstIdxAfter < 0 {
 		t.Fatal("first message entry missing from index after HandleImageReady")
 	}
-	thirdIdxAfter, ok := m.messageIDToEntryIdx["1700000003.000000"]
-	if !ok {
+	thirdIdxAfter := m.entryIdx("1700000003.000000")
+	if thirdIdxAfter < 0 {
 		t.Fatal("third message entry missing from index after HandleImageReady")
 	}
 
-	if got := m.cache[firstIdxAfter].height; got != firstHeightBefore {
+	if got := len(m.list.Entries()[firstIdxAfter].Lines); got != firstHeightBefore {
 		t.Errorf("sibling (first) entry height changed: before=%d after=%d", firstHeightBefore, got)
 	}
-	if got := m.cache[thirdIdxAfter].height; got != thirdHeightBefore {
+	if got := len(m.list.Entries()[thirdIdxAfter].Lines); got != thirdHeightBefore {
 		t.Errorf("sibling (third) entry height changed: before=%d after=%d", thirdHeightBefore, got)
 	}
 
-	if !equalLines(firstBefore, m.cache[firstIdxAfter].linesNormal) {
+	if !equalLines(firstBefore, m.list.Entries()[firstIdxAfter].Lines) {
 		t.Errorf("sibling (first) entry linesNormal changed across HandleImageReady -- sibling was rebuilt unnecessarily")
 	}
-	if !equalLines(thirdBefore, m.cache[thirdIdxAfter].linesNormal) {
+	if !equalLines(thirdBefore, m.list.Entries()[thirdIdxAfter].Lines) {
 		t.Errorf("sibling (third) entry linesNormal changed across HandleImageReady -- sibling was rebuilt unnecessarily")
 	}
 }
@@ -942,10 +944,10 @@ func TestModel_HandleAvatarReady_PerUserStaleInvalidation(t *testing.T) {
 		t.Fatal("expected cache populated after View()")
 	}
 
-	aliceIdx := m.messageIDToEntryIdx["1700000001.000000"]
-	carolIdx := m.messageIDToEntryIdx["1700000003.000000"]
-	aliceBefore := append([]string(nil), m.cache[aliceIdx].linesNormal...)
-	carolBefore := append([]string(nil), m.cache[carolIdx].linesNormal...)
+	aliceIdx := m.entryIdx("1700000001.000000")
+	carolIdx := m.entryIdx("1700000003.000000")
+	aliceBefore := append([]string(nil), m.list.Entries()[aliceIdx].Lines...)
+	carolBefore := append([]string(nil), m.list.Entries()[carolIdx].Lines...)
 
 	m.HandleAvatarReady("U2")
 
@@ -968,10 +970,10 @@ func TestModel_HandleAvatarReady_PerUserStaleInvalidation(t *testing.T) {
 	// Drive the partial rebuild and confirm siblings are byte-identical.
 	_ = m.View(20, 60)
 
-	if !equalLines(aliceBefore, m.cache[m.messageIDToEntryIdx["1700000001.000000"]].linesNormal) {
+	if !equalLines(aliceBefore, m.list.Entries()[m.entryIdx("1700000001.000000")].Lines) {
 		t.Error("alice's cached lines changed across HandleAvatarReady -- sibling rebuilt unnecessarily")
 	}
-	if !equalLines(carolBefore, m.cache[m.messageIDToEntryIdx["1700000003.000000"]].linesNormal) {
+	if !equalLines(carolBefore, m.list.Entries()[m.entryIdx("1700000003.000000")].Lines) {
 		t.Error("carol's cached lines changed across HandleAvatarReady -- sibling rebuilt unnecessarily")
 	}
 }
@@ -987,13 +989,13 @@ func TestModel_HandleAvatarReady_UnknownUserIDNoOp(t *testing.T) {
 	m := New(msgs, "C")
 	_ = m.View(20, 60)
 
-	beforeVersion := m.version
+	beforeVersion := m.Version()
 	m.HandleAvatarReady("U_NOT_IN_CHANNEL")
 
 	if len(m.staleEntries) != 0 {
 		t.Errorf("staleEntries should remain empty; got %d", len(m.staleEntries))
 	}
-	if m.version != beforeVersion {
+	if m.Version() != beforeVersion {
 		t.Error("AvatarReady for non-present user should not dirty the version")
 	}
 }
@@ -1004,9 +1006,9 @@ func TestModel_HandleAvatarReady_UnknownUserIDNoOp(t *testing.T) {
 func TestModel_HandleAvatarReady_EmptyUserIDNoOp(t *testing.T) {
 	m := New([]MessageItem{{TS: "1", UserID: "U1", UserName: "a", Text: "hi"}}, "C")
 	_ = m.View(20, 60)
-	beforeVersion := m.version
+	beforeVersion := m.Version()
 	m.HandleAvatarReady("")
-	if m.version != beforeVersion {
+	if m.Version() != beforeVersion {
 		t.Error("HandleAvatarReady(\"\") should not dirty the version")
 	}
 }
@@ -1103,14 +1105,14 @@ func TestUpsertSelfSent_ReplaceTriggersResnap(t *testing.T) {
 
 	// Render once to establish snap state.
 	_ = m.View(20, 80)
-	if !m.hasSnapped {
+	if !m.list.HasSnapped() {
 		t.Fatal("setup: expected hasSnapped=true after first View")
 	}
 
 	// Now upsert with the optimistic, taller body. The snap anchor
 	// should be invalidated so the next View re-pins to the bottom.
 	m.UpsertSelfSent(MessageItem{TS: "1.0", UserName: "grant", Text: "Hello\nWorld\nMore\nLines", Timestamp: "12:21 PM"})
-	if m.hasSnapped {
+	if m.list.HasSnapped() {
 		t.Errorf("UpsertSelfSent replace should clear hasSnapped; got hasSnapped=true")
 	}
 }
@@ -1346,17 +1348,17 @@ func TestHitTestReaction_OnPill(t *testing.T) {
 	// Drive a render to populate hit rects.
 	_ = m.View(30, 60)
 
-	if len(m.lastReactionHits) != 2 {
-		t.Fatalf("expected 2 reaction hit rects, got %d", len(m.lastReactionHits))
+	if len(frameHits(m.list, entrylist.HitReaction)) != 2 {
+		t.Fatalf("expected 2 reaction hit rects, got %d", len(frameHits(m.list, entrylist.HitReaction)))
 	}
 
 	// First pill is :thumbsup:.
-	h := m.lastReactionHits[0]
-	if h.rowEnd <= h.rowStart || h.colEnd <= h.colStart {
-		t.Fatalf("reaction hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.rowStart, h.rowEnd, h.colStart, h.colEnd)
+	h := frameHits(m.list, entrylist.HitReaction)[0]
+	if h.RowEnd <= h.RowStart || h.ColEnd <= h.ColStart {
+		t.Fatalf("reaction hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.RowStart, h.RowEnd, h.ColStart, h.ColEnd)
 	}
-	rowMid := (h.rowStart + h.rowEnd) / 2
-	colMid := (h.colStart + h.colEnd) / 2
+	rowMid := (h.RowStart + h.RowEnd) / 2
+	colMid := (h.ColStart + h.ColEnd) / 2
 	msgIdx, emoji, ok := m.HitTestReaction(rowMid, colMid)
 	if !ok {
 		t.Fatalf("HitTestReaction(%d,%d) returned ok=false for a coordinate inside the recorded rect", rowMid, colMid)
@@ -1369,9 +1371,9 @@ func TestHitTestReaction_OnPill(t *testing.T) {
 	}
 
 	// Second pill is :tada:.
-	h2 := m.lastReactionHits[1]
-	row2 := (h2.rowStart + h2.rowEnd) / 2
-	col2 := (h2.colStart + h2.colEnd) / 2
+	h2 := frameHits(m.list, entrylist.HitReaction)[1]
+	row2 := (h2.RowStart + h2.RowEnd) / 2
+	col2 := (h2.ColStart + h2.ColEnd) / 2
 	_, emoji2, ok := m.HitTestReaction(row2, col2)
 	if !ok {
 		t.Fatalf("HitTestReaction did not register inside second pill")
@@ -1395,8 +1397,8 @@ func TestHitTestReaction_NoHitsWithoutReactions(t *testing.T) {
 	}
 	m := New(msgs, "general")
 	_ = m.View(20, 60)
-	if len(m.lastReactionHits) != 0 {
-		t.Errorf("expected 0 reaction hits, got %d", len(m.lastReactionHits))
+	if len(frameHits(m.list, entrylist.HitReaction)) != 0 {
+		t.Errorf("expected 0 reaction hits, got %d", len(frameHits(m.list, entrylist.HitReaction)))
 	}
 	if _, _, ok := m.HitTestReaction(0, 0); ok {
 		t.Error("HitTestReaction with no reactions should always return ok=false")
@@ -1801,3 +1803,39 @@ func TestView_SixelIntersectingLoadingRowUsesFallbackAndPublishesNoPlacement(t *
 		t.Errorf("loading indicator missing from output")
 	}
 }
+
+// entryIdx is the list index of the entry for ts (-1 when absent), for
+// tests that used to read messageIDToEntryIdx directly.
+func (m *Model) entryIdx(ts string) int {
+	i, ok := m.list.IndexOf(ts)
+	if !ok {
+		return -1
+	}
+	return i
+}
+
+// frameHits is the last frame's hits of kind, for tests that used to read
+// lastHits / lastReactionHits.
+func frameHits(l *entrylist.Model, kind entrylist.HitKind) []entrylist.FrameHit {
+	var out []entrylist.FrameHit
+	for _, h := range l.Hits() {
+		if h.Kind == kind {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// reactionHitsOf is an entry's reaction hits.
+func reactionHitsOf(e entrylist.Entry) []entrylist.Hit {
+	var out []entrylist.Hit
+	for _, h := range e.Hits {
+		if h.Kind == entrylist.HitReaction {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+func cursorStart(m *Model) int { s, _ := m.list.CursorSpan(); return s }
+func cursorEnd(m *Model) int   { _, e := m.list.CursorSpan(); return e }

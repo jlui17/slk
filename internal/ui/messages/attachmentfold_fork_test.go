@@ -179,8 +179,8 @@ func TestToggleAttachmentFoldAt_ClickOnTheFoldRow(t *testing.T) {
 func TestCardCarriesTheSelectionBackground(t *testing.T) {
 	styles.Apply("nord", config.Theme{})
 	m := newCardModel(cardMessage("1736093400.000100", linkedMessageCard("", cardParagraphs(8))))
-	m.buildCache(80)
-	selected := strings.Join(m.cache[len(m.cache)-1].linesSelected, "\n")
+	m.buildCache(80, false)
+	selected := strings.Join(m.list.Entries()[len(m.list.Entries())-1].Selected, "\n")
 	if !strings.Contains(selected, "╭") || !strings.Contains(selected, "z to expand") {
 		t.Fatalf("no card in the selected rows:\n%s", ansi.Strip(selected))
 	}

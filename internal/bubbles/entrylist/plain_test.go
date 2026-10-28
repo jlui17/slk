@@ -1,4 +1,4 @@
-package messages
+package entrylist
 
 import (
 	"testing"
@@ -10,9 +10,9 @@ import (
 // implementation, kept here only to prove the faster grapheme-only
 // FirstGraphemeClusterInString rewrite in buildPlainLine produces an
 // identical column->byte map.
-func buildPlainLineUniseg(line string) plainLine {
+func buildPlainLineUniseg(line string) PlainLine {
 	if line == "" {
-		return plainLine{Text: "", Bytes: []int{0}}
+		return PlainLine{Text: "", Bytes: []int{0}}
 	}
 	g := uniseg.NewGraphemes(line)
 	bytesMap := make([]int, 0, len(line))
@@ -30,7 +30,7 @@ func buildPlainLineUniseg(line string) plainLine {
 		byteOffset += len(cluster)
 	}
 	bytesMap = append(bytesMap, len(line))
-	return plainLine{Text: line, Bytes: bytesMap}
+	return PlainLine{Text: line, Bytes: bytesMap}
 }
 
 func TestBuildPlainLine_MatchesUnisegGraphemes(t *testing.T) {

@@ -77,10 +77,11 @@ func (m *Model) LinkURLAt(viewportY, x int) string {
 	if viewportY < m.chromeHeight {
 		return ""
 	}
-	abs := viewportY - m.chromeHeight + m.yOffset
-	for i, e := range m.cache {
-		if start := m.entryOffsets[i]; abs >= start && abs < start+e.height {
-			return LinkAt(e.linesNormal[abs-start], x)
+	abs := viewportY - m.chromeHeight + m.list.YOffset()
+	offsets := m.list.Offsets()
+	for i, e := range m.list.Entries() {
+		if start := offsets[i]; abs >= start && abs < start+len(e.Lines) {
+			return LinkAt(e.Lines[abs-start], x)
 		}
 	}
 	return ""

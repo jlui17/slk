@@ -118,14 +118,14 @@ func TestBuildCache_LinesPlainAlignsWithLinesNormal(t *testing.T) {
 		{TS: "1.0", UserName: "alice", UserID: "U1", Text: "hello world", Timestamp: "1:00 PM"},
 		{TS: "2.0", UserName: "bob", UserID: "U2", Text: "x🚀y", Timestamp: "1:01 PM"},
 	}, "general")
-	m.buildCache(60)
+	m.buildCache(60, false)
 	if len(m.cache) == 0 {
 		t.Fatal("buildCache produced no entries")
 	}
-	for i, e := range m.cache {
-		if len(e.linesNormal) != len(e.linesPlain) {
+	for i, e := range m.list.Entries() {
+		if len(e.Lines) != len(e.Plain) {
 			t.Fatalf("entry %d: linesNormal/linesPlain length mismatch: %d vs %d",
-				i, len(e.linesNormal), len(e.linesPlain))
+				i, len(e.Lines), len(e.Plain))
 		}
 	}
 }

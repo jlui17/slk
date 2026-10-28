@@ -113,10 +113,11 @@ func renderCardCase(c cardRenderCase, width int) []string {
 		m.ToggleAttachmentFold()
 		m.View(200, width)
 	}
-	entry := m.cache[len(m.cache)-1]
-	lines := entry.linesNormal
+	entries := m.list.Entries()
+	entry := entries[len(entries)-1]
+	lines := entry.Lines
 	if c.selected {
-		lines = entry.linesSelected
+		lines = entry.Selected
 	}
 	out := make([]string, len(lines))
 	for i, l := range lines {

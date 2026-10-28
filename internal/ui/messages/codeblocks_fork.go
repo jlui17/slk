@@ -132,13 +132,14 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	if y < m.chromeHeight {
 		return "", false
 	}
-	line := y - m.chromeHeight + m.yOffset
+	line := y - m.chromeHeight + m.list.YOffset()
+	offsets, entries := m.list.Offsets(), m.list.Entries()
 	for i, e := range m.cache {
-		block, hit := CodeBlockCopyLabelAt(e.codeBlockCopyLabels, line-m.entryOffsets[i], x)
+		block, hit := CodeBlockCopyLabelAt(e.codeBlockCopyLabels, line-offsets[i], x)
 		if !hit {
 			continue
 		}
-		blocks := CodeBlocks(m.messages[e.msgIdx])
+		blocks := CodeBlocks(m.messages[entries[i].Ref])
 		if block >= len(blocks) {
 			return "", false
 		}

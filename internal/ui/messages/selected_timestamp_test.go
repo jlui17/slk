@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 )
 
 // longTSItems: three messages on 2026-09-29 (the pinned clock's day).
@@ -28,27 +29,27 @@ func longTSModel(t *testing.T, items []MessageItem, width int) (*Model, string) 
 }
 
 // selectedEntry returns the cache entry for the selected message.
-func selectedEntry(t *testing.T, m *Model) viewEntry {
+func selectedEntry(t *testing.T, m *Model) entrylist.Entry {
 	t.Helper()
-	for _, e := range m.cache {
-		if e.msgIdx == m.selected {
+	for _, e := range m.list.Entries() {
+		if e.Selectable && e.Ref == m.selected {
 			return e
 		}
 	}
 	t.Fatalf("no cache entry for selected index %d", m.selected)
-	return viewEntry{}
+	return entrylist.Entry{}
 }
 
 func assertHeightsMatch(t *testing.T, m *Model) {
 	t.Helper()
-	for i, e := range m.cache {
-		if len(e.linesSelected) != len(e.linesNormal) {
+	for i, e := range m.list.Entries() {
+		if len(e.Selected) != len(e.Lines) {
 			t.Errorf("entry %d: len(linesSelected)=%d != len(linesNormal)=%d",
-				i, len(e.linesSelected), len(e.linesNormal))
+				i, len(e.Selected), len(e.Lines))
 		}
-		if e.linesSelectedShort != nil && len(e.linesSelectedShort) != len(e.linesNormal) {
+		if p := m.cache[i]; p.linesSelectedShort != nil && len(p.linesSelectedShort) != len(e.Lines) {
 			t.Errorf("entry %d: len(linesSelectedShort)=%d != len(linesNormal)=%d",
-				i, len(e.linesSelectedShort), len(e.linesNormal))
+				i, len(p.linesSelectedShort), len(e.Lines))
 		}
 	}
 }
@@ -115,7 +116,7 @@ func TestSelectedTimestamp_AvatarNarrowFallsBack(t *testing.T) {
 	m.SetAvatarFunc(func(string) string { return "AAAA\nAAAA" })
 	_ = m.View(40, 24)
 	e := selectedEntry(t, &m)
-	if got := ansi.Strip(strings.Join(e.linesSelected, "\n")); strings.Contains(got, "Sep 29") {
+	if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
 		t.Fatalf("avatar-narrow selected row shows long timestamp:\n%s", got)
 	}
 	assertHeightsMatch(t, &m)
@@ -139,9 +140,9 @@ func TestSelectedTimestamp_EditedMarkCountsTowardWidth(t *testing.T) {
 // message's header row (BeginSelectionAt's coordinate system).
 func selectedHeaderY(t *testing.T, m *Model) int {
 	t.Helper()
-	for i, e := range m.cache {
-		if e.msgIdx == m.selected {
-			return m.chromeHeight + m.entryOffsets[i] - m.yOffset
+	for i, e := range m.list.Entries() {
+		if e.Selectable && e.Ref == m.selected {
+			return m.chromeHeight + m.list.Offsets()[i] - m.list.YOffset()
 		}
 	}
 	t.Fatalf("no cache entry for selected index %d", m.selected)

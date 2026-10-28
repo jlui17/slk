@@ -55,7 +55,7 @@ func (m *Model) freshenCache() {
 	switch {
 	case m.cacheWidth <= 0: // never drawn
 	case m.cache == nil || m.cacheMsgLen != len(m.messages):
-		m.buildCache(m.cacheWidth)
+		m.buildCache(m.cacheWidth, m.cache != nil)
 	case len(m.staleEntries) > 0:
 		m.partialRebuild(m.cacheWidth)
 	}
@@ -66,11 +66,12 @@ func (m *Model) freshenCache() {
 // message has no card long enough to fold.
 func (m *Model) ToggleAttachmentFold() bool {
 	m.freshenCache()
-	for _, e := range m.cache {
-		if e.msgIdx != m.selected || len(e.attachmentFoldRows) == 0 {
+	entries := m.list.Entries()
+	for i, e := range m.cache {
+		if entries[i].Ref != m.selected || len(e.attachmentFoldRows) == 0 {
 			continue
 		}
-		ts := m.messages[e.msgIdx].TS
+		ts := m.messages[entries[i].Ref].TS
 		if m.expandedAttachments == nil {
 			m.expandedAttachments = map[string]bool{}
 		}
@@ -80,7 +81,7 @@ func (m *Model) ToggleAttachmentFold() bool {
 		}
 		m.staleEntries[ts] = struct{}{}
 		// The message changes height: the next View brings it back into view.
-		m.hasSnapped = false
+		m.list.ResetSnap()
 		m.dirty()
 		return true
 	}
@@ -95,9 +96,10 @@ func (m *Model) ToggleAttachmentFoldAt(y int) bool {
 		return false
 	}
 	m.freshenCache()
-	line := y - m.chromeHeight + m.yOffset
+	line := y - m.chromeHeight + m.list.YOffset()
+	offsets := m.list.Offsets()
 	for i, e := range m.cache {
-		if slices.Contains(e.attachmentFoldRows, line-m.entryOffsets[i]) {
+		if slices.Contains(e.attachmentFoldRows, line-offsets[i]) {
 			m.ClickAt(y)
 			return m.ToggleAttachmentFold()
 		}
