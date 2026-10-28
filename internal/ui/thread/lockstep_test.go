@@ -105,6 +105,23 @@ func lockstepItems() []messages.MessageItem {
 	}
 }
 
+// lockstepGlobals pins the process-global render inputs both panes read.
+// Both are mutated by other tests in this package and by production code,
+// and both change every glyph on screen. Reverting means re-applying the
+// dark theme and the default emoji mode -- styles.Apply has no inverse;
+// re-applying dark is the convention the rest of the tree uses.
+func lockstepGlobals(t *testing.T) {
+	t.Helper()
+	styles.Apply("dark", config.Theme{})
+	emojiutil.SetImageMode(false, 2)
+	messages.SetNowFunc(lockstepClock)
+	t.Cleanup(func() {
+		styles.Apply("dark", config.Theme{})
+		emojiutil.SetImageMode(false, 2)
+		messages.SetNowFunc(nil)
+	})
+}
+
 // lockstepRender builds both panes from the same fixture, in the same
 // state, and returns the models alongside their ANSI-stripped rows.
 //
@@ -121,20 +138,7 @@ func lockstepItems() []messages.MessageItem {
 // "── new ──" landmark renders.
 func lockstepRender(t *testing.T) (mm *messages.Model, tm *Model, msgPane, thrPane []string) {
 	t.Helper()
-
-	// Process-global render inputs. Both are mutated by other tests in
-	// this package and by production code, and both change every glyph
-	// on screen. Reverting means re-applying the dark theme and the
-	// default emoji mode -- styles.Apply has no inverse; re-applying
-	// dark is the convention the rest of the tree uses.
-	styles.Apply("dark", config.Theme{})
-	emojiutil.SetImageMode(false, 2)
-	messages.SetNowFunc(lockstepClock)
-	t.Cleanup(func() {
-		styles.Apply("dark", config.Theme{})
-		emojiutil.SetImageMode(false, 2)
-		messages.SetNowFunc(nil)
-	})
+	lockstepGlobals(t)
 
 	items := lockstepItems()
 
@@ -559,3 +563,73 @@ func lockstepHitColumns(hit func(col int) bool) []int {
 //     message; thread deliberately discards imgrender's per-block hits
 //     (thread/model.go:1788-1790) and has no HitTest. Scoped out in
 //     thread/model.go:202-206.
+
+// TestLockstep_ScrolledWindowParity compares the panes while scrolled:
+// the window rows, and the text a drag copies, must agree on every body
+// row. Header rows legitimately differ (the channel pane's cursor follows
+// the scroll, U1, and the selected header shows a long timestamp), as do
+// the rows between messages (spacer vs rule) and the channel pane's last
+// row (more-below, U3), so only body rows are compared.
+func TestLockstep_ScrolledWindowParity(t *testing.T) {
+	lockstepGlobals(t)
+	const h = 10
+	items := make([]messages.MessageItem, 14)
+	for i := range items {
+		items[i] = messages.MessageItem{
+			TS: lockstepTS(time.Duration(i) * time.Minute), UserID: fmt.Sprintf("U%02d", i),
+			UserName: fmt.Sprintf("u%02d", i), Text: fmt.Sprintf("body-%02d", i),
+			Timestamp: fmt.Sprintf("9:%02d AM", i),
+		}
+	}
+	mv := messages.New(items, "general")
+	mm := &mv
+	mm.SetFocused(true)
+	tm := New()
+	tm.SetThread(items[0], items[1:], "C1", items[0].TS)
+	tm.SetFocused(true)
+
+	align := func(name string, view func() string, chrome func() int, up func(int)) []string {
+		for range 200 {
+			rows := lockstepStrip(view())
+			if c := rows[chrome():]; strings.Contains(c[0], "body-06") {
+				return c[:len(c)-1] // drop the last row: more-below in messages
+			}
+			up(1)
+		}
+		t.Fatalf("%s: body-06 never reached the top row", name)
+		return nil
+	}
+	msgRows := align("messages", func() string { return mm.View(h, lockstepWidth) }, mm.ChromeHeight, mm.ScrollUp)
+	thrRows := align("thread", func() string { return tm.View(h, lockstepWidth) }, func() int { return tm.chromeHeight }, tm.ScrollUp)
+
+	bodies := func(rows []string) []string {
+		var out []string
+		for i, r := range rows {
+			if strings.Contains(r, "body-") {
+				out = append(out, fmt.Sprintf("%d:%s", i, r))
+			}
+		}
+		return out
+	}
+	if mb, tb := bodies(msgRows), bodies(thrRows); !slices.Equal(mb, tb) {
+		t.Errorf("scrolled body rows differ:\n messages %q\n thread   %q", mb, tb)
+	}
+
+	drag := func(begin, extend func(int, int), end func() (string, bool), chrome int) string {
+		begin(chrome+0, 2)
+		extend(chrome+3, 9)
+		text, _ := end()
+		var kept []string
+		for _, l := range strings.Split(text, "\n") {
+			if l != "" {
+				kept = append(kept, l)
+			}
+		}
+		return strings.Join(kept, "\n")
+	}
+	mt := drag(mm.BeginSelectionAt, mm.ExtendSelectionAt, mm.EndSelection, mm.ChromeHeight())
+	tt := drag(tm.BeginSelectionAt, tm.ExtendSelectionAt, tm.EndSelection, tm.chromeHeight)
+	if mt == "" || mt != tt {
+		t.Errorf("scrolled drag copies differ:\n messages %q\n thread   %q", mt, tt)
+	}
+}

@@ -1460,6 +1460,21 @@ func goldenScenarios() []goldenScenario {
 			},
 		},
 		{
+			// Phase 3 plan Task 0.5: the cursor on the thread's parent.
+			// Pins the selected parent's tint and its padding to the pane
+			// width, which Phase 3 PR 2+3 moves from an outer wrapper to
+			// the parent row itself.
+			name: "thread_parent_selected", w: 120, h: 30, layout: goldenStackedThread,
+			build: func(t *testing.T) *App {
+				a := goldenThreadApp(t, 120, 30)
+				a.focusedPanel = PanelThread
+				a.threadPanel.GoToTop() // reply 0
+				a.threadPanel.MoveUp()  // the parent (index -1)
+				_ = a.View()
+				return a
+			},
+		},
+		{
 			// Wide enough for both: the thread is lifted to 80 columns.
 			name: "wide", w: 200, h: 50, layout: goldenSideBySide,
 			build: func(t *testing.T) *App { return goldenThreadScenario(t, 200, 50) },

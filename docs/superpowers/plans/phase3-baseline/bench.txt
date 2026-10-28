@@ -1,0 +1,52 @@
+goos: linux
+goarch: amd64
+pkg: github.com/gammons/slk/internal/ui/messages
+cpu: QEMU Virtual CPU version 2.5+
+BenchmarkViewScroll-4      	    5685	    198557 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6231	    190834 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    5796	    184205 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6585	    193034 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6262	    197131 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6032	    199167 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    5862	    198953 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6038	    194551 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    5961	    190920 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkViewScroll-4      	    6273	    190568 ns/op	   71232 B/op	     326 allocs/op
+BenchmarkBuildCache-4      	      42	  25932851 ns/op	 9780556 B/op	  253778 allocs/op
+BenchmarkBuildCache-4      	      44	  26634628 ns/op	 9768806 B/op	  253780 allocs/op
+BenchmarkBuildCache-4      	      48	  27209714 ns/op	 9770358 B/op	  253778 allocs/op
+BenchmarkBuildCache-4      	      43	  26974605 ns/op	 9791503 B/op	  253781 allocs/op
+BenchmarkBuildCache-4      	      42	  25612951 ns/op	 9756623 B/op	  253778 allocs/op
+BenchmarkBuildCache-4      	      42	  26990610 ns/op	 9763196 B/op	  253778 allocs/op
+BenchmarkBuildCache-4      	      46	  28794116 ns/op	 9745028 B/op	  253774 allocs/op
+BenchmarkBuildCache-4      	      43	  29362007 ns/op	 9782772 B/op	  253780 allocs/op
+BenchmarkBuildCache-4      	      42	  28293777 ns/op	 9805878 B/op	  253783 allocs/op
+BenchmarkBuildCache-4      	      39	  28790713 ns/op	 9726598 B/op	  253772 allocs/op
+BenchmarkViewFocusFlip-4   	    1644	    719905 ns/op	  249416 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1731	    726271 ns/op	  248667 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1515	    794695 ns/op	  248370 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1633	    760299 ns/op	  250175 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1696	    779178 ns/op	  248738 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1759	    703960 ns/op	  249144 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1765	    700667 ns/op	  249989 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1779	    680582 ns/op	  248494 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1722	    695330 ns/op	  247721 B/op	    3239 allocs/op
+BenchmarkViewFocusFlip-4   	    1675	    732613 ns/op	  248377 B/op	    3239 allocs/op
+PASS
+ok  	github.com/gammons/slk/internal/ui/messages	40.034s
+goos: linux
+goarch: amd64
+pkg: github.com/gammons/slk/internal/ui/thread
+cpu: QEMU Virtual CPU version 2.5+
+BenchmarkViewScroll-4   	     312	   3905901 ns/op	 1073768 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     309	   3798274 ns/op	 1076792 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     315	   3844167 ns/op	 1077402 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     298	   3907105 ns/op	 1069144 B/op	   29813 allocs/op
+BenchmarkViewScroll-4   	     303	   3852011 ns/op	 1074648 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     316	   3794618 ns/op	 1070810 B/op	   29813 allocs/op
+BenchmarkViewScroll-4   	     313	   3848465 ns/op	 1078376 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     316	   3867493 ns/op	 1076510 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     306	   3945590 ns/op	 1077949 B/op	   29814 allocs/op
+BenchmarkViewScroll-4   	     310	   3764896 ns/op	 1080779 B/op	   29814 allocs/op
+PASS
+ok  	github.com/gammons/slk/internal/ui/thread	16.761s

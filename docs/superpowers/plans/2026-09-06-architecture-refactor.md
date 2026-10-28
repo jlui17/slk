@@ -696,7 +696,7 @@ dupl -t 75 -plumbing $(find . -name '*.go' \
 | 0 | Test safety net | — | [spec](../specs/2026-09-06-phase0-test-safety-net-design.md) | [plan](2026-09-06-phase0-test-safety-net.md) | **complete** |
 | 1 | `main.go` topical splits | — | [spec](../specs/2026-09-22-phase1-main-go-splits-design.md) | [plan](2026-09-22-phase1-main-go-splits.md) | **complete** |
 | 2 | `main.go` structural | 1 | — | — | not started |
-| 3 | Collapse `messages`/`thread` fork | 0 | — | — | not started |
+| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | planned; implementation starts after #304 merges |
 | 4 | Modal chrome substrate | 0, 3 | — | — | not started |
 | 5 | Finish `App` decomposition | 0b | — | — | not started |
 | 6 | Opportunistic cleanup | 3, 4 | — | — | not started |
