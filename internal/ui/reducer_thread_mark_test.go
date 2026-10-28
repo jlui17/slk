@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -134,5 +136,48 @@ func TestThreadMarkedLocalClearsTrackedAgentThreadRow(t *testing.T) {
 	last := (*calls)[len(*calls)-1]
 	if last.working || last.status != "" {
 		t.Fatalf("agent row after mark = %+v; want idle with empty status", last)
+	}
+}
+
+// A fetched thread lands in a pane the user cannot see: the refetch on
+// reconnect after a laptop wake reaches every slk pane with a thread
+// open, including those in background herdr tabs. Slack marks read only
+// what is viewed, so the mark is held until the tab is viewed again.
+func TestFetchedThreadInUnviewedPaneMarksOnTabRefocus(t *testing.T) {
+	a, calls := markCaptureOpenThread(t)
+	a.Update(HerdrTabViewMsg{Viewed: false})
+
+	_, cmd := a.Update(ThreadRepliesLoadedMsg{ThreadTS: "100.0", Replies: []messages.MessageItem{
+		{TS: "101.0", ThreadTS: "100.0", UserID: "U2", Text: "reply"},
+	}})
+	feed(t, a, cmd, 0)
+	if len(*calls) != 0 {
+		t.Fatalf("a thread fetched into an unviewed herdr pane must not mark; got %v", *calls)
+	}
+
+	_, cmd = a.Update(HerdrTabViewMsg{Viewed: true})
+	feed(t, a, cmd, 0)
+	if len(*calls) != 1 || (*calls)[0] != "th:C1/100.0/101.0" {
+		t.Fatalf("calls = %v, want one thread mark at 101.0 once the tab is viewed", *calls)
+	}
+}
+
+// The same for a terminal that lost focus: the mark waits for focus.
+func TestFetchedThreadInBlurredTerminalMarksOnFocus(t *testing.T) {
+	a, calls := markCaptureOpenThread(t)
+	a.Update(tea.BlurMsg{})
+
+	_, cmd := a.Update(ThreadRepliesLoadedMsg{ThreadTS: "100.0", Replies: []messages.MessageItem{
+		{TS: "101.0", ThreadTS: "100.0", UserID: "U2", Text: "reply"},
+	}})
+	feed(t, a, cmd, 0)
+	if len(*calls) != 0 {
+		t.Fatalf("a thread fetched while the terminal is blurred must not mark; got %v", *calls)
+	}
+
+	_, cmd = a.Update(tea.FocusMsg{})
+	feed(t, a, cmd, 0)
+	if len(*calls) != 1 || (*calls)[0] != "th:C1/100.0/101.0" {
+		t.Fatalf("calls = %v, want one thread mark at 101.0 once the terminal has focus", *calls)
 	}
 }

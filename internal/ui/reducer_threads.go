@@ -135,7 +135,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// nothing they have seen to mark.
 		if m.Replies == nil {
 			if replies := a.threadPanel.Replies(); newestMarkableReplyTS(replies) != "" {
-				return a.markOpenThreadRead(channelID, m.ThreadTS, replies), true
+				return a.markFetchedThreadRead(channelID, m.ThreadTS, replies), true
 			}
 			return nil, true
 		}
@@ -166,8 +166,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.FromCache {
 			return labelCmd, true
 		}
-		cmd := a.markOpenThreadRead(channelID, m.ThreadTS, m.Replies)
-		a.markAgentThreadRead(a.activeTeamID, channelID, m.ThreadTS)
+		cmd := a.markFetchedThreadRead(channelID, m.ThreadTS, m.Replies)
 		return tea.Batch(cmd, labelCmd), true
 
 	case ThreadsViewActivatedMsg:
