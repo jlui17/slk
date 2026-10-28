@@ -1,8 +1,8 @@
 // internal/ui/app_threadzoom_test.go
 //
-// The `t` thread zoom: layout geometry and hit-test bands while the
-// thread owns the whole messages area, the toggle's state transitions,
-// and the focus cycle with the messages pane no longer drawn.
+// The `t` thread zoom: the thread stacks in front at any width (the
+// layout upstream uses when both panes don't fit), the toggle's state
+// transitions, and the focus cycle with the messages pane not drawn.
 package ui
 
 import (
@@ -16,7 +16,7 @@ import (
 
 // zoomTestApp builds an App with a thread open, wide enough that the
 // side-by-side layout clears both pane minimums (a narrower terminal
-// auto-hides the thread instead).
+// stacks the panes instead).
 func zoomTestApp(t *testing.T) *App {
 	t.Helper()
 	return newHarnessApp(t,
@@ -27,7 +27,7 @@ func zoomTestApp(t *testing.T) *App {
 
 // zoomFrame recomputes the layout the way App.View does.
 func zoomFrame(a *App) panelLayoutFrame {
-	return a.layout.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, a.threadVisible, a.threadFullscreen)
+	return a.computeFrame()
 }
 
 func TestZoomLayoutThreadSpansMessagesArea(t *testing.T) {
@@ -41,13 +41,11 @@ func TestZoomLayoutThreadSpansMessagesArea(t *testing.T) {
 	if got := zoom.ThreadWidth + zoom.ThreadBorder; got != msgArea {
 		t.Errorf("zoomed thread extent = %d, want the whole messages area %d", got, msgArea)
 	}
-	if !zoom.ThreadFullscreen {
-		t.Error("frame.ThreadFullscreen = false while zoomed")
+	if side.MsgWidth == 0 {
+		t.Fatal("precondition: the panes should sit side by side unzoomed")
 	}
-	// The suppressed messages pane keeps its side-by-side width so its
-	// off-screen side effects (compose width, window bounds) don't move.
-	if zoom.MsgWidth != side.MsgWidth {
-		t.Errorf("MsgWidth while zoomed = %d, want the unzoomed %d", zoom.MsgWidth, side.MsgWidth)
+	if zoom.MsgWidth != 0 {
+		t.Errorf("MsgWidth while zoomed = %d, want 0: the covered pane is not drawn", zoom.MsgWidth)
 	}
 }
 
@@ -88,25 +86,6 @@ func TestZoomPanelAtRoutesMessagesColumnsToThread(t *testing.T) {
 	}
 	if py != 4 {
 		t.Errorf("paneY = %d, want 4", py)
-	}
-}
-
-func TestZoomLayoutBypassesAutoHide(t *testing.T) {
-	a := zoomTestApp(t)
-	a.sidebarVisible = false
-	a.width = 70 // 35% of the area lands under the 30-col thread minimum
-
-	if f := zoomFrame(a); !f.ThreadAutoHidden {
-		t.Fatalf("precondition: width=%d should auto-hide the thread side-by-side", a.width)
-	}
-
-	a.threadFullscreen = true
-	f := zoomFrame(a)
-	if f.ThreadAutoHidden {
-		t.Error("a zoomed thread has no messages pane to protect; auto-hide must not fire")
-	}
-	if want := a.width - f.RailWidth; f.ThreadWidth+f.ThreadBorder != want {
-		t.Errorf("zoomed thread extent = %d, want %d", f.ThreadWidth+f.ThreadBorder, want)
 	}
 }
 
@@ -199,9 +178,7 @@ func TestZoomFocusCycleSkipsMessages(t *testing.T) {
 }
 
 // zoomedFocusApp is a fully sized app with a zoomed thread and focus
-// parked on the sidebar, the state Tab reaches while zoomed. Sized
-// through WindowSizeMsg so App.View can run: View is where the zoom's
-// focus invariant is enforced.
+// parked on the sidebar, the state Tab reaches while zoomed.
 func zoomedFocusApp(t *testing.T) *App {
 	t.Helper()
 	a := newHarnessApp(t,
@@ -252,17 +229,19 @@ func TestZoomEscapeLeavesFocusOnTheThread(t *testing.T) {
 	}
 }
 
-// The remaining focus paths are normalized in View, so each case runs a
-// real render and then checks where focus landed.
+// The remaining focus paths are normalized after every Update, so each
+// case sends its keys through Update and then checks where focus landed.
 func TestZoomViewKeepsFocusOffTheCoveredPane(t *testing.T) {
 	cases := []struct {
 		name string
 		act  func(*App)
 	}{
-		{"hide the focused sidebar", func(a *App) { a.ToggleSidebar() }},
+		{"hide the focused sidebar", func(a *App) {
+			_, _ = a.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+		}},
 		{"split a window", func(a *App) {
-			_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
-			_ = handleNormalMode(a, tea.KeyPressMsg{Code: 'v', Text: "v"})
+			_, _ = a.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+			_, _ = a.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 		}},
 	}
 	for _, tc := range cases {
@@ -298,9 +277,7 @@ func TestZoomLiftsOnThreadsViewActivation(t *testing.T) {
 // In ViewThreads the region the zoom covers holds the threads LIST,
 // not a channel pane. Pinning that needs both halves in one test: what
 // occupies the region unzoomed, and that the zoomed thread then takes
-// exactly that space. Asserting only the suppression would pass under
-// ViewChannels too, since renderWindowsRegion short-circuits on the
-// zoom before it ever reads a.view.
+// exactly that space.
 func TestZoomInThreadsViewCoversTheThreadsList(t *testing.T) {
 	a := NewApp()
 	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
@@ -320,8 +297,8 @@ func TestZoomInThreadsViewCoversTheThreadsList(t *testing.T) {
 	a.threadFullscreen = true
 	frame := zoomFrame(a)
 
-	if got := a.renderWindowsRegion(frame, 0, false); got != "" {
-		t.Errorf("the threads list must be covered while zoomed, got %d cols", lipgloss.Width(got))
+	if frame.MsgWidth != 0 {
+		t.Errorf("the threads list must be covered while zoomed, got MsgWidth %d", frame.MsgWidth)
 	}
 	row, _, _ := strings.Cut(a.renderThreadRegion(frame, 0), "\n")
 	if got := lipgloss.Width(row); got != msgArea {
@@ -329,10 +306,8 @@ func TestZoomInThreadsViewCoversTheThreadsList(t *testing.T) {
 	}
 }
 
-// Window splits keep their geometry across a zoom toggle: MsgWidth is
-// the messages pane's side-by-side width even while the pane is
-// covered, which is the whole reason the frame carries a would-be
-// width rather than zero.
+// Window splits keep their geometry across a zoom toggle: windowBounds
+// is always the channel-in-front layout.
 func TestZoomLeavesWindowBoundsUntouched(t *testing.T) {
 	a := newWideTestApp(t)
 	a.threadVisible = true
@@ -361,8 +336,8 @@ func TestZoomSuppressesMessagesRegionAndWidensThread(t *testing.T) {
 	a.threadFullscreen = true
 	frame := zoomFrame(a)
 
-	if got := a.renderWindowsRegion(frame, 0, false); got != "" {
-		t.Errorf("messages region must render empty while zoomed, got %d cols", lipgloss.Width(got))
+	if frame.MsgWidth != 0 {
+		t.Errorf("messages region must not be drawn while zoomed, got MsgWidth %d", frame.MsgWidth)
 	}
 	threadRegion := a.renderThreadRegion(frame, 0)
 	row, _, _ := strings.Cut(threadRegion, "\n")

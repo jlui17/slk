@@ -40,6 +40,7 @@ type SlackAPI interface {
 	GetBotInfoContext(ctx context.Context, parameters slack.GetBotInfoParameters) (*slack.Bot, error)
 	GetEmojiContext(ctx context.Context) (map[string]string, error)
 	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
+	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
 	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 	DeleteMessage(channelID, timestamp string) (string, string, error)
 	AddReaction(name string, item slack.ItemRef) error

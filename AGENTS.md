@@ -65,7 +65,11 @@ that no longer exists. Do not trust it.** Current structural documentation:
   `os/exec`; `slack-go` only in `blockkit`, as the data it renders. `internal/ui/boundary_test.go`
   enforces this. The boundary is deliberate; do not breach it.
 - **`App.Update` routes through a reducer chain**, not a switch. Add behavior by
-  adding to a `reducer_*.go` file, not by extending `Update`.
+  adding to a `reducer_*.go` file, not by extending `Update`. The only step
+  outside the chain is the thin `Update` wrapper that records `stackFront`
+  (which content pane — messages or thread — last had focus, for the stacked
+  thread layout) after every message; do not add other post-chain logic
+  there.
 - **Per-mode key handling is a table**, `modeHandlers` in
   `internal/ui/mode_handlers.go`. One `mode_*.go` file per mode.
 - **SQLite is a cache.** Slack remains authoritative.
@@ -90,6 +94,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Reaction pill rendering | `messages.ReactionPillText` |
 | Date label from a Slack ts | `messages.DateFromTS`, `messages.FormatDateSeparator` |
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |
+| Channel-type glyph (`#` / `◆` / `●`) | `messages.ChannelGlyph(chType)` |
 | Slack permalink parsing | `slackurl.Parse` |
 | Emoji shortcode → glyph | `emoji.Sprint`, `emoji.CodeMap`, `emoji.StripSkinTone` |
 | Does Block Kit already render the message body? | `blockkit.RendersBody(blocks)`, `messages.BlocksCarryBody(msg)` |
@@ -107,6 +112,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
 | Window tree geometry | `ui/wintree` |
 | Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` in `internal/ui/reducer_modal_click.go` |
+| Channel/DM destination picker for forwarding | `channelfinder.Model.OpenForForwarding()` (joined conversations only); `Open()` restores the normal switcher |
 
 ### Test helpers
 
@@ -129,6 +135,9 @@ greppable by name; no line numbers, because these files move.
 | Compare or bless a full-screen frame against `testdata/golden/<name>.ansi` | `compareGolden(t, name, got)` (`internal/ui/golden_test.go`) |
 | Re-bless goldens | the package-local `-update` flag: `go test ./internal/ui -run TestGolden -update`. It is not defined repo-wide, so `go test ./... -update` fails |
 | An `App` with every render nondeterminism pinned (theme, emoji mode, clock) | `newGoldenApp(t, opts...)`, with `goldenMessages()` / `goldenChannels()` as the fixtures |
+| Drive a message through the real `Update` chain and render one frame | `updateAndRender(t, a, msg)` (`internal/ui/thread_breadcrumb_test.go`) |
+| An App at a given width, resized via `WindowSizeMsg`, channel focused, for thread-layout tests | `stackedApp(t, w, extra...)` (`internal/ui/thread_stacked_test.go`) |
+| Assert which of channel / thread the last frame drew | `assertFront(t, a, wantChannel, wantThread)` (same file) |
 | Fake one service method on an `App` | `a.setChannelFetcherForTest(fn)` and its siblings, `setUploaderForTest`, `setClipboardReaderForTest`, `setReadStateReaderForTest`, `setDesktopForTest(func(*core.DesktopServiceFuncs))`, `setFilesystemForTest()`, `setEditorForTest()` (`internal/ui/services_helpers_test.go`). Calls for sibling methods of one service compose instead of replacing each other |
 | Table-drive a mode handler's keys | `runKeyCases(t, mode, []keyCase{...})` (`internal/ui/modekeys_test.go`). Calls `dispatchModeKey` directly, so it **bypasses** the reducer chain and the `ctrl+c` / bootstrap / scroll-flush gates ahead of it |
 | Build a key message for such a table | `keyPress(r)` printable rune, `keyCode(c)` special key, `keyMod(c, mod)` modified key |

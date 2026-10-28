@@ -12,8 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/core"
 	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/imgrender"
 )
 
@@ -45,8 +45,8 @@ func newPastePreviewApp(t *testing.T, proto imgpkg.Protocol) *App {
 	return app
 }
 
-func pastedImage(b []byte) compose.PendingAttachment {
-	return compose.PendingAttachment{Filename: "paste.png", Bytes: b, Mime: "image/png", Size: int64(len(b))}
+func pastedImage(b []byte) core.PendingAttachment {
+	return core.PendingAttachment{Filename: "paste.png", Bytes: b, Mime: "image/png", Size: int64(len(b))}
 }
 
 // previewRows returns the rows withPastePreview put above the plain
@@ -91,7 +91,7 @@ func TestPastePreview_NothingToPreview_ViewUnchanged(t *testing.T) {
 	cases := map[string]func(*App){
 		"no attachments": func(*App) {},
 		"path only": func(a *App) {
-			a.compose.AddAttachment(compose.PendingAttachment{Filename: "a.png", Path: "/tmp/a.png", Mime: "image/png", Size: 10})
+			a.compose.AddAttachment(core.PendingAttachment{Filename: "a.png", Path: "/tmp/a.png", Mime: "image/png", Size: 10})
 		},
 		"bytes that are not an image": func(a *App) {
 			a.compose.AddAttachment(pastedImage([]byte("\x89PNG\r\n\x1a\nfake")))

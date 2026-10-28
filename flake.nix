@@ -19,6 +19,10 @@
           src = ./.;
           vendorHash = "sha256-yVbKhQOflQwOi4JFC/LSNJyzxi2rLTbEuj66kJzQgpg=";
           buildInputs = [pkgs.libX11];
+          # The test suite spins up httptest servers on loopback. The macOS
+          # Nix sandbox denies all networking by default, so allow loopback
+          # there; the attribute is a no-op on Linux.
+          __darwinAllowLocalNetworking = true;
         };
       in {
         packages.default = slk;

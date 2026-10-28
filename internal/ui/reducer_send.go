@@ -80,6 +80,18 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case SendMessageMsg:
 		return reduceSendMessage(a, m), true
 
+	case messageForwardedMsg:
+		if m.teamID != a.activeTeamID {
+			return nil, true
+		}
+		// A concurrent compose send can suppress the forward's self-authored
+		// WS echo. Reconcile the HTTP result without touching drafts or
+		// placeholders. AppendMessage deduplicates echoes that arrived first.
+		for _, mm := range a.modelsForChannel(m.channelID) {
+			mm.AppendMessage(cloneMessageItem(m.message))
+		}
+		return func() tea.Msg { return ToastMsg{Text: "Message forwarded to " + m.destination} }, true
+
 	case MessageSentMsg:
 		// The chat.postMessage HTTP response landed. If a
 		// "local:..." placeholder is in the pane from the

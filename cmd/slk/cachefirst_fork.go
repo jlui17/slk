@@ -7,9 +7,9 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/slackfmt"
 	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
@@ -75,7 +75,7 @@ func (l *cacheFirstLoader) cachedWorkspaceMsg(teamID, teamName string, paneResto
 		visits = nil
 	}
 	var items []sidebar.ChannelItem
-	var finderItems []channelfinder.Item
+	var finderItems []core.ChannelFinderItem
 	for _, ch := range rows {
 		if !ch.IsMember {
 			continue
@@ -103,7 +103,7 @@ func (l *cacheFirstLoader) cachedWorkspaceMsg(teamID, teamName string, paneResto
 			item.SectionOrder = l.cfg.SectionOrder(teamID, section)
 		}
 		items = append(items, item)
-		finderItems = append(finderItems, channelfinder.Item{
+		finderItems = append(finderItems, core.ChannelFinderItem{
 			ID:          ch.ID,
 			Name:        name,
 			Type:        ch.Type,

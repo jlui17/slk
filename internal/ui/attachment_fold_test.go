@@ -24,7 +24,7 @@ func longCardMessage(ts string) messages.MessageItem {
 
 func foldTestApp() *App {
 	app := NewApp()
-	app.width, app.height = 120, 40
+	app.width, app.height = 200, 40 // wide enough for the thread beside the messages pane
 	app.activeChannelID = "C1"
 	app.messagepane.SetMessages([]messages.MessageItem{longCardMessage("1.0")})
 	return app

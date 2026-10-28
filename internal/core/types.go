@@ -1,10 +1,20 @@
 package core
 
-import "github.com/gammons/slk/internal/core/blocks"
+import (
+	"github.com/gammons/slk/internal/core/blocks"
+	"github.com/gammons/slk/internal/ids"
+)
 
 // The values that cross between the engine and the TUI. Most began life
 // in a TUI package, which still exposes them under their old names as
 // aliases.
+
+// ForwardResult identifies the message Slack posted in the destination.
+// Text is the source permalink; preview attachments arrive via WebSocket.
+type ForwardResult struct {
+	TS   ids.MessageTS
+	Text string
+}
 
 // MessageItem is one message as the TUI displays it.
 type MessageItem struct {

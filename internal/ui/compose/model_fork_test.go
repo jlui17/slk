@@ -3,6 +3,8 @@ package compose
 import (
 	"strings"
 	"testing"
+
+	"github.com/gammons/slk/internal/core"
 )
 
 func TestCursorOnFirstVisualRow(t *testing.T) {
@@ -36,7 +38,7 @@ func TestCursorOnFirstVisualRow(t *testing.T) {
 func TestRemoveAttachmentAt(t *testing.T) {
 	m := New("general")
 	for _, name := range []string{"a.png", "b.png", "c.png"} {
-		m.AddAttachment(PendingAttachment{Filename: name})
+		m.AddAttachment(core.PendingAttachment{Filename: name})
 	}
 	before := m.Version()
 

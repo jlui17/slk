@@ -170,6 +170,14 @@ type Model struct {
 	chromeUserNamesV    uint64 // value of userNamesV at build time
 	chromeChannelNamesV uint64 // version of the channelNames map at build time
 
+	// Breadcrumb inputs (SetBreadcrumb), and the values the chrome
+	// cache was last built from.
+	crumbChannel       string
+	crumbType          string
+	chromeCrumbChannel string
+	chromeCrumbType    string
+	chromeAuthor       string
+
 	// userNamesV / channelNamesV are bumped every time SetUserNames /
 	// SetChannelNames replaces the map. Used by chromeCache (and any other
 	// cache that depends on these maps) to detect changes without hashing.
@@ -379,6 +387,27 @@ func (m *Model) SetUnreadBoundary(ts string) {
 	m.unreadBoundaryTS = ts
 	m.viewCacheValid = false
 	m.dirty()
+}
+
+// SetBreadcrumb sets the channel the header breadcrumb names.
+// channelType picks the glyph (see messages.ChannelGlyph); an empty
+// channelName omits the channel segment.
+func (m *Model) SetBreadcrumb(channelName, channelType string) {
+	if m.crumbChannel == channelName && m.crumbType == channelType {
+		return
+	}
+	m.crumbChannel, m.crumbType = channelName, channelType
+	m.dirty()
+}
+
+// breadcrumbAuthor is the parent's display name: the parent's own
+// UserName, else the userNames entry for its UserID.
+func (m *Model) breadcrumbAuthor() string {
+	if m.parent.UserName != "" {
+		return m.parent.UserName
+	}
+	name, _ := m.userNames.Get(m.parent.UserID)
+	return name
 }
 
 // UnreadBoundaryTS returns the current unread-boundary ts. Used by tests.
@@ -1384,21 +1413,16 @@ func (m *Model) View(height, width int) string {
 	// header line + a single border separator; everything else moved into
 	// the viewport, so parent identity no longer participates in the
 	// chrome cache key.
+	author := m.breadcrumbAuthor()
 	if !m.chromeCacheValid ||
 		m.chromeWidth != width ||
 		m.chromeReplyCount != chromeReplyCount ||
 		m.chromeUserNamesV != m.userNamesV ||
-		m.chromeChannelNamesV != m.channelNamesV {
-		replyLabel := "replies"
-		if chromeReplyCount == 1 {
-			replyLabel = "reply"
-		}
-		header := lipgloss.NewStyle().
-			Width(width).
-			Background(styles.Background).
-			Foreground(styles.TextPrimary).
-			Bold(true).
-			Render(fmt.Sprintf("Thread  %d %s", chromeReplyCount, replyLabel))
+		m.chromeChannelNamesV != m.channelNamesV ||
+		m.chromeCrumbChannel != m.crumbChannel ||
+		m.chromeCrumbType != m.crumbType ||
+		m.chromeAuthor != author {
+		header := renderBreadcrumb(width, m.crumbChannel, m.crumbType, author, chromeReplyCount)
 		separator := lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
@@ -1411,6 +1435,9 @@ func (m *Model) View(height, width int) string {
 		m.chromeReplyCount = chromeReplyCount
 		m.chromeUserNamesV = m.userNamesV
 		m.chromeChannelNamesV = m.channelNamesV
+		m.chromeCrumbChannel = m.crumbChannel
+		m.chromeCrumbType = m.crumbType
+		m.chromeAuthor = author
 	}
 	chrome := m.chromeCache
 	chromeHeight := m.chromeHeight

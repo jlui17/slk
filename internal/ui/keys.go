@@ -41,6 +41,7 @@ type KeyMap struct {
 	CopyMessage         key.Binding
 	CopyPermalink       key.Binding
 	CopyFromMessage     key.Binding
+	ForwardMessage      key.Binding
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
 	OpenLinkTab         key.Binding
@@ -115,6 +116,7 @@ func DefaultKeyMap() KeyMap {
 		CopyMessage:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
 		CopyFromMessage: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy code block or link in message")),
+		ForwardMessage:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "forward message")),
 		OpenPreview:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
 		OpenLinkTab:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open link in new herdr tab (inside herdr)")),

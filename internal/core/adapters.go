@@ -2,8 +2,9 @@
 // declared in ports.go. Implementations are wired by cmd/slk.
 //
 // Each port can be built from plain closures with its NewXxxService
-// constructor; any nil closure makes that method a no-op returning the
-// zero value, which is how tests fake a single method.
+// constructor; nil closures generally make methods no-op returning the
+// zero value, which is how tests fake a single method. Exceptions such as
+// MessageService.Forward return an unsupported error.
 //
 // Constructor shape:
 //   - Services with ≤4 methods take positional func args
@@ -148,10 +149,11 @@ func (t threadAdapter) ThreadLastRead(channelID ids.ChannelID, threadTS ids.Thre
 }
 
 // MessageServiceFuncs is the closure bundle accepted by
-// NewMessageService. Any field may be nil; the resulting service
-// no-ops that operation.
+// NewMessageService. Nil Forward returns an unsupported error; other nil
+// fields make the resulting service no-op that operation.
 type MessageServiceFuncs struct {
 	Send       MessageSendFunc
+	Forward    MessageForwardFunc
 	Edit       MessageEditFunc
 	Delete     MessageDeleteFunc
 	MarkUnread MarkUnreadFunc
@@ -174,6 +176,13 @@ func (m messageAdapter) Send(channelID ids.ChannelID, text string) Msg {
 		return nil
 	}
 	return m.fns.Send(channelID, text)
+}
+
+func (m messageAdapter) Forward(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (ForwardResult, error) {
+	if m.fns.Forward == nil {
+		return ForwardResult{}, errors.New("message forwarding is unsupported")
+	}
+	return m.fns.Forward(ctx, teamID, sourceChannelID, ts, destinationChannelID)
 }
 
 func (m messageAdapter) Edit(channelID ids.ChannelID, ts ids.MessageTS, newText string) Msg {
@@ -583,6 +592,10 @@ type OlderMessagesFetchFunc func(channelID ids.ChannelID, oldestTS ids.MessageTS
 
 // MessageSendFunc is called when the user sends a message. Returns a Msg with the result.
 type MessageSendFunc func(channelID ids.ChannelID, text string) Msg
+
+// MessageForwardFunc forwards a message within the captured workspace,
+// without producing normal send/compose events.
+type MessageForwardFunc func(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (ForwardResult, error)
 
 // MessageEditFunc performs the chat.update API call. Returns a Msg
 // (typically MessageEditedMsg) describing the result.

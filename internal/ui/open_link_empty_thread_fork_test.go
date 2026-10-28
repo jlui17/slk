@@ -7,7 +7,6 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
@@ -158,7 +157,7 @@ func TestStartupLink_MessageWithoutReplies_OpensItsThread(t *testing.T) {
 		TeamID:        "T1",
 		InitialActive: true,
 		Channels:      []sidebar.ChannelItem{{ID: judgeChannelID, Name: "z-annotation-testing", Type: "channel"}},
-		FinderItems:   []channelfinder.Item{{ID: judgeChannelID, Name: "z-annotation-testing", Type: "channel", Joined: true}},
+		FinderItems:   []core.ChannelFinderItem{{ID: judgeChannelID, Name: "z-annotation-testing", Type: "channel", Joined: true}},
 	})
 	sel, ok := findChannelSelected(cmd())
 	if !ok || sel.ID != judgeChannelID {

@@ -19,17 +19,14 @@
 //     SetThreadHeight with the chrome-stripped content height. These
 //     feed PageHeight() which pageSize / halfPageSize consult.
 //
-// Auto-hide: if there isn't room for both the messages pane (≥40 cols)
-// AND the thread pane (≥30 cols), Compute returns ThreadAutoHidden=true.
-// The CALLER is responsible for flipping threadVisible=false and
-// stealing focus from PanelThread — Compute can't do that without
-// reaching back into App.
+// Stacking: when a thread is open and there is room for the messages
+// pane (≥40 cols) AND an 80-col thread pane side by side, both are
+// drawn. Otherwise the two stack: only one is drawn, across the whole
+// content area, and the caller's threadFront decides which. Compute is
+// pure geometry; App.threadInFront owns the focus rule.
 //
-// Zoom (threadFullscreen): the thread pane spans the whole messages
-// area and the messages pane isn't drawn. The messages band collapses
-// to zero so mouse hit-testing routes the whole region to the thread;
-// see the ThreadFullscreen field doc for what MsgWidth means while
-// zoomed.
+// Zoom (threadFullscreen, the `t` toggle): the thread stacks in front
+// at any width, as if there were no room for both.
 package ui
 
 // panelLayout owns the per-frame layout state.
@@ -64,46 +61,32 @@ type panelLayoutFrame struct {
 	ThreadWidth   int
 	ThreadBorder  int
 	ContentHeight int // height minus the 1-row status bar
-
-	// ThreadAutoHidden is true when Compute had to hide the thread
-	// pane to keep the messages pane at its 40-col minimum. The caller
-	// must flip its own threadVisible to false and steal focus from
-	// PanelThread if focused there.
-	ThreadAutoHidden bool
-
-	// ThreadFullscreen echoes the zoom input so renderers reached with
-	// only a frame can suppress the messages region. While set,
-	// ThreadWidth spans the whole messages area and MsgWidth is NOT
-	// part of that area: it carries the width the messages pane WOULD
-	// render at, keeping its off-screen side effects (compose width,
-	// window bounds) unchanged across a zoom toggle. Callers that size
-	// something to the region must use ThreadWidth alone, not the sum.
-	ThreadFullscreen bool
 }
 
 // Compute resolves the per-frame layout. Stores the resulting
 // horizontal bands so subsequent PanelAt calls reflect the new layout.
 //
-// Width algorithm (preserved verbatim from the prior in-View code):
+// Width algorithm:
 //   - rail consumes railWidth (caller supplies; comes from
 //     workspaceRail.Width()).
 //   - sidebar, when visible, consumes sidebarWidth + 2 cols of border.
-//   - thread, when visible, consumes 35% of (width - rail - sidebar)
-//     plus 2 cols of border; minimums are 40 cols messages + 30 cols
-//     thread or thread auto-hides.
-//   - messages consumes whatever's left, with a floor of 10.
-//   - a zoomed thread consumes the whole messages area instead, with
-//     the same floor of 10 and no auto-hide.
+//   - thread, when visible and there is room for both panes, consumes
+//     max(35% of (width - rail - sidebar), 80) plus 2 cols of border,
+//     capped so messages keeps 40. Without room, the panes stack and
+//     only the front one (threadFront) is drawn, across the whole area.
+//   - whichever pane is drawn — messages side by side, or whichever
+//     pane is in front when stacked — consumes whatever's left, with
+//     a floor of 10.
 //
 // Border bits are 2 cols on each non-rail pane (1 col left + 1 col
 // right rounded border).
-func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sidebarVisible, threadVisible, threadFullscreen bool) panelLayoutFrame {
+func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sidebarVisible, threadVisible, threadFront, threadFullscreen bool) panelLayoutFrame {
 	const (
 		statusHeight = 1
 		paneBorder   = 2 // left + right border cols
 		minMsgWidth  = 40
-		minThreadW   = 30
-		floorMsgW    = 10
+		minThreadW   = 80
+		floorPaneW   = 10
 	)
 	contentHeight := height - statusHeight
 
@@ -113,73 +96,45 @@ func (l *panelLayout) Compute(width, height, railWidth, sidebarWidth int, sideba
 		sbWidth = sidebarWidth
 		sbBorder = paneBorder
 	}
-
 	msgAreaWidth := width - railWidth - sbWidth - sbBorder
 
-	msgBorder := paneBorder
-	threadWidth := 0
-	threadBorder := 0
-	autoHidden := false
-	zoomed := threadVisible && threadFullscreen
-
-	if threadVisible {
-		threadBorder = paneBorder
-		threadWidth = msgAreaWidth * 35 / 100
-		msgPaneWidth := msgAreaWidth - threadWidth - msgBorder - threadBorder
-		// Auto-hide exists to keep the messages pane at its minimum. A
-		// zoomed thread has no messages pane to protect, so only its
-		// own floor (below) applies.
-		if !zoomed && (msgPaneWidth < minMsgWidth || threadWidth < minThreadW) {
-			autoHidden = true
-			threadWidth = 0
-			threadBorder = 0
-		}
+	var msgWidth, msgBorder, threadWidth, threadBorder int
+	switch {
+	case !threadVisible:
+		msgWidth, msgBorder = msgAreaWidth-paneBorder, paneBorder
+	case !threadFullscreen && msgAreaWidth-2*paneBorder >= minMsgWidth+minThreadW:
+		threadWidth = max(msgAreaWidth*35/100, minThreadW)
+		threadWidth = min(threadWidth, msgAreaWidth-2*paneBorder-minMsgWidth)
+		threadBorder, msgBorder = paneBorder, paneBorder
+		msgWidth = msgAreaWidth - msgBorder - threadWidth - threadBorder
+	case threadFront:
+		threadWidth, threadBorder = msgAreaWidth-paneBorder, paneBorder
+	default:
+		msgWidth, msgBorder = msgAreaWidth-paneBorder, paneBorder
+	}
+	if msgBorder > 0 {
+		msgWidth = max(msgWidth, floorPaneW)
+	}
+	if threadBorder > 0 {
+		threadWidth = max(threadWidth, floorPaneW)
 	}
 
-	msgWidth := msgAreaWidth - msgBorder - threadWidth - threadBorder
-	if msgWidth < floorMsgW {
-		msgWidth = floorMsgW
-	}
-
-	// Zoom widens the thread over the whole messages area. Applied
-	// AFTER msgWidth so the suppressed messages pane keeps its
-	// side-by-side width (see the ThreadFullscreen field doc).
-	if zoomed {
-		threadWidth = msgAreaWidth - threadBorder
-		if threadWidth < floorMsgW {
-			threadWidth = floorMsgW
-		}
-	}
-
-	// Store bands for PanelAt. When sidebar / thread are hidden their
-	// "end" coordinates collapse onto the prior band's end so PanelAt
-	// can branch on bands alone (visibility flags are still passed
-	// to PanelAt for defense, but with consistent bands they're
-	// redundant).
+	// Bands for PanelAt and the mouse routers. A pane that is not drawn
+	// has a zero-width band, so its range can never match.
 	l.railWidth = railWidth
 	l.sidebarEnd = railWidth + sbWidth + sbBorder
-	msgBand := msgWidth + msgBorder
-	if zoomed {
-		msgBand = 0 // the messages pane isn't drawn; its band collapses
-	}
-	l.msgEnd = l.sidebarEnd + msgBand
-	if threadVisible && !autoHidden && threadWidth > 0 {
-		l.threadEnd = l.msgEnd + threadWidth + threadBorder
-	} else {
-		l.threadEnd = l.msgEnd
-	}
+	l.msgEnd = l.sidebarEnd + msgWidth + msgBorder
+	l.threadEnd = l.msgEnd + threadWidth + threadBorder
 
 	return panelLayoutFrame{
-		RailWidth:        railWidth,
-		SidebarWidth:     sbWidth,
-		SidebarBorder:    sbBorder,
-		MsgWidth:         msgWidth,
-		MsgBorder:        msgBorder,
-		ThreadWidth:      threadWidth,
-		ThreadBorder:     threadBorder,
-		ContentHeight:    contentHeight,
-		ThreadAutoHidden: autoHidden,
-		ThreadFullscreen: zoomed,
+		RailWidth:     railWidth,
+		SidebarWidth:  sbWidth,
+		SidebarBorder: sbBorder,
+		MsgWidth:      msgWidth,
+		MsgBorder:     msgBorder,
+		ThreadWidth:   threadWidth,
+		ThreadBorder:  threadBorder,
+		ContentHeight: contentHeight,
 	}
 }
 

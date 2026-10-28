@@ -76,13 +76,15 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keys.InsertMode):
 		a.SetMode(ModeInsert)
-		// In the Threads view, and under a zoomed thread, there is no
-		// main compose box on screen -- the only way to type is into
-		// the thread panel's compose. Force focus there even when the
-		// threads list or the sidebar was the focused panel. (The
-		// focus normalization in View can't cover this one: the
-		// textarea drops keys until something calls Focus.)
-		if a.focusedPanel == PanelThread || a.threadFullscreen || (a.view == ViewThreads && a.threadVisible) {
+		// In the Threads view there is no main compose box -- the
+		// only way to type is into the right-side thread panel's
+		// compose. Force focus there even when the threads list
+		// itself was the focused panel. Same for a stacked, narrow
+		// layout where the thread is the only content pane drawn
+		// (e.g. focus on the sidebar): typing must land where the
+		// user can see it, not in a channel compose hidden behind
+		// the thread.
+		if a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) || a.threadDrawnAlone() {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -197,6 +199,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.FocusNext()
 
 	case key.Matches(msg, a.keys.Enter):
+		if cmd, ok := a.openForwardedSelected(); ok {
+			return cmd
+		}
 		return a.handleEnter()
 
 	case key.Matches(msg, a.keys.ToggleSection):
@@ -299,6 +304,8 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.CopyFromMessage):
 		return a.copyFromSelectedMessage()
+	case key.Matches(msg, a.keys.ForwardMessage):
+		return a.beginForwardOfSelected()
 
 	case key.Matches(msg, a.keys.Edit):
 		return a.beginEditOfSelected()

@@ -36,12 +36,9 @@ import (
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/presencemenu"
-	"github.com/gammons/slk/internal/ui/reactionpicker"
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
@@ -565,9 +562,9 @@ func run(startupLink *slackurl.Permalink) error {
 	var p *tea.Program
 	workspacesStore := newWorkspaceConfigStore(cfg)
 
-	// router holds the program-wide active workspace pointer. All
-	// wireCallbacks-registered callbacks read router.Active() at
-	// invocation time so they always see the current workspace.
+	// router holds the program-wide active workspace pointer.
+	// Most wireCallbacks-registered callbacks read router.Active() at
+	// invocation time; forwarding instead uses the captured team ID.
 	router := newWorkspaceRouter()
 
 	// Cache-first boot paint + the cache-only read fallbacks used by
@@ -622,7 +619,7 @@ func run(startupLink *slackurl.Permalink) error {
 	}))
 
 	// Wire theme switcher: dispatch to the appropriate saver based on scope.
-	saveTheme := func(name string, scope themeswitcher.ThemeScope) {
+	saveTheme := func(name string, scope core.ThemeScope) {
 		switch scope {
 		case themeswitcher.ScopeWorkspace:
 			active := router.Active()
@@ -668,7 +665,7 @@ func run(startupLink *slackurl.Permalink) error {
 	// Wire presence/DND status setter. Resolves the active team ID
 	// through the router at invocation so the closure always targets
 	// the currently-active workspace context.
-	setStatus := func(action presencemenu.Action, snoozeMinutes int) {
+	setStatus := func(action core.PresenceAction, snoozeMinutes int) {
 		wctx := router.Active()
 		if wctx == nil || wctx.Client == nil {
 			return
@@ -706,8 +703,8 @@ func run(startupLink *slackurl.Permalink) error {
 		}()
 	}
 
-	// wireCallbacks installs all App callbacks once at startup. Each
-	// callback reads router.Active() at invocation time, so the
+	// wireCallbacks installs all App callbacks once at startup. Most
+	// callbacks read router.Active() at invocation time, so the
 	// effective workspace tracks the user's current Ctrl-N selection
 	// without any per-switch closure rebinding.
 	//
@@ -801,7 +798,7 @@ func run(startupLink *slackurl.Permalink) error {
 			// non-empty query, so this runs once per typing pause
 			// rather than once per boot per workspace, which is what
 			// the conversations.list walk it replaced did.
-			SearchRemote: func(query string) []channelfinder.Item {
+			SearchRemote: func(query string) []core.ChannelFinderItem {
 				wctx := router.Active()
 				if wctx == nil {
 					return nil
@@ -952,6 +949,18 @@ func run(startupLink *slackurl.Permalink) error {
 
 		linkPreviews := newPreviewCache()
 		app.SetMessageService(core.NewMessageService(core.MessageServiceFuncs{
+			Forward: func(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (core.ForwardResult, error) {
+				// The user may have switched workspaces since starting the action.
+				wctx := router.ByID(teamID)
+				if wctx == nil || wctx.Client == nil {
+					return core.ForwardResult{}, fmt.Errorf("forwarding message: workspace %q is unavailable", teamID)
+				}
+				postedTS, permalink, err := wctx.Client.ForwardMessage(ctx, string(sourceChannelID), string(ts), string(destinationChannelID))
+				if err != nil {
+					return core.ForwardResult{}, err
+				}
+				return core.ForwardResult{TS: ids.MessageTS(postedTS), Text: permalink}, nil
+			},
 			Send: func(channelID ids.ChannelID, text string) core.Msg {
 				chIDStr := string(channelID)
 				wctx := router.Active()
@@ -1108,7 +1117,7 @@ func run(startupLink *slackurl.Permalink) error {
 			},
 		}))
 
-		upload := func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) core.Cmd {
+		upload := func(channelID, threadTS, caption string, attachments []core.PendingAttachment) core.Cmd {
 			return func() core.Msg {
 				wctx := router.Active()
 				if wctx == nil {
@@ -1308,16 +1317,16 @@ func run(startupLink *slackurl.Permalink) error {
 				return wctx.Client.RemoveReaction(ctx, string(channelID), string(messageTS), emojiName)
 			},
 			// LoadFrecent: not workspace-specific, captures only db.
-			func(limit int) []reactionpicker.EmojiEntry {
+			func(limit int) []core.EmojiEntry {
 				names, err := db.GetFrecentEmoji(limit)
 				if err != nil {
 					return nil
 				}
 				codeMap := emojiwidth.CodeMap()
-				var entries []reactionpicker.EmojiEntry
+				var entries []core.EmojiEntry
 				for _, name := range names {
 					unicode := codeMap[":"+name+":"]
-					entries = append(entries, reactionpicker.EmojiEntry{
+					entries = append(entries, core.EmojiEntry{
 						Name:    name,
 						Unicode: unicode,
 					})

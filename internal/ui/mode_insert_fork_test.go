@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/compose"
+	"github.com/gammons/slk/internal/core"
 )
 
 // Ctrl+U (what kitty sends for cmd+backspace) falls through to the
@@ -19,7 +19,7 @@ func TestHandleInsertMode_CtrlU_DeletesCurrentLineOnly(t *testing.T) {
 	app.SetMode(ModeInsert)
 	_ = app.compose.Focus()
 	app.compose.SetValue("line1\nline2")
-	app.compose.AddAttachment(compose.PendingAttachment{Filename: "a.png", Size: 1})
+	app.compose.AddAttachment(core.PendingAttachment{Filename: "a.png", Size: 1})
 
 	// SetValue lands the cursor at the end of the last line.
 	app.handleInsertMode(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})

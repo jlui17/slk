@@ -220,24 +220,6 @@ func TestAgentThreadDetectedAfterPermalinkBackfill(t *testing.T) {
 	}
 }
 
-func TestAgentThreadTrackingSurvivesAutoHide(t *testing.T) {
-	a, _, unreads := newAgentTestApp(t)
-	openAgentThread(a, "<@UBOT> hi")
-
-	// Narrow enough that layout.Compute cannot fit the thread pane, so
-	// View() auto-hides it. Tracking must survive: an unread reply after
-	// the hide still has a sidebar row to land on.
-	a.width, a.height = 40, 20
-	_ = a.View()
-	if a.threadVisible {
-		t.Fatal("precondition: thread should auto-hide at width 40")
-	}
-	a.noteAgentThreadReply("", "C1", messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UBOT", Text: "done"})
-	if len(*unreads) != 1 || (*unreads)[0].status != "1 unread reply" {
-		t.Fatalf("unread after auto-hide must report; got %+v", *unreads)
-	}
-}
-
 func TestAgentThreadReplyReloadDoesNotStompWorkingState(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	openAgentThread(a, "<@UBOT> hi")

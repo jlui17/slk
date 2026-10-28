@@ -57,6 +57,7 @@
 | `Esc` | App Home | Close a menu or confirm box, or stop waiting for the app's redraw after `o` / `O`; else move to the sidebar |
 | Click | App Home | A link in the text opens; a click on a row you can press moves there |
 | `d` | Normal (message) | Download file attachment (multiple files open a picker) |
+| `F` | Normal (message / thread) | Forward selected message using the channel finder; Enter sends, Esc cancels |
 | `v` | Normal (message) | Open full-screen image preview |
 | `Esc` / `q` | Preview | Close preview |
 | `Enter` | Preview | Open in system image viewer |

@@ -167,6 +167,24 @@ func TestOpenLink_ThreadPermalink_OpensThread(t *testing.T) {
 	}
 }
 
+func TestOpenLink_ActiveChannel_RevealsSource(t *testing.T) {
+	for _, fromThreads := range []bool{false, true} {
+		app, _ := linkTestApp(t)
+		app.activeChannelID = "C054JFCBN69"
+		app.focusedPanel = PanelThread
+		app.threadVisible = true
+		if fromThreads {
+			app.view = ViewThreads
+			app.sidebar.SetThreadsActive(true)
+		}
+		app.messagepane.SetMessages([]messages.MessageItem{{TS: "1779284733.270139", Text: "source"}})
+		app.Update(OpenLinkMsg{URL: "https://myteam.slack.com/archives/C054JFCBN69/p1779284733270139"})
+		if app.view != ViewChannels || app.focusedPanel != PanelMessages {
+			t.Fatalf("fromThreads=%v: view=%v focus=%v", fromThreads, app.view, app.focusedPanel)
+		}
+	}
+}
+
 func TestMessagesLoaded_CompletesPendingNav(t *testing.T) {
 	app, _ := linkTestApp(t)
 	app.activeChannelID = "C054JFCBN69"

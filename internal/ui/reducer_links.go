@@ -54,6 +54,9 @@ type pendingLinkNav struct {
 	// reply. True for O, alt+o and a startup link (`slk <link>`, what O
 	// and alt+o run in their herdr tab or pane); needs openParentThread.
 	openEmptyThread bool
+	// teamID is the workspace the link was followed in; a nav that
+	// completes after a workspace switch is stale.
+	teamID string
 }
 
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -97,6 +100,7 @@ func (a *App) routeLink(rawURL string, inHerdr HerdrTarget) tea.Cmd {
 		threadTS:         string(pl.ThreadTS),
 		openParentThread: true,
 		openEmptyThread:  inHerdr != HerdrNone,
+		teamID:           a.activeTeamID,
 	}
 	debuglog.General("routeLink: in-app nav channel=%s ts=%s thread_ts=%s active=%s",
 		pl.ChannelID, pl.MessageTS, pl.ThreadTS, a.activeChannelID)
@@ -126,12 +130,23 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if p == nil {
 		return nil
 	}
-	if p.channelID != channelID {
+	if p.channelID != channelID || (p.teamID != "" && p.teamID != a.activeTeamID) {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
 		debuglog.General("completePendingLinkNav: stale (pending=%s got=%s), dropped", p.channelID, channelID)
 		a.pendingLinkNav = nil
 		return nil
+	}
+	firstLanding := !p.delivered
+	if firstLanding {
+		// A link followed from the Threads view lands in the channel
+		// (an app's Home keeps its view: apphome.go routes its own DM).
+		if a.view == ViewThreads {
+			a.view = ViewChannels
+			a.sidebar.SetThreadsActive(false)
+		}
+		a.lastOpenedChannelID = ""
+		a.lastOpenedThreadTS = ""
 	}
 	if p.threadTS != "" {
 		debuglog.General("completePendingLinkNav: opening thread %s select=%s", p.threadTS, p.messageTS)
@@ -148,7 +163,6 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	// re-selects, without tearing down whatever the user opened since.
 	// Ordering: CloseThread clears pane selections, so it must precede
 	// SelectByTS.
-	firstLanding := !p.delivered
 	if firstLanding {
 		if a.threadVisible {
 			a.CloseThread()

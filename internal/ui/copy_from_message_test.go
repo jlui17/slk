@@ -432,7 +432,7 @@ func TestApp_ClickBesideCopyLabelBehavesAsBefore(t *testing.T) {
 }
 
 func TestApp_ClickOnCopyLabelInThreadPane(t *testing.T) {
-	a := newHarnessApp(t, withHarnessSize(160, 40), withApp(func(a *App) {
+	a := newHarnessApp(t, withHarnessSize(200, 40), withApp(func(a *App) {
 		a.messagepane.SetMessages([]messages.MessageItem{{TS: "1.0", UserName: "alice", Text: "parent", Timestamp: "1:00 PM"}})
 		a.threadPanel.SetThread(
 			messages.MessageItem{TS: "1.0", UserName: "alice", Text: "```\nfrom the parent\n```", Timestamp: "1:00 PM"},

@@ -14,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/core"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/compose"
 )
@@ -113,7 +114,7 @@ func (a *App) handlePasteThumbKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // preview. It opens with no message behind it and no path, so the
 // preview's sibling keys and its open-in-system-viewer key do nothing;
 // closing it leaves insert mode and the thumbnail focus as they were.
-func (a *App) openPastedImagePreview(att compose.PendingAttachment) {
+func (a *App) openPastedImagePreview(att core.PendingAttachment) {
 	img, _, err := image.Decode(bytes.NewReader(att.Bytes))
 	if err != nil {
 		return

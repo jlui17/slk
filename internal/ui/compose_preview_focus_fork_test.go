@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/slk/internal/core"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/imgrender"
@@ -27,7 +28,7 @@ type pasteFocusApp struct {
 	uploads int
 }
 
-func namedPaste(name string, b []byte) compose.PendingAttachment {
+func namedPaste(name string, b []byte) core.PendingAttachment {
 	att := pastedImage(b)
 	att.Filename = name
 	return att
@@ -43,7 +44,7 @@ func newPasteFocusApp(t *testing.T, thread bool, names ...string) *pasteFocusApp
 		a.SetImageProtocol(imgpkg.ProtoHalfBlock)
 		a.SetImageContext(imgrender.ImageContext{CellPixels: image.Pt(8, 16)})
 		a.activeChannelID = "C1"
-		wireUploader(a, func(string, string, string, []compose.PendingAttachment) tea.Cmd {
+		wireUploader(a, func(string, string, string, []core.PendingAttachment) tea.Cmd {
 			p.uploads++
 			return nil
 		})
@@ -129,9 +130,7 @@ func TestPasteThumbFocus_UpOnTheFirstRowSelectsTheLastThumbnail(t *testing.T) {
 				t.Fatalf("selected thumbnail = %d, want 1 (the last)", got)
 			}
 			after := ansi.Strip(p.View().Content)
-			// The side-by-side thread pane is too narrow for the
-			// longer hint, which is then left out.
-			if !strings.Contains(after, "▸") || strings.Contains(after, pasteThumbFocusHint) == thread || strings.Contains(after, pasteThumbTextHint) {
+			if !strings.Contains(after, "▸") || !strings.Contains(after, pasteThumbFocusHint) || strings.Contains(after, pasteThumbTextHint) {
 				t.Fatalf("after Up: want the marker and %q, got:\n%s", pasteThumbFocusHint, after)
 			}
 			if a, b := strings.Count(before, "\n"), strings.Count(after, "\n"); a != b {
@@ -145,7 +144,7 @@ func TestPasteThumbFocus_UpOnTheFirstRowSelectsTheLastThumbnail(t *testing.T) {
 // to the start of the text.
 func TestPasteThumbFocus_UpWithNoImageJumpsToTheStartOfTheText(t *testing.T) {
 	p := newPasteFocusApp(t, false)
-	p.box.AddAttachment(compose.PendingAttachment{Filename: "notes.txt", Path: "/tmp/notes.txt", Size: 5})
+	p.box.AddAttachment(core.PendingAttachment{Filename: "notes.txt", Path: "/tmp/notes.txt", Size: 5})
 	_ = p.View()
 
 	p.press(keyCode(tea.KeyUp), keyPress('X'))
@@ -282,7 +281,7 @@ func TestPasteThumbFocus_RemoveInTheMiddleSelectsThePrevious(t *testing.T) {
 // no picture.
 func TestPasteThumbFocus_RemoveSkipsAttachmentsWithoutAThumbnail(t *testing.T) {
 	p := newPasteFocusApp(t, false)
-	p.box.AddAttachment(compose.PendingAttachment{Filename: "notes.txt", Path: "/tmp/notes.txt", Size: 5})
+	p.box.AddAttachment(core.PendingAttachment{Filename: "notes.txt", Path: "/tmp/notes.txt", Size: 5})
 	p.box.AddAttachment(namedPaste("a.png", pastePNG(t, 64, 64, color.White)))
 	_ = p.View()
 

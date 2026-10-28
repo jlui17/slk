@@ -101,18 +101,25 @@ type ThreadService interface {
 }
 
 // MessageService is the App's interface to Slack's per-message
-// operations: send, edit, delete, mark-unread, and permalink lookup.
+// operations: send, forward, edit, delete, mark-unread, and permalink lookup.
 // Implementations are wired by cmd/slk/main.go.
 //
-// All methods are best-effort and nil-safe at the adapter level: an
-// implementation built via NewMessageService with a nil component
-// silently no-ops that operation (returning nil Msg, ("", nil)
-// for Permalink, or ("", "", nil) for Preview).
+// Methods are nil-safe at the adapter level. A nil Forward component
+// returns an unsupported error; other nil components silently no-op
+// (returning nil Msg, ("", nil) for Permalink, or ("", "", nil) for
+// Preview).
 type MessageService interface {
 	// Send dispatches chat.postMessage for channelID with text.
 	// Returns a Msg (typically MessageSentMsg or
 	// MessageSendFailedMsg).
 	Send(channelID ids.ChannelID, text string) Msg
+
+	// Forward posts the source message's permalink to destinationChannelID
+	// with Slack's native preview. teamID is captured when forwarding begins,
+	// not read from the active workspace when this synchronous call executes.
+	// Callers run it off the Update loop; it does not produce send/compose events.
+	// On success, returns the actual posted timestamp and permalink text.
+	Forward(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (ForwardResult, error)
 
 	// Edit dispatches chat.update for the message identified by
 	// (channelID, ts), replacing its text with newText.

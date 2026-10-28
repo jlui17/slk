@@ -40,19 +40,15 @@ func (a *App) ToggleThreadFullscreen() {
 	}
 }
 
-// crampedThreadWidth is the narrowest side-by-side thread panel worth
-// reading; a thread that would open narrower opens zoomed instead.
-const crampedThreadWidth = 40
-
-// zoomThreadIfCramped zooms the just-opened thread when the
-// side-by-side layout would give its panel fewer than
-// crampedThreadWidth columns, or auto-hide it. The question goes to a
-// scratch panelLayout: Compute stores hit-test bands, and a.layout's
-// must keep describing the frame View last drew.
-func (a *App) zoomThreadIfCramped() {
-	frame := newPanelLayout().Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(), a.sidebarVisible, true, false)
-	if frame.ThreadAutoHidden || frame.ThreadWidth < crampedThreadWidth {
-		a.threadFullscreen = true
+// keepFocusOffHiddenMessages runs after every Update: a zoomed thread
+// covers the messages pane, and plenty of handlers park focus there
+// without knowing about the zoom (window split, hiding a focused
+// sidebar). Normalizing here rather than at each of those keeps the
+// invariant in one place: focus is never on a pane the frame won't
+// draw.
+func (a *App) keepFocusOffHiddenMessages() {
+	if a.threadVisible && a.threadFullscreen && a.focusedPanel == PanelMessages {
+		a.focusedPanel = PanelThread
 	}
 }
 

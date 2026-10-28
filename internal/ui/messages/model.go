@@ -636,10 +636,10 @@ func (m *Model) SetChannelType(chType string) {
 	m.channelType = chType
 }
 
-// ChannelGlyph returns the prefix glyph to render before a channel
-// name. Mirrors the sidebar's type-to-glyph mapping; exported so the
-// link picker's rows share it (statusbar and threadsview still carry
-// their own copies).
+// ChannelGlyph returns the prefix glyph for a channel type: "◆" for
+// "private", "●" for "dm" and "group_dm", "▣" for "app", "#" otherwise. Used by the
+// messages-pane header, the thread breadcrumb and the link picker's
+// rows.
 func ChannelGlyph(chType string) string {
 	switch chType {
 	case "private":

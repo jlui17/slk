@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/channelfinder"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
@@ -39,7 +39,7 @@ func TestWorkspaceReadyStartupLink(t *testing.T) {
 			{ID: "C1", Name: "general", Type: "channel"},
 			{ID: "C2", Name: "random", Type: "channel"},
 		},
-		FinderItems: []channelfinder.Item{
+		FinderItems: []core.ChannelFinderItem{
 			{ID: "C1", Name: "general", Type: "channel", Joined: true},
 			{ID: "C3", Name: "browseable", Type: "channel", Joined: false},
 		},

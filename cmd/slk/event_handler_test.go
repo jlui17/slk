@@ -12,9 +12,9 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/sharedmap"
 	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/usernames"
 	"github.com/slack-go/slack"
@@ -30,7 +30,7 @@ func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 		UserNames:         usernames.NewStore(),
 		UserNamesByHandle: map[string]string{},
 		Channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
-		FinderItems:       []channelfinder.Item{{ID: "C1", Name: "general", Type: "channel", Joined: true}},
+		FinderItems:       []core.ChannelFinderItem{{ID: "C1", Name: "general", Type: "channel", Joined: true}},
 	}
 	h := &rtmEventHandler{
 		wsCtx:        wctx,
@@ -115,7 +115,7 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 			{ID: "G1", Name: "old", Type: "group_dm"},
 		},
 		// Seed FinderItems so we can assert dedupe doesn't double-add.
-		FinderItems: []channelfinder.Item{
+		FinderItems: []core.ChannelFinderItem{
 			{ID: "G1", Name: "old", Type: "group_dm", Joined: true},
 		},
 	}

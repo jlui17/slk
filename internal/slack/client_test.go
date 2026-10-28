@@ -209,6 +209,10 @@ func (m *mockSlackAPI) PostMessage(channelID string, options ...slack.MsgOption)
 	return "", "", nil
 }
 
+func (m *mockSlackAPI) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *mockSlackAPI) UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
 	return "", "", "", nil
 }

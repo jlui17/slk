@@ -11,8 +11,8 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/core"
 
-	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/styles"
 )
@@ -27,7 +27,7 @@ type WorkspaceCachedMsg struct {
 	Theme         string
 	SidebarWidth  int
 	Channels      []sidebar.ChannelItem
-	FinderItems   []channelfinder.Item
+	FinderItems   []core.ChannelFinderItem
 	LastChannelID string
 }
 
