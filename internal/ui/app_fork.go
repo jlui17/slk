@@ -53,6 +53,11 @@ type appFork struct {
 	profileCard     profileCardState  // profilecard.go
 	ephemerals      ephemerals        // ephemeral_fork.go
 
+	// pastePreviewMemo holds the compose boxes' pasted-image thumbnails
+	// by bytes, size and protocol; only View touches it
+	// (compose_preview_fork.go).
+	pastePreviewMemo map[pasteThumbKey]pasteThumb
+
 	// pickerInHerdr marks a links picker opened by the O or alt+o
 	// keybinding: Enter then dispatches OpenLinkMsg with InHerdr set to it.
 	pickerInHerdr HerdrTarget

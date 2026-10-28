@@ -131,8 +131,8 @@ func TestPastePreview_GoneOnceTheAttachmentIs(t *testing.T) {
 	if rows := previewRows(t, app, pastePreviewTestHeight); rows != nil {
 		t.Fatalf("expected no preview rows after the clear, got %d", len(rows))
 	}
-	if len(pastePreviewMemo) != 0 {
-		t.Fatalf("the memo must let go of images no compose box holds, has %d", len(pastePreviewMemo))
+	if len(app.pastePreviewMemo) != 0 {
+		t.Fatalf("the memo must let go of images no compose box holds, has %d", len(app.pastePreviewMemo))
 	}
 }
 
@@ -224,11 +224,11 @@ func TestPastePreview_SecondFrameComesFromTheMemo(t *testing.T) {
 	app := newPastePreviewApp(t, imgpkg.ProtoHalfBlock)
 	app.compose.AddAttachment(pastedImage(pastePNG(t, 80, 80, color.White)))
 	previewRows(t, app, pastePreviewTestHeight)
-	if len(pastePreviewMemo) != 1 {
-		t.Fatalf("expected one memo entry, got %d", len(pastePreviewMemo))
+	if len(app.pastePreviewMemo) != 1 {
+		t.Fatalf("expected one memo entry, got %d", len(app.pastePreviewMemo))
 	}
-	for k := range pastePreviewMemo {
-		pastePreviewMemo[k] = pasteThumb{cols: 4, lines: []string{"MEMO"}}
+	for k := range app.pastePreviewMemo {
+		app.pastePreviewMemo[k] = pasteThumb{cols: 4, lines: []string{"MEMO"}}
 	}
 	rows := previewRows(t, app, pastePreviewTestHeight)
 	if len(rows) != 1 || !strings.Contains(rows[0], "MEMO") {

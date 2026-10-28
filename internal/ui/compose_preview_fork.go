@@ -64,11 +64,6 @@ type pasteThumb struct {
 	lines []string
 }
 
-// pastePreviewMemo is package-level because the thumbnails belong to
-// the pasted bytes, not to an App, and a field on App would be churn
-// on an upstream file. Only View touches it.
-var pastePreviewMemo = map[pasteThumbKey]pasteThumb{}
-
 // withPastePreview returns composeView with a row of thumbnails above
 // it, one per pasted image, or composeView itself when there is
 // nothing to preview. Every preview row is exactly width cells wide.
@@ -165,7 +160,7 @@ func (a *App) pasteThumb(data []byte, maxRows int) pasteThumb {
 		cell = image.Pt(8, 16)
 	}
 	key := pasteThumbKey{data: &data[0], n: len(data), maxRows: maxRows, cell: cell, proto: a.imgProtocol}
-	if t, ok := pastePreviewMemo[key]; ok {
+	if t, ok := a.pastePreviewMemo[key]; ok {
 		return t
 	}
 	var t pasteThumb
@@ -173,7 +168,10 @@ func (a *App) pasteThumb(data []byte, maxRows int) pasteThumb {
 		target := pasteThumbCells(img.Bounds().Size(), cell, maxRows)
 		t = pasteThumb{cols: target.X, lines: renderPasteThumb(a.imgProtocol, img, data, target, cell)}
 	}
-	pastePreviewMemo[key] = t
+	if a.pastePreviewMemo == nil {
+		a.pastePreviewMemo = map[pasteThumbKey]pasteThumb{}
+	}
+	a.pastePreviewMemo[key] = t
 	return t
 }
 
@@ -220,7 +218,7 @@ func pasteThumbCells(px, cell image.Point, maxRows int) image.Point {
 // forgetUnheldPasteThumbs drops the thumbnails of bytes neither compose
 // box holds any more, which also lets go of the bytes themselves.
 func (a *App) forgetUnheldPasteThumbs() {
-	if len(pastePreviewMemo) == 0 {
+	if len(a.pastePreviewMemo) == 0 {
 		return
 	}
 	held := map[*byte]bool{}
@@ -231,9 +229,9 @@ func (a *App) forgetUnheldPasteThumbs() {
 			}
 		}
 	}
-	for k := range pastePreviewMemo {
+	for k := range a.pastePreviewMemo {
 		if !held[k.data] {
-			delete(pastePreviewMemo, k)
+			delete(a.pastePreviewMemo, k)
 		}
 	}
 }
