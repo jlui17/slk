@@ -288,7 +288,8 @@ there and resolve them knowing what the fork wants:
   `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
   selects the parent row, the thread's topmost, where upstream selects the
   first reply; pinned in `keyrouting_fork_test.go`.
-- `internal/cache/threads.go` — `ListSubscribedThreads` counts the parent
+- `internal/cache/threads.go` — `ListSubscribedThreads` runs the fork's
+  `listSubscribedThreadsQuery` (`threads_fork.go`), which counts the parent
   row as newest activity.
 - `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into
   fork helpers (`retractLatestReply`, `migrateFork`).

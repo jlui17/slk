@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -78,5 +79,39 @@ func TestListSubscribedThreads_ParentOnlySelfRootSuppressed(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Unread {
 		t.Fatalf("expected self-authored parent-only thread suppressed (read), got %+v", got)
+	}
+}
+
+// A thread's newest-activity lookup must seek the thread, not read the
+// channel: a plan through idx_messages_channel costs every cached
+// message in the channel per subscription, which pinned a core per slk
+// once busy channels held tens of thousands of messages and hundreds of
+// subscribed threads.
+func TestNewestActivityQueriesSeekTheThread(t *testing.T) {
+	db := setupDBWithWorkspace(t)
+	for name, q := range map[string]struct {
+		sql  string
+		args []any
+	}{
+		"listSubscribedThreadsQuery": {listSubscribedThreadsQuery, []any{"T1"}},
+		"threadNewestActivityQuery":  {threadNewestActivityQuery, []any{"T1", "C1", "1.0", "C1", "1.0", "1.0"}},
+	} {
+		rows, err := db.conn.Query("EXPLAIN QUERY PLAN "+q.sql, q.args...)
+		if err != nil {
+			t.Fatalf("%s: explain: %v", name, err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, notused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+				t.Fatalf("%s: scan: %v", name, err)
+			}
+			plan = append(plan, detail)
+		}
+		rows.Close()
+		if strings.Contains(strings.Join(plan, "\n"), "idx_messages_channel (channel_id=?)") {
+			t.Errorf("%s reads every cached message in the channel:\n%s", name, strings.Join(plan, "\n"))
+		}
 	}
 }

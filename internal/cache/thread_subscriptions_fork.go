@@ -14,15 +14,8 @@ import (
 // with one divergence: the list additionally suppresses a self-authored
 // newest message.
 func (db *DB) ThreadNewestActivity(workspaceID, channelID, threadTS string) (string, error) {
-	const q = `
-SELECT
-    COALESCE((SELECT latest_reply FROM thread_subscriptions
-              WHERE workspace_id = ? AND channel_id = ? AND thread_ts = ?), ''),
-    COALESCE((SELECT MAX(ts) FROM messages
-              WHERE channel_id = ? AND (thread_ts = ? OR ts = ?) AND is_deleted = 0), '')
-`
 	var latestReply, cachedMaxTS string
-	if err := db.conn.QueryRow(q, workspaceID, channelID, threadTS,
+	if err := db.conn.QueryRow(threadNewestActivityQuery, workspaceID, channelID, threadTS,
 		channelID, threadTS, threadTS).Scan(&latestReply, &cachedMaxTS); err != nil {
 		return "", fmt.Errorf("querying thread newest activity: %w", err)
 	}
@@ -31,6 +24,17 @@ SELECT
 	}
 	return latestReply, nil
 }
+
+// The unary + on channel_id has the same reason as in
+// listSubscribedThreadsQuery: it keeps SQLite on the thread_ts and ts
+// indexes instead of reading every cached message in the channel.
+const threadNewestActivityQuery = `
+SELECT
+    COALESCE((SELECT latest_reply FROM thread_subscriptions
+              WHERE workspace_id = ? AND channel_id = ? AND thread_ts = ?), ''),
+    COALESCE((SELECT MAX(ts) FROM messages
+              WHERE +channel_id = ? AND (thread_ts = ? OR ts = ?) AND is_deleted = 0), '')
+`
 
 // retractLatestReply: a deleted message can't stay a thread's
 // newest-activity watermark: with latest_reply pointing at it, a
