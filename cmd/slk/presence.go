@@ -41,12 +41,13 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	if err != nil {
 		dnd = nil
 	}
-	applyBootstrappedStatus(wctx, program, tok, presence, dnd)
 
 	// DM peers' DND, which the sidebar marks. Later changes arrive as
 	// dnd_invalidated and go through the same refresher. Runs on every
 	// connect because the socket does not replay missed invalidations.
 	wctx.PeerStatus.RefreshDND(ctx, peerIDs)
+
+	applyBootstrappedStatus(wctx, program, tok, presence, dnd)
 }
 
 // subscribeWorkspacePresence subscribes over the WebSocket to presence
