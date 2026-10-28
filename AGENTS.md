@@ -84,6 +84,17 @@ that no longer exists. Do not trust it.** Current structural documentation:
 - **Per-mode key handling is a table**, `modeHandlers` in
   `internal/ui/mode_handlers.go`. One `mode_*.go` file per mode.
 - **SQLite is a cache.** Slack remains authoritative.
+- **A cache query that runs per event or per thread seeks its rows.** Such a
+  query (`ListSubscribedThreads` reruns on every thread event, with one
+  subquery per subscribed thread) must reach its rows through an index that
+  narrows to the thread or message. Given a `channel_id = ?` term, SQLite can
+  pick `idx_messages_channel` instead and read every cached message in the
+  channel; write `+channel_id` to keep it off that index. Pin the plan with an
+  `EXPLAIN QUERY PLAN` test, as `TestNewestActivityQueriesSeekTheThread` does,
+  and time a new query on a copy of a real cache, where a busy channel holds
+  tens of thousands of messages, not only on a test fixture. On 2026-10-28 two
+  such subqueries took 33s together on a real cache; the reruns went back to
+  back and pinned a core in every slk.
 - **A map shared across goroutines is never written.** Every map the UI holds
   is either built for it (a copy, like `userNameStore.SnapshotForUI()` or the
   per-message `ExternalUsers` set) or published once and never mutated
