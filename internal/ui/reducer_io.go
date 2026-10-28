@@ -237,7 +237,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		refetch := a.threadRefetchOnReconnect(m.TeamID, st.state)
 		if m.TeamID != "" {
-			a.connStates[m.TeamID] = st
+			a.storeConnState(m.TeamID, st)
 			if m.TeamID != a.activeTeamID {
 				// Cache only; applied when this workspace becomes
 				// active (reduceWorkspaceReady/Switched).

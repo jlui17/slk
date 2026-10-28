@@ -23,6 +23,14 @@ type connectionState struct {
 	attempt int
 }
 
+// storeConnState caches teamID's latest connection state.
+func (a *App) storeConnState(teamID string, st connectionState) {
+	if a.connStates == nil {
+		a.connStates = map[string]connectionState{}
+	}
+	a.connStates[teamID] = st
+}
+
 // applyConnState pushes a connection state into the statusbar segment
 // and starts the countdown tick chain when entering a reconnect wait
 // (one chain at a time; a live chain just picks up the new values).

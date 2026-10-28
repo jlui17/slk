@@ -99,9 +99,10 @@ there and resolve them knowing what the fork wants:
   notes whether the prompt opens over the `.` overlay, and a closed prompt
   hands the keys back to the overlay (`appshortcuts.go`), where upstream
   always lands in normal mode.
-- `internal/ui/*` — new `App` fields, `TeamID` on message msgs, new key
-  bindings and reducer switch arms; the usernames-store migration's
-  mechanical call-site edits.
+- `internal/ui/*` — `App` embeds `appFork` (`app_fork.go`, the fork's
+  App state), `TeamID` on message msgs, new key bindings and reducer
+  switch arms; the usernames-store migration's mechanical call-site
+  edits.
 - App Home (`apphome.go`, `internal/ui/apphome/`) — a `ViewAppHome` value
   on `View`, and one-line hooks where upstream branches on `ViewThreads`:
   `renderMessagesRegion`, the mouse wheel and click arms of
