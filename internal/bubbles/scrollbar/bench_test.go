@@ -57,6 +57,28 @@ func BenchmarkOverlay(b *testing.B) {
 	}
 }
 
+// BenchmarkCacheOverlay scrolls one line per frame through a Cache, the
+// way a pane redraws: every row but the one scrolled in is warm.
+func BenchmarkCacheOverlay(b *testing.B) {
+	for _, h := range []int{40, 100, 300} {
+		for _, w := range []int{80, 200} {
+			b.Run(fmt.Sprintf("h%d/w%d", h, w), func(b *testing.B) {
+				total := h * 4
+				src := benchRows(total, w)
+				buf := make([]string, h)
+				var c Cache
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					off := i % (total - h + 1)
+					copy(buf, src[off:off+h])
+					c.Overlay(buf, w, total, off, h, bg, track, thumb)
+				}
+			})
+		}
+	}
+}
+
 // BenchmarkOverlayNoOverflow is the early-return path, for reference.
 func BenchmarkOverlayNoOverflow(b *testing.B) {
 	rows := benchRows(40, 80)

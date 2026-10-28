@@ -340,3 +340,15 @@ score it. If a workspace gets flagged, the revert is one commit: the
 overlap squash-merged to main as a single feature commit (`git log -S
 overlapPhases` finds it), and reverting it restores the fully serial
 chain — nothing else depends on the timing.
+
+## Changes offered upstream
+
+Upstream-file changes the fork carries ahead of upstream, each also on
+its own branch cut from `upstream/main`. When upstream takes one, the
+merge brings the same lines; if upstream takes a different form, keep
+upstream's and drop the fork's.
+
+- `internal/bubbles/scrollbar/cache.go`, `scrollbar.go`,
+  `internal/bubbles/entrylist/entrylist.go`, `window.go` — `scrollbar.Cache`
+  cuts each pane row once instead of on every frame (branch
+  `perf-scrollbar-fullwidth`).

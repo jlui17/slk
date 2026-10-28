@@ -4,8 +4,6 @@ import (
 	"math"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/gammons/slk/internal/bubbles/scrollbar"
 )
 
 // NoCursor is a cursor value that matches no entry.
@@ -100,7 +98,7 @@ func (m *Model) Compose(f *Frame, top, bottom string, applySelection bool) []str
 	if applySelection && m.hasSel {
 		m.overlaySelection(rows, 0, 0)
 	}
-	return scrollbar.Overlay(rows, m.width, m.total, m.yOffset, m.height,
+	return m.gutter.Overlay(rows, m.width, m.total, m.yOffset, m.height,
 		m.styles.Background, m.styles.Track, m.styles.Thumb)
 }
 

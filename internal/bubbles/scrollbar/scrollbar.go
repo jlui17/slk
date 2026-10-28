@@ -31,7 +31,16 @@ import (
 // scrollbar). bg is the panel background color used to keep the gutter cell
 // flush with the surrounding theme; trackFg / thumbFg control the track and
 // thumb glyph colors.
+//
+// A pane that redraws the same rows on every frame can use Cache.Overlay
+// instead, which cuts each row once.
 func Overlay(visible []string, width, total, yOffset, visibleHeight int, bg, trackFg, thumbFg color.Color) []string {
+	return overlay(nil, visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)
+}
+
+// overlay is Overlay, taking each row's prefix from c when c holds it.
+// c may be nil.
+func overlay(c *Cache, visible []string, width, total, yOffset, visibleHeight int, bg, trackFg, thumbFg color.Color) []string {
 	if visibleHeight <= 0 || width < 1 {
 		return visible
 	}
@@ -56,6 +65,7 @@ func Overlay(visible []string, width, total, yOffset, visibleHeight int, bg, tra
 		rowLimit = len(visible)
 	}
 
+	c.setWidth(width)
 	var padState padCache
 	for i := 0; i < rowLimit; i++ {
 		// Truncate this row to the gutter column. ansi.Cut preserves
@@ -63,15 +73,21 @@ func Overlay(visible []string, width, total, yOffset, visibleHeight int, bg, tra
 		// background-colored spaces so the scrollbar lands at a consistent
 		// column across rows of varying width.
 		line := visible[i]
-		w := ansi.StringWidth(line)
-		var prefix string
-		switch {
-		case w > gutterCol:
-			prefix = ansi.Cut(line, 0, gutterCol)
-		case w == gutterCol:
-			prefix = line
-		default:
-			prefix = line + padCells(&padState, bg, gutterCol-w)
+		prefix, ok := c.get(yOffset+i, line)
+		if !ok {
+			w := ansi.StringWidth(line)
+			switch {
+			case w > gutterCol:
+				prefix = ansi.Cut(line, 0, gutterCol)
+			case w == gutterCol:
+				prefix = line
+			default:
+				prefix = line + padCells(&padState, bg, gutterCol-w)
+			}
+			// A pad depends on bg, which the cache does not key on.
+			if w >= gutterCol {
+				c.put(yOffset+i, line, prefix)
+			}
 		}
 
 		var glyph string

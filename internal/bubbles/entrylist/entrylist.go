@@ -18,6 +18,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/bubbles/scrollbar"
 	"github.com/gammons/slk/internal/bubbles/selection"
 )
 
@@ -182,6 +183,8 @@ type Model struct {
 	spacerWidth int
 	spacerOK    bool
 
+	gutter scrollbar.Cache
+
 	version int64
 }
 
@@ -310,6 +313,7 @@ func (m *Model) SetEntries(es []Entry, width int, keepPosition bool) {
 	}
 	m.entries, m.width, m.live = es, width, -1
 	m.recompute()
+	m.gutter.Reset()
 	if m.eager {
 		m.setY(m.yOffset)
 	}
