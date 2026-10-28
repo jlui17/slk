@@ -1232,6 +1232,13 @@ func (m *Model) SetEmojiContext(ctx emojipicker.EmojiContext) {
 	m.emojiPicker.SetEmojiContext(ctx)
 }
 
+// SetEmojiFrecency forwards the user's emoji history to the underlying
+// autocomplete picker, which lists frecent matches first.
+func (m *Model) SetEmojiFrecency(f emoji.Frecency) {
+	m.emojiPicker.SetFrecency(f)
+	m.dirty()
+}
+
 // SetEmojiCustoms forwards the workspace customs map to the underlying
 // autocomplete picker so URL lookup at View() time can resolve custom
 // emoji names. Called from App.SetCustomEmoji when CustomEmojisLoadedMsg

@@ -469,6 +469,7 @@ func reduceSendMessage(a *App, m SendMessageMsg) tea.Cmd {
 	// for self-user messages on this channel. BeginSend keeps that
 	// going until the answer lands, however long the send takes.
 	a.selfSend.BeginSend(m.ChannelID)
+	a.recordEmojiInText(m.Text)
 	// Instant-display: append an optimistic placeholder for the
 	// active channel immediately, before the chat.postMessage HTTP
 	// round-trip. The placeholder carries a "local:<n>" TS so the

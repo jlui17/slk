@@ -25,13 +25,14 @@ import (
 type rtmEventHandler struct {
 	// program is the running *tea.Program, narrowed to teaSender so
 	// tests can capture what the handler dispatches.
-	program     teaSender
-	userNames   *usernames.Store
-	tsFormat    string
-	db          *cache.DB
-	workspaceID string
-	connected   bool
-	isActive    func() bool
+	program          teaSender
+	userNames        *usernames.Store
+	tsFormat         string
+	db               *cache.DB
+	workspaceID      string
+	connected        bool
+	sectionRefreshAt time.Time
+	isActive         func() bool
 
 	presenceDedupe presenceDedupe
 

@@ -231,6 +231,7 @@ func Default() Config {
 		Appearance: Appearance{
 			Theme:           "nord",
 			TimestampFormat: "3:04 PM",
+			ShowAvatars:     true,
 			ImageProtocol:   "auto",
 			MaxImageRows:    20,
 			MaxImageCols:    60,

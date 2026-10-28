@@ -289,6 +289,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case SendThreadReplyMsg:
 		a.selfSend.BeginSend(m.ChannelID)
+		a.recordEmojiInText(m.Text)
 		// Instant-display: append an optimistic placeholder to the
 		// thread panel immediately, before the chat.postMessage HTTP
 		// round-trip. Mirrors the SendMessageMsg path; see there for

@@ -182,28 +182,24 @@ func TestCommandMode_NonPrintableKeysAreDropped(t *testing.T) {
 	}
 }
 
-// TestCommandMode_NonASCIIRuneIsDropped records that the printable
-// filter is byte-based (`len(s) == 1 && s[0] >= 32 && s[0] <= 126`), so
-// a multi-byte rune cannot be typed into the command line at all.
-//
-// BUG?: this is a real limitation rather than a deliberate reject --
-// a command name with an accented character would be untypeable. It is
-// also what keeps the byte-wise backspace at mode_command.go:49 from
-// ever producing invalid UTF-8, so the two are coupled. Recorded, not
-// changed. Tracked as https://github.com/gammons/slk/issues/187,
-// together with the identical filter in channelfinder.
-//
-// WHEN THAT BUG IS FIXED: the rune is accepted, so this test must be
-// re-pinned to assert a.cmdline == "é" and renamed accordingly.
-func TestCommandMode_NonASCIIRuneIsDropped(t *testing.T) {
+// TestCommandMode_NonASCIIRuneIsTyped pins that the printable filter
+// counts runes, not bytes (#187): a multi-byte rune reaches the command
+// line, and backspace removes the whole rune rather than its last byte,
+// which would leave invalid UTF-8 behind.
+func TestCommandMode_NonASCIIRuneIsTyped(t *testing.T) {
 	a := NewApp()
 	a.enterCommandMode()
 	_ = handleCommandMode(a, tea.KeyPressMsg{Code: 'é', Text: "é"})
-	if a.cmdline != "" {
-		t.Errorf("cmdline = %q, want empty: the filter is byte-based", a.cmdline)
+	_ = handleCommandMode(a, tea.KeyPressMsg{Code: '中', Text: "中"})
+	if a.cmdline != "é中" {
+		t.Errorf("cmdline = %q, want %q", a.cmdline, "é中")
 	}
-	if out := a.statusbar.View(120); !strings.Contains(out, ":") {
-		t.Errorf("status bar lost the bare prompt:\n%s", out)
+	_ = handleCommandMode(a, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if a.cmdline != "é" {
+		t.Errorf("after backspace cmdline = %q, want %q", a.cmdline, "é")
+	}
+	if a.mode != ModeCommand {
+		t.Errorf("mode = %v, want ModeCommand", a.mode)
 	}
 }
 

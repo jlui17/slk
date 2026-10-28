@@ -1444,7 +1444,7 @@ func (a *App) openReactionPicker(p contentPane, channelID string) tea.Cmd {
 		}
 	}
 	p.ExitReactionNav()
-	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
+	a.refreshEmojiFrecency()
 	a.reactionPicker.Open(channelID, msg.TS, existing)
 	a.SetMode(ModeReactionPicker)
 	return nil
@@ -1557,6 +1557,9 @@ func (a *App) toggleReactionOnMessageItem(channelIDStr string, msg messages.Mess
 			remove = true
 			break
 		}
+	}
+	if !remove {
+		a.recordEmojiUse(emojiName)
 	}
 	a.updateReactionOnMessage(channelIDStr, msg.TS, emojiName, a.currentUserID, remove)
 	channelID := ids.ChannelID(channelIDStr)
@@ -3426,6 +3429,7 @@ func (a *App) SetReactionService(r core.ReactionService) {
 		r = noopReactionService
 	}
 	a.reactions = r
+	a.refreshEmojiFrecency()
 }
 
 // SetInteractionService wires the service the action dialog presses
@@ -3940,6 +3944,7 @@ func (a *App) submitWithAttachments(c *compose.Model) tea.Cmd {
 	}
 
 	c.SetUploading(true)
+	a.recordEmojiInText(caption)
 	cmds := []tea.Cmd{
 		teaCmd(a.files.Upload(channelID, threadTS, caption, attachments)),
 		toastWithClear(a, fmt.Sprintf("Uploading 0/%d…", len(attachments)), 30*time.Second),

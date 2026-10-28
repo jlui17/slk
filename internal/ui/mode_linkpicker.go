@@ -23,10 +23,11 @@ func handleLinkPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if a.pickerKind == "copy" {
 			return a.copyPickedCopyable(item.Index)
 		}
-		if a.pickerKind == "files" {
-			files := a.pickerFiles
-			a.pickerFiles = nil
-			a.pickerKind = ""
+		// The modal is closed, so clear what it was choosing on every
+		// commit, links included (#194).
+		kind, files := a.pickerKind, a.pickerFiles
+		a.pickerKind, a.pickerFiles = "", nil
+		if kind == "files" {
 			if item.Index < 0 || item.Index >= len(files) {
 				return nil
 			}
