@@ -25,7 +25,7 @@ import (
 // slackDateFormatRe matches Slack's mrkdwn date tokens. Longer forms
 // come first so {date_num} / {date_short} are never clipped to
 // {date}, and {time_secs} to {time}.
-var slackDateFormatRe = regexp.MustCompile(`\{date_num\}|\{date_short_pretty\}|\{date_long_pretty\}|\{date_pretty\}|\{date_short\}|\{date_long\}|\{date\}|\{time_secs\}|\{time\}`)
+var slackDateFormatRe = regexp.MustCompile(`\{date_num\}|\{date_short_pretty\}|\{date_long_pretty\}|\{date_pretty\}|\{date_short\}|\{date_long\}|\{date\}|\{time_secs\}|\{time\}|\{ago\}`)
 
 // slackDateTokens maps each Slack token to the Go time layout that
 // reproduces Slack's rendering. Pretty variants need ordinal suffixes
@@ -114,7 +114,7 @@ func formatSlackDateToken(ts, format, fallback, raw string) string {
 // location so tests can pin a timezone.
 func formatSlackDateTokenIn(ts, format, fallback, raw string, loc *time.Location) string {
 	sec, err := strconv.ParseInt(strings.TrimSpace(ts), 10, 64)
-	if err != nil || format == "" || !slackDateFormatRe.MatchString(format) {
+	if err != nil || format == "" || !slackDateFormatRe.MatchString(format) || hasUnknownSlackDateToken(format) {
 		if fallback != "" {
 			return fallback
 		}
@@ -145,6 +145,8 @@ func slackDateFormat(t time.Time, tok string) string {
 		return t.Format(dateTokenTimeLayout)
 	case "{time_secs}":
 		return t.Format(timeLayoutWithSeconds(dateTokenTimeLayout))
+	case "{ago}":
+		return slackDateAgo(t, time.Now())
 	case "{date_short_pretty}":
 		return t.Format("Jan") + fmt.Sprintf(" %d%s, ", day, ordinalSuffix(day)) + t.Format("2006")
 	case "{date_pretty}":
