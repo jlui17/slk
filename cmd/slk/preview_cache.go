@@ -58,11 +58,19 @@ func (c *previewCache) Get(channelID, ts string) (m slack.Message, ok bool) {
 	return e.message, true
 }
 
+// Put stores m for (channelID, ts) and drops every expired entry, so
+// targets that are never looked up again don't stay for the session.
 func (c *previewCache) Put(channelID, ts string, m slack.Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	now := c.now()
+	for key, e := range c.entries {
+		if now.Sub(e.storedAt) > previewCacheTTL {
+			delete(c.entries, key)
+		}
+	}
 	kept := slack.Message{Msg: slack.Msg{User: m.User, BotID: m.BotID, Username: m.Username, Text: m.Text}}
-	c.entries[previewCacheKey(channelID, ts)] = previewCacheEntry{message: kept, storedAt: c.now()}
+	c.entries[previewCacheKey(channelID, ts)] = previewCacheEntry{message: kept, storedAt: now}
 }
 
 // previewFunc is the MessageService's Preview: the active workspace's

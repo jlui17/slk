@@ -47,3 +47,22 @@ func TestPreviewCache_KeepsOnlyWhatAPreviewNeeds(t *testing.T) {
 		t.Error("entry kept the message's files or attachments")
 	}
 }
+
+// An expired entry that is never looked up again does not stay in the
+// cache for the session: the next Put drops it.
+func TestPreviewCache_PutDropsExpiredEntries(t *testing.T) {
+	now := time.Unix(1000, 0)
+	c := newPreviewCache()
+	c.now = func() time.Time { return now }
+
+	c.Put("C1", "1.0", slack.Message{Msg: slack.Msg{Text: "old"}})
+	now = now.Add(previewCacheTTL + time.Second)
+	c.Put("C1", "2.0", slack.Message{Msg: slack.Msg{Text: "new"}})
+
+	if _, ok := c.entries[previewCacheKey("C1", "1.0")]; ok {
+		t.Error("expired entry still held after a later Put")
+	}
+	if m, ok := c.Get("C1", "2.0"); !ok || m.Text != "new" {
+		t.Errorf("fresh entry = (%q, %v), want (new, true)", m.Text, ok)
+	}
+}
