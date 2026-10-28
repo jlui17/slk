@@ -321,14 +321,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// keyed in pane-local content coordinates (chrome already
 		// stripped), so we subtract chromeHeight here, mirroring
 		// the convention used by ClickAt / BeginSelectionAt.
-		contentY := py - a.messagepane.ChromeHeight()
-		if contentY >= 0 {
-			if hitMsgIdx, emojiName, hit := a.messagepane.HitTestReaction(contentY, px); hit && emojiName != "" {
-				msgs := a.messagepane.Messages()
-				if hitMsgIdx >= 0 && hitMsgIdx < len(msgs) {
-					return a.toggleReactionOnMessageItem(a.activeChannelID, msgs[hitMsgIdx], emojiName)
-				}
-			}
+		if cmd, hit := a.toggleReactionAt(a.messagepane, a.activeChannelID, a.messagepane.Messages(), px, py); hit {
+			return cmd
+		}
+		if contentY := py - a.messagepane.ChromeHeight(); contentY >= 0 {
 			if hitMsgIdx, attIdx, fileID, hit := a.messagepane.HitTest(contentY, px); hit && fileID != "" {
 				msgs := a.messagepane.Messages()
 				if hitMsgIdx >= 0 && hitMsgIdx < len(msgs) {
@@ -367,16 +363,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.threadPanel.ToggleAttachmentFoldAt(py) {
 			return nil
 		}
-		// Hit-test reactions first on the thread pane too. Same
-		// content-relative frame as the messages pane: subtract the
-		// chrome first.
-		if contentY := py - a.threadPanel.ChromeHeight(); contentY >= 0 {
-			if hitReplyIdx, emojiName, hit := a.threadPanel.HitTestReaction(contentY, px); hit && emojiName != "" {
-				replies := a.threadPanel.Replies()
-				if hitReplyIdx >= 0 && hitReplyIdx < len(replies) {
-					return a.toggleReactionOnMessageItem(a.threadPanel.ChannelID(), replies[hitReplyIdx], emojiName)
-				}
-			}
+		// Hit-test reactions first on the thread pane too.
+		if cmd, hit := a.toggleReactionAt(a.threadPanel, a.threadPanel.ChannelID(), a.threadPanel.Replies(), px, py); hit {
+			return cmd
 		}
 		a.drag.Begin(PanelThread, px, py)
 		a.drag.link = a.threadPanel.LinkURLAt(py, px)
@@ -385,4 +374,18 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	return nil
+}
+
+// toggleReactionAt toggles the reaction whose pill is at pane-local
+// (px, py) in p, if there is one. items are the pane's messages as
+// HitTestReaction indexes them (Messages() or Replies()).
+func (a *App) toggleReactionAt(p contentPane, channelID string, items []messages.MessageItem, px, py int) (tea.Cmd, bool) {
+	if contentY := py - p.ChromeHeight(); contentY >= 0 {
+		if idx, emojiName, hit := p.HitTestReaction(contentY, px); hit && emojiName != "" {
+			if idx >= 0 && idx < len(items) {
+				return a.toggleReactionOnMessageItem(channelID, items[idx], emojiName), true
+			}
+		}
+	}
+	return nil, false
 }

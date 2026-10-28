@@ -21,13 +21,13 @@ func newTestThread() *Model {
 
 // firstContentY returns the smallest pane-local viewportY that lands on
 // reply content. Chrome is now just `header + separator`, and the parent
-// message lives at the top of the scrollable viewContent (it scrolls with
+// message lives at the top of the scrollable list (it scrolls with
 // replies so a long parent does not block them). replyOffset(m, 0) is the
 // line index of the first reply inside the list, which equals the
 // parent block's height. Pane-local row = chromeHeight + that offset
-// minus the viewport's YOffset. Tests start at YOffset=0 (newTestThread
-// calls View once and selection isn't moved), so we don't subtract YOffset
-// here.
+// minus the list's YOffset. Tests start at YOffset=0 (newTestThread
+// calls View once and selection isn't moved), so the YOffset term is zero
+// in practice and the formula subtracts it only for correctness.
 func firstContentY(m *Model) int {
 	if len(m.replyEntries) == 0 {
 		return m.chromeHeight
@@ -186,7 +186,7 @@ func TestThreadSelection_ExtendUnchangedDoesNotDirty(t *testing.T) {
 	m.ExtendSelectionAt(firstContentY(m)+1, 10)
 
 	if m.list.Selection().End != end {
-		t.Fatalf("selRange.End drifted across identical Extend: before=%+v after=%+v", end, m.list.Selection().End)
+		t.Fatalf("selection End drifted across identical Extend: before=%+v after=%+v", end, m.list.Selection().End)
 	}
 	if m.Version() != beforeVersion {
 		t.Errorf("ExtendSelectionAt with unchanged end anchor must not bump version (before=%d after=%d)", beforeVersion, m.Version())

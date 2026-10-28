@@ -417,3 +417,32 @@ func TestKeepLookupsHidesDiscardedEntriesButKeepsExtent(t *testing.T) {
 		t.Fatal("SetEntries did not restore lookups")
 	}
 }
+
+// ReplaceEntries swaps several entries in one pass (a partial rebuild):
+// heights may change, offsets and the total follow, other entries and the
+// position are untouched, and the ID index tracks a changed ID.
+func TestReplaceEntries(t *testing.T) {
+	m := list(t, 4, 2) // offsets 0 2 4 6, total 8
+	m.Layout(3, nil)
+	y := m.YOffset()
+	other := m.Entries()[2]
+	m.ReplaceEntries(map[int]Entry{
+		0: msg("m00", 0, 3, 0), // taller
+		3: msg("z03", 3, 1, 0), // shorter, new ID
+	})
+	if got := fmt.Sprint(m.Offsets()); got != "[0 3 5 7]" || m.Total() != 8 {
+		t.Fatalf("offsets %s total %d, want [0 3 5 7] 8", got, m.Total())
+	}
+	if e := m.Entries()[2]; e.ID != other.ID || len(e.Lines) != len(other.Lines) {
+		t.Fatalf("an entry outside the batch changed: %+v", e)
+	}
+	if i, ok := m.IndexOf("z03"); !ok || i != 3 {
+		t.Fatalf("IndexOf(z03) = %d, %v", i, ok)
+	}
+	if _, ok := m.IndexOf("m03"); ok {
+		t.Fatal("the replaced ID is still indexed")
+	}
+	if m.YOffset() != y {
+		t.Fatalf("a partial rebuild moved the window: %d -> %d", y, m.YOffset())
+	}
+}

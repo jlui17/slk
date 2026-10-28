@@ -105,10 +105,10 @@ func TestKitty_SecondRenderSameImageNoFlush(t *testing.T) {
 // cache-rebuild race that previously dropped images on the floor:
 //
 //  1. buildCache calls RenderKey → fresh=true, OnFlush closure captured
-//     in a viewEntry. View() hasn't run yet, so the closure has NOT
-//     fired (no bytes on the wire).
+//     in a cache entry's payload. View() hasn't run yet, so the closure has
+//     NOT fired (no bytes on the wire).
 //  2. SetMessages is called again (e.g. network-verify after a cache hit)
-//     → m.cache = nil, discarding the viewEntry and its closure.
+//     → m.cache = nil, discarding the cache entry and its closure.
 //  3. buildCache runs again → RenderKey for the same (key, target).
 //
 // Under the buggy semantic, step 3 would return OnFlush=nil because the
@@ -220,7 +220,7 @@ func BenchmarkKitty_RenderKeyFreshRepeat(b *testing.B) {
 	src := makeSolid(60*8, 16*16, imgcolor.RGBA{1, 2, 3, 255})
 	r := NewKittyRenderer(NewRegistry())
 	r.SetSource("bench-fresh", src)
-	// Do NOT call OnFlush; this simulates an off-screen viewEntry
+	// Do NOT call OnFlush; this simulates an off-screen cache entry
 	// whose flush was never invoked. Subsequent RenderKey calls
 	// will see fresh=true on every iteration.
 	_ = r.RenderKey("bench-fresh", t)
@@ -261,7 +261,7 @@ func TestKitty_RenderKeyWarmMatchesCold(t *testing.T) {
 
 // TestKitty_PayloadCacheUploadIdentity guards the payload memoization:
 // when fresh=true is returned for the same (id, target) multiple times
-// (the off-screen viewEntry case), each OnFlush invocation must emit
+// (the off-screen cache entry case), each OnFlush invocation must emit
 // byte-identical APC upload bytes. The first call's OnFlush runs the
 // expensive resize+encode; subsequent calls reuse the cached payload.
 // Without this guarantee, repeated cache rebuilds for the same image

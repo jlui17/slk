@@ -47,7 +47,7 @@ func TestRegistry_FreshUntilUploaded(t *testing.T) {
 	}
 
 	// Caller mints an upload closure but never fires it (cache
-	// invalidation discards the viewEntry). The registry must still
+	// invalidation discards the cache entry). The registry must still
 	// report fresh=true on the next Lookup.
 	id2, fresh2 := r.Lookup("file-A", target)
 	if !fresh2 {

@@ -60,7 +60,7 @@ func reactionPickerOpts(reacted bool) []testOpt {
 
 // openReactionPicker wires a recording ReactionService whose frecent
 // list is the deterministic two-entry fixture, then drives the
-// production open path (App.openPickerFromMessage).
+// production open path (App.openReactionPicker on the channel pane).
 func openReactionPicker(calls *reactionCalls, frecent ...string) func(*testing.T, *App) {
 	return func(t *testing.T, a *App) {
 		*calls = reactionCalls{}
@@ -81,9 +81,9 @@ func openReactionPicker(calls *reactionCalls, frecent ...string) func(*testing.T
 			func(int) []core.EmojiEntry { return entries },
 			func(emoji string) { calls.frecent = append(calls.frecent, emoji) },
 		))
-		a.openPickerFromMessage()
+		a.openReactionPicker(a.messagepane, a.activeChannelID)
 		if !a.reactionPicker.IsVisible() {
-			t.Fatal("precondition: openPickerFromMessage did not open the picker")
+			t.Fatal("precondition: openReactionPicker did not open the picker")
 		}
 		if got := a.reactionPicker.ChannelID(); got != "C1" {
 			t.Fatalf("precondition: picker ChannelID = %q, want %q", got, "C1")

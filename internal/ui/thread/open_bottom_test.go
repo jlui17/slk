@@ -41,8 +41,8 @@ func TestSetThreadOpensAtBottom(t *testing.T) {
 		t.Fatalf("thread A: expected to open scrolled to the bottom, got YOffset=0")
 	}
 
-	// Simulate scrolling thread A up to the top: leaves hasSnapped=true with
-	// snappedSelection == the newest-reply index.
+	// Simulate scrolling thread A up to the top: leaves the list marked
+	// snapped (HasSnapped) to the newest-reply index.
 	m.list.SetYOffset(0)
 	m.list.MarkSnapped(m.selected)
 
@@ -50,7 +50,7 @@ func TestSetThreadOpensAtBottom(t *testing.T) {
 	// Pre-fix this skipped the re-snap and left the viewport at the top.
 	m.SetThread(parent, mk(25), "C2", "200.0")
 	if m.list.HasSnapped() {
-		t.Fatalf("SetThread must reset hasSnapped so the next View re-snaps to the new selection")
+		t.Fatalf("SetThread must reset the list's snap so the next View re-snaps to the new selection")
 	}
 	m.View(h, w)
 	if m.list.YOffset() == 0 {

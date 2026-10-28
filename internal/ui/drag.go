@@ -231,11 +231,8 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// keeping it inline preserves edge-drag responsiveness even
 		// when the user is moving slowly (one motion event per cell).
 		var hint int
-		switch d.Panel() {
-		case PanelMessages:
-			hint = a.messagepane.ScrollHintForDrag(py)
-		case PanelThread:
-			hint = a.threadPanel.ScrollHintForDrag(py)
+		if p := a.contentPaneFor(d.Panel()); p != nil {
+			hint = p.ScrollHintForDrag(py)
 		}
 		var cmds []tea.Cmd
 		if hint != 0 && d.ClaimAutoScroll() {
@@ -269,11 +266,8 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		d.hasPending = false
 		px, py := d.pendingX, d.pendingY
-		switch d.Panel() {
-		case PanelMessages:
-			a.messagepane.ExtendSelectionAt(py, px)
-		case PanelThread:
-			a.threadPanel.ExtendSelectionAt(py, px)
+		if p := a.contentPaneFor(d.Panel()); p != nil {
+			p.ExtendSelectionAt(py, px)
 		}
 		return nil, true
 
@@ -287,11 +281,8 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		lastX, lastY := d.LastPos()
 		var hint int
-		switch d.Panel() {
-		case PanelMessages:
-			hint = a.messagepane.ScrollHintForDrag(lastY)
-		case PanelThread:
-			hint = a.threadPanel.ScrollHintForDrag(lastY)
+		if p := a.contentPaneFor(d.Panel()); p != nil {
+			hint = p.ScrollHintForDrag(lastY)
 		}
 		if hint == 0 {
 			// Cursor left the edge -- stop ticking. Re-entering the
@@ -299,21 +290,13 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			d.ClearAutoScroll()
 			return nil, true
 		}
-		switch d.Panel() {
-		case PanelMessages:
+		if p := a.contentPaneFor(d.Panel()); p != nil {
 			if hint < 0 {
-				a.messagepane.ScrollUp(1)
+				p.ScrollUp(1)
 			} else {
-				a.messagepane.ScrollDown(1)
+				p.ScrollDown(1)
 			}
-			a.messagepane.ExtendSelectionAt(lastY, lastX)
-		case PanelThread:
-			if hint < 0 {
-				a.threadPanel.ScrollUp(1)
-			} else {
-				a.threadPanel.ScrollDown(1)
-			}
-			a.threadPanel.ExtendSelectionAt(lastY, lastX)
+			p.ExtendSelectionAt(lastY, lastX)
 		}
 		// Schedule the next tick. autoScrollActive remains true.
 		return autoScrollTickCmd(), true
@@ -329,11 +312,8 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// cursor position even if motionFlushTickMsg has not fired
 		// since the last MouseMotionMsg.
 		if d.hasPending {
-			switch d.Panel() {
-			case PanelMessages:
-				a.messagepane.ExtendSelectionAt(d.pendingY, d.pendingX)
-			case PanelThread:
-				a.threadPanel.ExtendSelectionAt(d.pendingY, d.pendingX)
+			if p := a.contentPaneFor(d.Panel()); p != nil {
+				p.ExtendSelectionAt(d.pendingY, d.pendingX)
 			}
 			d.hasPending = false
 		}
@@ -363,11 +343,8 @@ func (d *dragState) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			text string
 			ok   bool
 		)
-		switch panel {
-		case PanelMessages:
-			text, ok = a.messagepane.EndSelection()
-		case PanelThread:
-			text, ok = a.threadPanel.EndSelection()
+		if p := a.contentPaneFor(panel); p != nil {
+			text, ok = p.EndSelection()
 		}
 		if !(ok && text != "") {
 			return nil, true

@@ -42,6 +42,57 @@ func TestCellDiff_IgnoresOSC(t *testing.T) {
 	}
 }
 
+// A terminal keeps SGR state across a newline, so a bold left open on one
+// row is still bold on the next. Two screens that differ only there look
+// different and must compare different.
+func TestCellDiff_StyleCarriesAcrossNewlines(t *testing.T) {
+	if cellDiff("\x1b[1mA\nB", "\x1b[1mA\n\x1b[0mB") == "" {
+		t.Fatal("a style still open at a newline was dropped for the next row")
+	}
+	if d := cellDiff("\x1b[1mA\nB", "\x1b[1mA\n\x1b[1mB"); d != "" {
+		t.Fatalf("re-asserting a style that was already carried reported a difference: %s", d)
+	}
+}
+
+// compareGoldenDirs compares only the goldens present in both directories,
+// lists goldens new since the baseline separately, and fails a run that
+// compared nothing.
+func TestCompareGoldenDirs(t *testing.T) {
+	base, cur := t.TempDir(), t.TempDir()
+	write := func(dir, name, s string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(base, "same.ansi", "\x1b[1mab\x1b[m")
+	write(cur, "same.ansi", "\x1b[1ma\x1b[m\x1b[1mb\x1b[m")
+	write(base, "moved.ansi", "ab")
+	write(cur, "moved.ansi", "ax")
+	write(cur, "added.ansi", "new")
+
+	r, err := compareGoldenDirs(base, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"moved.ansi", "same.ansi"}; !slices.Equal(r.compared, want) {
+		t.Errorf("compared %v, want %v", r.compared, want)
+	}
+	if want := []string{"added.ansi"}; !slices.Equal(r.added, want) {
+		t.Errorf("added %v, want %v", r.added, want)
+	}
+	if len(r.diffs) != 1 || !strings.HasPrefix(r.diffs[0], "moved.ansi") {
+		t.Errorf("diffs %q, want exactly moved.ansi", r.diffs)
+	}
+	if want := []string{"same.ansi"}; !slices.Equal(r.reencoded, want) {
+		t.Errorf("re-encoded %v, want %v", r.reencoded, want)
+	}
+
+	if _, err := compareGoldenDirs(t.TempDir(), cur); err == nil {
+		t.Error("a baseline with no golden in common compared nothing and still passed")
+	}
+}
+
 func TestCellDiff_CatchesRowCountAndLength(t *testing.T) {
 	if cellDiff("a\nb", "a") == "" {
 		t.Fatal("a missing row was not reported")
@@ -54,17 +105,18 @@ func TestCellDiff_CatchesRowCountAndLength(t *testing.T) {
 // cellDiff compares two ANSI screens cell by cell: each rune with the SGR
 // state it was drawn in. Escape-sequence encoding is ignored, so two
 // screens that look identical compare equal even when their bytes differ.
+// The SGR state carries across newlines, as it does on a terminal.
 // Returns "" when equal, else the first difference.
 //
 // Used to prove the Phase 3 golden re-bless (thread_open, wide, narrow)
 // changes no visible cell. See TestGoldenCellsMatchBaseline.
 func cellDiff(want, got string) string {
-	wr, gr := strings.Split(want, "\n"), strings.Split(got, "\n")
+	wr, gr := screenCells(want), screenCells(got)
 	if len(wr) != len(gr) {
 		return "row count: want " + strconv.Itoa(len(wr)) + ", got " + strconv.Itoa(len(gr))
 	}
 	for r := range wr {
-		wc, gc := lineCells(wr[r]), lineCells(gr[r])
+		wc, gc := wr[r], gr[r]
 		for c := 0; c < min(len(wc), len(gc)); c++ {
 			if wc[c] != gc[c] {
 				return "row " + strconv.Itoa(r) + " col " + strconv.Itoa(c) +
@@ -86,12 +138,24 @@ type screenCell struct {
 
 func (c screenCell) String() string { return "{" + c.glyph + " " + c.attrs + "}" }
 
+// screenCells splits a screen into rows of cells. The SGR state is shared
+// by every row, so a style left open at the end of one row applies to the
+// next.
+func screenCells(s string) [][]screenCell {
+	st := map[string]string{}
+	var rows [][]screenCell
+	for _, line := range strings.Split(s, "\n") {
+		rows = append(rows, lineCells(line, st))
+	}
+	return rows
+}
+
 // lineCells splits one row into cells: one per rune, each carrying the
-// SGR state in force when it was drawn. CSI sequences update the state
+// SGR state in force when it was drawn. It reads and updates st, the
+// state in force at the start of the row. CSI sequences update the state
 // (only SGR, final byte 'm', is interpreted); OSC and other escapes are
 // skipped.
-func lineCells(line string) []screenCell {
-	st := map[string]string{}
+func lineCells(line string, st map[string]string) []screenCell {
 	var out []screenCell
 	for i := 0; i < len(line); {
 		if line[i] == 0x1b && i+1 < len(line) {
@@ -181,32 +245,75 @@ func canonicalSGR(st map[string]string) string {
 	return b.String()
 }
 
+// goldenDirComparison is the outcome of comparing a directory of goldens
+// against a baseline directory. All lists hold file names, sorted.
+type goldenDirComparison struct {
+	compared  []string // in both directories
+	reencoded []string // compared: bytes differ, cells identical
+	diffs     []string // compared: "<name>: <first differing cell>"
+	added     []string // only in the current directory: nothing to compare
+}
+
+// compareGoldenDirs compares every .ansi file in cur with the same-named
+// file in base, cell by cell. A golden with no baseline (a scenario added
+// since) is listed as added, not compared. It is an error to compare
+// nothing: a wrong baseline path must not pass.
+func compareGoldenDirs(base, cur string) (goldenDirComparison, error) {
+	var r goldenDirComparison
+	files, err := filepath.Glob(filepath.Join(cur, "*.ansi"))
+	if err != nil {
+		return r, err
+	}
+	for _, f := range files {
+		name := filepath.Base(f)
+		want, err := os.ReadFile(filepath.Join(base, name))
+		if os.IsNotExist(err) {
+			r.added = append(r.added, name)
+			continue
+		}
+		if err != nil {
+			return r, err
+		}
+		got, err := os.ReadFile(f)
+		if err != nil {
+			return r, err
+		}
+		r.compared = append(r.compared, name)
+		switch d := cellDiff(string(want), string(got)); {
+		case d != "":
+			r.diffs = append(r.diffs, name+": "+d)
+		case string(want) != string(got):
+			r.reencoded = append(r.reencoded, name)
+		}
+	}
+	if len(r.compared) == 0 {
+		return r, os.ErrNotExist
+	}
+	return r, nil
+}
+
 // TestGoldenCellsMatchBaseline proves every golden in testdata/golden is
-// cell-identical to the same-named file in $SLK_GOLDEN_BASELINE. It is
-// opt-in: skipped unless the variable names a directory. PR 2+3 runs it
-// against the goldens from before its re-bless.
+// cell-identical to the same-named file in $SLK_GOLDEN_BASELINE. Goldens
+// the baseline does not have are new scenarios and are listed, not
+// compared. It is opt-in: skipped unless the variable names a directory.
+// Phase 3's thread goldens were proven this way against the goldens from
+// before their re-bless.
 func TestGoldenCellsMatchBaseline(t *testing.T) {
 	dir := os.Getenv("SLK_GOLDEN_BASELINE")
 	if dir == "" {
 		t.Skip("set SLK_GOLDEN_BASELINE to a directory of baseline .ansi goldens")
 	}
-	files, err := filepath.Glob(filepath.Join(goldenDir, "*.ansi"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no goldens under %s: %v", goldenDir, err)
+	r, err := compareGoldenDirs(dir, goldenDir)
+	if err != nil {
+		t.Fatalf("no golden in %s has a baseline in %s: %v", goldenDir, dir, err)
 	}
-	for _, f := range files {
-		cur, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		base, err := os.ReadFile(filepath.Join(dir, filepath.Base(f)))
-		if err != nil {
-			t.Fatalf("baseline for %s: %v", filepath.Base(f), err)
-		}
-		if d := cellDiff(string(base), string(cur)); d != "" {
-			t.Errorf("%s is not cell-identical to its baseline: %s", filepath.Base(f), d)
-		} else if string(base) != string(cur) {
-			t.Logf("%s: bytes differ, cells identical", filepath.Base(f))
-		}
+	for _, d := range r.diffs {
+		t.Errorf("not cell-identical to its baseline: %s", d)
+	}
+	for _, name := range r.reencoded {
+		t.Logf("%s: bytes differ, cells identical", name)
+	}
+	for _, name := range r.added {
+		t.Logf("%s: new golden, no baseline to compare", name)
 	}
 }

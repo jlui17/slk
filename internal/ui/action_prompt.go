@@ -284,19 +284,20 @@ func toastCmd(text string) tea.Cmd { return func() tea.Msg { return ToastMsg{Tex
 // and the ref that finds it again. In the activity and threads views the
 // messages-pane slot shows a list, so there is no selected message.
 func (a *App) selectedMessageInFocus() (messages.MessageItem, actionPromptRef, bool) {
-	switch a.focusedPanel {
-	case PanelMessages:
-		if a.view == ViewActivity || a.view == ViewThreads {
-			return messages.MessageItem{}, actionPromptRef{}, false
-		}
-		msg, ok := a.messagepane.SelectedMessage()
-		return msg, actionPromptRef{channelID: a.activeChannelID, ts: msg.TS}, ok
-	case PanelThread:
-		if r := a.threadPanel.SelectedReply(); r != nil {
-			return *r, actionPromptRef{channelID: a.threadPanel.ChannelID(), ts: r.TS, threadTS: a.threadPanel.ThreadTS()}, true
-		}
+	p, channelID, ok := a.focusedContentPane()
+	if !ok || (a.focusedPanel == PanelMessages && (a.view == ViewActivity || a.view == ViewThreads)) {
+		return messages.MessageItem{}, actionPromptRef{}, false
 	}
-	return messages.MessageItem{}, actionPromptRef{}, false
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return messages.MessageItem{}, actionPromptRef{}, false
+	}
+	ref := actionPromptRef{channelID: channelID, ts: msg.TS}
+	if a.focusedPanel == PanelThread {
+		// A reply's ref also names its thread.
+		ref.threadTS = a.threadPanel.ThreadTS()
+	}
+	return msg, ref, true
 }
 
 // respondToSelected is b: open the selected ephemeral's dialog now (the user

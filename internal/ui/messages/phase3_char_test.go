@@ -188,3 +188,30 @@ func TestChar_MessagesClickBelowContentMisses(t *testing.T) {
 		t.Errorf("click below the content hit (selected=%d)", m.SelectedIndex())
 	}
 }
+
+// U5 (ReanchorPolicy.BottomUsesNewHeight): a frame that changes width AND
+// height together decides "was at the bottom" against the new height. Three
+// lines above the bottom, a taller and narrower frame is at the bottom
+// under the new window but not under the old one, so the pane must end
+// pinned to the bottom. The width drops far enough that the rewrapped
+// content below the anchor outgrows the taller window: only the policy,
+// not the lazy clamp, can pin it.
+func TestChar_MessagesReanchorMeasuresBottomWithNewHeight(t *testing.T) {
+	m := p3Messages(t, 40, 0)
+	_ = m.View(20, 80)
+	m.ScrollUp(3)
+	_ = m.View(20, 80)
+
+	y, oldH, total := m.list.YOffset(), m.list.Height(), m.list.Total()
+	const newOuter = 30 // 10 rows taller than the 20 above
+	newH := oldH + (newOuter - 20)
+	if y+oldH >= total || y+newH < total {
+		t.Fatalf("test setup: y=%d oldH=%d newH=%d total=%d; want the old window off the bottom and the new one at it", y, oldH, newH, total)
+	}
+
+	_ = m.View(newOuter, 40)
+
+	if got, want := m.list.YOffset(), m.list.Total()-m.list.Height(); got != want {
+		t.Errorf("YOffset after a taller+narrower frame = %d, want %d (bottom-pinned, U5)", got, want)
+	}
+}

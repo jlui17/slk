@@ -166,7 +166,6 @@ type Model struct {
 	width   int
 
 	height, prevHeight int
-	extent             int // lines the eager clamp bounds against
 	yOffset            int
 	snapped            int
 	hasSnapped         bool
@@ -318,18 +317,21 @@ func (m *Model) lookupLen() int {
 	return m.live
 }
 
-// ReplaceEntry swaps entry i for e, keeping every other entry (a partial
-// rebuild). Offsets are recomputed; the position is not re-anchored.
-func (m *Model) ReplaceEntry(i int, e Entry) {
-	if old := m.entries[i].ID; old != e.ID {
-		if old != "" && m.ids[old] == i {
-			delete(m.ids, old)
+// ReplaceEntries swaps the entries at the given indexes, keeping every
+// other entry (a partial rebuild). Offsets are recomputed once, after all
+// of them; the position is not re-anchored.
+func (m *Model) ReplaceEntries(updates map[int]Entry) {
+	for i, e := range updates {
+		if old := m.entries[i].ID; old != e.ID {
+			if old != "" && m.ids[old] == i {
+				delete(m.ids, old)
+			}
+			if e.ID != "" {
+				m.ids[e.ID] = i
+			}
 		}
-		if e.ID != "" {
-			m.ids[e.ID] = i
-		}
+		m.entries[i] = e
 	}
-	m.entries[i] = e
 	m.recomputeOffsets()
 }
 
@@ -340,7 +342,7 @@ func (m *Model) ScrollUp(n, sel int) {
 		return
 	}
 	if m.eager {
-		if m.yOffset > 0 && m.extent > 0 {
+		if m.yOffset > 0 && m.total > 0 {
 			m.setY(m.yOffset - n)
 		}
 	} else {
@@ -358,7 +360,7 @@ func (m *Model) ScrollDown(n, sel int) {
 		return
 	}
 	if m.eager {
-		if m.yOffset < m.maxOffset() && m.extent > 0 {
+		if m.yOffset < m.maxOffset() && m.total > 0 {
 			m.setY(m.yOffset + n)
 		}
 	} else {
@@ -382,7 +384,7 @@ func (m *Model) ScrollHint(contentY int) int {
 	return 0
 }
 
-func (m *Model) maxOffset() int { return max(0, m.extent-m.height) }
+func (m *Model) maxOffset() int { return max(0, m.total-m.height) }
 
 func (m *Model) setY(n int) {
 	if m.eager {
@@ -419,7 +421,6 @@ func (m *Model) recomputeOffsets() {
 		off += len(m.entries[i].Lines)
 	}
 	m.total = off
-	m.extent = off
 }
 
 // lineAnchor maps an absolute line to the anchor candidate covering it:

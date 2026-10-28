@@ -638,8 +638,8 @@ func TestThreadPatchUserName_InvalidatesCacheEvenWithNoMatchingRows(t *testing.T
 // TestHitTestReaction_OnPill asserts that the thread panel records a
 // hit rect for every rendered reaction pill, and that HitTestReaction
 // returns the correct (replyIdx, emoji) when a click lands inside the
-// pill's pane-local coordinates (which include the chromeHeight offset
-// for the thread chrome above the replies).
+// pill's content-relative coordinates (row 0 is the first row under the
+// thread chrome, which the App subtracts before calling).
 func TestHitTestReaction_OnPill(t *testing.T) {
 	m := New()
 	parent := messages.MessageItem{TS: "1.0", UserID: "alice", UserName: "alice", Text: "p"}
@@ -712,9 +712,9 @@ func TestHitTestReaction_NoHitsWithoutReactions(t *testing.T) {
 	}
 }
 
-// Parent message now lives at the top of the scrollable viewContent (not
+// Parent message lives at the top of the scrollable list (entry 0, not
 // pinned in chrome). This means: (1) chromeHeight no longer counts the
-// parent rows, (2) the parent shows up in viewContent above the replies,
+// parent rows, (2) the parent shows up in the list above the replies,
 // (3) ScrollDown moves the parent out of view, leaving the replies. Pins
 // the issue-#23 follow-up: a long parent must not block the reply area.
 func TestThreadView_ParentScrollsWithReplies(t *testing.T) {
@@ -738,9 +738,9 @@ func TestThreadView_ParentScrollsWithReplies(t *testing.T) {
 		t.Errorf("chromeHeight = %d, want 2 (header + separator only)", m.chromeHeight)
 	}
 
-	// viewContent must start with the parent block (LONGPARENT) BEFORE
-	// the first reply marker. Find the first occurrence of each and
-	// assert ordering inside viewContent.
+	// The laid-out rows (joinedContent) must start with the parent block
+	// (LONGPARENT) BEFORE the first reply marker. Find the first
+	// occurrence of each and assert ordering in them.
 	pIdx := strings.Index(joinedContent(m), "LONGPARENT")
 	rIdx := strings.Index(joinedContent(m), "REPLY_MARKER")
 	if pIdx < 0 {
@@ -753,9 +753,9 @@ func TestThreadView_ParentScrollsWithReplies(t *testing.T) {
 		t.Errorf("parent (idx %d) must precede first reply (idx %d) in viewContent", pIdx, rIdx)
 	}
 
-	// entryOffsets[0] is now offset by the parent block's height -- not 0
-	// as in the old layout. Defends the math used by snap + reaction-hit
-	// translation + ClickAt.
+	// The first reply's line offset is now past the parent block's
+	// height -- not 0 as in the old layout. Defends the math used by snap +
+	// reaction-hit translation + ClickAt.
 	if len(m.replyEntries) == 0 || replyOffset(m, 0) <= 0 {
 		t.Errorf("reply 0 offset = %d, want > 0 (parent block precedes first reply)", replyOffset(m, 0))
 	}
@@ -780,7 +780,7 @@ func TestThreadView_HasScrollbarWhenOverflowing(t *testing.T) {
 
 	view := m.View(40, 10)
 	// Scrollbar uses '│' (track) and '█' (thumb). With 30 replies in a
-	// 10-row pane, totalLines >> pane height, so scrollbar.Overlay
+	// 10-row pane, the list total >> pane height, so scrollbar.Overlay
 	// definitely draws.
 	if !strings.ContainsRune(view, '│') && !strings.ContainsRune(view, '█') {
 		t.Fatalf("expected scrollbar glyph in overflowing thread view; got:\n%s", view)
@@ -1055,10 +1055,10 @@ func TestScrollAnchorAtTopOfThreadPreservedAcrossWidthResize(t *testing.T) {
 }
 
 // TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize pins the
-// CURRENT, known-limited behavior (gammons/slk#254): entryAndOffsetForLine
-// returns ok=false for a line inside the parent-message prefix, the
-// resize-anchor switch has no case for that, and the pre-resize YOffset
-// carries through unchanged into the rewrapped content -- landing on
+// CURRENT, known-limited behavior (gammons/slk#254): the thread's
+// entrylist.ReanchorPolicy (AnchorRefsOnly) finds no reply entry to anchor
+// on for a line inside the parent-message prefix, so the pre-resize
+// YOffset carries through unchanged into the rewrapped content -- landing on
 // whatever reply now falls at that stale line number. This documents the
 // gap rather than asserting the desired behavior; flip it to assert
 // preservation once #254 is fixed.
@@ -1074,9 +1074,23 @@ func TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize(t *testing.
 		t.Fatalf("test setup: viewport should be inside the parent, not a reply:\n%s", before)
 	}
 
+	raw := m.list.YOffset()
+
 	after := m.View(20, 200) // widen: parent shrinks to far fewer lines
 	if !threadMarkRE.MatchString(after) {
 		t.Fatalf("expected the known limitation (jump into a reply) to still reproduce; if this now fails, #254 was fixed -- replace this test with a real preservation assertion")
+	}
+
+	// AnchorRefsOnly finds no anchor in the parent prefix, so the raw
+	// pre-resize offset carries through, bounded only by the new extent.
+	// Anchoring on the parent instead would clamp the offset to the
+	// rewrapped parent's last row, far above raw.
+	want := min(raw, max(0, m.list.Total()-m.list.Height()))
+	if parentLines := len(m.list.Entries()[0].Lines); want < parentLines {
+		t.Fatalf("test setup: expected offset %d is still inside the %d-line parent, so the anchor policies cannot differ", want, parentLines)
+	}
+	if got := m.list.YOffset(); got != want {
+		t.Errorf("YOffset after widening = %d, want the raw pre-resize offset %d bounded by the new extent (%d); #254 pin", got, raw, want)
 	}
 }
 

@@ -321,7 +321,7 @@ func TestNormalModeKeys(t *testing.T) {
 			// above. `right` moves the reaction cursor; in the normal
 			// switch `right` would be FocusNext instead, so the
 			// focusedPanel assertion is what proves the guard ran.
-			name: "right in thread reaction-nav is routed to handleThreadReactionNav, not the Right arm",
+			name: "right in thread reaction-nav is routed to handleReactionNav, not the Right arm",
 			opts: normalOpts(),
 			setup: func(t *testing.T, a *App) {
 				focusThreadPanel(t, a)

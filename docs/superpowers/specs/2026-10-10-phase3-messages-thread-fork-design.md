@@ -1,6 +1,8 @@
 # Phase 3 — Collapse the `messages`/`thread` fork — Design
 
-> **Status:** design approved in brainstorming 2026-10-10; spec approved 2026-10-11.
+> **Status:** design approved in brainstorming 2026-10-10; spec approved 2026-10-11;
+> implemented 2026-10-11 (see "Addenda (implementation)" at the end for what
+> changed in flight and which §9 exit criteria were not met).
 > **Plan:** [`../plans/2026-10-11-phase3-messages-thread-fork.md`](../plans/2026-10-11-phase3-messages-thread-fork.md)
 > (its "Decisions this plan needs from the maintainer" section refines §5 and §6.3).
 > **Tracking doc:** [`../plans/2026-09-06-architecture-refactor.md`](../plans/2026-09-06-architecture-refactor.md), Phase 3 (addresses F3).
@@ -105,10 +107,11 @@ long-/short-timestamp swap stays in the message layer), and is told
 synchronously when a substrate behaviour moves the selection (U1, §5.2).
 
 **Owns its size and styles, per the RFC.** `New(opts ...Option) *Model`;
-`SetSize(w, h)`; a local `Styles` struct (background, spacer, scrollbar track
-and thumb, selection highlight) with `DefaultStyles()` and `SetStyles`.
-`App.applyTheme` pushes styles to every pane, which forwards them, per the
-`AGENTS.md` rule for snapshotting components.
+a local `Styles` struct (background, spacer, scrollbar track
+and thumb, selection highlight) with `DefaultStyles()` and `SetStyles`. *(As
+built, there is no `SetSize` and `App.applyTheme` does not push styles to the
+panes; each owner pulls them every frame. See "Departures from §5" in the
+addenda.)*
 
 **`PlainLine` moves here.** `messages.PlainLine`, `PlainLines`,
 `DisplayWidthOfPlain` and `SliceColumns` (`messages/render.go:1120-1227`)
@@ -437,3 +440,168 @@ Parse each golden row into cells by tracking SGR state (reset, 38/48 truecolor
 and 256-colour, 39/49, 22, and other attributes as flags), skipping OSC and
 other escapes, and compare `(glyph, sorted attribute set)` per cell. PR 0
 commits this as a test helper with a self-test.
+
+## Addenda (implementation)
+
+Recorded at close-out (PR 8, 2026-10-11) from the implementation ledger. The
+spec above is left as approved; where the build departed from it, the departure
+is here.
+
+### Decisions P1–P4 (the plan's "Decisions this plan needs from the maintainer")
+
+- **P1, zero-reply totals.** `thread.View`'s "No replies yet" branch used to read
+  `totalLines`, `entryOffsets` and `cache` left by the previous frame, possibly
+  another thread's. It now calls `SetEntries` with the parent and the empty
+  block (and renders through `entrylist.Static()`), so the substrate's totals
+  describe what is on screen. The only behaviour change is a mouse click below
+  the content of a zero-reply thread whose previous frame was taller. Pinned by
+  `TestChar_ThreadZeroRepliesParentSelectable` and
+  `TestChar_ThreadZeroRepliesTallParentScrolls`.
+- **P2, the stale focused border.** `thread.SetFocused` clears only the view
+  cache, never the reply cache, so the selected reply keeps its **focused**
+  border colour after focus leaves the thread, until something else rebuilds the
+  cache. `messages.SetFocused` marks the selected entry stale and is correct.
+  Phase 3 preserves the bug. It is pinned by
+  `TestChar_ThreadFocusFlipKeepsFocusedBorder` (a `// BUG?:` row; re-pin it, do
+  not delete it, when the bug is fixed). **No issue has been filed yet**: the
+  maintainer has not decided whether or how to fix it.
+- **P3, renderer differences the divergence list missed (U7–U9).** The thread
+  renderer drew no `(edited)` mark (**U7**, `RenderOptions.EditedMark`), no
+  `↳ replied to a thread` label for `thread_broadcast` replies (**U8**,
+  `RenderOptions.BroadcastLabel`) and no avatar although `thread` has a
+  `SetAvatarFunc` (**U9**, `RenderOptions.Avatar`, always `""` in thread). Two
+  more differences are `RenderContext` fields: the image channel key is the
+  channel **ID** in thread and the channel **name** in `messages`
+  (`RenderContext.ImageChannel`), and the kitty flush order differs (thread:
+  body, blocks, reactions, attachments; channel: blocks, attachments, body,
+  reactions), which stays in each pane's entry builder, because
+  `RenderedMessage` hands back the four flush slices separately. All are set to
+  today's behaviour.
+- **P4, four goldens.** No existing golden selected the thread parent, so PR 2+3
+  re-blessed `thread_open`, `wide`, `narrow` **and** the new
+  `thread_parent_selected`, each proven cell-identical against the pre-PR
+  snapshot with `cellDiff`. No other PR re-blessed a golden.
+
+### Departures from §5
+
+- **U5's count gate is unobservable and does not exist.** "The channel pane
+  requires an unchanged message count to re-anchor" cannot be observed: every
+  `messages` method that changes the message count also sets `m.cache = nil`,
+  and a nil cache already disables re-anchoring; the thread's `AddReply` and
+  friends all invalidate the same way. `entrylist.ReanchorPolicy` therefore has
+  no count gate, only `BottomUsesNewHeight` and `AnchorRefsOnly`.
+- **No `SetSize`; styles are pulled per frame, not pushed (supersedes §3.2).**
+  The list takes its width through `SetEntries` and its height through
+  `SetHeight`. Its owners call `SetStyles(themeListStyles())` (channel) /
+  `SetStyles(messages.ThemeListStyles())` (thread) at the top of every `View`
+  and in `ApplySelectionToBordered`; `App.applyTheme` only invalidates render
+  caches. Pulling means a theme change, in production or in a test that calls
+  `styles.Apply` directly, shows on the next frame without the App having to
+  reach through to each pane, and no pane can render with a stale snapshot.
+- **U3 is a pair of slots, not an option.** `entrylist.Compose(frame, top,
+  bottom, applySelection)` takes the top-row override (loading-older hint) and
+  the more-below row as arguments. The channel pane passes both; thread passes
+  `""`. There is no `MoreBelowRow` option.
+- **`KeepLookups`.** Thread rebuilds its replies lazily but must keep answering
+  lookups for the parent meanwhile. `entrylist.KeepLookups(n)` makes entry
+  lookups see only the first `n` entries until the next `SetEntries` while the
+  extent stays; `thread.dropCache` uses `KeepLookups(1)` and the channel pane
+  `KeepLookups(0)`. It exists because the lookup-after-invalidate behaviour is
+  pinned (`TestChar_ThreadLookupsSeeOnlyTheParentUntilRebuilt`,
+  `TestChar_MessagesLookupsMissUntilRebuilt`).
+- **The thread parent is still re-rendered every frame** (§5.3 predicted it
+  would become a cached entry). `View` rebuilds entry 0 each time, exactly as
+  before, which removes the parent-invalidation risk outright. Caching it is a
+  follow-up performance change.
+- **No shared divider generator.** §5.1 item 3 expected one generator taking a
+  seed date. The two panes still run their own loops (`messages/model.go`
+  seeds `""`; `thread/model.go` seeds `DateFromTS(parent.TS)`), because the
+  loops also differ in landmark placement and separator entries.
+
+### Rulings that changed the plan in flight
+
+- **Stacked on #304.** The plan said to branch from `main` after #304 merged.
+  The implementation stacks on #304's head (`23e09abb`) instead, with the spec
+  and plan commits at the bottom; if #304 changes in review, every Phase 3
+  branch rebases. PR 7 therefore checked whether #300, #271 and #304 had merged
+  and did not rebase.
+- **Entrylist option tests strengthened beyond the plan.** The plan's
+  `TestReanchorRefsOnlySkipsLeadingNonRefEntries`, `TestTrailRowsAreNotSnappedIntoView`
+  and `TestPressOnDecoration` passed with their option switched off, so they
+  were rewritten to fail without it (spec §5 requires each option to be tested
+  per setting, which binds over the plan's test text).
+- **`WrapRows` folded into Task 6.3.** The entry-wrapping step (fill, invisible
+  or tinted left border, long-timestamp selected variant, plain-text mirror) was
+  still a near-copy in both panes after the renderer merged; it became
+  `messages.WrapRows`, with each pane keeping its own `Entry` construction.
+- **Task 7.2 added tests and one parity fix.** A test that clicks a thread
+  reaction pill through `reduceMouseClick` was added before the arm was
+  rewritten; Task 7.1's `ClickAt` result, `ViewBare` and `SelectedMessage` got
+  behavioural tests; and `thread.ApplySelectionToBordered` now sets the theme
+  list styles first, as the channel pane's version already did (a one-line
+  parity fix on a `contentPane`-adjacent method).
+- **Two exit criteria not met (§9).** `thread/model.go` is 1,353 lines against
+  the ≤ 1,000 bar (stretch < 900), down from 2,314. And shared lines < 50: see
+  "Achieved" in the tracking document: 491 → 206, not < 50. Also, the literal
+  `go test ./... -race -count=5` could not run for `internal/ui` as one process
+  (OOM-killed under the 8 GiB sandbox cgroup; its race binary retains about
+  1.2 GB per iteration, and the #304 head grows the same); every other package
+  passed, and five separate single-iteration race runs of `internal/ui` passed.
+  On shared lines: after Task 6.2 it was 233; the remainder is
+  per-pane setters, selection wrappers and chrome that no Phase 3 task unified.
+  Unifying the setters overlaps RFC #236's directory/pull stage and was kept out
+  of scope (controller ruling).
+
+### Where each divergence landed (the lockstep test's list, retired)
+
+`internal/ui/thread/lockstep_test.go` is deleted. Every entry has a home;
+"converged" means the difference no longer exists.
+
+| # | Home | Pinned by |
+|---|---|---|
+| 1 construction | converged: both `New(...) *Model` | `contentPane` assertions (`internal/ui/content_pane.go`) |
+| 2 parent pseudo-row | thread pane: entry 0 with `Ref = parentSelected` (−1); `HitTestReaction` returns reply indices | `parent_selection_test.go`, `TestHitTestReaction_OnPill` |
+| 3 leading day divider | panes: seed `""` (`messages/model.go`) vs `DateFromTS(parent.TS)` (`thread/model.go`) | `TestViewInsertsDateSeparatorAcrossDays`, `dateseparator_test.go` |
+| 4 separator | `entrylist.Entry.Trail` (channel spacer rows) vs rule decoration entries (thread) | `TestTrailRowsAreNotSnappedIntoView`, `TestChar_ThreadSelectionSkipsSeparators`, `TestChar_ThreadCopyExcludesSeparators` |
+| 5 chrome | panes: `ChromeHeight()` and the channel header (messages); `renderBreadcrumb` (thread, `ChromeHeight()` now exported) | `breadcrumb_test.go` |
+| 6 hit-test row frame | converged: content-relative in both; the App subtracts chrome | `TestHitTestReaction_OnPill` (both panes) |
+| 7 scroll mechanism | converged: `bubbles/entrylist` (thread keeps the eager clamp, U6) | `entrylist_test.go` |
+| 8a landmark setter | converged: `SetLastReadTS` / `LastReadTS` on both | App-level boundary tests in `app_test.go`, `reducer_focus_test.go` |
+| 8b landmark lifecycle | thread pane: `SetThread` clears the boundary when the thread identity changes (`thread/model.go`) | `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges` |
+| 8c landmark structure | `entrylist.WithSnapDecorationAnchors` (channel on, thread off) | `TestPressOnDecoration`, `TestChar_MessagesSelectionSnapsFromDivider` |
+| 9 reply count | `RenderOptions.ReplyAffordance` (channel on) | goldens; no per-setting test |
+| 10 search highlight | `RenderContext.SearchTerms` (channel sets, thread leaves nil) | `highlight_test.go`, `TestSetSearchTerms_*` |
+| 11 loading state | channel pane `SetLoading`, plus `Compose`'s top-row slot (thread passes `""`) | `TestEmptyStateRendersSpinnerWhenLoading`, `TestLoadingOlderMessagesHintAnimatesAcrossFrames` |
+| 12 empty states | panes: "No messages yet" (channel); "No thread selected" and "No replies yet" (thread, via `Static()`) | `TestChar_ThreadZeroReplies*` |
+| 13 View / ViewBare / ApplySelectionToBordered / `ClickAt` | converged: both expose the trio and `ClickAt(y) bool` | `contentPane` assertions, `content_pane_api_test.go` |
+| 14 outer wrapper | removed in PR 2+3 | the four re-blessed goldens, cell-proven |
+| 15 image click-to-preview | `RenderOptions.ImageHits` (channel on); `HitTest` and `HandleImageReady` stay channel-only | `model_test.go` `HitTest` tests |
+| U1 | `entrylist.WithCursorFollowsScroll` | `TestCursorFollowsScroll`, `TestChar_MessagesCursorFollowsScroll`, `TestChar_ThreadDoesNotFollowCursorOnScroll` |
+| U2 | `entrylist.WithPinBottomOnShrink` | `TestPinBottomOnShrink`, `TestChar_MessagesPinsBottomOnShrink`, `TestChar_ThreadDoesNotPinBottomOnShrink` |
+| U3 | `Compose`'s `top` / `bottom` arguments (no option) | `TestComposePadsAndPlacesIndicators`, `TestChar_MessagesMoreBelowRow`, `TestChar_ThreadHasNoMoreBelowRow` |
+| U4 | `entrylist.WithDirtyOnDrag` (thread on) | `TestDirtyOnDrag`, `TestChar_MessagesDragBumpsVersionOnce`, `TestChar_ThreadDragBumpsVersion` |
+| U5 | `entrylist.WithReanchor(ReanchorPolicy{…})`; no count gate | `TestReanchorBottomUsesOldOrNewHeight`, `TestReanchorRefsOnlySkipsLeadingNonRefEntries`; at pane level `TestChar_MessagesReanchorMeasuresBottomWithNewHeight` (`BottomUsesNewHeight`) and `TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize` (#254; asserts the exact offset, which pins `AnchorRefsOnly`) |
+| U6 | `entrylist.WithEagerClamp` (thread on) | `TestEagerClampMakesOvershootANoOp`, `TestLazyClampAbsorbsOvershoot`, `TestChar_ThreadScrollClampsEagerly`, `TestChar_MessagesScrollClampsLazily` |
+| U7–U9 | `RenderOptions.EditedMark`, `BroadcastLabel`, `Avatar` | goldens; `TestThreadBroadcastLabel` and `TestSelectedTimestamp_EditedMarkCountsTowardWidth` cover the channel-on side |
+
+Gaps, stated plainly:
+
+- Most `RenderOptions` flips are guarded: the goldens, the thread render tests
+  and a 720-input old/new differential run during PR 6 catch them (flipping the
+  thread's `EditedMark` fails `TestGolden`, for one). The unguarded ones are the
+  thread-side flips of `BroadcastLabel` and `ImageHits`: no test fails when
+  either is flipped.
+- The retired file was the only test that asserted the rendered
+  `── new ──` unread-landmark row, and thread's boundary lifecycle (8b). Both are
+  pinned again in PR 8, with each test shown to fail under a mutant that
+  changes the text, disables the insertion, or removes/always applies the
+  clear: `TestUnreadLandmark_RendersBetweenReadAndUnread` (channel),
+  `TestUnreadLandmark_RendersBetweenReadAndUnreadReply` (thread) and
+  `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges`. The retired file's
+  byte-identical comparison of a day-transition divider row beside a wrapped
+  line and a reaction pill across the two panes is not restored.
+
+The retired file's two cross-pane tests, `TestLockstep_SharedRenderBehaviour`
+and `TestLockstep_ScrolledWindowParity`, go with it: the first compared two
+renderers that are now one function, the second compared two scroll
+implementations that are now one package.

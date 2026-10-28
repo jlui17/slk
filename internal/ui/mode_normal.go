@@ -17,7 +17,7 @@
 //     O (open link in new herdr tab), c (copy code block or link),
 //     z (expand or collapse long attachment cards)
 //   - reaction nav sub-state: r enters; arrows + Enter select
-//     (delegated to handleReactionNav / handleThreadReactionNav)
+//     (delegated to handleReactionNav, for either content pane)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
 //     next key is a window chord (s/v split, h/j/k/l focus, w cycle,
 //     q/c close, o only — delegated to handleWindowChord)
@@ -64,11 +64,8 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// Reaction-nav sub-state (intercept before normal keys).
-	if a.focusedPanel == PanelMessages && a.messagepane.ReactionNavActive() {
-		return a.handleReactionNav(msg)
-	}
-	if a.focusedPanel == PanelThread && a.threadPanel.ReactionNavActive() {
-		return a.handleThreadReactionNav(msg)
+	if p, channelID, ok := a.focusedContentPane(); ok && p.ReactionNavActive() {
+		return a.handleReactionNav(p, channelID, msg)
 	}
 	if cmd, ok := a.appHomeKey(msg); ok { // fork: apphome.go
 		return cmd
@@ -293,17 +290,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return func() tea.Msg { return EnterNewMessageMsg{} }
 
 	case key.Matches(msg, a.keys.Reaction):
-		if a.focusedPanel == PanelMessages {
-			return a.openPickerFromMessage()
-		} else if a.focusedPanel == PanelThread {
-			return a.openPickerFromThread()
+		if p, channelID, ok := a.focusedContentPane(); ok {
+			return a.openReactionPicker(p, channelID)
 		}
 
 	case key.Matches(msg, a.keys.ReactionNav):
-		if a.focusedPanel == PanelMessages {
-			a.messagepane.EnterReactionNav()
-		} else if a.focusedPanel == PanelThread {
-			a.threadPanel.EnterReactionNav()
+		if p, _, ok := a.focusedContentPane(); ok {
+			p.EnterReactionNav()
 		}
 
 	case key.Matches(msg, a.keys.ListReactions):

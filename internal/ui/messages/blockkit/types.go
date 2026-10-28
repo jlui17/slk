@@ -75,8 +75,9 @@ type SixelEntry struct {
 
 // HitRect is one clickable image footprint expressed in (row, col)
 // coordinates RELATIVE TO RenderResult.Lines. The integration site
-// translates these to absolute viewEntry coordinates by adding the
-// row offset and column-base before storing them on the viewEntry.
+// translates these to absolute entry coordinates by adding the
+// row offset and column-base before storing them as the entry's
+// entrylist.Hit rects.
 type HitRect struct {
 	RowStart int    // inclusive
 	RowEnd   int    // exclusive

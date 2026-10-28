@@ -483,7 +483,7 @@ func makeTestPNG(w, h int) []byte {
 // guarantee of the inline-image pipeline: the user's scroll position
 // must not jump when an image transitions from the loading placeholder
 // to the rendered bytes. The placeholder block reserves exactly the
-// same number of rows as the eventual image, so the cached viewEntry
+// same number of rows as the eventual image, so the cached entry
 // height for the message must be identical across the two renders.
 //
 // The test injects the image bytes directly into the on-disk cache (no
@@ -1482,7 +1482,7 @@ func TestModel_RenderMessageWithImageEmoji_WarmCache(t *testing.T) {
 // blank cells in the terminal.
 //
 // Asserts: after a View() with image mode + a reaction emoji, at least one
-// cached viewEntry must carry a non-empty flushes slice.
+// cached entry's payload must carry a non-empty flushes slice.
 func TestModel_RenderMessageWithImageEmoji_FlushesThreaded(t *testing.T) {
 	emojiutil.SetImageMode(true, 2)
 	t.Cleanup(func() { emojiutil.SetImageMode(false, 2) })

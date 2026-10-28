@@ -14,7 +14,7 @@ go build ./...
 go test ./...                 # ~10s
 go test ./... -race           # ~47s; this is what CI runs
 go vet ./...
-golangci-lint run             # v2.13.1, config in .golangci.yml
+golangci-lint run             # v2.14.0, config in .golangci.yml
 gofmt -l .                    # must be empty; enforced in CI
 ```
 
@@ -161,10 +161,10 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Prompt modal with N buttons (title, wrapped body of up to 8 lines, buttons; yes/no is `Open`, any buttons via `OpenChoice(confirmprompt.Choice)`, `Button.Then` for a follow-up step) | `bubbles/confirmprompt` (`New`, `Open`, `OpenChoice`, `Update`, `PressHighlighted`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
 | Text selection ranges and anchors | `bubbles/selection` (`Range`, `Anchor`, `LessOrEqual`) |
 | A scrollable, selectable list of pre-rendered rows: line offsets, scroll offset and snapping, the visible window, text selection and copy, clickable-rect translation, the scrollbar | `bubbles/entrylist` (`New` with options, `SetHeight`, `SetEntries`, `Layout`, `Compose`). The channel and thread panes are its two owners; each divergence between them is an `entrylist` option, documented on the option |
-| The theme mapped onto a content pane's entrylist styles (padding, scrollbar, selection highlight); both panes call it at the top of View | `messages.ThemeListStyles()` (`internal/ui/messages/pane_list.go`) |
-| Do something to whichever message pane (channel or thread) is focused or named by a panel, without a messages/thread branch | the `contentPane` interface, `(*App).contentPaneFor(panel)` and `(*App).focusedContentPane()` (returns the pane and its channel ID) in `internal/ui/content_pane.go`; both panes are asserted against it at compile time |
+| The theme mapped onto a content pane's entrylist styles (padding, scrollbar, selection highlight); the thread pane calls it; the channel pane uses the unexported `themeListStyles` it wraps | `messages.ThemeListStyles()` (`internal/ui/messages/pane_list.go`) |
+| Do something to whichever message pane (channel or thread) is focused or named by a panel, without a messages/thread branch | the `contentPane` interface, `(*App).contentPaneFor(panel)` and `(*App).focusedContentPane()` (returns the pane and its channel ID) in `internal/ui/content_pane.go`; both panes are asserted against it at compile time. Built on it: `handleReactionNav`, `openReactionPicker`, `toggleReactionOnSelected` (`app.go`) and the pill-click hit test `toggleReactionAt` (`reducer_mouse.go`), each taking the pane and its channel ID |
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
-| Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/app.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site |
+| Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/app.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site. `entrylist` is the exception: its owners (the channel and thread panes) call `SetStyles` at the top of every `View`, so `applyTheme` only invalidates for them |
 | Window tree geometry | `ui/wintree` |
 | Sidebar selection across item/filter reorders | Capture `sidebar.Model.currentCursorKey()` **before** mutation, then `rebuildNavWithCursor`; `rebuildNavPreserveCursor` is only safe while old nav indices still identify the same items |
 | Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` (list rows), `pointClickable` (a single glyph, e.g. the profile dialog's 📋) in `internal/ui/reducer_modal_click.go` |
@@ -233,22 +233,11 @@ them as templates:
   migrating a modal, expect a shared chrome package in `internal/bubbles` to land
   first (RFC #236 stages it ahead of the remaining modals); coordinate rather
   than adding a twelfth copy.
-- **`messages.Model` and `thread.Model`** share 377 verbatim lines and 45
-  identically-named methods. `internal/ui/thread/lockstep_test.go` pins *render*
-  parity in **one static state only**: 80×20 (`lockstepWidth`/`lockstepHeight`),
-  chosen so neither pane scrolls — so no scroll offset, no scrollbar gutter, no
-  search-term highlighting and no loading state is compared. The
-  scroll/viewport/selection math, which is most of the 377 shared lines, is
-  pinned *within* each model (`messages/scrollbar_test.go`,
-  `messages/selection_test.go`, `thread/selection_test.go`,
-  `thread/model_test.go`) but **not across** them: a change that breaks one
-  model's scrolling and not the other's will not fail the lockstep test. Its doc
-  comment enumerates **15 verified
-  divergences** — that list is the specification Phase 3's pane hooks have to
-  satisfy, not a wishlist. If you change one model, change both, and expect the
-  lockstep test to tell you when you forgot — within the limits above. Note that
-  `TestLockstep_ReactionHitTestFrames` is a tripwire that fires on
-  *convergence*: Phase 3 must delete it, not satisfy it.
+- **`messages.Model` and `thread.Model`** share `bubbles/entrylist` (scroll,
+  selection, window, scrollbar) and `messages.RenderMessage` (one message
+  renderer); their differences are `entrylist` options and `RenderOptions`
+  fields, each documented where it is declared. Do not add a pane-specific
+  copy of either.
 - **`convertAndCacheHistory` / `fetchChannelMessages` / `fetchThreadReplies`** in
   `cmd/slk/main.go` have ~85% duplicated bodies.
 
@@ -260,14 +249,18 @@ code is right and this file is a bug — fix it.
 
 **Two implementations that must stay parallel?** Express it as an interface with
 a compile-time assertion (`var _ Chrome = (*Model)(nil)`) or a lockstep test.
-Not a comment. The comment at `internal/ui/thread/model.go:35-36` — "this shape
-mirrors `internal/ui/messages.viewEntry` exactly; keeping them in lockstep
-means…" — was the counter-example: prose asking humans to maintain a 377-line
-invariant by hand. Phase 0 discharged it. The invariant now has a test,
-`internal/ui/thread/lockstep_test.go`, which asserts the shared render
-behaviour in one static state and carries a documented 15-item divergence list.
-Do the same: when
-you find a comment standing in for a check, replace it with the check.
+Not a comment. The comment that used to sit at the top of
+`internal/ui/thread/model.go` — "this shape mirrors
+`internal/ui/messages.viewEntry` exactly; keeping them in lockstep means…" —
+was the counter-example: prose asking humans to maintain a 377-line invariant
+by hand. Phase 0 pinned it with a lockstep test, and Phase 3 replaced both with
+structure. The `contentPane` interface (`internal/ui/content_pane.go`), which
+both panes are asserted against at compile time, covers what the App calls on
+either pane. Every behavioural difference between them is an `entrylist` option
+(`WithEagerClamp`, `WithCursorFollowsScroll`, …) or a `RenderOptions` field,
+documented where it is declared (the `entrylist` options are tested per
+setting in `entrylist_test.go`). Do the same: when you find a comment standing
+in for a check, replace it with the check.
 
 **Extract the substrate, not the widget.** Share the uniform part; leave the
 divergent part alone. Forcing genuinely different behavior into a common shape

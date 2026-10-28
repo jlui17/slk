@@ -61,7 +61,7 @@ func BenchmarkBuildCache(b *testing.B) {
 // BenchmarkViewFocusFlip simulates the slow operations the user reported:
 // pressing i / arrow keys / opening or closing the thread panel all flip
 // the messages-pane focus bit, which (prior to the partial-rebuild fix)
-// invalidated the entire pre-rendered viewEntry cache and forced a full
+// invalidated the entire pre-rendered entry cache and forced a full
 // per-message re-render of every loaded message.
 //
 // Expected costs on a 200-message channel (matches the [perf] trace at

@@ -114,8 +114,9 @@ type KittyRenderer struct {
 	//
 	// Why this exists: Registry.Lookup keeps returning fresh=true for
 	// any image whose OnFlush has never fired -- and OnFlush only fires
-	// for messages whose viewEntry currently sits inside the visible
-	// viewport (see internal/ui/messages/model.go:2748). For an
+	// for messages whose cache entry currently sits inside the visible
+	// window (see messages.Model's View, which runs each visible
+	// entry's EntryPayload.Flushes). For an
 	// image-heavy channel with 21 images but only ~5 visible at a
 	// time, 16 of the 21 images would re-pay bilinear-resize +
 	// PNG-encode + base64 on EVERY buildCache because their
@@ -260,7 +261,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		cellsRows := target.Y
 		reg := k.registry
 		// fired guards against per-closure double-emission (e.g. the
-		// same viewEntry being flushed twice in one frame). The
+		// same cache entry being flushed twice in one frame). The
 		// registry's MarkUploaded guards against double-emission
 		// across DIFFERENT closures for the same (key, target) —
 		// without that, a cache rebuild that discards an unfired

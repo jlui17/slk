@@ -109,7 +109,8 @@ Do every step; the order matters less than completeness.
 6. **Check it against `AGENTS.md`.** The `internal/ui` I/O boundary,
    new behaviour in a `reducer_*.go` rather than `Update`, reuse of
    listed helpers instead of a new copy, new reusable helpers added to
-   the table, the `messages`/`thread` lockstep, `main.go` scope
+   the table, a new `messages`/`thread` difference being an `entrylist` option or
+   `RenderOptions` field rather than a pane-local copy, `main.go` scope
    (`main_scope_test.go`), and refactors that change behaviour.
 
 7. **Check docs and goldens.** Wiki pages and design docs match the
