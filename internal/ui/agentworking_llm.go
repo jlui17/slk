@@ -85,7 +85,7 @@ func workingJudgeKey(l agentLastMsg) string {
 // pane, no API key, feature unconfigured), the derived state is purely
 // deterministic and the ambiguous shapes read idle.
 func (a *App) SetAgentWorkingJudge(gen AgentWorkingJudgeFunc) {
-	a.agentSidebar.judgeGen = gen
+	a.agentSidebar.requestVerdict = gen
 }
 
 // judgeMessage is the text the judge is asked about when l is the newest
@@ -94,13 +94,13 @@ func (a *App) SetAgentWorkingJudge(gen AgentWorkingJudgeFunc) {
 // goes too, for the one verdict that moves it (see derivedState).
 func (a *App) judgeMessage(l agentLastMsg) string {
 	g := &a.agentSidebar
-	if g.judgeGen == nil || !g.thread.active || l.ts == "" {
+	if g.requestVerdict == nil || !g.thread.active || l.ts == "" {
 		return ""
 	}
 	if l.human && !l.acked {
 		return ""
 	}
-	return a.flattenRootText(l.text)
+	return a.flattenMrkdwn(l.text)
 }
 
 // judgeEarlier is the messages before the newest one as the judge reads
@@ -113,7 +113,7 @@ func (a *App) judgeEarlier() []string {
 	}
 	var earlier []string
 	for _, m := range a.agentSidebar.earlierMsgs {
-		text := a.flattenRootText(m.text)
+		text := a.flattenMrkdwn(m.text)
 		if text == "" {
 			continue
 		}
@@ -159,7 +159,7 @@ func (a *App) maybeJudgeAgentWorking(inFlight AgentState) {
 	}
 	g.workingJudge.requestedKey = key
 	g.workingJudge.inFlightState = inFlight
-	g.judgeGen(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), !l.human)
+	g.requestVerdict(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), !l.human)
 }
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,

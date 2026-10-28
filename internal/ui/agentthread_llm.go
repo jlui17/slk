@@ -21,7 +21,7 @@ import (
 // that answers none. A !review-open thread's request waits for the
 // returned fetch (agentthread_reviewopen.go).
 func (a *App) maybeRequestAgentTabLabel(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) tea.Cmd {
-	if a.agentSidebar.relabelGen == nil || a.agentSidebar.nameTab == nil ||
+	if a.agentSidebar.requestLabel == nil || a.agentSidebar.nameTab == nil ||
 		a.agentSidebar.labelRequested || replies == nil || !a.tracksThread("", channelID, threadTS) {
 		return nil
 	}
@@ -31,7 +31,7 @@ func (a *App) maybeRequestAgentTabLabel(parent messages.MessageItem, replies []m
 		return nil
 	}
 	a.agentSidebar.labelRequested = true
-	root := a.flattenRootText(stripMention(parent.Text, t.botUserID))
+	root := a.flattenMrkdwn(stripMention(parent.Text, t.botUserID))
 	target := labelTarget{teamID: t.teamID, channelID: t.channelID, threadTS: t.threadTS, botUserID: t.botUserID}
 	return a.requestAgentTabLabel(target, parent, replies, transcript, hoistTaskID(root), 0)
 }

@@ -170,7 +170,7 @@ func (a *App) applyLinkPreview(m LinkPreviewMsg) {
 	if m.Gen != a.linkPreviewGen || !linkRows || !a.linkPicker.IsVisible() {
 		return
 	}
-	text := a.flattenRootText(m.Text)
+	text := a.flattenMrkdwn(m.Text)
 	if text == "" {
 		// Raw mrkdwn that flattens to nothing (whitespace, bare
 		// entity tokens): the date-bearing fallback row beats an

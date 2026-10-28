@@ -104,7 +104,7 @@ func (a *App) labelStillWanted(teamID, channelID, threadTS string, retitleGen ui
 // herdr pane, no API key, or the feature not configured), tab naming stays
 // purely deterministic and :retitle reports the feature unconfigured.
 func (a *App) SetAgentTabRelabeler(gen AgentTabRelabelFunc) {
-	a.agentSidebar.relabelGen = gen
+	a.agentSidebar.requestLabel = gen
 }
 
 // SetAgentTabForceNamer installs the rename a :retitle result lands
@@ -140,7 +140,7 @@ func cmdRetitle(a *App, _ commandArgs) tea.Cmd {
 	if threadTS == "" {
 		return toastWithClear(a, "Open a thread first", 2*time.Second)
 	}
-	if a.agentSidebar.relabelGen == nil {
+	if a.agentSidebar.requestLabel == nil {
 		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model + anthropic_api_key)", 2*time.Second)
 	}
 	var botUserID string
@@ -199,7 +199,7 @@ func (a *App) retitleLine(userID, text string, max int) string {
 
 // speakerRetitleLine is retitleLine for an author already named.
 func (a *App) speakerRetitleLine(name, text string, max int) string {
-	flat := truncate.StringWithTail(stripLinkTargets(a.flattenRootText(text)), uint(max), "…")
+	flat := truncate.StringWithTail(stripLinkTargets(a.flattenMrkdwn(text)), uint(max), "…")
 	if flat == "" {
 		return ""
 	}
@@ -234,7 +234,7 @@ func stripSessionLabel(name string) string {
 }
 
 // retitleSpeaker resolves an author name through the same two caches
-// flattenRootText resolves mentions with, session label dropped.
+// flattenMrkdwn resolves mentions with, session label dropped.
 func (a *App) retitleSpeaker(userID string) string {
 	if userID == "" {
 		return ""

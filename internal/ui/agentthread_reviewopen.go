@@ -111,7 +111,7 @@ func (a *App) requestAgentTabLabel(target labelTarget, parent messages.MessageIt
 		if reviewOpen {
 			transcript = a.retitleTranscript(parent, replies, target.botUserID, a.retitleLine(authorID, note, maxRetitleReply))
 		}
-		a.agentSidebar.relabelGen(target.teamID, target.channelID, target.threadTS, transcript, fallbackTaskID, retitleGen, reviewOpen)
+		a.agentSidebar.requestLabel(target.teamID, target.channelID, target.threadTS, transcript, fallbackTaskID, retitleGen, reviewOpen)
 		return nil
 	}
 	a.agentSidebar.labelFetchGen++
@@ -140,14 +140,14 @@ func (a *App) requestAgentTabLabel(target labelTarget, parent messages.MessageIt
 // can't cancel it.
 func (a *App) sendAnnotatedAgentTabLabel(m agentTabAnnotationMsg) {
 	t := m.target
-	if (m.retitleGen == 0 && m.gen != a.agentSidebar.labelFetchGen) || a.agentSidebar.relabelGen == nil ||
+	if (m.retitleGen == 0 && m.gen != a.agentSidebar.labelFetchGen) || a.agentSidebar.requestLabel == nil ||
 		!a.labelStillWanted(t.teamID, t.channelID, t.threadTS, m.retitleGen) {
 		return
 	}
 	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(m.text), "!annotate"))
 	line := a.speakerRetitleLine(stripSessionLabel(m.sender), strings.TrimPrefix(text, "-"), maxRetitleReply)
 	transcript := a.retitleTranscript(m.parent, m.replies, t.botUserID, line)
-	a.agentSidebar.relabelGen(t.teamID, t.channelID, t.threadTS, transcript, m.fallbackTaskID, m.retitleGen, true)
+	a.agentSidebar.requestLabel(t.teamID, t.channelID, t.threadTS, transcript, m.fallbackTaskID, m.retitleGen, true)
 }
 
 // reviewOpenTabLabel renders a !review-open thread's tab: "!review", then

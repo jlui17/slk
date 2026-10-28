@@ -104,11 +104,11 @@ type agentSidebar struct {
 	// marks holds the threads marked with :agent (agentthread_mark.go).
 	marks AgentThreadMarkStore
 
-	// relabelGen is the model-generated tab-label refinement, requested
-	// once automatically per tracked thread (labelRequested; see
+	// requestLabel asks the model for a refined tab label, once
+	// automatically per tracked thread (labelRequested; see
 	// agentthread_llm.go) and on :retitle for the thread the panel shows
 	// (agentthread_retitle.go).
-	relabelGen     AgentTabRelabelFunc
+	requestLabel   AgentTabRelabelFunc
 	labelRequested bool
 	// labelFetchGen numbers label requests that wait on a fetch, so only
 	// the latest one sends (agentthread_reviewopen.go).
@@ -117,11 +117,11 @@ type agentSidebar struct {
 	// result lands (agentthread_retitle.go).
 	retitleGen uint64
 
-	// judgeGen and workingJudge drive the model working verdict for the
-	// last-message shapes the derived signal can't decide; see
+	// requestVerdict and workingJudge drive the model working verdict
+	// for the last-message shapes the derived signal can't decide; see
 	// agentworking_llm.go.
-	judgeGen     AgentWorkingJudgeFunc
-	workingJudge workingJudgeState
+	requestVerdict AgentWorkingJudgeFunc
+	workingJudge   workingJudgeState
 
 	// working mirrors the assistant's turn state from the last
 	// AssistantStatusMsg for the tracked thread. It is one leg of
@@ -245,7 +245,7 @@ func (a *App) updateAgentThread(parent messages.MessageItem, replies []messages.
 // the display fields, so it can't stomp a live working state or a pending
 // unread count; only a different thread resets them.
 func (a *App) trackAgentThread(parent messages.MessageItem, channelID, threadTS, botUserID, name string) {
-	flat := a.flattenRootText(parent.Text)
+	flat := a.flattenMrkdwn(parent.Text)
 	next := agentThreadState{
 		active:    true,
 		channelID: channelID,
@@ -292,7 +292,7 @@ func (a *App) trackAgentThread(parent messages.MessageItem, channelID, threadTS,
 	// The mention is dropped from the raw text, not trimmed from the
 	// flattened string: trimming by rendered name breaks when the
 	// in-memory name map and the user cache disagree on the bot's name.
-	stripped := a.flattenRootText(stripMention(parent.Text, botUserID))
+	stripped := a.flattenMrkdwn(stripMention(parent.Text, botUserID))
 	if a.agentSidebar.nameTab != nil {
 		a.agentSidebar.nameTab(agentTabLabel(stripped))
 	}
@@ -514,10 +514,11 @@ func (a *App) botUser(userID string) (string, string, bool) {
 	return userID, name, true
 }
 
-// flattenRootText renders a root message's mrkdwn to whitespace-collapsed
-// plain text so no raw wire syntax reaches the sidebar or the tab bar.
-func (a *App) flattenRootText(rootText string) string {
-	text := messages.FlattenMrkdwn(rootText,
+// flattenMrkdwn renders a message's mrkdwn to whitespace-collapsed
+// plain text so no raw wire syntax reaches the sidebar, the tab bar, the
+// judge or a link picker row.
+func (a *App) flattenMrkdwn(mrkdwn string) string {
+	text := messages.FlattenMrkdwn(mrkdwn,
 		func(id string) (string, bool) {
 			if name, _ := a.userNames.Get(id); name != "" {
 				return name, true

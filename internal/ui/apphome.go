@@ -242,8 +242,8 @@ func (a *App) appHomeKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 }
 
 // appHomePage scrolls the Home tab for the paging keys, and reports
-// whether msg was one. Top's binding (g) has no handler in normal mode,
-// so on the Home a single g goes to the top.
+// whether msg was one. On the Home a single g goes to the top: the Home's
+// keys are read ahead of normal mode's gg chord (handleNormalMode).
 func (a *App) appHomePage(msg tea.KeyMsg) bool {
 	m, k := &a.appHome.model, a.keys
 	switch {
