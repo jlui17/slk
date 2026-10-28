@@ -1564,59 +1564,11 @@ func run(startupLink *slackurl.Permalink) error {
 		}
 	}
 
-	// A command-line permalink overrides default_workspace: the link's
-	// workspace must claim the initial active slot for the startup
-	// navigation queued below to run. It also overrides the pane-state
-	// restore for this launch; the link becomes the recorded state the
-	// moment it opens.
-	if startupLink != nil {
-		paneRestore = nil
-		linkTeamID := ""
-		for _, t := range tokens {
-			if t.Domain == startupLink.Subdomain {
-				linkTeamID = t.TeamID
-				break
-			}
-		}
-		if linkTeamID == "" {
-			return fmt.Errorf("link is for %s.slack.com, which is not a configured workspace (see slk --list-workspaces)", startupLink.Subdomain)
-		}
-		defaultTeamID = linkTeamID
-		app.SetStartupLink(string(startupLink.ChannelID), string(startupLink.MessageTS), string(startupLink.ThreadTS))
+	defaultTeamID, paneForcedTeam, paneRestore, err := resolveStartupWorkspace(tokens, startupLink, paneRestore, defaultTeamID, app.SetStartupLink)
+	if err != nil {
+		return err
 	}
-
-	// Pane-state restore claims the initial active slot the same way a
-	// permalink does. A recorded thread rides the permalink startup-nav
-	// path (channel select, thread panel, off-buffer backfill, missing
-	// channel degrading to a toast); a channel-only state flows through
-	// WorkspaceReadyMsg.LastChannelID via restoredChannelFor below.
-	//
-	// paneForcedTeam remembers that defaultTeamID came from auto-recorded
-	// state rather than the user's default_workspace config: if that
-	// workspace then fails to connect, still-pending workspaces fall back
-	// to first-to-connect-wins (see the connect-failure path) instead of
-	// leaving slk with no active workspace at all.
-	paneForcedTeam := ""
 	var paneForcedFailed atomic.Bool
-	if paneRestore != nil {
-		found := false
-		for _, t := range tokens {
-			if t.TeamID == paneRestore.WorkspaceID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			log.Printf("Warning: pane state names workspace %q but no token is configured for it; ignoring", paneRestore.WorkspaceID)
-			paneRestore = nil
-		} else {
-			defaultTeamID = paneRestore.WorkspaceID
-			paneForcedTeam = paneRestore.WorkspaceID
-			if paneRestore.ThreadTS != "" {
-				app.SetStartupLink(paneRestore.ChannelID, paneRestore.ThreadTS, paneRestore.ThreadTS)
-			}
-		}
-	}
 
 	// firstReady gates the "first workspace to connect wins" logic when
 	// no default_workspace is configured. sync.Once ensures exactly one
