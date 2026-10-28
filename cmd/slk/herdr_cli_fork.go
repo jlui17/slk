@@ -160,10 +160,7 @@ func rebootPanes(w io.Writer, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	command := cfg.Herdr.OpenCommand
-	if command == "" {
-		command = "slk"
-	}
+	command := cfg.Herdr.ResolveOpenCommand()
 	db, err := openPaneStateDB()
 	if err != nil {
 		return fmt.Errorf("opening cache: %w", err)

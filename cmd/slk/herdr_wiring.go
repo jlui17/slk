@@ -40,10 +40,7 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	})
 	app.SetAgentThreadMarks(db)
 	app.SetAgentTabForceNamer(hr.ForceNameTab)
-	openCommand := cfg.OpenCommand
-	if openCommand == "" {
-		openCommand = "slk"
-	}
+	openCommand := cfg.ResolveOpenCommand()
 	if hr.CanOpenTab() {
 		app.SetHerdrTabOpener(func(url, label string, focus bool) error {
 			return hr.OpenTab(label, openCommand, url, focus)

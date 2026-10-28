@@ -22,6 +22,15 @@ func TestResolveAnthropicAPIKey(t *testing.T) {
 	}
 }
 
+func TestResolveOpenCommand(t *testing.T) {
+	if got := (Herdr{}).ResolveOpenCommand(); got != "slk" {
+		t.Errorf("unset: ResolveOpenCommand = %q, want slk", got)
+	}
+	if got := (Herdr{OpenCommand: "/opt/slk/run"}).ResolveOpenCommand(); got != "/opt/slk/run" {
+		t.Errorf("set: ResolveOpenCommand = %q, want /opt/slk/run", got)
+	}
+}
+
 func TestResolveTabNameEffort(t *testing.T) {
 	if got := (Herdr{}).ResolveTabNameEffort(); got != "low" {
 		t.Errorf("unset: ResolveTabNameEffort = %q, want low", got)

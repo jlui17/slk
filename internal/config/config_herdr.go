@@ -48,6 +48,16 @@ func (h Herdr) ResolveAnthropicAPIKey() string {
 	return os.Getenv("ANTHROPIC_API_KEY")
 }
 
+// ResolveOpenCommand is the command the O and alt+o openers, and slk
+// herdr reboot, launch slk with: herdr.open_command, or "slk" when
+// unset.
+func (h Herdr) ResolveOpenCommand() string {
+	if h.OpenCommand != "" {
+		return h.OpenCommand
+	}
+	return "slk"
+}
+
 // ResolveTabNameEffort is the effort the tab-label calls run at:
 // herdr.tab_name_effort, or low when unset.
 func (h Herdr) ResolveTabNameEffort() string {
