@@ -352,3 +352,9 @@ upstream's and drop the fork's.
   `internal/bubbles/entrylist/entrylist.go`, `window.go` — `scrollbar.Cache`
   cuts each pane row once instead of on every frame (branch
   `perf-scrollbar-fullwidth`).
+- `internal/ui/panelcache.go`, `view_messages.go`, `view_thread.go` —
+  the channel and thread panes' compose region (typing or status row,
+  compose box, bottom edge) is cached on its rendered strings instead of
+  re-rendered every frame (branch `perf-compose-region`). The fork's
+  `view_compose_region_test.go` passes a `usernames.FromMap` store to
+  `SetUserNames` where upstream's passes a map.

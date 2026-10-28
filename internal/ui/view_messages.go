@@ -14,7 +14,8 @@
 //	                (messages + top edge + sides only, no bottom
 //	                edge) cached on messagepane.Version only;
 //	                bottom region (typing + compose + bottom
-//	                edge + sides) re-rendered fresh each frame.
+//	                edge + sides) cached on its rendered typing
+//	                and compose strings.
 //	                The two stack into a continuous bordered
 //	                panel because BorderBottom(false) on the top
 //	                + BorderTop(false) on the bottom lines up the
@@ -268,8 +269,21 @@ func (a *App) renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight int,
 	topBordered := a.renderMessagesTop(msgWidth, msgBorder, topHeight, msgContentHeight, topPanelVersion, topLayoutKey, msgFocused)
 	topBordered = a.messagepane.ApplySelectionToBordered(topBordered, 1, 1)
 
-	// Fresh bottom region: typing line + compose, with bottom
-	// edge. Same lipgloss/v2 quirk applies.
+	bottomBordered := a.renderMessagesBottom(typingLine, composeView, msgWidth, msgBorder, bottomHeight, msgLayoutKey, msgFocused)
+
+	return topBordered + "\n" + bottomBordered
+}
+
+// renderMessagesBottom is the bottom region of the channel messages
+// panel: typing line + compose, with bottom edge. Same lipgloss/v2
+// quirk applies. Cached on the typing and compose strings themselves
+// (see composeRegionCache), so a frame that leaves them unchanged
+// skips the border + exactSize pass, most of an idle frame's cost.
+func (a *App) renderMessagesBottom(typingLine, composeView string, msgWidth, msgBorder, bottomHeight int, msgLayoutKey int64, msgFocused bool) string {
+	c := &a.renderCache.msgBottom
+	if c.hit(typingLine, composeView, msgWidth, msgWidth+msgBorder, msgLayoutKey) {
+		return c.output
+	}
 	bottomBorderStyle := styles.UnfocusedBorder.Width(msgWidth).
 		BorderTop(false).BorderLeft(true).BorderRight(true).BorderBottom(true)
 	if msgFocused {
@@ -278,12 +292,12 @@ func (a *App) renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight int,
 	}
 	bottomInner := lipgloss.JoinVertical(lipgloss.Left, typingLine, composeView)
 	bottomInner = messages.ReapplyBgAfterResets(bottomInner, messages.BgANSI())
-	bottomBordered := exactSize(
+	out := exactSize(
 		bottomBorderStyle.Render(bottomInner),
 		msgWidth+msgBorder, bottomHeight+1, // +1 for bottom border edge
 	)
-
-	return topBordered + "\n" + bottomBordered
+	c.store(out, typingLine, composeView, msgWidth, msgWidth+msgBorder, msgLayoutKey)
+	return out
 }
 
 // renderMessagesTop is the cached top region of the channel

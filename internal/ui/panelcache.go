@@ -54,6 +54,49 @@ func (c *panelCache) store(out string, panelVersion int64, width, height int, la
 	c.valid = true
 }
 
+// composeRegionCache stores the bordered bottom region of a pane
+// that carries a compose box (the channel pane's typing row +
+// compose, the thread pane's status row + compose). It is keyed on
+// the region's rendered inner strings rather than on a version
+// counter: building those strings is cheap, and comparing them
+// catches every input -- compose text, cursor position and blink,
+// pickers, placeholder, typing names -- without each one having to
+// bump a version. A hit skips the border render and exactSize pass,
+// which re-measure every cell of the region and dominate an idle
+// frame's cost.
+//
+// width is the bordered width, fullWidth the exactSize width; layoutKey
+// carries what the strings don't: focus (border color) and theme
+// version (border glyphs, background).
+type composeRegionCache struct {
+	output    string
+	above     string
+	compose   string
+	width     int
+	fullWidth int
+	layoutKey int64
+	valid     bool
+}
+
+func (c *composeRegionCache) hit(above, compose string, width, fullWidth int, layoutKey int64) bool {
+	return c.valid &&
+		c.above == above &&
+		c.compose == compose &&
+		c.width == width &&
+		c.fullWidth == fullWidth &&
+		c.layoutKey == layoutKey
+}
+
+func (c *composeRegionCache) store(out, above, compose string, width, fullWidth int, layoutKey int64) {
+	c.output = out
+	c.above = above
+	c.compose = compose
+	c.width = width
+	c.fullWidth = fullWidth
+	c.layoutKey = layoutKey
+	c.valid = true
+}
+
 // boolToInt is the layout-key bit-packing helper. Callers shift its
 // result by some bit offset and OR it into layoutKey so an int64
 // can encode multiple boolean toggles (focus, mode, etc.) in a
@@ -65,7 +108,7 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
-// panelRenderCache groups the six per-panel caches under one owner.
+// panelRenderCache groups the per-panel caches under one owner.
 // Names mirror the panels they back:
 //
 //	rail     - the workspace rail (leftmost column).
@@ -73,9 +116,13 @@ func boolToInt(b bool) int64 {
 //	msgPanel - the bordered messages region in the threads-list view
 //	           (no compose).
 //	msgTop   - the bordered messages region in the channel view; the
-//	           compose + typing line are rendered fresh below and so
-//	           are not part of this cached chunk.
+//	           compose + typing line are cached separately below
+//	           (msgBottom) and are not part of this chunk.
+//	msgBottom - the channel view's typing row + compose box + bottom
+//	           edge, stacked under msgTop.
 //	thread   - the thread side panel's bordered top region.
+//	threadBottom - the thread panel's status row + compose box +
+//	           bottom edge, stacked under thread.
 //	status   - the status bar (bottom row).
 type panelRenderCache struct {
 	rail     panelCache
@@ -87,7 +134,9 @@ type panelRenderCache struct {
 	// (version, dims, layoutKey) key when the user switches between them.
 	activityPanel panelCache
 	msgTop        panelCache
+	msgBottom     composeRegionCache
 	thread        panelCache
+	threadBottom  composeRegionCache
 	status        panelCache
 
 	// winPanes caches the bordered output of unfocused live window

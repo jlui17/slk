@@ -6,8 +6,9 @@
 // and threadWidth > 0. Same split-render pattern as the channel
 // messages panel: bordered top region (replies + sides + top
 // edge) cached on threadPanel.Version; bottom region (compose +
-// sides + bottom edge) rendered fresh each frame so threadCompose
-// keystrokes don't invalidate the (much larger) replies render.
+// sides + bottom edge) cached separately on its rendered compose
+// string, so threadCompose keystrokes don't invalidate the (much
+// larger) replies render.
 //
 // SetFocused MUST run BEFORE the cache hit-check (it bumps
 // Version via dirty()). a.threadCompose.SetWidth must run
@@ -29,8 +30,7 @@ import (
 )
 
 // renderThreadRegion returns the composed thread-region panel
-// string (top cached region + fresh bottom region, joined with
-// a newline).
+// string (top and bottom cached regions, joined with a newline).
 func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string {
 	contentHeight := frame.ContentHeight
 	threadWidth := frame.ThreadWidth
@@ -85,7 +85,19 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 		threadTopVersion, threadTopLayoutKey, threadFocused,
 	)
 
-	// Fresh bottom region.
+	threadBottomBordered := a.renderThreadBottom(threadComposeView, threadWidth, threadBorder, threadComposeHeight, threadLayoutKey, threadFocused)
+
+	return threadTopBordered + "\n" + threadBottomBordered
+}
+
+// renderThreadBottom is the bottom region of the thread panel (status
+// line + compose + bottom border edge), cached on the compose string
+// itself like the channel pane's renderMessagesBottom.
+func (a *App) renderThreadBottom(threadComposeView string, threadWidth, threadBorder, threadComposeHeight int, threadLayoutKey int64, threadFocused bool) string {
+	c := &a.renderCache.threadBottom
+	if c.hit("", threadComposeView, threadWidth, threadWidth+threadBorder, threadLayoutKey) {
+		return c.output
+	}
 	bottomBorderStyle := styles.UnfocusedBorder.Width(threadWidth).
 		BorderTop(false).BorderLeft(true).BorderRight(true).BorderBottom(true)
 	if threadFocused {
@@ -93,12 +105,12 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 			BorderTop(false).BorderLeft(true).BorderRight(true).BorderBottom(true)
 	}
 	threadBottomInner := messages.ReapplyBgAfterResets(threadComposeView, messages.BgANSI())
-	threadBottomBordered := exactSize(
+	out := exactSize(
 		bottomBorderStyle.Render(threadBottomInner),
 		threadWidth+threadBorder, threadComposeHeight+1, // +1 bottom border edge
 	)
-
-	return threadTopBordered + "\n" + threadBottomBordered
+	c.store(out, "", threadComposeView, threadWidth, threadWidth+threadBorder, threadLayoutKey)
+	return out
 }
 
 // renderThreadBotStatusLine is the open thread's app statuses, each as
