@@ -20,7 +20,7 @@ func openLinkPicker(t *testing.T, a *App) {
 		TS:   "1.0",
 		Text: "<https://a.example/1|one> and <https://b.example/2|two>",
 	}})
-	if cmd := a.openLinksOfSelected(HerdrNone); cmd != nil {
+	if cmd := a.openLinksOfSelected(); cmd != nil {
 		t.Fatalf("precondition: expected the modal path, got a cmd: %#v", cmd())
 	}
 	if !a.linkPicker.IsVisible() {

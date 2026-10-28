@@ -1553,49 +1553,36 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 	}
 }
 
-// openLinksOfSelected implements the `o`, `O` and `alt+o` keys: collect the
+// openLinksOfSelected implements the `o` keybinding: collect the
 // links in the selected message (messages pane or thread panel).
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
 // open the link picker modal. All opens converge on OpenLinkMsg,
-// the single routing point in reducer_links.go; inHerdr (the O and
-// alt+o paths) rides along as OpenLinkMsg.InHerdr. The one exception:
-// rows marked in the herdr picker open as OpenLinksInHerdrMsg.
-func (a *App) openLinksOfSelected(inHerdr HerdrTarget) tea.Cmd {
+// the single routing point in reducer_links.go.
+func (a *App) openLinksOfSelected() tea.Cmd {
 	p, _, ok := a.focusedContentPane()
 	if !ok {
 		return nil
 	}
-	selected, ok := p.SelectedMessage()
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	links := messages.MessageLinks(selected)
-	hadLinks := len(links) > 0
-	// When O or alt+o will actually open a herdr tab or pane, offer only
-	// the links it can, and say so in the picker title: a browser
-	// fallback under a title promising a tab is misleading. Outside herdr
-	// (no opener) both degrade to o, full link list included.
-	if a.herdrOpener(inHerdr) != nil { // fork: reducer_links_fork.go
-		navigable := links[:0]
-		for _, l := range links {
-			if a.linkOpensInApp(l.URL) {
-				navigable = append(navigable, l)
-			}
-		}
-		links = navigable
-	}
-	debuglog.General("openLinksOfSelected: %d links (inHerdr=%v)", len(links), inHerdr)
+	links := messages.MessageLinks(msg)
 	switch len(links) {
 	case 0:
-		if hadLinks {
-			return func() tea.Msg { return ToastMsg{Text: "No slk-openable links in message"} }
-		}
 		return func() tea.Msg { return ToastMsg{Text: "No links in message"} }
 	case 1:
 		url := links[0].URL
-		return func() tea.Msg { return OpenLinkMsg{URL: url, InHerdr: inHerdr} }
+		return func() tea.Msg { return OpenLinkMsg{URL: url} }
 	default:
-		return a.openLinkPicker(links, inHerdr)
+		items := make([]linkpicker.Item, len(links))
+		for i, l := range links {
+			items[i] = linkpicker.Item{URL: l.URL, Label: l.Label, InApp: a.linkOpensInApp(l.URL)}
+		}
+		a.pickerKind = "links"
+		a.linkPicker.Open("Open link", items)
+		a.SetMode(ModeLinkPicker)
+		return nil
 	}
 }
 

@@ -686,7 +686,7 @@ type AttachmentRemovedMsg struct {
 // in a new herdr tab (O) or a new herdr pane to the right (alt+o);
 // without that target's opener installed it routes exactly like `o`.
 // With an opener, O and alt+o offer only slk-openable links
-// (openLinksOfSelected filters the rest), so the browser fallback
+// (openLinksOfSelectedIn filters the rest), so the browser fallback
 // below is defense in depth on this path, not a normal route.
 type OpenLinkMsg struct {
 	URL     string

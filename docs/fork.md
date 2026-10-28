@@ -265,6 +265,10 @@ there and resolve them knowing what the fork wants:
   the DND check and the snooze presets.
 - `internal/ui/mode_linkpicker.go` — a "copy" picker commits through
   `copyPickedCopyable` ahead of upstream's clear-on-commit.
+- `internal/ui/mode_normal.go` — `o`, `O` and `alt+o` call the fork's
+  `openLinksOfSelectedIn` (`mode_linkpicker_fork.go`); upstream's
+  `openLinksOfSelected` is kept as upstream wrote it, and only
+  `mode_linkpicker_test.go` still calls it.
 - `internal/ui/thread/model.go` (+ `TestNavigation` in `model_test.go` and
   `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
   selects the parent row, the thread's topmost, where upstream selects the
@@ -297,8 +301,8 @@ there and resolve them knowing what the fork wants:
   OpenLinkTab here, image preview is `v` only); `modekeys_test.go` (the pinned
   mode list includes `ModeAppShortcuts` and `ModeProfileCard`); `mode_insert_keys_test.go`
   (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
-  bordered code box); `golden_test.go`, `mode_linkpicker_test.go` (extra
-  argument on `layout.Compute` / `openLinksOfSelected`); most
+  bordered code box); `golden_test.go` (extra argument on
+  `layout.Compute`); most
   `internal/ui/testdata/golden/*.ansi` re-blessed: the deploy card draws
   in the fork's round box (which also shifts the dialogs' backdrops), the
   help overlay lists the fork's keys, the selection tint is reasserted,
