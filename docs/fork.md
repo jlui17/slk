@@ -129,7 +129,8 @@ there and resolve them knowing what the fork wants:
   is `InteractHint` (`links_fork.go`), which names `o` for a button's
   link, where upstream always says to open Slack. `wrap_rows.go`'s
   `SelectedVariant` reasserts the selection tint after every reset
-  (`ReapplyBgAfterResets`), so bare runs from block renderers take it.
+  (`ReapplyBgAfterResets`), so bare runs from block renderers take it;
+  `wrap_rows_oracle_test.go`'s lipgloss oracle for it does the same.
 - `internal/ui/messages/render.go` — a user mention is drawn inside an OSC 8
   link to the user's profile when `RenderSlackMarkdownOpts.WorkspaceDomain`
   is set (`profilelink_fork.go`), as the messages pane and thread panel set
@@ -370,3 +371,6 @@ upstream's and drop the fork's.
   channel again (branch `perf-messages-partial-rebuild`). The fork's
   `freshenCache` and `CodeBlockAt` bring a pending relayout up to date
   before they read the entries.
+- `internal/ui/messages/wrap_rows.go` — a message's rows are assembled
+  directly instead of through four lipgloss renders, byte for byte the
+  same (`fillRows`, `wrapRowBreak`; branch `perf-messages-wrap-rows`).
