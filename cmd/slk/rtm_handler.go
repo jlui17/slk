@@ -367,51 +367,25 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		// through railUnreadWorkspaces. The sidebar's Invalidate is
 		// a no-op here because the active workspace's sidebar isn't
 		// showing this channel anyway.
+		switch {
+		case shouldMarkChannel:
+			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=inactive_workspace_persisted",
+				h.workspaceID, channelID, ts, subtype, threadTS)
+		case !channelEligible:
+			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=skipped_thread_reply_inactive",
+				h.workspaceID, channelID, ts, subtype, threadTS)
+		default:
+			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=skipped_self_or_change_inactive",
+				h.workspaceID, channelID, ts, subtype, threadTS)
+		}
 		if h.program != nil {
 			h.program.Send(ui.ReadStateChangedMsg{
 				WorkspaceID: h.workspaceID,
 				ChannelID:   channelID,
 			})
 		}
-		// Background dispatch is thread-replies-only (contract:
-		// ui.NewMessageMsg.TeamID): dispatching top-level messages
-		// would force a discarded Update+View cycle per message the
-		// user can't see. The name is a store lookup with the raw ID
-		// as fallback — resolveUserCached would SELECT on misses that
-		// can never be repaired here (the resolver fill is
-		// active-only).
-		if isThreadReply && h.program != nil {
-			userName := authorID
-			if resolved, ok := h.userNames.Get(authorID); ok {
-				userName = resolved
-			} else if userID == "" && username != "" {
-				userName = username
-			}
-			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=dispatched_background_thread_reply",
-				h.workspaceID, channelID, ts, subtype, threadTS)
-			h.program.Send(ui.NewMessageMsg{
-				TeamID:    h.workspaceID,
-				ChannelID: channelID,
-				Message: messages.MessageItem{
-					TS:                ts,
-					UserID:            authorID,
-					UserName:          userName,
-					Text:              text,
-					Timestamp:         formatTimestamp(ts, h.tsFormat),
-					ThreadTS:          threadTS,
-					Subtype:           subtype,
-					IsEdited:          edited,
-					Attachments:       extractAttachments(files),
-					Blocks:            extractBlocks(blocks),
-					LegacyAttachments: extractLegacyAttachments(attachments),
-				},
-			})
-		} else if shouldMarkChannel {
-			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=inactive_workspace_persisted",
-				h.workspaceID, channelID, ts, subtype, threadTS)
-		} else {
-			debuglog.Cache("OnMessage: team=%s channel=%s ts=%s subtype=%q thread_ts=%s decision=skipped_self_or_edit_inactive",
-				h.workspaceID, channelID, ts, subtype, threadTS)
+		if isThreadReply {
+			h.dispatchBackgroundThreadReply(channelID, authorID, userID, username, ts, text, threadTS, subtype, edited, files, blocks, attachments) // fork: rtm_handler_fork.go
 		}
 		return
 	}
