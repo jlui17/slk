@@ -159,3 +159,23 @@ func TestToggleAttachmentFold_WorksRightAfterTheCacheWasDropped(t *testing.T) {
 		t.Fatalf("z on the parent after InvalidateCache did not collapse:\n%s", plain)
 	}
 }
+
+// A click in a thread pane drawn since its last change: the fold hit
+// test runs on what was drawn.
+func BenchmarkToggleAttachmentFoldAtDrawnPane(b *testing.B) {
+	parent := messages.MessageItem{TS: "1700000000.000000", UserName: "alice", Text: "parent", Timestamp: "10:00 AM"}
+	replies := make([]messages.MessageItem, 200)
+	for i := range replies {
+		replies[i] = messages.MessageItem{
+			TS: fmt.Sprintf("%d.000000", 1700000001+i), UserName: "bob",
+			Text: "Reply with *bold* _italic_ and a `code` snippet plus a longer trailing sentence.", Timestamp: "10:30 AM",
+		}
+	}
+	m := New()
+	m.SetThread(parent, replies, "C1", parent.TS)
+	_ = m.View(40, 100)
+	b.ReportAllocs()
+	for b.Loop() {
+		m.ToggleAttachmentFoldAt(10)
+	}
+}

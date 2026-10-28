@@ -2,11 +2,12 @@ package thread
 
 import "slices"
 
-// redraw runs View at the size it last drew. Events drop the cache
-// between draws, and the cache is built inside View; a key or a click
-// that lands before the next draw must still find the fold rows.
+// redraw runs View at the size it last drew when the cache is stale.
+// Events drop the cache between draws, and the cache is built inside
+// View; a key or a click that lands before the next draw must still find
+// the fold rows.
 func (m *Model) redraw() {
-	if m.chromeWidth > 0 {
+	if m.chromeWidth > 0 && (m.cache == nil || m.cacheReplyLen != len(m.replies)) {
 		m.View(m.list.Height()+m.chromeHeight, m.chromeWidth)
 	}
 }
