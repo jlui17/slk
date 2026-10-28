@@ -58,13 +58,13 @@ func (l *Link) learn(again Link) {
 // table row, a list item without its links. A link button is a link
 // named by its text.
 func blockLinks(blocks []blockkit.Block) (body, below []Link) {
-	bodySeen := false
-	for _, b := range blocks {
+	bodyAt, _ := blockkit.MessageBodyBlock(blocks)
+	for i, b := range blocks {
 		switch v := b.(type) {
 		case blockkit.RichTextBlock:
 			links := &below
-			if !bodySeen && blockkit.RichTextToMrkdwn(v) != "" {
-				links, bodySeen = &body, true
+			if i == bodyAt {
+				links = &body
 			}
 			for _, l := range blockkit.RichTextLinks(v) {
 				*links = append(*links, Link{URL: l.URL, Label: l.Text, Context: l.ListItem})

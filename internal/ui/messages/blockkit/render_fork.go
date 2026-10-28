@@ -11,15 +11,26 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 )
 
-// RenderMessageBlocks renders a message's top-level blocks, skipping the
-// one the host draws as the message body: the first rich_text block with
-// content, the same rule as messages.MessageTextSource.
-func RenderMessageBlocks(blocks []Block, ctx Context, width int) RenderResult {
+// MessageBodyBlock returns the block the host draws as a message's body,
+// the first rich_text block with content (the rule
+// messages.MessageTextSource follows), as its index in blocks and its
+// mrkdwn; i is -1 when there is none.
+func MessageBodyBlock(blocks []Block) (i int, mrkdwn string) {
 	for i, b := range blocks {
-		if rt, ok := b.(RichTextBlock); ok && RichTextToMrkdwn(rt) != "" {
-			blocks = slices.Concat(blocks[:i], blocks[i+1:])
-			break
+		if rt, ok := b.(RichTextBlock); ok {
+			if mrkdwn := RichTextToMrkdwn(rt); mrkdwn != "" {
+				return i, mrkdwn
+			}
 		}
+	}
+	return -1, ""
+}
+
+// RenderMessageBlocks renders a message's top-level blocks, skipping the
+// one the host draws as the message body.
+func RenderMessageBlocks(blocks []Block, ctx Context, width int) RenderResult {
+	if i, _ := MessageBodyBlock(blocks); i >= 0 {
+		blocks = slices.Concat(blocks[:i], blocks[i+1:])
 	}
 	return Render(blocks, ctx, width)
 }

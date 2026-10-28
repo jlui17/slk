@@ -155,10 +155,8 @@ func appendCard(out *RenderResult, a LegacyAttachment, ctx Context, width int) {
 // A non-empty rich_text block counts here, unlike in RendersBody: an
 // attachment has no host body row, so Render draws it in place.
 func blocksCarryAttachmentBody(blocks []Block) bool {
-	for _, b := range blocks {
-		if rt, ok := b.(RichTextBlock); ok && RichTextToMrkdwn(rt) != "" {
-			return true
-		}
+	if i, _ := MessageBodyBlock(blocks); i >= 0 {
+		return true
 	}
 	return RendersBody(blocks)
 }
