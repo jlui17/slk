@@ -527,6 +527,9 @@ func (f *Form) body(w int) (lines []string, focusTop, focusEnd int) {
 			for _, e := range b.Elements {
 				var text string
 				if json.Unmarshal(e.Text, &text) == nil && text != "" {
+					if e.Type == "mrkdwn" {
+						text = messages.RenderSlackMarkdownWith(text, messages.RenderSlackMarkdownOpts{Width: w})
+					}
 					parts = append(parts, text)
 				}
 			}

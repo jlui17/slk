@@ -324,6 +324,25 @@ func TestForm_MrkdwnTextFormatsLikeSlack(t *testing.T) {
 	}
 }
 
+// A context block's mrkdwn element is formatted as Slack formats it; a
+// plain_text element is drawn as typed.
+func TestForm_ContextMrkdwnFormatsLikeSlack(t *testing.T) {
+	f := NewForm(viewFrom(t, `{"id":"V1","title":{"type":"plain_text","text":"T"},"blocks":[
+		{"type":"context","elements":[{"type":"mrkdwn","text":"*Owner* is <https://x.io|ops>"},{"type":"plain_text","text":"*as typed*"}]}]}`))
+	raw := Model{phase: phaseForm, form: f}.box(60, 40)
+	if box, want := ansi.Strip(raw), "Owner is ops *as typed*"; !strings.Contains(box, want) {
+		t.Errorf("missing %q:\n%s", want, box)
+	}
+	for name, re := range map[string]string{
+		"bold Owner":  `\x1b\[1;[0-9;]*mOwner`,
+		"link to ops": `\x1b\]8;;https://x\.io\x1b\\`,
+	} {
+		if !regexp.MustCompile(re).MatchString(raw) {
+			t.Errorf("no %s", name)
+		}
+	}
+}
+
 func TestForm_TinyTerminalDoesNotPanic(t *testing.T) {
 	m := Model{phase: phaseForm, form: NewForm(capturedView(t))}
 	m.form.Focus()
