@@ -55,8 +55,8 @@ there and resolve them knowing what the fork wants:
   `WorkspaceContext`'s shared maps and self presence/DND fields migrated to
   thread-safe stores (`internal/sharedmap`, `internal/usernames`,
   `selfStatusStore`), plus every call site downstream. `workspace.go` holds
-  the struct; `connect.go` seeds the stores and carries `connectWorkspace`'s
-  overlapped boot; `users.go`, `history.go`, `user_resolver.go`,
+  the struct; `connect.go` seeds the stores and hooks `connectWorkspace`'s
+  overlapped boot (`runBootChains`, `connect_fork.go`); `users.go`, `history.go`, `user_resolver.go`,
   `conversations.go`, `workspace_search.go`, `presence.go` and
   `rtm_handler.go` are call sites (`presence.go` also the token-guarded
   status bootstrap and presence dedupe, `rtm_handler.go` also the

@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/avatar"
-	"github.com/gammons/slk/internal/bootstrap"
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
@@ -21,7 +20,6 @@ import (
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/usernames"
-	"github.com/slack-go/slack"
 )
 
 // shouldReloadTimeout bounds the background _x_version_ts refresh.
@@ -210,7 +208,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// conversations.history), and conditional revalidation of the
 	// cache against edgeapi. See internal/bootstrap.
 	//
-	// This starts AFTER the channel-visits load because
+	// This runs AFTER the channel-visits load because
 	// restoredChannelFor reads wctx.LastVisitedByChannel,
 	// which that load fills. It is the same expression the UI is
 	// handed as WorkspaceReadyMsg.LastChannelID, so the channel
@@ -218,48 +216,17 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// a second, differently-chosen one. Empty is legal and means "open
 	// nothing" — a fresh profile with no recorded visits.
 	//
-	// bootstrap.Run, the section-store bootstrap, and
-	// users.conversations are three independent request chains, so
-	// they run concurrently and join before anything consumes their
-	// results: the channel-item build below reads the section store,
-	// and GetChannels' fallback reads res. Exactly the same requests
-	// as the serial order made — only the timing differs (docs/fork.md
-	// records why the call pattern itself is load-bearing).
-	var (
-		res     *bootstrap.Result
-		bootErr error
-
-		sectionStore    *service.SectionStore
-		sectionStoreErr error
-
-		channels    []slack.Channel
-		channelsErr error
-	)
-	useSlackSections := cfg.EffectiveUseSlackSections(client.TeamID())
-	var bootWG sync.WaitGroup
-	bootWG.Add(2)
-	go func() {
-		defer bootWG.Done()
-		res, bootErr = bootstrap.Run(ctx, boundBootstrapDeps(newBootstrapDeps(client, db, token.AccessToken,
-			restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel.Current()), wctx.EdgeHealth), bootCallTimeout))
-	}()
-	go func() {
-		defer bootWG.Done()
-		channels, channelsErr = client.GetChannels(ctx)
-	}()
-	if useSlackSections {
-		bootWG.Add(1)
-		go func() {
-			defer bootWG.Done()
-			sectionStore = service.NewSectionStore()
-			sctx, scancel := bootCtx(ctx)
-			defer scancel()
-			sectionStoreErr = sectionStore.Bootstrap(sctx, client)
-		}()
-	}
-	bootWG.Wait()
-	if bootErr != nil {
-		return nil, fmt.Errorf("bootstrapping %s: %w", token.TeamName, bootErr)
+	// The old enumeration paths below (GetChannels, GetUnreadCounts,
+	// and the reconnect backfill) still run. That is
+	// deliberate for this commit: they are deleted one at a time in
+	// the tasks that follow, each next to the call that replaces it,
+	// so no intermediate commit leaves slk unable to boot. Until then
+	// slk does both, and the request tally goes UP.
+	boot := runBootChains(ctx, client, newBootstrapDeps(client, db, token.AccessToken,
+		restoredChannelFor(paneRestore, token.TeamID, wctx.LastVisitedByChannel.Current()), wctx.EdgeHealth), cfg.EffectiveUseSlackSections(client.TeamID()))
+	res, err := boot.res, boot.err
+	if err != nil {
+		return nil, fmt.Errorf("bootstrapping %s: %w", token.TeamName, err)
 	}
 	// Order matters between these two: applyBootUsers fills
 	// the synchronized bot classification, which buildChannelItem reads to bucket app DMs,
@@ -284,21 +251,22 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	hydrateFirstSight(db, client.TeamID(), res)
 	persistBootstrapHistory(db, client.TeamID(), res)
 
-	// Slack-native section store, fetched above when enabled.
-	// Best-effort: failure is logged, the field stays nil, and the
-	// resolver falls through to config-glob behavior. Assigning
-	// before the channel-item build means the first pass through
-	// buildChannelItem already sees a Ready store.
-	if useSlackSections {
-		if sectionStoreErr != nil {
-			log.Printf("section store bootstrap for %s failed: %v (falling back to config sections)", token.TeamName, sectionStoreErr)
+	// Initialize Slack-native section store if enabled. Bootstrap is
+	// best-effort: failure is logged, the field stays nil, and the
+	// resolver falls through to config-glob behavior. Doing this
+	// before GetChannels means the first pass through buildChannelItem
+	// already sees a Ready store.
+	if cfg.EffectiveUseSlackSections(client.TeamID()) {
+		store := boot.sectionStore
+		if err := boot.sectionStoreErr; err != nil {
+			log.Printf("section store bootstrap for %s failed: %v (falling back to config sections)", token.TeamName, err)
 		} else {
 			// Bootstrap repopulates the stars section from stars.list
 			// itself (channelSections.list returns built-in section
 			// types with empty channel_ids), so the Starred header is
 			// live at first render and survives reconnect-triggered
 			// re-bootstraps without caller help.
-			wctx.SectionStore = sectionStore
+			wctx.SectionStore = store
 			// One-time info log when the user has both Slack sections
 			// active AND a non-empty [sections.*] config — the latter
 			// is being shadowed.
@@ -386,9 +354,10 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// commit before this one -- no logged reason. userBoot had already
 	// returned all 217 of that user's conversations, so falling back to
 	// a partial list beats losing the session.
-	if channelsErr != nil {
-		log.Printf("workspace %s: users.conversations failed (%v); falling back to the conversations client.userBoot returned, which may be a subset", token.TeamName, channelsErr)
-		debuglog.General("workspace %s: users.conversations failed: %v", token.TeamName, channelsErr)
+	channels, err := boot.channels, boot.channelsErr
+	if err != nil {
+		log.Printf("workspace %s: users.conversations failed (%v); falling back to the conversations client.userBoot returned, which may be a subset", token.TeamName, err)
+		debuglog.General("workspace %s: users.conversations failed: %v", token.TeamName, err)
 		channels = bootConversations(res)
 	}
 	// users.conversations lists every group DM the user is a member of,
