@@ -50,18 +50,15 @@ func (a *App) copyFromSelectedMessage() tea.Cmd {
 	case 1:
 		return a.copyCopyable(copyables[0])
 	default:
-		items := make([]linkpicker.Item, len(copyables))
 		links := make([]messages.Link, len(copyables))
 		for i, c := range copyables {
 			links[i] = c.Link
 		}
-		labels, whole := linkPickerLabels(links, a.plainMrkdwn)
+		items := a.linkPickerItems(links)
 		for i, c := range copyables {
 			if c.Kind == messages.CopyableCodeBlock {
 				items[i] = codeBlockPickerItem(c.CodeBlock)
-				continue
 			}
-			items[i] = a.linkPickerItem(c.Link, labels[i], whole[i])
 		}
 		a.pickerKind = "copy"
 		a.pickerCopyables = copyables
@@ -87,6 +84,17 @@ func codeBlockPickerItem(b messages.CodeBlock) linkpicker.Item {
 		}
 	}
 	return item
+}
+
+// linkPickerItems is the links' rows in the `o`, `O` and `c` pickers,
+// laid out together by linkPickerLabels.
+func (a *App) linkPickerItems(links []messages.Link) []linkpicker.Item {
+	labels, whole := linkPickerLabels(links, a.plainMrkdwn)
+	items := make([]linkpicker.Item, len(links))
+	for i, l := range links {
+		items[i] = a.linkPickerItem(l, labels[i], whole[i])
+	}
+	return items
 }
 
 // linkPickerItem is a link's row in the `o`, `O` and `c` pickers: a

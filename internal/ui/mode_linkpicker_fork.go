@@ -13,7 +13,6 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/cellwidth"
-	"github.com/gammons/slk/internal/ui/linkpicker"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -66,11 +65,7 @@ func (a *App) openLinksOfSelectedIn(inHerdr HerdrTarget) tea.Cmd {
 // openLinkPicker is the arm of openLinksOfSelectedIn for two or more links.
 func (a *App) openLinkPicker(links []messages.Link, inHerdr HerdrTarget) tea.Cmd {
 	openerActive := a.herdrOpener(inHerdr) != nil
-	labels, whole := linkPickerLabels(links, a.plainMrkdwn)
-	items := make([]linkpicker.Item, len(links))
-	for i, l := range links {
-		items[i] = a.linkPickerItem(l, labels[i], whole[i])
-	}
+	items := a.linkPickerItems(links)
 	title := "Open link"
 	if openerActive {
 		title = "Open link in herdr " + inHerdr.String()
