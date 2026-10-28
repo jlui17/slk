@@ -23,8 +23,9 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	if hr == nil || cfg.Disabled {
 		return nil, nil
 	}
-	hr.SetPaneIDCache(herdrPaneIDStore(db, os.Getenv("HERDR_PANE_ID")))
-	hr.SetTabLabelCache(herdrTabLabelStore(db, os.Getenv("HERDR_PANE_ID")))
+	paneKey := os.Getenv("HERDR_PANE_ID")
+	hr.SetPaneIDCache(herdrPaneCache(paneKey, "pane id", db.GetHerdrPaneID, db.RecordHerdrPaneID))
+	hr.SetTabLabelCache(herdrPaneCache(paneKey, "tab label", db.GetHerdrTabLabel, db.RecordHerdrTabLabel))
 	report := func(agent, displayName, title string, state ui.AgentState, statusMessage string) {
 		hr.Report(agent, displayName, title, string(state), statusMessage)
 	}
@@ -57,41 +58,25 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Reporter, fu
 	return hr, func() { hr.Close(time.Second) }
 }
 
-// herdrPaneIDStore returns the reporter's pane-id cache hooks over the
-// DB, keyed by the launch env's pane id (non-empty whenever the
-// reporter is): what the store remembers is where that id's pane ended
-// up.
-func herdrPaneIDStore(db *cache.DB, paneKey string) (load func() (string, bool), save func(string) error) {
+// herdrPaneCache returns one of the reporter's per-pane cache hooks
+// (pane id, tab label) over the DB row get and put read and write,
+// keyed by the launch env's pane id (non-empty whenever the reporter
+// is): what the row remembers is about that id's pane wherever it
+// ended up. what names the value in the read-error log line.
+func herdrPaneCache(paneKey, what string, get func(paneKey string) (string, bool, error), put func(paneKey, value string) error) (load func() (string, bool), save func(string) error) {
 	load = func() (string, bool) {
-		id, ok, err := db.GetHerdrPaneID(paneKey)
+		v, ok, err := get(paneKey)
 		if err != nil {
 			// A read error looks identical to a cold cache from the
 			// recovery path; the log line is the only way to tell a row
 			// existed but could not be read.
-			debuglog.Notify("herdr: pane id cache read: %v", err)
+			debuglog.Notify("herdr: %s cache read: %v", what, err)
 			return "", false
 		}
-		return id, ok
+		return v, ok
 	}
-	save = func(paneID string) error {
-		return db.RecordHerdrPaneID(paneKey, paneID)
-	}
-	return load, save
-}
-
-// herdrTabLabelStore returns the reporter's tab-label cache hooks over the
-// DB, keyed like the pane-id store by the launch env's pane id.
-func herdrTabLabelStore(db *cache.DB, paneKey string) (load func() (string, bool), save func(string) error) {
-	load = func() (string, bool) {
-		label, ok, err := db.GetHerdrTabLabel(paneKey)
-		if err != nil {
-			debuglog.Notify("herdr: tab label cache read: %v", err)
-			return "", false
-		}
-		return label, ok
-	}
-	save = func(label string) error {
-		return db.RecordHerdrTabLabel(paneKey, label)
+	save = func(v string) error {
+		return put(paneKey, v)
 	}
 	return load, save
 }

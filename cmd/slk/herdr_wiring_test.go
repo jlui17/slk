@@ -6,13 +6,13 @@ import (
 	"github.com/gammons/slk/internal/cache"
 )
 
-func TestHerdrPaneIDStoreKeysByLaunchID(t *testing.T) {
+func TestHerdrPaneCacheKeysByLaunchID(t *testing.T) {
 	db, err := cache.New(":memory:")
 	if err != nil {
 		t.Fatalf("opening db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	load, save := herdrPaneIDStore(db, "w1:p1")
+	load, save := herdrPaneCache("w1:p1", "pane id", db.GetHerdrPaneID, db.RecordHerdrPaneID)
 
 	if _, ok := load(); ok {
 		t.Fatal("empty store must miss")
