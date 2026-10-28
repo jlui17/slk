@@ -96,7 +96,6 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	switch {
 	case key.Matches(msg, a.keys.InsertMode):
-		a.SetMode(ModeInsert)
 		// In the Threads view there is no main compose box -- the
 		// only way to type is into the right-side thread panel's
 		// compose. Force focus there even when the threads list
@@ -105,7 +104,15 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// (e.g. focus on the sidebar): typing must land where the
 		// user can see it, not in a channel compose hidden behind
 		// the thread.
-		if a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) || a.threadDrawnAlone() {
+		toThread := a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) || a.threadDrawnAlone()
+		// composeDisabled reflects the active CHANNEL's send capability,
+		// not the thread panel's -- a thread reply targets whatever
+		// thread is open, which need not be in that channel.
+		if a.composeDisabled && !toThread {
+			return toastWithClear(a, a.composeBlockedText(), 2*time.Second)
+		}
+		a.SetMode(ModeInsert)
+		if toThread {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -325,6 +332,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.UserProfile):
 		return a.openUserProfile()
+
+	case key.Matches(msg, a.keys.Huddle):
+		return cmdHuddle(a, commandArgs{})
 
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()

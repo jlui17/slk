@@ -36,6 +36,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/ui/userprofile"
 )
 
 // pointClickable is a chrome.Boxed modal whose hot spot is a single cell
@@ -92,10 +93,20 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 	case ModeProfileCard: // fork: profilecard.go
 		return modalClickTarget{box: &a.profileCard.model}, true
 	case ModeUserProfile:
-		// Read-only: the only hot spot is the email's 📋, which does
-		// what e does. Inside elsewhere is a no-op.
-		e := tea.KeyPressMsg{Code: 'e', Text: "e"}
-		return modalClickTarget{box: a.userProfile, activation: e, point: a.userProfile}, true
+		// The hot spots are the email's 📋 and, when the huddle row
+		// carries one, its 📋: a click does what e / c does. Inside
+		// elsewhere is a no-op. ClickAt records which hot spot it hit
+		// in the model, so the onPoint can dispatch the right copy.
+		return modalClickTarget{
+			box:   a.userProfile,
+			point: a.userProfile,
+			onPoint: func() tea.Cmd {
+				if a.userProfile.LastClickTarget() == userprofile.ClickTargetHuddle {
+					return copyProfileHuddle(a)
+				}
+				return copyProfileEmail(a)
+			},
+		}, true
 	}
 	return modalClickTarget{}, false
 }

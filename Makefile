@@ -1,4 +1,4 @@
-.PHONY: build test lint run clean demo-gifs
+.PHONY: build install test lint run clean demo-gifs
 
 BINARY=slk
 BUILD_DIR=bin
@@ -8,6 +8,9 @@ GO=tools/go.sh
 
 build:
 	$(GO) build -ldflags="-s -w" -trimpath -o $(BUILD_DIR)/$(BINARY) ./cmd/slk
+
+install:
+	go install -ldflags="-s -w" -trimpath ./cmd/slk
 
 test:
 	$(GO) test ./... -v -race

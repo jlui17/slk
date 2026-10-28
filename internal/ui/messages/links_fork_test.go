@@ -9,7 +9,7 @@ import (
 	"github.com/gammons/slk/internal/ui/messages/blockkit/blockkittest"
 )
 
-func TestMessageLinks(t *testing.T) {
+func TestMessageLinks_TextAndBlocks(t *testing.T) {
 	msg := MessageItem{
 		Text: "see <https://a.example|a> and <https://b.example>",
 		Blocks: []blockkit.Block{
@@ -21,10 +21,11 @@ func TestMessageLinks(t *testing.T) {
 			blockkit.ContextBlock{Elements: []blockkit.ContextElement{{Text: "<https://g.example>"}}},
 		},
 	}
+	// The section carries the body, so the fallback text is not drawn
+	// and its links are not offered (upstream's rule, #336).
 	want := []Link{
-		{URL: "https://a.example", Label: "a"},
-		{URL: "https://b.example"},
 		{URL: "https://c.example", Label: "c"},
+		{URL: "https://a.example", Label: "a again"},
 		{URL: "https://d.example", Label: "row  1"},
 		{URL: "https://e.example", Label: "1", Context: "<https://d.example|row  1>\n*(Q4)*"},
 		{URL: "https://f.example", Label: "2", Context: "<https://d.example|row  1>\n*(Q4)*"},
@@ -96,7 +97,7 @@ func TestMessageLinks_BodyListItems(t *testing.T) {
 	want := []Link{
 		{URL: "https://x.example/m1", Context: "1. <@U1>"},
 		{URL: "https://x.example/m2", Context: "2. <@U2>"},
-		{URL: "https://x.example/s?a=1&amp;b=2", Label: "the summary"},
+		{URL: "https://x.example/s?a=1&b=2", Label: "the summary"},
 		{URL: "https://x.example/not-in-text", Label: "drawn only"},
 		{URL: "https://x.example/f", Label: "notes", Context: "follow-up"},
 	}
@@ -106,8 +107,8 @@ func TestMessageLinks_BodyListItems(t *testing.T) {
 }
 
 // A bot that posts blocks with a short text fallback: o offers every
-// link the body draws, after the links of the text, and so the links c
-// offers.
+// link the body draws, in the body's order (the fallback text is not
+// drawn), and so the links c offers.
 func TestMessageLinks_BodyLinksMissingFromTheText(t *testing.T) {
 	msg := MessageItem{
 		Text: "3 reviews waiting, see <https://x.example/board>",
@@ -118,9 +119,9 @@ func TestMessageLinks_BodyLinksMissingFromTheText(t *testing.T) {
 			{"type":"rich_text_section","elements":[{"type":"text","text":"All of them: "},{"type":"link","url":"https://x.example/board","text":"the board"}]}]}]`),
 	}
 	want := []Link{
-		{URL: "https://x.example/board", Label: "the board"},
 		{URL: "https://x.example/m1?thread_ts=1.0&cid=C1", Context: "1. <@U1>"},
 		{URL: "https://x.example/m2", Context: "2. <@U2>"},
+		{URL: "https://x.example/board", Label: "the board"},
 	}
 	got := MessageLinks(msg)
 	if !reflect.DeepEqual(got, want) {

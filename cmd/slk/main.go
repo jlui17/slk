@@ -862,6 +862,17 @@ func run(startupLink *slackurl.Permalink) error {
 					}
 				}
 			},
+			MessagingCapability: func(channelID ids.ChannelID) core.Cmd {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return nil
+				}
+				client := wctx.Client
+				chIDStr := string(channelID)
+				return func() core.Msg {
+					return probeMessagingCapability(ctx, client.PostForm, chIDStr)
+				}
+			},
 			Fetch: func(channelID ids.ChannelID, channelName string) core.Msg {
 				chIDStr := string(channelID)
 				wctx := router.Active()
@@ -1122,25 +1133,24 @@ func run(startupLink *slackurl.Permalink) error {
 				if sender, text, found := cachedMessagePreview(db, wctx.UserNames, router, chIDStr, tsStr); found {
 					return sender, text, nil
 				}
-				fetch := func() (*slack.Message, error) {
-					if threadTS != "" && string(threadTS) != tsStr {
-						return wctx.Client.GetReplyAt(ctx, chIDStr, string(threadTS), tsStr)
-					}
-					return wctx.Client.GetMessageAt(ctx, chIDStr, tsStr)
-				}
+				fetch := previewFetch(ctx, wctx.Client, chIDStr, tsStr, string(threadTS))
 				return fetchedMessagePreview(linkPreviews, fetch, wctx.UserNames, db, router, chIDStr, tsStr)
 			},
 		}))
 
-		profileFetch := newProfileFetch(func(teamID string) (func(context.Context, string) (*slack.User, error), bool) {
+		profileFetch := newProfileFetch(func(teamID string) (func(context.Context, string) (*slackclient.UserProfile, error), bool) {
 			wctx := router.ByID(teamID)
 			if wctx == nil || wctx.Client == nil {
 				return nil, false
 			}
 			return wctx.Client.GetUserProfileContext, true
 		})
+		profiles := newProfileCache(5*time.Minute, time.Now, profileFetch)
 		app.SetProfileService(core.NewProfileService(core.ProfileServiceFuncs{
-			Profile: newProfileCache(5*time.Minute, time.Now, profileFetch).Profile,
+			// Profile always fetches; Cached lets the dialog show the last
+			// result instantly while that refresh runs.
+			Profile: profiles.Fresh,
+			Cached:  profiles.Cached,
 		}))
 
 		upload := func(channelID, threadTS, caption string, attachments []core.PendingAttachment) core.Cmd {

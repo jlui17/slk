@@ -521,7 +521,8 @@ func (h *rtmEventHandler) OnConnect() {
 	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
 	if h.wsCtx != nil {
 		tok := h.wsCtx.selfStatus.BeginBootstrap()
-		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program, tok)
+		peerIDs := workspacePresenceIDs(h.wsCtx)
+		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program, tok, peerIDs)
 	}
 	// Refresh Slack-native section state on reconnect. MaybeRebootstrap
 	// is debounced to once per 30s (Task 6) so a rapid flap doesn't

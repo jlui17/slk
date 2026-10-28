@@ -18,7 +18,13 @@ func textAndBlockLinks(msg MessageItem) []Link {
 	var links []Link
 	at := map[string]int{}
 	body, below := blockLinks(msg.Blocks)
-	for _, l := range slices.Concat(ExtractLinks(msg.Text), body, below) {
+	// The text's links only when the host draws it: blocks that carry
+	// the body hide the notification-fallback text.
+	var text []Link
+	if !BlocksCarryBody(msg) {
+		text = ExtractLinks(MessageTextSource(msg))
+	}
+	for _, l := range slices.Concat(text, body, below) {
 		if i, ok := at[linkKey(l.URL)]; ok {
 			links[i].learn(l)
 			continue

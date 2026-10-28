@@ -25,7 +25,11 @@ type Copyable struct {
 // own: copying the block carries it. Links are deduplicated by URL as
 // MessageLinks does, first occurrence outside a fence winning.
 func Copyables(msg MessageItem) []Copyable {
-	text := MessageTextSource(msg)
+	// The text only when the host draws it, as for MessageLinks.
+	var text string
+	if !BlocksCarryBody(msg) {
+		text = MessageTextSource(msg)
+	}
 	var items []Copyable
 	at := map[string]int{}
 	collect := func(links []Link) {

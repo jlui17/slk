@@ -6,7 +6,7 @@
       │  ○ alice    │ ▌u                  Activity: toggle unread-only       █ │                 ┃  
       │             │  r                  add reaction                       █ │                 ┃  
       │  ▾ Channels │  ctrl+o / alt+enter also send reply to channel         █ │                 ┃  
-      │ ▌# general  │  m                  app's Home or Messages tab         █ │                 ┃  
+      │ ▌# general  │  m                  app's Home or Messages tab         │ │                 ┃  
       │  # incidents│  esc                back                               │ │                 ┃  
       │             │  ''                 back-jump to where you jumped from │ │                 ┃  
       │             │  G                  bottom                             │ │                 ┃  
@@ -15,12 +15,12 @@
       │             │  ctrl+w q / :q      close window                       │ │                 ┃  
       │             │  :                  command mode                       │ │                 ┃  
       │             │  c                  copy code block or link in message │ │                 ┃  
+      │             │  H / :huddle        copy huddle link                   │ │                 ┃  
       │             │  y                  copy message                       │ │                 ┃  
       │             │  Y/C                copy permalink                     │ │                 ┃  
       │             │  ctrl+w w           cycle windows                      │ │                 ┃  
       │             │  :delmarks          delete marks by letter             │ │                 ┃  
       │             │  D                  delete message                     │ │                 ┃  
-      │             │  j/down             down                               │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

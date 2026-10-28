@@ -26,7 +26,7 @@ func newWatermarkTestApp(t *testing.T, syncedAt *int64, fetches *int) *App {
 	}))
 }
 
-func selectChannel(a *App, id string) {
+func selectWatermarkChannel(a *App, id string) {
 	_, cmd := a.Update(ChannelSelectedMsg{ID: id, Name: "general", Type: "channel"})
 	_ = drainCmds(cmd)
 }
@@ -36,19 +36,19 @@ func TestChannelOpen_WatermarkDemotesProvablyFreshCache(t *testing.T) {
 	fetches := 0
 	a := newWatermarkTestApp(t, &syncedAt, &fetches)
 
-	selectChannel(a, "C1")
+	selectWatermarkChannel(a, "C1")
 	if fetches != 0 {
 		t.Fatalf("fresh cache with no watermark fetched %d times; want tier-1 (no fetch)", fetches)
 	}
 
 	_, _ = a.Update(CacheStaleBeforeMsg{WorkspaceID: "T1", Before: time.Unix(syncedAt, 0).Add(2 * time.Second)})
-	selectChannel(a, "C1")
+	selectWatermarkChannel(a, "C1")
 	if fetches != 1 {
 		t.Fatalf("cache synced before the reconnect watermark fetched %d times; want tier-2 (one background fetch)", fetches)
 	}
 
 	syncedAt = time.Now().Unix() + 5
-	selectChannel(a, "C1")
+	selectWatermarkChannel(a, "C1")
 	if fetches != 1 {
 		t.Fatalf("cache synced after the watermark fetched %d more times; want tier-1 again (total 1, got %d)", fetches-1, fetches)
 	}
@@ -60,7 +60,7 @@ func TestChannelOpen_WatermarkOfOtherWorkspaceIsIgnored(t *testing.T) {
 	a := newWatermarkTestApp(t, &syncedAt, &fetches)
 
 	_, _ = a.Update(CacheStaleBeforeMsg{WorkspaceID: "T2", Before: time.Unix(syncedAt, 0).Add(2 * time.Second)})
-	selectChannel(a, "C1")
+	selectWatermarkChannel(a, "C1")
 	if fetches != 0 {
 		t.Fatalf("another workspace's watermark demoted this workspace's fresh cache (%d fetches); want 0", fetches)
 	}
@@ -74,7 +74,7 @@ func TestCacheWatermark_NeverMovesBackward(t *testing.T) {
 	later := time.Unix(syncedAt, 0).Add(2 * time.Second)
 	_, _ = a.Update(CacheStaleBeforeMsg{WorkspaceID: "T1", Before: later})
 	_, _ = a.Update(CacheStaleBeforeMsg{WorkspaceID: "T1", Before: later.Add(-time.Minute)})
-	selectChannel(a, "C1")
+	selectWatermarkChannel(a, "C1")
 	if fetches != 1 {
 		t.Fatalf("an older watermark rewound the newer one (%d fetches); want the newest watermark to hold (1 fetch)", fetches)
 	}

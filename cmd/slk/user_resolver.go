@@ -225,7 +225,7 @@ func (r *userResolver) resolveOneContext(ctx context.Context, userID string) {
 	// UpsertUser intentionally preserves existing status for placeholder
 	// callers. This is a full profile: persist changes and clears before
 	// UserResolvedMsg can trigger a row repair that re-reads the cache.
-	applyProfileStatus(r.teamID, userID, u.Profile, r.db, r.send)
+	applyProfileStatus(r.teamID, userID, u, r.db, r.send)
 	r.queueResolvedPeer(userID)
 	if r.send != nil {
 		// Status has already been persisted and sent by applyProfileStatus.

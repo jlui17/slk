@@ -10,6 +10,7 @@
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
+| `:` | Normal | Command prompt (`:ws`, `:marks`, `:sp`, … — see [[Commands]]) |
 | `Enter` | Insert | Send message |
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
@@ -54,7 +55,7 @@
 | `y` | Normal (message) | Copy message text |
 | `Y` / `C` | Normal (message) | Copy message permalink |
 | `c` | Normal (message) | Copy a fenced code block or a link from the message. A block copies as the code only, without the fence or language tag; a link copies as the URL only, without its label. Several blocks or links open a picker that lists them in message order, the links of a table and of the other blocks below the body after those of the body; a link inside a block is not listed on its own. Clicking the `copy` label on a block's top border copies that block |
-| `o` | Normal (message) | Open link in message (Slack permalinks for the active workspace navigate in-app; other links open in the browser; multiple links open a picker). The links of a table and of the other blocks below the body are offered after those of the body; links in cards are not. A picker row starts with the list item or the table row its link sits in, as `<item or first cell> · <link text>`: `7. @dana` for a linked message in the seventh item of a list, with names shown as in the message |
+| `o` | Normal (message) | Open link in message (Slack permalinks for the active workspace navigate in-app; other links open in the browser; multiple links open a picker). The links of a table and of the other blocks below the body are offered after those of the body, then the links of cards (an attachment's pretext, title, text, fields and blocks, and a shared message's permalink). A picker row starts with the list item or the table row its link sits in, as `<item or first cell> · <link text>`: `7. @dana` for a linked message in the seventh item of a list, with names shown as in the message |
 | `O` | Normal (message) | Open a Slack permalink from the message in a new herdr tab running a second slk; only slk-openable links are offered. With several, a picker opens: `Enter` opens the cursor row in a focused tab, or `Space` marks rows (`a` marks or clears the rows shown) and `Enter` opens every marked link in its own background tab, in list order (requires running inside herdr; otherwise behaves exactly like `o`) |
 | `Alt+o` | Normal (message) | As `O`, but the second slk opens in a new herdr pane split to the right of slk's, in the same tab: `Enter` opens the cursor row in a focused pane, and every marked link opens in its own pane without moving focus off slk (requires running inside herdr; otherwise behaves exactly like `o`) |
 | `/` | Link, copy and file picker | Filter the rows. While the filter is being typed every key is filter text (`q`, `a` and `Space` type characters): typed text keeps the rows that contain it, whatever the case, `Up`/`Down` or `Ctrl+p`/`Ctrl+n` move, `Enter` opens, `Tab` gives the keys back to the list with the filter kept (so `a` marks only the rows it shows), `Esc` clears the filter and a second `Esc` closes the picker. The filter reads a link's row name and link text, the channel of a Slack permalink, and the URL of a row that shows its URL; it does not read dates or message previews. A file row or a code-block row is filtered on its whole text. A picker with more rows than fit scrolls with the cursor and shows its position (`7–18 of 46`); under a filter the title counts the matches (`4 matches`, `1–14 of 15 matches`) |
@@ -69,6 +70,7 @@
 | `Esc` | App Home | Close a menu or confirm box, or stop waiting for the app's redraw after `o` / `O`; else move to the sidebar |
 | Click | App Home | A link in the text opens; a click on a row you can press moves there |
 | `d` | Normal (message) | Download file attachment (multiple files open a picker) |
+| `H` / `:huddle` | Normal | Copy the huddle link of the conversation on screen (channels, DMs, group DMs; the focused thread pane, or the highlighted Threads/Activity row, names the channel) |
 | `F` | Normal (message / thread) | Forward selected message using the channel finder; Enter sends, Esc cancels |
 | `v` | Normal (message) | Open full-screen image preview |
 | `Esc` / `q` | Preview | Close preview |
@@ -83,8 +85,14 @@
 | `Ctrl+y` | Any | Switch theme |
 | `Alt+y` / `Alt+Shift+y` | Normal | Next / previous theme (wraps; saved per workspace) |
 | `Ctrl+s` | Any | Set status (Active / Away / DND snooze) |
-| `q` | Normal | Quit (with confirmation) |
-| `Q` | Normal | Quit immediately |
+| `q` | Normal | Close the thread pane (does nothing when none is open) |
+| `Q` | Normal | Quit (with confirmation) |
 | `Ctrl+c` | Any | Quit (with confirmation) |
+| `K` | Normal (message) | Show the selected message author's profile |
+| `e` | Profile dialog | Copy the email shown in the dialog (or click its 📋) |
+| `c` | Profile dialog | Copy the person's huddle link while they are in a huddle Slack named a channel for (or click the 📋 on the "In a huddle" row) |
+| `K` / `Esc` / `q` | Profile dialog | Close |
+
+For `:` commands and slash commands, see [[Commands]].
 
 Custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].

@@ -227,6 +227,22 @@ type App struct {
 	// readStateReader: App-side copy for applyCachedLastRead (cachefirst_fork.go).
 	readStateReader func() map[string]core.ReadState
 
+	// composeDisabled is true while the active channel cannot be sent
+	// to: a MessagingCapability probe said so, or a send there was
+	// refused as read-only. Recomputed on every channel switch.
+	composeDisabled bool
+
+	// readOnlyChannels holds channels a send was refused in with
+	// restricted_action_read_only*. Session-lifetime, touched only on
+	// the Update goroutine (never captured by a tea.Cmd).
+	readOnlyChannels map[string]bool
+
+	// unsendableChannels holds the latest MessagingCapability probe
+	// verdict per channel (true = the app DM cannot be messaged), so a
+	// thread reply is refused there too. Touched only on the Update
+	// goroutine.
+	unsendableChannels map[string]bool
+
 	// windowTitle is the cached terminal-window-title string, recomputed
 	// by notifyReadStateChanged on every read-state mutation and read by
 	// View() into tea.View.WindowTitle. Bubbletea's renderer emits OSC 2
@@ -1454,6 +1470,12 @@ func (a *App) openUserProfile() tea.Cmd {
 	a.SetMode(ModeUserProfile)
 
 	svc := a.profileSvc
+	// Show the last fetch at once, then refresh behind it: a cached
+	// profile can be minutes old, and the huddle a person is in is
+	// worth more fresh than the dialog is worth skipping one request.
+	if cached, ok := svc.Cached(teamID, userID); ok {
+		a.userProfile.SetProfile(teamID, userID, cached)
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

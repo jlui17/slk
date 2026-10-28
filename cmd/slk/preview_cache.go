@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github.com/gammons/slk/internal/cache"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/usernames"
 )
 
@@ -110,4 +112,16 @@ func fetchedMessagePreview(c *previewCache, fetch func() (*slack.Message, error)
 func previewSender(m slack.Message, names *usernames.Store, db *cache.DB, router *workspaceRouter) string {
 	_, name := messageAuthor(m, newUserNameFill(names), db, router)
 	return name
+}
+
+// previewFetch fetches the message a permalink names for its picker
+// preview: the reply inside its thread when threadTS names another
+// message than ts, else the channel message.
+func previewFetch(ctx context.Context, c *slackclient.Client, channelID, ts, threadTS string) func() (*slack.Message, error) {
+	return func() (*slack.Message, error) {
+		if threadTS != "" && threadTS != ts {
+			return c.GetReplyAt(ctx, channelID, threadTS, ts)
+		}
+		return c.GetMessageAt(ctx, channelID, ts)
+	}
 }

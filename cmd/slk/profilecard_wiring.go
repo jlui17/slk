@@ -34,7 +34,7 @@ func (s profileService) Profile(ctx context.Context, teamID, userID string) (pro
 	if err != nil {
 		return profilecard.Profile{}, err
 	}
-	p := profileFromUser(u)
+	p := profileFromUser(u.User)
 	if presenceErr != nil {
 		debuglog.General("profile card: presence of %s: %v", userID, presenceErr)
 	} else {

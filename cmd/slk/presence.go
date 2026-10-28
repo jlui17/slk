@@ -12,7 +12,7 @@ import (
 // state from Slack, populates the WorkspaceContext, and sends an initial
 // StatusChangeMsg. Also subscribes to presence_change events for the self
 // user and every DM peer so external state changes arrive over the WS.
-func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender, tok bootstrapToken) {
+func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender, tok bootstrapToken, peerIDs []string) {
 	if wctx == nil || wctx.Client == nil {
 		return
 	}
@@ -31,7 +31,7 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	// This runs from OnConnect, which fires on the initial connect AND on
 	// every reconnect. Re-subscribing per connection is required because
 	// the subscription is connection-scoped.
-	subscribeWorkspacePresence(wctx)
+	subscribeWorkspacePresence(wctx, peerIDs)
 
 	presence, err := wctx.Client.GetUserPresence(ctx, wctx.UserID)
 	if err != nil {
@@ -46,7 +46,7 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	// DM peers' DND, which the sidebar marks. Later changes arrive as
 	// dnd_invalidated and go through the same refresher. Runs on every
 	// connect because the socket does not replay missed invalidations.
-	wctx.PeerStatus.RefreshDND(ctx, workspacePresenceIDs(wctx))
+	wctx.PeerStatus.RefreshDND(ctx, peerIDs)
 }
 
 // subscribeWorkspacePresence subscribes over the WebSocket to presence
@@ -59,11 +59,10 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 // reply with each peer's current presence at subscribe time — DM rows are
 // seeded from the local cache at build time and then updated live by
 // presence_change events. Safe to call repeatedly.
-func subscribeWorkspacePresence(wctx *WorkspaceContext) {
+func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 	if wctx == nil || wctx.Client == nil {
 		return
 	}
-	ids := workspacePresenceIDs(wctx)
 	if len(ids) == 0 {
 		debuglog.General("subscribeWorkspacePresence: no ids to subscribe")
 		return

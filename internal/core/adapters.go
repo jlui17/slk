@@ -302,18 +302,19 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 // NewChannelService. Any field may be nil; the resulting service
 // no-ops that operation.
 type ChannelServiceFuncs struct {
-	Fetch            ChannelFetchFunc
-	FetchOlder       OlderMessagesFetchFunc
-	FetchAround      func(channelID ids.ChannelID, ts ids.MessageTS) Msg
-	ReadCache        ChannelCacheReadFunc
-	SyncedAt         func(channelID ids.ChannelID) int64
-	MarkRead         func(channelID ids.ChannelID, ts ids.MessageTS) Msg
-	Lookup           ChannelLookupFunc
-	Join             JoinChannelFunc
-	RecordVisit      ChannelVisitRecorder
-	MembershipFetch  func(channelID ids.ChannelID)
-	OpenConversation func(userIDs []string, requestID uint64) Cmd
-	SearchRemote     func(query string) []ChannelFinderItem
+	Fetch               ChannelFetchFunc
+	FetchOlder          OlderMessagesFetchFunc
+	FetchAround         func(channelID ids.ChannelID, ts ids.MessageTS) Msg
+	ReadCache           ChannelCacheReadFunc
+	SyncedAt            func(channelID ids.ChannelID) int64
+	MarkRead            func(channelID ids.ChannelID, ts ids.MessageTS) Msg
+	Lookup              ChannelLookupFunc
+	Join                JoinChannelFunc
+	RecordVisit         ChannelVisitRecorder
+	MembershipFetch     func(channelID ids.ChannelID)
+	OpenConversation    func(userIDs []string, requestID uint64) Cmd
+	SearchRemote        func(query string) []ChannelFinderItem
+	MessagingCapability func(channelID ids.ChannelID) Cmd
 }
 
 // NewChannelService builds a ChannelService from a
@@ -408,6 +409,13 @@ func (c channelAdapter) OpenConversation(userIDs []string, requestID uint64) Cmd
 		return nil
 	}
 	return c.fns.OpenConversation(userIDs, requestID)
+}
+
+func (c channelAdapter) MessagingCapability(channelID ids.ChannelID) Cmd {
+	if c.fns.MessagingCapability == nil {
+		return nil
+	}
+	return c.fns.MessagingCapability(channelID)
 }
 
 // SearchServiceFuncs is the closure bundle accepted by
@@ -633,9 +641,11 @@ func (u unreadAdapter) UnreadWorkspaces() []string {
 }
 
 // ProfileServiceFuncs is the closure bundle accepted by
-// NewProfileService. A nil Profile func returns errors.ErrUnsupported.
+// NewProfileService. A nil Profile func returns errors.ErrUnsupported;
+// a nil Cached func never has a cached profile.
 type ProfileServiceFuncs struct {
 	Profile func(ctx context.Context, teamID, userID string) (UserProfile, error)
+	Cached  func(teamID, userID string) (UserProfile, bool)
 }
 
 // NewProfileService builds a ProfileService from a ProfileServiceFuncs
@@ -651,6 +661,13 @@ func (p profileAdapter) Profile(ctx context.Context, teamID, userID string) (Use
 		return UserProfile{}, errors.ErrUnsupported
 	}
 	return p.fns.Profile(ctx, teamID, userID)
+}
+
+func (p profileAdapter) Cached(teamID, userID string) (UserProfile, bool) {
+	if p.fns.Cached == nil {
+		return UserProfile{}, false
+	}
+	return p.fns.Cached(teamID, userID)
 }
 
 // NewWorkspaceService builds a WorkspaceService from a closure.

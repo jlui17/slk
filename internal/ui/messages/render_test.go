@@ -414,6 +414,64 @@ func TestBlockquoteEntityDecoding(t *testing.T) {
 	}
 }
 
+// TestBlockquoteWrapsUnderTheBar: a quoted line wider than the pane
+// wraps, and every wrapped row keeps the quote bar. The body wrap ran
+// after the bar was drawn, so continuation rows lost it and read as
+// unquoted text.
+func TestBlockquoteWrapsUnderTheBar(t *testing.T) {
+	quoted := strings.Repeat("the publish step writes every table ", 6)
+	items := []MessageItem{{TS: "1.0", UserID: "U1", UserName: "albert", Text: "&gt; " + quoted + "\nafter", Timestamp: "10:06 PM"}}
+	m := New(items, "general")
+	r := RenderMessage(items[0], 60, m.renderContext(), RenderOptions{})
+
+	lines := strings.Split(ansi.Strip(r.Content), "\n")
+	var quotedRows int
+	for _, l := range lines[1:] {
+		l = strings.TrimSpace(l)
+		if l == "after" {
+			break
+		}
+		quotedRows++
+		if !strings.HasPrefix(l, "┃") {
+			t.Errorf("quoted row lost its bar: %q\n%s", l, strings.Join(lines, "\n"))
+		}
+	}
+	if quotedRows < 2 {
+		t.Fatalf("quote did not wrap (%d rows); the test no longer exercises wrapping:\n%s", quotedRows, strings.Join(lines, "\n"))
+	}
+}
+
+// TestBlockquoteInlineFormatting: code, links and mentions inside a
+// quote render as they do outside one, instead of as raw mrkdwn.
+func TestBlockquoteInlineFormatting(t *testing.T) {
+	in := "&gt; for `albert_cov`. PR <https://github.com/o/r/pull/1|o/r#1> by <@U1>"
+	out := RenderSlackMarkdown(in, map[string]string{"U1": "albert"}, nil)
+	plain := ansi.Strip(out)
+	if want := "for albert_cov. PR o/r#1 by @albert"; !strings.Contains(plain, want) {
+		t.Errorf("plain output %q lacks %q", plain, want)
+	}
+	if !strings.Contains(out, "\x1b]8;;https://github.com/o/r/pull/1") {
+		t.Errorf("quoted link is not an OSC 8 hyperlink: %q", out)
+	}
+}
+
+// TestBlockquoteStaysMutedAfterInlineSpan: an inline span's reset must
+// not drop the rest of the quoted line back to the body color.
+func TestBlockquoteStaysMutedAfterInlineSpan(t *testing.T) {
+	out := RenderSlackMarkdown("&gt; a `code` tail", nil, nil)
+	_, after, ok := strings.Cut(out, "code")
+	if !ok {
+		t.Fatalf("no code span in %q", out)
+	}
+	tail, _, ok := strings.Cut(after, " tail")
+	if !ok {
+		t.Fatalf("no tail after the code span in %q", out)
+	}
+	if !strings.HasSuffix(tail, fgANSIFor(styles.TextMuted)) {
+		t.Errorf("text after the code span is not muted; escapes before it: %q", tail)
+	}
+}
+
 // TestThreadBroadcastLabel asserts that a message with subtype
 // "thread_broadcast" (a thread reply that the author also posted to
 // the main channel) renders a "replied to a thread" label above the
@@ -585,6 +643,20 @@ func TestCommonMark_EmojiInCodeBlockPreserved(t *testing.T) {
 	}
 }
 
+// TestEmojiAfterSkinTonedEmojiKept: in glyph mode, an emoji directly
+// after a skin-toned one (the shape RichTextToMrkdwn emits for 👍🏾🎉)
+// renders instead of being cut off with the skin tone, on screen and
+// in the Markdown export.
+func TestEmojiAfterSkinTonedEmojiKept(t *testing.T) {
+	const in = ":+1::skin-tone-5::tada:"
+	if got := ansi.Strip(RenderSlackMarkdown(in, nil, nil)); !strings.Contains(got, "👍") || !strings.Contains(got, "🎉") {
+		t.Errorf("RenderSlackMarkdown(%q) = %q, want 👍 and 🎉", in, got)
+	}
+	if got, want := SlackMrkdwnToCommonMark(in, nil, nil), "👍🎉"; got != want {
+		t.Errorf("SlackMrkdwnToCommonMark(%q) = %q, want %q", in, got, want)
+	}
+}
+
 func TestCommonMark_EmojiNoTrailingSpace(t *testing.T) {
 	got := SlackMrkdwnToCommonMark(":smile:end", nil, nil)
 	want := "😄end"
@@ -597,6 +669,27 @@ func TestCommonMark_Blockquote(t *testing.T) {
 	got := SlackMrkdwnToCommonMark("&gt; quoted text", nil, nil)
 	if got != "> quoted text" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// TestCommonMark_BlockquoteInlineFormatting: inline markup inside a
+// quote converts as it does outside one, instead of exporting raw mrkdwn.
+func TestCommonMark_BlockquoteInlineFormatting(t *testing.T) {
+	in := "&gt; *bold* ~gone~ <https://example.com|docs> <@U1> in <#C2|general> :smile: `*code*`"
+	got := SlackMrkdwnToCommonMark(in, map[string]string{"U1": "alice"}, nil)
+	want := "> **bold** ~~gone~~ [docs](https://example.com) @alice in #general 😄 `*code*`"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestCommonMark_BlockquoteEscapedMarkupStaysLiteral: entities decode
+// after the markup is converted, so text the author typed as "<@U1>"
+// inside a quote is not exported as a mention.
+func TestCommonMark_BlockquoteEscapedMarkupStaysLiteral(t *testing.T) {
+	got := SlackMrkdwnToCommonMark("&gt; typed &lt;@U1&gt; literally", map[string]string{"U1": "alice"}, nil)
+	if want := "> typed <@U1> literally"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

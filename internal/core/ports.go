@@ -289,6 +289,12 @@ type ChannelService interface {
 	// the finder showing local matches only, which is what it showed
 	// before this existed.
 	SearchRemote(query string) []ChannelFinderItem
+
+	// MessagingCapability probes whether channelID can be sent a
+	// message at all. Returns a Cmd whose resolved Msg is
+	// ChannelMessagingCapabilityMsg. Costs a round trip, so only call
+	// it for a channel already known to be an app/bot DM.
+	MessagingCapability(channelID ids.ChannelID) Cmd
 }
 
 // SearchService runs message searches. SearchChannel queries the local
@@ -403,6 +409,11 @@ type ProfileService interface {
 	// callers run it from a tea.Cmd with a bounded context. Returns a
 	// *RateLimitedError (wrapped) when Slack rate-limits the request.
 	Profile(ctx context.Context, teamID, userID string) (UserProfile, error)
+	// Cached returns userID's profile if a recent fetch is on hand, with
+	// no network call. The dialog shows it at once and still runs
+	// Profile as a refresh, because parts of a profile (the huddle a
+	// person is in) change faster than the cache's lifetime.
+	Cached(teamID, userID string) (UserProfile, bool)
 }
 
 // WorkspaceService switches the active workspace.

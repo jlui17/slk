@@ -54,13 +54,15 @@ func wantTableLinks(t *testing.T, app *App) {
 	if app.mode != ModeLinkPicker {
 		t.Fatalf("mode = %v, want ModeLinkPicker", app.mode)
 	}
+	// The table carries the body, so the fallback text (and its link,
+	// tablePermalink(0)) is not drawn and not offered.
 	items := app.linkPicker.Items()
-	if len(items) != 4 {
-		t.Fatalf("picker has %d rows, want 4: %#v", len(items), items)
+	if len(items) != 3 {
+		t.Fatalf("picker has %d rows, want 3: %#v", len(items), items)
 	}
 	for i, it := range items {
-		if it.URL != tablePermalink(i) {
-			t.Errorf("row %d URL = %q, want %q", i, it.URL, tablePermalink(i))
+		if it.URL != tablePermalink(i+1) {
+			t.Errorf("row %d URL = %q, want %q", i, it.URL, tablePermalink(i+1))
 		}
 	}
 }
