@@ -1,13 +1,16 @@
 package ui
 
 import (
+	"context"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/cellwidth"
 	"github.com/gammons/slk/internal/ui/linkpicker"
@@ -211,4 +214,54 @@ func (a *App) handleLinkPickerMarkKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return func() tea.Msg { return OpenLinksInHerdrMsg{URLs: urls, Target: target} }, true
 	}
 	return nil, false
+}
+
+// permalinkRowText is a permalink row's fallback text: what the picker
+// shows until (or instead of, on fetch failure) the message preview,
+// "Today · thread reply". Where the link points is the row's Side
+// column, permalinkPlace.
+func permalinkRowText(pl slackurl.Permalink) string {
+	var parts []string
+	if date := messages.DateFromTS(string(pl.MessageTS)); date != "" {
+		parts = append(parts, messages.FormatDateSeparator(date))
+	}
+	if pl.ThreadTS != "" && string(pl.ThreadTS) != string(pl.MessageTS) {
+		parts = append(parts, "thread reply")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// permalinkPlace is where a permalink points: "#channel" for an in-app
+// link, "sub.slack.com" for a foreign workspace.
+func (a *App) permalinkPlace(pl slackurl.Permalink, inApp bool) string {
+	if !inApp {
+		return pl.Subdomain + ".slack.com"
+	}
+	// inApp implies the Lookup succeeds (linkOpensInApp requires it).
+	name, chType, _ := a.channels.Lookup(pl.ChannelID)
+	return channelDisplayName(name, chType)
+}
+
+func channelDisplayName(name, chType string) string {
+	return messages.ChannelGlyph(chType) + name
+}
+
+// fetchLinkPreview resolves a picker row's target message via
+// MessageService.Preview off the Update loop. Failures and unresolved
+// messages produce no msg: the row keeps its permalinkRowText.
+func (a *App) fetchLinkPreview(gen uint64, index int, pl slackurl.Permalink) tea.Cmd {
+	messageSvc := a.messageSvc
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		sender, text, err := messageSvc.Preview(ctx, pl.ChannelID, pl.MessageTS, pl.ThreadTS)
+		if err != nil {
+			debuglog.General("linkPreview: %s/%s: %v", pl.ChannelID, pl.MessageTS, err)
+			return nil
+		}
+		if text == "" {
+			return nil
+		}
+		return LinkPreviewMsg{Index: index, Gen: gen, ChannelID: string(pl.ChannelID), Sender: sender, Text: text}
+	}
 }
