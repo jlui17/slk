@@ -1,7 +1,6 @@
 package herdr
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -80,14 +79,6 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 	if !r.CanOpenTab() {
 		return errors.New("no herdr workspace id")
 	}
-	created, err := r.roundTrip("tab.create", tabCreateParams{
-		WorkspaceID: r.identity().WorkspaceID,
-		Label:       label,
-		Focus:       focus,
-	})
-	if err != nil {
-		return fmt.Errorf("tab.create: %w", err)
-	}
 	var parsed struct {
 		Tab struct {
 			TabID string `json:"tab_id"`
@@ -96,7 +87,12 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 			PaneID string `json:"pane_id"`
 		} `json:"root_pane"`
 	}
-	if err := json.Unmarshal(created, &parsed); err != nil {
+	err := r.call("tab.create", tabCreateParams{
+		WorkspaceID: r.identity().WorkspaceID,
+		Label:       label,
+		Focus:       focus,
+	}, openTabTimeout, &parsed)
+	if err != nil {
 		return fmt.Errorf("tab.create: %w", err)
 	}
 	if parsed.RootPane.PaneID == "" {
@@ -108,7 +104,7 @@ func (r *Reporter) OpenTab(label, openCommand, rawURL string, focus bool) error 
 	r.recordTabLabel(parsed.RootPane.PaneID, label)
 	return r.sendOpenCommand(parsed.RootPane.PaneID, openCommand, rawURL, func() {
 		if parsed.Tab.TabID != "" {
-			_, _ = r.roundTrip("tab.close", tabCloseParams{TabID: parsed.Tab.TabID})
+			_ = r.call("tab.close", tabCloseParams{TabID: parsed.Tab.TabID}, openTabTimeout, nil)
 		}
 	})
 }
@@ -121,12 +117,12 @@ func (r *Reporter) sendOpenCommand(paneID, openCommand, rawURL string, rollback 
 	// visible output (the prompt). Any wait failure — the method absent
 	// on an older herdr, or a shell quiet past the timeout — degrades
 	// to the fixed fallback delay rather than aborting the open.
-	if _, err := r.roundTrip("pane.wait_for_output", paneWaitForOutputParams{
+	if err := r.call("pane.wait_for_output", paneWaitForOutputParams{
 		PaneID:    paneID,
 		Source:    "visible",
 		Match:     outputMatch{Type: "regex", Value: `\S`},
 		TimeoutMS: shellReadyTimeout.Milliseconds(),
-	}); err != nil {
+	}, openTabTimeout, nil); err != nil {
 		time.Sleep(shellStartupDelay)
 	}
 	command := openCommand + " '" + strings.ReplaceAll(rawURL, "'", `'\''`) + "'"
@@ -141,52 +137,4 @@ func (r *Reporter) sendOpenCommand(paneID, openCommand, rawURL string, rollback 
 		return err
 	}
 	return nil
-}
-
-// serverError is an error response from herdr — the request was
-// received and rejected — as opposed to a transport failure, where the
-// request's server-side effect is unknown.
-type serverError struct {
-	code string
-	msg  string
-}
-
-func (e serverError) Error() string { return e.msg }
-
-// roundTrip sends one request and returns the raw result object, or the
-// server's error as a Go error.
-func (r *Reporter) roundTrip(method string, params any) (json.RawMessage, error) {
-	return r.roundTripTimeout(method, params, openTabTimeout)
-}
-
-func (r *Reporter) roundTripTimeout(method string, params any, timeout time.Duration) (json.RawMessage, error) {
-	req, err := json.Marshal(request{
-		ID:     fmt.Sprintf("slk:%d", nextSeq()),
-		Method: method,
-		Params: params,
-	})
-	if err != nil {
-		return nil, err
-	}
-	resp, err := r.deliverTimeout(append(req, '\n'), timeout)
-	if err != nil {
-		return nil, err
-	}
-	if len(resp) == 0 {
-		return nil, errors.New("connection closed without a reply")
-	}
-	var parsed struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(resp, &parsed); err != nil {
-		return nil, err
-	}
-	if parsed.Error != nil {
-		return nil, serverError{code: parsed.Error.Code, msg: parsed.Error.Message}
-	}
-	return parsed.Result, nil
 }

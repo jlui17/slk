@@ -1,16 +1,9 @@
 package herdr
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 )
-
-// Pane is a live pane as pane.list reports it.
-type Pane struct {
-	PaneID      string `json:"pane_id"`
-	WorkspaceID string `json:"workspace_id"`
-}
 
 // Process is one entry of a pane's foreground process list.
 type Process struct {
@@ -29,29 +22,29 @@ type ProcessInfo struct {
 // ListPanes returns every live pane across all workspaces: pane.list
 // with no workspace_id is unscoped.
 func (r *Reporter) ListPanes() ([]Pane, error) {
-	result, err := r.roundTrip("pane.list", struct{}{})
+	panes, err := r.listPanes(openTabTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("pane.list: %w", err)
 	}
+	return panes, nil
+}
+
+func (r *Reporter) listPanes(timeout time.Duration) ([]Pane, error) {
 	var parsed struct {
 		Panes []Pane `json:"panes"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		return nil, fmt.Errorf("pane.list: %w", err)
+	if err := r.call("pane.list", struct{}{}, timeout, &parsed); err != nil {
+		return nil, err
 	}
 	return parsed.Panes, nil
 }
 
 // PaneProcessInfo reports what paneID's shell has in the foreground.
 func (r *Reporter) PaneProcessInfo(paneID string) (ProcessInfo, error) {
-	result, err := r.roundTrip("pane.process_info", paneGetParams{PaneID: paneID})
-	if err != nil {
-		return ProcessInfo{}, fmt.Errorf("pane.process_info: %w", err)
-	}
 	var parsed struct {
 		ProcessInfo ProcessInfo `json:"process_info"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := r.call("pane.process_info", paneGetParams{PaneID: paneID}, openTabTimeout, &parsed); err != nil {
 		return ProcessInfo{}, fmt.Errorf("pane.process_info: %w", err)
 	}
 	return parsed.ProcessInfo, nil
@@ -61,11 +54,11 @@ func (r *Reporter) PaneProcessInfo(paneID string) (ProcessInfo, error) {
 // pane.send_input call the herdr CLI's `pane run` makes. The text goes
 // to whatever is frontmost, so the pane's shell must be at its prompt.
 func (r *Reporter) RunInPane(paneID, command string) error {
-	_, err := r.roundTrip("pane.send_input", paneSendInputParams{
+	err := r.call("pane.send_input", paneSendInputParams{
 		PaneID: paneID,
 		Text:   command,
 		Keys:   []string{"Enter"},
-	})
+	}, openTabTimeout, nil)
 	if err != nil {
 		return fmt.Errorf("pane.send_input: %w", err)
 	}
@@ -76,12 +69,12 @@ func (r *Reporter) RunInPane(paneID, command string) error {
 // returning herdr's timeout error if it hasn't within timeout.
 func (r *Reporter) WaitForOutput(paneID, substring string, timeout time.Duration) error {
 	// The socket deadline must outlast the server-side wait.
-	_, err := r.roundTripTimeout("pane.wait_for_output", paneWaitForOutputParams{
+	err := r.call("pane.wait_for_output", paneWaitForOutputParams{
 		PaneID:    paneID,
 		Source:    "visible",
 		Match:     outputMatch{Type: "substring", Value: substring},
 		TimeoutMS: timeout.Milliseconds(),
-	}, timeout+openTabTimeout)
+	}, timeout+openTabTimeout, nil)
 	if err != nil {
 		return fmt.Errorf("pane.wait_for_output: %w", err)
 	}

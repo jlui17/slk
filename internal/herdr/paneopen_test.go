@@ -62,7 +62,7 @@ func TestOpenPane_Unfocused(t *testing.T) {
 // updates after a move, not the one from the launch env.
 func TestOpenPane_TargetsCurrentPaneID(t *testing.T) {
 	r, rec := tabOpenReporter(t)
-	r.adopt(paneInfo{PaneID: "w1:p3"})
+	r.adopt(Pane{PaneID: "w1:p3"})
 
 	if _, err := r.OpenPane("", "slk", paneOpenURL, true); err != nil {
 		t.Fatal(err)

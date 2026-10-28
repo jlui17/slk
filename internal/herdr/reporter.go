@@ -9,8 +9,8 @@ package herdr
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -151,19 +151,19 @@ func newReporter(network, addr, paneID, tabID string) *Reporter {
 	}
 }
 
-// paneInfo is the slice of a server-reported pane record that identifies
+// Pane is the slice of a server-reported pane record that identifies
 // the pane and places it.
-type paneInfo struct {
+type Pane struct {
 	PaneID      string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
 	WorkspaceID string `json:"workspace_id"`
 	TerminalID  string `json:"terminal_id"`
 }
 
-func (r *Reporter) identity() paneInfo {
+func (r *Reporter) identity() Pane {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return paneInfo{
+	return Pane{
 		PaneID:      r.paneID,
 		TabID:       r.tabID,
 		WorkspaceID: r.workspaceID,
@@ -175,7 +175,7 @@ func (r *Reporter) identity() paneInfo {
 // coordinates, field-wise so a record with gaps (an older herdr omitting
 // terminal_id) can't blank what is already known. Called only from the
 // focus watcher's goroutine.
-func (r *Reporter) adopt(p paneInfo) {
+func (r *Reporter) adopt(p Pane) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if p.PaneID != "" {
@@ -477,7 +477,7 @@ func (r *Reporter) nameTab(label string, force bool) {
 				return
 			}
 		}
-		if err := r.call("tab.rename", tabRenameParams{TabID: id.TabID, Label: label}, nil); err != nil {
+		if err := r.call("tab.rename", tabRenameParams{TabID: id.TabID, Label: label}, sendTimeout, nil); err != nil {
 			debuglog.Notify("herdr: tab.rename: %v", err)
 			return
 		}
@@ -494,7 +494,7 @@ func (r *Reporter) ownsTabLabel(paneID, current string) (bool, error) {
 			Tokens map[string]string `json:"tokens"`
 		} `json:"pane"`
 	}
-	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, &parsed); err != nil {
+	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, sendTimeout, &parsed); err != nil {
 		return false, err
 	}
 	return parsed.Pane.Tokens[tabLabelToken] == current, nil
@@ -533,7 +533,7 @@ func (r *Reporter) recordTabLabel(paneID, label string) {
 		Source: source,
 		Tokens: map[string]string{tabLabelToken: label},
 		Seq:    nextSeq(),
-	}, nil)
+	}, sendTimeout, nil)
 	if err != nil {
 		debuglog.Notify("herdr: token write: %v", err)
 	}
@@ -546,7 +546,7 @@ func (r *Reporter) tabLabel(tabID string) (string, error) {
 			Label string `json:"label"`
 		} `json:"tab"`
 	}
-	if err := r.call("tab.get", tabGetParams{TabID: tabID}, &parsed); err != nil {
+	if err := r.call("tab.get", tabGetParams{TabID: tabID}, sendTimeout, &parsed); err != nil {
 		return "", err
 	}
 	return parsed.Tab.Label, nil
@@ -598,38 +598,61 @@ func (r *Reporter) Close(timeout time.Duration) {
 
 // send delivers each req over its own fresh connection, all on one
 // goroutine so callers (the UI goroutine) never block on the socket and
-// reqs from a single call stay ordered. Failures are logged and dropped:
-// the sidebar is best-effort, and the next Report supersedes anything lost.
+// reqs from a single call stay ordered. Failures, herdr's error replies
+// included, are logged and dropped: the sidebar is best-effort, and the
+// next Report supersedes anything lost.
 func (r *Reporter) send(reqs ...request) {
-	bufs := make([][]byte, 0, len(reqs))
+	lines := make([][]byte, 0, len(reqs))
 	for _, req := range reqs {
-		var buf bytes.Buffer
-		if err := json.NewEncoder(&buf).Encode(req); err != nil {
+		line, err := encodeRequest(req)
+		if err != nil {
 			debuglog.Notify("herdr: encode %s: %v", req.Method, err)
 			return
 		}
-		bufs = append(bufs, buf.Bytes())
+		lines = append(lines, line)
 	}
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		for i, b := range bufs {
-			if _, err := r.deliver(b); err != nil {
+		for i, line := range lines {
+			if _, err := r.exchange(line, sendTimeout); err != nil {
 				debuglog.Notify("herdr: %s: %v", reqs[i].Method, err)
 			}
 		}
 	}()
 }
 
-// deliver sends one request line over a fresh connection and returns the
-// single response line (empty when the server closes without replying).
-func (r *Reporter) deliver(line []byte) ([]byte, error) {
-	return r.deliverTimeout(line, sendTimeout)
+// call sends one request, waiting up to timeout for the connection and
+// the reply, and decodes the reply's result object into out (nil to
+// discard it); a server error response comes back as a serverError.
+func (r *Reporter) call(method string, params any, timeout time.Duration, out any) error {
+	line, err := encodeRequest(request{
+		ID:     fmt.Sprintf("slk:%d", nextSeq()),
+		Method: method,
+		Params: params,
+	})
+	if err != nil {
+		return err
+	}
+	result, err := r.exchange(line, timeout)
+	if err != nil || out == nil {
+		return err
+	}
+	return json.Unmarshal(result, out)
 }
 
-// deliverTimeout is deliver with a caller-chosen dial+IO deadline, for
-// requests the server serves synchronously (OpenTab's round-trips).
-func (r *Reporter) deliverTimeout(line []byte, timeout time.Duration) ([]byte, error) {
+// encodeRequest renders req as one newline-terminated request line.
+func encodeRequest(req request) ([]byte, error) {
+	line, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return append(line, '\n'), nil
+}
+
+// exchange sends one request line over a fresh connection and returns
+// the reply's result object, or the server's error as a serverError.
+func (r *Reporter) exchange(line []byte, timeout time.Duration) (json.RawMessage, error) {
 	conn, err := net.DialTimeout(r.network, r.addr, timeout)
 	if err != nil {
 		return nil, err
@@ -641,7 +664,39 @@ func (r *Reporter) deliverTimeout(line []byte, timeout time.Duration) ([]byte, e
 	}
 	scanner := bufio.NewScanner(conn)
 	if !scanner.Scan() {
-		return nil, scanner.Err()
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("connection closed without a reply")
 	}
-	return scanner.Bytes(), nil
+	return parseResponse(scanner.Bytes())
+}
+
+// serverError is an error response from herdr — the request was
+// received and rejected — as opposed to a transport failure, where the
+// request's server-side effect is unknown.
+type serverError struct {
+	code string
+	msg  string
+}
+
+func (e serverError) Error() string { return e.msg }
+
+// parseResponse returns a response line's result object, or its error
+// as a serverError.
+func parseResponse(line []byte) (json.RawMessage, error) {
+	var parsed struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.Error != nil {
+		return nil, serverError{code: parsed.Error.Code, msg: parsed.Error.Message}
+	}
+	return parsed.Result, nil
 }

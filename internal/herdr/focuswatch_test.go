@@ -79,7 +79,7 @@ type focusServer struct {
 	t *testing.T
 
 	mu          sync.Mutex
-	pane        paneInfo
+	pane        Pane
 	activeTabID string
 	wsFocused   bool
 	// stale ids answer pane.get with pane_not_found, modeling a server
@@ -91,7 +91,7 @@ type focusServer struct {
 	strictGet bool
 	// foreign records answer pane.get for their own id, modeling other
 	// panes; every other id resolves to pane, herdr's alias semantics.
-	foreign map[string]paneInfo
+	foreign map[string]Pane
 	// events belongs to the live subscription and is replaced on every
 	// new subscribe, so a dropped connection's reader can never consume
 	// an event meant for its successor.
@@ -115,10 +115,10 @@ func startFocusServer(t *testing.T, sock string) *focusServer {
 	t.Cleanup(func() { ln.Close() })
 	s := &focusServer{
 		t:           t,
-		pane:        paneInfo{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1", TerminalID: "term_a"},
+		pane:        Pane{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1", TerminalID: "term_a"},
 		activeTabID: "w1:t1", wsFocused: true,
 		stale:      map[string]bool{},
-		foreign:    map[string]paneInfo{},
+		foreign:    map[string]Pane{},
 		subscribed: make(chan struct{}, 8),
 		done:       make(chan struct{}),
 	}
@@ -174,7 +174,7 @@ func (s *focusServer) serve(conn net.Conn) {
 		s.mu.Lock()
 		resp, _ := json.Marshal(map[string]any{"id": "x", "result": map[string]any{
 			"type":  "pane_list",
-			"panes": []paneInfo{s.pane},
+			"panes": []Pane{s.pane},
 		}})
 		s.mu.Unlock()
 		conn.Write(append(resp, '\n'))
@@ -429,7 +429,7 @@ func (s *focusServer) dropSubscription() {
 	}
 }
 
-func moveEvent(prev string, p paneInfo) map[string]any {
+func moveEvent(prev string, p Pane) map[string]any {
 	return map[string]any{"event": "pane_moved", "data": map[string]any{
 		"type": "pane_moved", "previous_pane_id": prev, "pane": p,
 	}}
@@ -462,7 +462,7 @@ func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
 	// herdr), so only the pane-id comparisons can match.
 	s.setPane("w2:p1", "w2:t1", "w2")
 	s.setLocation("w2:t1", "w2:t1", false)
-	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	s.send(moveEvent("w1:p1", Pane{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
 	view(false, "moved to an unfocused workspace")
 	waitIdentity(t, r, "w2:p1")
 
@@ -471,7 +471,7 @@ func TestWatchFocusTracksIdentityAcrossMoves(t *testing.T) {
 	// watcher on w2 forever.
 	s.setPane("w3:p1", "w3:t1", "w3")
 	s.setLocation("w3:t1", "w3:t1", true)
-	s.send(moveEvent("w2:p1", paneInfo{PaneID: "w3:p1", TabID: "w3:t1", WorkspaceID: "w3"}))
+	s.send(moveEvent("w2:p1", Pane{PaneID: "w3:p1", TabID: "w3:t1", WorkspaceID: "w3"}))
 	view(true, "second move into the focused workspace")
 	waitIdentity(t, r, "w3:p1")
 	if id := r.identity(); id.TabID != "w3:t1" || id.WorkspaceID != "w3" {
@@ -492,7 +492,7 @@ func TestWatchFocusMatchesMoveByTerminalID(t *testing.T) {
 	// pane's terminal: that match must trigger the relocate.
 	s.setPane("w4:p2", "w4:t1", "w4")
 	s.setLocation("w4:t1", "w4:t1", false)
-	s.send(moveEvent("w9:p9", paneInfo{PaneID: "w4:p2", TabID: "w4:t1", WorkspaceID: "w4", TerminalID: "term_a"}))
+	s.send(moveEvent("w9:p9", Pane{PaneID: "w4:p2", TabID: "w4:t1", WorkspaceID: "w4", TerminalID: "term_a"}))
 	view(false, "relocated on terminal id alone")
 	waitIdentity(t, r, "w4:p2")
 }
@@ -505,14 +505,14 @@ func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
 	// count as a match — that would adopt every other pane's move.
 	s.mu.Lock()
 	s.pane.TerminalID = ""
-	s.foreign["w9:p8"] = paneInfo{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}
+	s.foreign["w9:p8"] = Pane{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}
 	s.mu.Unlock()
 	r := newReporter("unix", sock, "w1:p1", "w1:t1")
 	view, quiet := focusWatcher(t, r)
 	s.waitSubscribed()
 	view(true, "initial state")
 
-	s.send(moveEvent("w9:p9", paneInfo{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}))
+	s.send(moveEvent("w9:p9", Pane{PaneID: "w9:p8", TabID: "w9:t1", WorkspaceID: "w9"}))
 	quiet("foreign pane's move")
 	if id := r.identity(); id.PaneID != "w1:p1" {
 		t.Fatalf("identity hijacked by a foreign move: %s", id.PaneID)
@@ -521,7 +521,7 @@ func TestWatchFocusIgnoresForeignMovesWithoutTerminalIDs(t *testing.T) {
 	// The pane's own move still matches through the id fallback.
 	s.setPane("w2:p1", "w2:t1", "w2")
 	s.setLocation("w2:t1", "w2:t1", false)
-	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	s.send(moveEvent("w1:p1", Pane{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
 	view(false, "own move into an unfocused workspace")
 	waitIdentity(t, r, "w2:p1")
 }
@@ -657,7 +657,7 @@ func TestWatchFocusPersistsResolvedPaneID(t *testing.T) {
 
 	s.setPane("w2:p1", "w2:t1", "w2")
 	s.setLocation("w2:t1", "w2:t1", true)
-	s.send(moveEvent("w1:p1", paneInfo{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
+	s.send(moveEvent("w1:p1", Pane{PaneID: "w2:p1", TabID: "w2:t1", WorkspaceID: "w2"}))
 	waitSave("w2:p1", "after the move")
 
 	// A reconnect that resolves the same id must not rewrite the store.
@@ -695,7 +695,7 @@ func TestReportsDuringMovesNoRace(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		pane := fmt.Sprintf("w2:p%d", i)
 		s.setPane(pane, "w2:t1", "w2")
-		s.send(moveEvent("w1:p1", paneInfo{PaneID: pane, TabID: "w2:t1", WorkspaceID: "w2", TerminalID: "term_a"}))
+		s.send(moveEvent("w1:p1", Pane{PaneID: pane, TabID: "w2:t1", WorkspaceID: "w2", TerminalID: "term_a"}))
 	}
 	<-done
 }

@@ -201,11 +201,11 @@ func (r *Reporter) watchFocusOnce(onViewChange func(viewed bool), onConnected fu
 // watchEvent is the data of one subscription event: the fields that
 // tab_focused, workspace_focused, and pane_moved carry between them.
 type watchEvent struct {
-	Type        string   `json:"type"`
-	TabID       string   `json:"tab_id"`
-	WorkspaceID string   `json:"workspace_id"`
-	PreviousID  string   `json:"previous_pane_id"`
-	Pane        paneInfo `json:"pane"`
+	Type        string `json:"type"`
+	TabID       string `json:"tab_id"`
+	WorkspaceID string `json:"workspace_id"`
+	PreviousID  string `json:"previous_pane_id"`
+	Pane        Pane   `json:"pane"`
 }
 
 // fold applies one event to where the pane sits and whether it is
@@ -269,7 +269,7 @@ func (r *Reporter) locate() (paneLocation, error) {
 			ActiveTabID string `json:"active_tab_id"`
 		} `json:"workspace"`
 	}
-	if err := r.call("workspace.get", workspaceGetParams{WorkspaceID: loc.workspaceID}, &ws); err != nil {
+	if err := r.call("workspace.get", workspaceGetParams{WorkspaceID: loc.workspaceID}, sendTimeout, &ws); err != nil {
 		return paneLocation{}, err
 	}
 	loc.wsFocused = ws.Workspace.Focused
@@ -291,7 +291,7 @@ func (r *Reporter) locate() (paneLocation, error) {
 // belief about alias semantics and an idle fallback costs nothing;
 // confirming in herdr's source that pane.get cannot fail mid-run is
 // what would make the scan deletable.
-func (r *Reporter) fetchPane() (paneInfo, error) {
+func (r *Reporter) fetchPane() (Pane, error) {
 	id := r.identity()
 	pane, err := r.getPane(id.PaneID)
 	if err == nil {
@@ -316,32 +316,30 @@ func (r *Reporter) fetchPane() (paneInfo, error) {
 			}
 		}
 	}
-	return paneInfo{}, err
+	return Pane{}, err
 }
 
-func (r *Reporter) getPane(paneID string) (paneInfo, error) {
+func (r *Reporter) getPane(paneID string) (Pane, error) {
 	var parsed struct {
-		Pane paneInfo `json:"pane"`
+		Pane Pane `json:"pane"`
 	}
-	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, &parsed); err != nil {
-		return paneInfo{}, err
+	if err := r.call("pane.get", paneGetParams{PaneID: paneID}, sendTimeout, &parsed); err != nil {
+		return Pane{}, err
 	}
 	return parsed.Pane, nil
 }
 
-func (r *Reporter) findPaneByTerminal(terminalID string) (paneInfo, error) {
-	var parsed struct {
-		Panes []paneInfo `json:"panes"`
+func (r *Reporter) findPaneByTerminal(terminalID string) (Pane, error) {
+	panes, err := r.listPanes(sendTimeout)
+	if err != nil {
+		return Pane{}, err
 	}
-	if err := r.call("pane.list", struct{}{}, &parsed); err != nil {
-		return paneInfo{}, err
-	}
-	for _, pane := range parsed.Panes {
+	for _, pane := range panes {
 		if pane.TerminalID == terminalID {
 			return pane, nil
 		}
 	}
-	return paneInfo{}, fmt.Errorf("no pane holds terminal %s", terminalID)
+	return Pane{}, fmt.Errorf("no pane holds terminal %s", terminalID)
 }
 
 // subscribeFocus sends the subscription request and consumes the ack,
@@ -350,7 +348,7 @@ func (r *Reporter) findPaneByTerminal(terminalID string) (paneInfo, error) {
 // non-error line as success) keeps a stray line from being mistaken for
 // the ack and swallowed.
 func (r *Reporter) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
-	req, err := json.Marshal(request{
+	line, err := encodeRequest(request{
 		ID:     fmt.Sprintf("slk:%d", nextSeq()),
 		Method: "events.subscribe",
 		Params: subscribeParams{Subscriptions: []subscription{
@@ -363,40 +361,26 @@ func (r *Reporter) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
 		return err
 	}
 	conn.SetWriteDeadline(time.Now().Add(sendTimeout))
-	if _, err := conn.Write(append(req, '\n')); err != nil {
+	if _, err := conn.Write(line); err != nil {
 		return err
 	}
 	conn.SetReadDeadline(time.Now().Add(sendTimeout))
 	if !scanner.Scan() {
 		return fmt.Errorf("no subscribe ack: %w", scanner.Err())
 	}
-	var ack struct {
-		Result struct {
-			Type string `json:"type"`
-		} `json:"result"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
+	result, err := parseResponse(scanner.Bytes())
+	if err != nil {
+		return fmt.Errorf("subscribe ack: %w", err)
 	}
-	if err := json.Unmarshal(scanner.Bytes(), &ack); err != nil {
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(result, &ack); err != nil {
 		return fmt.Errorf("undecodable subscribe ack: %w", err)
 	}
-	if ack.Error != nil {
-		return fmt.Errorf("refused: %s", ack.Error.Message)
-	}
-	if ack.Result.Type != "subscription_started" {
-		return fmt.Errorf("unexpected subscribe ack %q", ack.Result.Type)
+	if ack.Type != "subscription_started" {
+		return fmt.Errorf("unexpected subscribe ack %q", ack.Type)
 	}
 	// The events stream has no deadline: it is idle most of the time.
 	return conn.SetReadDeadline(time.Time{})
-}
-
-// call sends one request and decodes its result object into out (nil to
-// discard it); a server error response comes back as a serverError.
-func (r *Reporter) call(method string, params any, out any) error {
-	result, err := r.roundTripTimeout(method, params, sendTimeout)
-	if err != nil || out == nil {
-		return err
-	}
-	return json.Unmarshal(result, out)
 }

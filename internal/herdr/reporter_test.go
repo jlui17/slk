@@ -230,7 +230,7 @@ func TestRequestsFollowAdoptedIdentity(t *testing.T) {
 	// What the focus watcher does after a cross-workspace move: every
 	// request from here on must target the new coordinates, not the
 	// launch env's.
-	r.adopt(paneInfo{PaneID: "w2:p9", TabID: "w2:t9", WorkspaceID: "w2", TerminalID: "term_a"})
+	r.adopt(Pane{PaneID: "w2:p9", TabID: "w2:t9", WorkspaceID: "w2", TerminalID: "term_a"})
 
 	r.Report("slack-claude", "Claude", "#eng fix retries", "working", "")
 	for _, line := range waitLines(t, rec, 2) {

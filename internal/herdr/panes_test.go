@@ -90,7 +90,7 @@ func TestListPanesIsUnscoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Pane{{PaneID: "w1:p1", WorkspaceID: "w1"}, {PaneID: "w2:p7", WorkspaceID: "w2"}}
+	want := []Pane{{PaneID: "w1:p1", TabID: "w1:t1", WorkspaceID: "w1"}, {PaneID: "w2:p7", TabID: "w2:t3", WorkspaceID: "w2"}}
 	if len(panes) != 2 || panes[0] != want[0] || panes[1] != want[1] {
 		t.Errorf("panes = %+v, want %+v", panes, want)
 	}

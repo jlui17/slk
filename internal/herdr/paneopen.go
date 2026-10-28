@@ -1,7 +1,6 @@
 package herdr
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -26,18 +25,15 @@ func (r *Reporter) OpenPane(splitPaneID, openCommand, rawURL string, focus bool)
 	if splitPaneID == "" {
 		splitPaneID = r.identity().PaneID
 	}
-	created, err := r.roundTrip("pane.split", paneSplitParams{
-		Direction:    "right",
-		TargetPaneID: splitPaneID,
-		Focus:        focus,
-	})
-	if err != nil {
-		return "", fmt.Errorf("pane.split: %w", err)
-	}
 	var parsed struct {
 		Pane Pane `json:"pane"`
 	}
-	if err := json.Unmarshal(created, &parsed); err != nil {
+	err := r.call("pane.split", paneSplitParams{
+		Direction:    "right",
+		TargetPaneID: splitPaneID,
+		Focus:        focus,
+	}, openTabTimeout, &parsed)
+	if err != nil {
 		return "", fmt.Errorf("pane.split: %w", err)
 	}
 	paneID := parsed.Pane.PaneID
@@ -45,7 +41,7 @@ func (r *Reporter) OpenPane(splitPaneID, openCommand, rawURL string, focus bool)
 		return "", errors.New("pane.split: no pane in response")
 	}
 	if err := r.sendOpenCommand(paneID, openCommand, rawURL, func() {
-		_, _ = r.roundTrip("pane.close", paneCloseParams{PaneID: paneID})
+		_ = r.call("pane.close", paneCloseParams{PaneID: paneID}, openTabTimeout, nil)
 	}); err != nil {
 		return "", err
 	}
