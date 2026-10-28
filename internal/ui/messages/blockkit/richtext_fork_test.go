@@ -144,7 +144,7 @@ func TestRichTextToMrkdwn_BorderedListsContinueTheQuote(t *testing.T) {
 }
 
 func TestRichTextToMrkdwn_ListWithoutBorderIsNotQuoted(t *testing.T) {
-	rt := richTextFromJSON(t, `[{"type":"rich_text_list","style":"bullet","indent":0,"border":0,
+	rt := richTextElementsFromJSON(t, `[{"type":"rich_text_list","style":"bullet","indent":0,"border":0,
 		"elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"item"}]}]}]`)
 	if got, want := RichTextToMrkdwn(rt), "• item"; got != want {
 		t.Errorf("got %q, want %q", got, want)

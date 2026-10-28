@@ -93,7 +93,7 @@ func TestRichTextToMrkdwn_NestedMarkersCycleByIndent(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		got := RichTextToMrkdwn(richTextFromJSON(t, tc.elements))
+		got := RichTextToMrkdwn(richTextElementsFromJSON(t, tc.elements))
 		if want := strings.Join(tc.want, "\n"); got != want {
 			t.Errorf("%s:\n got:\n%s\nwant:\n%s", name, got, want)
 		}

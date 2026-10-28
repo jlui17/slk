@@ -1,10 +1,10 @@
 // internal/ui/clock_fork.go
 //
 // Testable clock seam for typingTracker, selfSendDedup,
-// presenceController, and App, mirroring sidebar.SetNowFunc: each type
-// but App carries a nowFn clock field (declared alongside its struct)
-// that defaults to time.Now via the nil-safe Now; App's is upstream's
-// now field.
+// presenceController, and App, mirroring sidebar.SetNowFunc:
+// presenceController carries a nowFn clock field (declared alongside its
+// struct) that defaults to time.Now via the nil-safe Now; the others set
+// upstream's now field.
 package ui
 
 import "time"
@@ -27,10 +27,14 @@ func (t *typingTracker) SetNowFunc(fn func() time.Time) {
 	t.now = fn
 }
 
-func (d *selfSendDedup) now() time.Time { return d.nowFn.Now() }
-
-// SetNowFunc injects a clock for tests. Pass nil to revert to time.Now.
-func (d *selfSendDedup) SetNowFunc(fn func() time.Time) { d.nowFn = fn }
+// SetNowFunc injects a clock for tests into the dedup's now field
+// (upstream's). Pass nil to revert to time.Now.
+func (d *selfSendDedup) SetNowFunc(fn func() time.Time) {
+	if fn == nil {
+		fn = time.Now
+	}
+	d.now = fn
+}
 
 func (p *presenceController) now() time.Time { return p.nowFn.Now() }
 

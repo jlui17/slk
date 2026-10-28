@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
@@ -142,6 +143,14 @@ type Client struct {
 	// (e.g. &Client{api: mock}); BrowserTransport treats a nil Env as
 	// "send no envelope params", so those clients still work.
 	envelope *slackhttp.Envelope
+
+	// wsLive is true while the WebSocket event owner runs. A send only
+	// looks its links up for chips (link_chips.go) when it is, because
+	// the answer comes over the socket.
+	wsLive atomic.Bool
+
+	// unfurls routes unfurl_preview_updated frames to those lookups.
+	unfurls unfurlWaiters
 }
 
 // NewClient creates a new Slack client using browser cookie auth.
@@ -494,9 +503,13 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 			messages <- message
 		}
 	}()
+	c.wsLive.Store(true)
 	go func() {
 		defer close(c.wsDone)
 		defer handler.OnDisconnect()
+		// Deferred last so it runs first: before OnDisconnect, which is
+		// what reconnects, so it cannot clear the next socket's flag.
+		defer c.wsLive.Store(false)
 		pendingHandler, _ := handler.(PendingEventHandler)
 		var pending <-chan struct{}
 		if pendingHandler != nil {
@@ -507,6 +520,9 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 			case message, ok := <-messages:
 				if !ok {
 					return
+				}
+				if c.unfurls.deliver(message) {
+					continue
 				}
 				dispatchWebSocketEvent(message, handler)
 			case <-pending:
@@ -994,16 +1010,36 @@ func (c *Client) ListCustomEmoji(ctx context.Context) (map[string]string, error)
 // SendMessage posts a new message to the specified channel. Returns
 // the timestamp and the converted mrkdwn text actually sent (callers
 // use this for optimistic display so it matches what other Slack
-// clients will render).
+// clients will render). Links an app publishes a Work Object for go out
+// as chips; see link_chips.go.
 func (c *Client) SendMessage(ctx context.Context, channelID, text string) (string, string, error) {
+	ts, mr, err := c.postMessage(ctx, channelID, "", text, false)
+	if err != nil {
+		return "", "", fmt.Errorf("sending message: %w", err)
+	}
+	return ts, mr, nil
+}
+
+// postMessage is SendMessage and SendReply: chat.postMessage with the
+// text converted to mrkdwn and a rich_text block, chips first.
+func (c *Client) postMessage(ctx context.Context, channelID, threadTS, text string, broadcast bool) (string, string, error) {
 	mr, block := mrkdwn.Convert(text)
+	if ts, sentMr, sent, err := c.sendWithChips(ctx, channelID, threadTS, text, broadcast, block); sent {
+		return ts, sentMr, err
+	}
 	opts := []slack.MsgOption{slack.MsgOptionText(mr, false)}
+	if threadTS != "" {
+		opts = append(opts, slack.MsgOptionTS(threadTS))
+	}
 	if block != nil {
 		opts = append(opts, slack.MsgOptionBlocks(block))
 	}
+	if broadcast {
+		opts = append(opts, slack.MsgOptionBroadcast())
+	}
 	_, ts, err := c.api.PostMessage(channelID, opts...)
 	if err != nil {
-		return "", "", fmt.Errorf("sending message: %w", err)
+		return "", "", err
 	}
 	return ts, mr, nil
 }
@@ -1243,18 +1279,7 @@ func sumActivityV2(m map[string]int) int {
 // thread_broadcast subtype. Returns the timestamp and the converted
 // mrkdwn text actually sent.
 func (c *Client) SendReply(ctx context.Context, channelID, threadTS, text string, broadcast bool) (string, string, error) {
-	mr, block := mrkdwn.Convert(text)
-	opts := []slack.MsgOption{
-		slack.MsgOptionText(mr, false),
-		slack.MsgOptionTS(threadTS),
-	}
-	if block != nil {
-		opts = append(opts, slack.MsgOptionBlocks(block))
-	}
-	if broadcast {
-		opts = append(opts, slack.MsgOptionBroadcast())
-	}
-	_, ts, err := c.api.PostMessage(channelID, opts...)
+	ts, mr, err := c.postMessage(ctx, channelID, threadTS, text, broadcast)
 	if err != nil {
 		return "", "", fmt.Errorf("sending reply: %w", err)
 	}

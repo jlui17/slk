@@ -735,8 +735,11 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// duplicated noise on every labeled link.
 	text = linkWithLabelRe.ReplaceAllStringFunc(text, func(match string) string {
 		parts := linkWithLabelRe.FindStringSubmatch(match)
-		url, label := parts[1], parts[2]
-		label = opts.PermalinkChips.label(url, label)
+		url, label := parts[1], opts.PermalinkChips.label(parts[1], parts[2])
+		// Decode the label's entities here: linkStyle underlines each
+		// rune separately, so the line-level slackEntityDecoder pass
+		// below can no longer see "&amp;" once it is styled.
+		label = slackEntityDecoder.Replace(label)
 		return osc8Hyperlink(url, linkStyle().Render(label))
 	})
 

@@ -8,7 +8,7 @@ import (
 	"github.com/slack-go/slack"
 )
 
-func richTextFromJSON(t *testing.T, elementsJSON string) RichTextBlock {
+func richTextElementsFromJSON(t *testing.T, elementsJSON string) RichTextBlock {
 	t.Helper()
 	var blocks slack.Blocks
 	if err := json.Unmarshal([]byte(`[{"type":"rich_text","elements":`+elementsJSON+`}]`), &blocks); err != nil {
@@ -29,7 +29,7 @@ func TestRichTextLinks(t *testing.T) {
 		return string(b[:len(b)-1]) + `,"elements":[` + items + `]}`
 	}
 
-	rt := richTextFromJSON(t, `[`+
+	rt := richTextElementsFromJSON(t, `[`+
 		item(txt("intro ")+","+link("https://x.example/p", "the plan")+","+txt(" and ")+","+link("https://x.example/bare", "https://x.example/bare"))+","+
 		list("ordered", 0, 4,
 			item(`{"type":"user","user_id":"U1"},`+txt(" - ")+","+mention)+","+
@@ -73,7 +73,7 @@ func TestRichTextLinks_ListItemEdges(t *testing.T) {
 		{`{"type":"user","user_id":"U1"},` + txt(" ") + `,{"type":"emoji","name":"tada"},` + txt(" ") + "," + link, "1. <@U1> :tada:"},
 		{txt("call foo() - ") + "," + link, "1. call foo()"},
 	} {
-		rt := richTextFromJSON(t, `[{"type":"rich_text_list","style":"ordered","indent":0,"offset":0,"elements":[{"type":"rich_text_section","elements":[`+tt.elements+`]}]}]`)
+		rt := richTextElementsFromJSON(t, `[{"type":"rich_text_list","style":"ordered","indent":0,"offset":0,"elements":[{"type":"rich_text_section","elements":[`+tt.elements+`]}]}]`)
 		if got := RichTextLinks(rt)[0].ListItem; got != tt.want {
 			t.Errorf("item %s:\n got %q\nwant %q", tt.elements, got, tt.want)
 		}
@@ -82,7 +82,7 @@ func TestRichTextLinks_ListItemEdges(t *testing.T) {
 
 // A link in a quote is walked like one in a paragraph: no list item.
 func TestRichTextLinks_Quote(t *testing.T) {
-	rt := richTextFromJSON(t, `[{"type":"rich_text_quote","elements":[
+	rt := richTextElementsFromJSON(t, `[{"type":"rich_text_quote","elements":[
 		{"type":"text","text":"as said in "},{"type":"link","url":"https://x.example/q","text":"the thread"}]}]`)
 	want := []RichTextLink{{URL: "https://x.example/q", Text: "the thread"}}
 	if got := RichTextLinks(rt); !reflect.DeepEqual(got, want) {
