@@ -174,3 +174,21 @@ func TestRichTextToMrkdwn_StyledPhraseWithCodeIsOneRun(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// A struck phrase with a link in it arrives as struck text, a struck link
+// and struck text; the link joins the phrase's marker pair, and a struck
+// link on its own gets its own pair.
+func TestRichTextToMrkdwn_StyledPhraseWithLinkIsOneRun(t *testing.T) {
+	strike := &slack.RichTextSectionTextStyle{Strike: true}
+	rt := rtSection(
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "Plan for ", Style: strike},
+		&slack.RichTextSectionLinkElement{Type: slack.RTSELink, URL: "https://x.test/pulls/1", Text: "#1", Style: strike},
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: " a<b", Style: strike},
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: ", see "},
+		&slack.RichTextSectionLinkElement{Type: slack.RTSELink, URL: "https://x.test/pulls/2", Style: strike},
+	)
+	want := "~Plan for <https://x.test/pulls/1|#1> a&lt;b~, see ~<https://x.test/pulls/2>~"
+	if got := RichTextToMrkdwn(rt); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

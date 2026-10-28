@@ -735,7 +735,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 
 	// Strikethrough — boundary-aware scan (strike_fork.go) so prose
 	// tildes ("~45%") don't pair up into crossed-out runs.
-	text = replaceStrikethroughs(text, renderStrikethrough)
+	text = replaceStrikethroughs(text, strikeRenderer(opts.PermalinkChips))
 
 	// Links with labels: <url|label> -> just the label, wrapped in an OSC 8
 	// hyperlink escape so it's clickable in modern terminals. We don't

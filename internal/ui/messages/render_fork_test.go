@@ -927,3 +927,49 @@ func struckText(s string) string {
 	}
 	return b.String()
 }
+
+// Slack sends a struck-through phrase with a link in it as struck text,
+// a struck link and struck text. Shape as seen 2026-10 in a bot's
+// corrected reply.
+func TestStruckPhraseWithLinkRendersLikeSlack(t *testing.T) {
+	var blocks slack.Blocks
+	if err := json.Unmarshal([]byte(`[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[
+		{"type":"text","text":"Sounds good. "},
+		{"type":"text","text":"Plan and apply for ","style":{"strike":true}},
+		{"type":"link","url":"https://git.example.com/org/repo/pulls/3478","text":"#3478","style":{"strike":true},"unsafe":true},
+		{"type":"text","text":" are running now","style":{"strike":true}},
+		{"type":"text","text":", and the merge waits for your read-back."},
+		{"type":"text","text":"\n\n"},
+		{"type":"text","text":"[Edit: only a fresh plan ran.]"}
+	]}]}]`), &blocks); err != nil {
+		t.Fatal(err)
+	}
+	m := New([]MessageItem{{TS: "1.0", UserName: "bot", Blocks: blockkit.Parse(blocks)}}, "general")
+	m.buildCache(50)
+	i := slices.IndexFunc(m.cache, func(e viewEntry) bool { return e.msgIdx == 0 })
+	var drawn, struck []string
+	linked := false
+	for _, row := range m.cache[i].linesNormal[1:] {
+		drawn = append(drawn, strings.TrimRight(strings.TrimPrefix(ansi.Strip(row), "▌"), " "))
+		struck = append(struck, struckText(row))
+		linked = linked || strings.Contains(row, "\x1b]8;;https://git.example.com/org/repo/pulls/3478")
+	}
+	wantDrawn := []string{
+		"Sounds good. Plan and apply for #3478 are",
+		"running now, and the merge waits for your",
+		"read-back.",
+		"",
+		"[Edit: only a fresh plan ran.]",
+	}
+	wantStruck := []string{
+		"Plan and apply for #3478 are",
+		"running now",
+		"",
+		"",
+		"",
+	}
+	if !slices.Equal(drawn, wantDrawn) || !slices.Equal(struck, wantStruck) || !linked {
+		t.Errorf("struck phrase with a link in the messages pane (link kept: %v):\n got rows:\n%s\n struck:\n%s\nwant rows:\n%s\n struck:\n%s",
+			linked, strings.Join(drawn, "\n"), strings.Join(struck, "\n"), strings.Join(wantDrawn, "\n"), strings.Join(wantStruck, "\n"))
+	}
+}

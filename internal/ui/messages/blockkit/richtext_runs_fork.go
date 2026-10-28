@@ -6,12 +6,12 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// Slack sends a styled phrase with inline code in it (a struck sentence
-// naming a `field`) as one text element per run, each carrying the
-// phrase's style. One marker pair per element ("~keep ~~`x`~~ y~") gives
-// the renderer markers it can't pair, so neighbouring text elements that
-// share bold, italic and strike go out as one run inside one pair
-// ("~keep `x` y~").
+// Slack sends a styled phrase with inline code or a link in it (a struck
+// sentence naming a `field` or linking a PR) as one element per run,
+// each carrying the phrase's style. One marker pair per element
+// ("~keep ~~`x`~~ y~") gives the renderer markers it can't pair, so
+// neighbouring text and link elements that share bold, italic and strike
+// go out as one run inside one pair ("~keep `x` y~", "~for <url|#1> are~").
 func styleRuns(elements []slack.RichTextSectionElement) [][]slack.RichTextSectionElement {
 	var runs [][]slack.RichTextSectionElement
 	for i, e := range elements {
@@ -25,20 +25,34 @@ func styleRuns(elements []slack.RichTextSectionElement) [][]slack.RichTextSectio
 }
 
 func runToMrkdwn(run []slack.RichTextSectionElement) string {
-	if len(run) == 1 {
+	style, ok := markerStyle(run[0])
+	if !ok {
 		return inlineToMrkdwn(run[0])
 	}
 	var body strings.Builder
 	for _, e := range run {
-		t := e.(*slack.RichTextSectionTextElement)
-		if t.Style.Code {
-			body.WriteString("`" + t.Text + "`")
-		} else {
-			body.WriteString(t.Text)
+		switch v := e.(type) {
+		case *slack.RichTextSectionTextElement:
+			text := escapeLiteralText(v.Text)
+			if v.Style.Code {
+				text = "`" + text + "`"
+			}
+			body.WriteString(text)
+		case *slack.RichTextSectionLinkElement:
+			body.WriteString(linkToMrkdwn(v.URL, v.Text))
 		}
 	}
-	style, _ := markerStyle(run[0])
-	return textToMrkdwn(body.String(), &style)
+	out := body.String()
+	if style.Strike {
+		out = "~" + out + "~"
+	}
+	if style.Italic {
+		out = "_" + out + "_"
+	}
+	if style.Bold {
+		out = "*" + out + "*"
+	}
+	return out
 }
 
 func sameMarkerStyle(a, b slack.RichTextSectionElement) bool {
@@ -47,13 +61,21 @@ func sameMarkerStyle(a, b slack.RichTextSectionElement) bool {
 	return okA && okB && sa == sb
 }
 
-// markerStyle is the bold, italic and strike of a text element that can
-// sit inside a marker pair: one on a single line, with a marker to share.
+// markerStyle is the bold, italic and strike of a text or link element
+// that can sit inside a marker pair: one on a single line, with a marker
+// to share.
 func markerStyle(e slack.RichTextSectionElement) (slack.RichTextSectionTextStyle, bool) {
-	t, ok := e.(*slack.RichTextSectionTextElement)
-	if !ok || t.Style == nil || strings.Contains(t.Text, "\n") || strings.TrimSpace(t.Text) == "" {
+	var text string
+	var style *slack.RichTextSectionTextStyle
+	switch v := e.(type) {
+	case *slack.RichTextSectionTextElement:
+		text, style = v.Text, v.Style
+	case *slack.RichTextSectionLinkElement:
+		text, style = v.URL, v.Style
+	}
+	if style == nil || strings.Contains(text, "\n") || strings.TrimSpace(text) == "" {
 		return slack.RichTextSectionTextStyle{}, false
 	}
-	s := slack.RichTextSectionTextStyle{Bold: t.Style.Bold, Italic: t.Style.Italic, Strike: t.Style.Strike}
+	s := slack.RichTextSectionTextStyle{Bold: style.Bold, Italic: style.Italic, Strike: style.Strike}
 	return s, s != slack.RichTextSectionTextStyle{}
 }
