@@ -343,6 +343,36 @@ func TestForm_ContextMrkdwnFormatsLikeSlack(t *testing.T) {
 	}
 }
 
+// Slack draws a context block's text muted throughout: the plain text
+// after a bold span stays muted, as before it.
+func TestForm_ContextTextAfterBoldStaysMuted(t *testing.T) {
+	f := NewForm(viewFrom(t, `{"id":"V1","title":{"type":"plain_text","text":"T"},"blocks":[
+		{"type":"context","elements":[{"type":"mrkdwn","text":"*Owner* is here"}]}]}`))
+	raw := Model{phase: phaseForm, form: f}.box(60, 40)
+	muted, primary := fgAt(muted().Render("x"), "x"), fgAt(plain().Render("x"), "x")
+	if got := fgAt(raw, " is here"); got != muted {
+		t.Errorf("text after the bold span is drawn in %q, want muted %q (primary is %q)", got, muted, primary)
+	}
+}
+
+var fgParamsRe = regexp.MustCompile(`38;(?:2(?:;\d+){3}|5;\d+)`)
+
+// fgAt is the truecolor or 256-color foreground in effect where sub
+// starts in s, as the SGR parameters that set it; "" is the terminal's
+// default.
+func fgAt(s, sub string) string {
+	fg := ""
+	for _, seq := range regexp.MustCompile(`\x1b\[[0-9;]*m`).FindAllString(s[:strings.Index(s, sub)], -1) {
+		switch params := seq[2 : len(seq)-1]; {
+		case params == "" || params == "0" || params == "39":
+			fg = ""
+		case fgParamsRe.MatchString(params):
+			fg = fgParamsRe.FindString(params)
+		}
+	}
+	return fg
+}
+
 func TestForm_TinyTerminalDoesNotPanic(t *testing.T) {
 	m := Model{phase: phaseForm, form: NewForm(capturedView(t))}
 	m.form.Focus()

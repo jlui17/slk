@@ -145,6 +145,11 @@ there and resolve them knowing what the fork wants:
   upstream styles on the spot, so lipgloss's strike cuts a `<@U1>` apart
   and prints it as text, the text after an inner span loses bold or
   italic, and `*_x_*` draws its underscores.
+  After each reset the text color put back is `RenderSlackMarkdownOpts.TextColor`
+  (`textcolor_fork.go`), where upstream always puts back the primary
+  color, and blockkit's `appendContext` renders through
+  `Context.RenderMutedText`, so a context block's text after a bold span
+  stays muted, as Slack draws it.
 - `internal/ui/messages/highlight.go` — `HighlightSearchTerms` matches on the
   visible rune stream across escape sequences, so a term spanning a styled
   boundary (a colored token, an inline span) highlights as one run; upstream

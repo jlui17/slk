@@ -17,3 +17,10 @@ func (ctx Context) renderText(s string, width int) string {
 	}
 	return s
 }
+
+func (ctx Context) renderMutedText(s string, width int) string {
+	if ctx.RenderMutedText != nil {
+		return ctx.RenderMutedText(s, ctx.UserNames, width)
+	}
+	return ctx.renderText(s, width)
+}

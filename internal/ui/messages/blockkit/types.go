@@ -159,6 +159,9 @@ type Context struct {
 	// wrap the result to, so block styles (a quote's bar) can wrap
 	// inside themselves. Preferred over RenderText when set.
 	RenderTextForWidth func(s string, userNames map[string]string, width int) string
+	// RenderMutedText is RenderTextForWidth with plain text drawn muted
+	// throughout, for a context block. Preferred there when set.
+	RenderMutedText func(s string, userNames map[string]string, width int) string
 
 	// WrapText word-wraps an ANSI-styled string to the given display
 	// width. The host wires this to internal/ui/messages.WordWrap.

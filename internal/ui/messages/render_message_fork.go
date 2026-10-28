@@ -1,9 +1,11 @@
 package messages
 
 import (
+	"image/color"
 	"io"
 
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/styles"
 )
 
 // BlockkitContextFork is BlockkitContext with the fork's card state and
@@ -15,7 +17,7 @@ func BlockkitContextFork(msg MessageItem, rc *RenderContext, emojiFlushes *[]fun
 	ctx := BlockkitContext(msg, rc)
 	channelNames := rc.ChannelNames
 	ctx.Card = CardContext(rc.ExpandedAttachments[msg.TS], channelNames)
-	ctx.RenderTextForWidth = func(s string, un map[string]string, width int) string {
+	render := func(s string, un map[string]string, width int, textColor color.Color) string {
 		return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
 			UserNames:    un,
 			ChannelNames: channelNames,
@@ -28,7 +30,14 @@ func BlockkitContextFork(msg MessageItem, rc *RenderContext, emojiFlushes *[]fun
 			SearchTerms:  rc.SearchTerms,
 
 			WorkspaceDomain: rc.WorkspaceDomain,
+			TextColor:       textColor,
 		})
+	}
+	ctx.RenderTextForWidth = func(s string, un map[string]string, width int) string {
+		return render(s, un, width, nil)
+	}
+	ctx.RenderMutedText = func(s string, un map[string]string, width int) string {
+		return render(s, un, width, styles.TextMuted)
 	}
 	return ctx
 }

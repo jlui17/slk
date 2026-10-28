@@ -628,6 +628,7 @@ type RenderSlackMarkdownOpts struct {
 	CodeBlockCopyLabels *[]CodeBlockCopyLabel // append-only; non-nil draws a copy label on each fenced block and reports where (codeblocks_fork.go)
 	PermalinkChips      PermalinkChips        // a permalink to a message this one carries a card for shows as a short label (permalinkchip_fork.go)
 	WorkspaceDomain     string                // non-empty: a user mention links to the user's profile in this workspace (profilelink_fork.go)
+	TextColor           color.Color           // plain text's color, put back after each styled span; nil is styles.TextPrimary (textcolor_fork.go)
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -696,7 +697,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	// or revert plain text following the styled span to the terminal's
 	// default fg (most noticeable on light-bg themes like Slack Default,
 	// where text after a mention would otherwise render in a light gray).
-	output = ReapplyBgAfterResets(output, BgANSI()+FgANSI())
+	output = ReapplyBgAfterResets(output, BgANSI()+opts.textFgANSI()) // fork: textcolor_fork.go
 
 	return output
 }

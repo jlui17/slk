@@ -231,7 +231,7 @@ func appendContext(out *RenderResult, c ContextBlock, ctx Context, width int) {
 			}
 			parts = append(parts, "["+alt+"]")
 		case e.Text != "":
-			parts = append(parts, ctx.renderText(e.Text, width))
+			parts = append(parts, ctx.renderMutedText(e.Text, width))
 		}
 	}
 	combined := strings.Join(parts, " ")
