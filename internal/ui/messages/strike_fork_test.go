@@ -71,3 +71,34 @@ func TestCommonMark_ProseTildesStayLiteral(t *testing.T) {
 		t.Errorf("got %q, want input unchanged", got)
 	}
 }
+
+// A struck run with a mention, an emoji or a channel in it is drawn the
+// way Slack draws it: the token drawn, and struck with the rest.
+func TestStrike_InnerTokensDrawStruck(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"~see <@U1> here~", "see @Bob here"},
+		{"~ship :tada: now~", "ship 🎉  now"}, // the shortcode pass puts a space after the glyph
+		{"~ask in <#C1|general>~", "ask in #general"},
+		{"~ask <!here> now~", "ask @here now"},
+	}
+	for _, tc := range cases {
+		out := RenderSlackMarkdown(tc.in, map[string]string{"U1": "Bob"}, nil)
+		if plain, struck := ansi.Strip(out), struckText(out); plain != tc.want || struck != tc.want {
+			t.Errorf("RenderSlackMarkdown(%q):\n drawn  %q\n struck %q\n want both %q", tc.in, plain, struck, tc.want)
+		}
+	}
+}
+
+// A kitty emoji placement in a struck run stays whole: each placeholder
+// cell keeps its row and column diacritics right after it.
+func TestStrike_KeepsKittyPlacementWhole(t *testing.T) {
+	cell := "\U0010EEEE̅̍"
+	placement := "\x1b[38;2;0;0;42m" + cell + cell + "\x1b[39m"
+	out := drawSpans(markStrike("ship " + placement + " now"))
+	if strings.Count(out, cell) != 2 || !strings.Contains(out, "\x1b[38;2;0;0;42m") {
+		t.Errorf("placement cut apart: %q", out)
+	}
+	if got := struckText(out); got != ansi.Strip("ship "+placement+" now") {
+		t.Errorf("struck %q", got)
+	}
+}

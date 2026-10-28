@@ -726,7 +726,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 
 	// Strikethrough — boundary-aware scan (strike_fork.go) so prose
 	// tildes ("~45%") don't pair up into crossed-out runs.
-	text = replaceStrikethroughs(text, strikeRenderer(opts.PermalinkChips))
+	text = replaceStrikethroughs(text, markStrike)
 
 	// Links with labels: <url|label> -> just the label, wrapped in an OSC 8
 	// hyperlink escape so it's clickable in modern terminals. We don't
@@ -837,7 +837,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 		text = emojiutil.ResolveShortcodesInText(emojiutil.StripSkinToneFromText(text))
 	}
 
-	return text
+	return drawSpans(text)
 }
 
 // renderEmojiTokensInline walks a Token stream and returns the

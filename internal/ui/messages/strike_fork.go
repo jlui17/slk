@@ -1,11 +1,8 @@
 package messages
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
-
-	"charm.land/lipgloss/v2"
 )
 
 // replaceStrikethroughs rewrites `~X~` runs through render when the
@@ -92,51 +89,8 @@ func isStrikeWordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
-// strikeRenderer strikes a run as renderStrikethrough does, and draws a
-// link in it here, struck, since the link passes run after this one and
-// would find its <url|label> cut apart rune by rune.
-func strikeRenderer(chips PermalinkChips) func(inner string) string {
-	return func(inner string) string {
-		inner = linkWithLabelRe.ReplaceAllStringFunc(inner, func(match string) string {
-			parts := linkWithLabelRe.FindStringSubmatch(match)
-			return osc8Hyperlink(parts[1], struckLinkStyle().Render(chips.label(parts[1], parts[2])))
-		})
-		inner = linkBareRe.ReplaceAllStringFunc(inner, func(match string) string {
-			url := linkBareRe.FindStringSubmatch(match)[1]
-			return osc8Hyperlink(url, struckLinkStyle().Render(chips.label(url, strings.TrimPrefix(url, "mailto:"))))
-		})
-		return renderStrikethrough(inner)
-	}
-}
-
-func struckLinkStyle() lipgloss.Style {
-	return linkStyle().Strikethrough(true)
-}
-
-// strikeKeptSeqRe matches the escape sequences renderStrikethrough keeps
-// whole: SGR, and the OSC 8 that opens or closes a link.
-var strikeKeptSeqRe = regexp.MustCompile(`\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\`)
-
-// renderStrikethrough strikes inner. lipgloss strikes rune by rune, which
-// cuts apart an escape sequence an earlier pass put in inner (a code
-// span's colours, a link) and prints its pieces. Such an inner keeps its
-// sequences and gets strike turned on before each rune instead, so a
-// row the wrapper starts mid-run, which carries no open style, is struck
-// too.
-func renderStrikethrough(inner string) string {
-	if !strings.ContainsRune(inner, '\x1b') {
-		return strikethroughStyle().Render(inner)
-	}
-	var b strings.Builder
-	text := 0
-	for _, seq := range append(strikeKeptSeqRe.FindAllStringIndex(inner, -1), []int{len(inner), len(inner)}) {
-		for _, r := range inner[text:seq[0]] {
-			b.WriteString("\x1b[9m")
-			b.WriteRune(r)
-		}
-		b.WriteString(inner[seq[0]:seq[1]])
-		text = seq[1]
-	}
-	b.WriteString("\x1b[29m")
-	return b.String()
+// markStrike marks a struck run for drawSpans (stylespans_fork.go), which
+// strikes it once what sits inside it is drawn.
+func markStrike(inner string) string {
+	return markSpan(spanStrike, inner)
 }
