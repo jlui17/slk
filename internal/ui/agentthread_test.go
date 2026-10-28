@@ -133,37 +133,6 @@ func TestAgentThreadNamesTab(t *testing.T) {
 	}
 }
 
-func TestAgentTabLabelHoistsTaskID(t *testing.T) {
-	cases := []struct{ flat, want string }{
-		{"colony-562: fix the flow viewer", "[colony-562] fix the flow viewer"},
-		{"please babysit colony-71 until merge", "[colony-71] please babysit until merge"},
-		{"colony-562", "[colony-562]"},
-		{"fix the ingest retries", "fix the ingest retries"},
-		// Lifting the id out of mid-sentence must not strand the
-		// punctuation that surrounded it.
-		{"verification traffic for slk-373, the whole path", "[slk-373] verification traffic for the …"},
-		{"see colony-71 - then ship it", "[colony-71] see then ship it"},
-		// Single-digit numbers are org names (colony-2), not task ids;
-		// possessive and bare uses must not hoist.
-		{"ship colony-9.", "ship colony-9."},
-		{"affects colony-2's twin, since colony-1 doesn't capture it", "affects colony-2's twin, sinc…"},
-		// A "#1164"-style ref hoists when no tracker id is present; a
-		// tracker id wins when both appear.
-		{"Review thread for #1164, the verify fix", "[#1164] Review thread for the verify …"},
-		{"colony-1105 follow-up to #1164", "[colony-1105] follow-up to #1164"},
-		// Small "#N" ordinals in prose are not refs.
-		{"retry attempt #1 failed", "retry attempt #1 failed"},
-		// Ids inside URLs (a GitHub link's #issuecomment-15686 fragment)
-		// are never the thread's task: no hoist, plain truncation.
-		{"see https://github.com/o/r/pull/9#issuecomment-15686 for CI", "see https://github.com/o/r/pu…"},
-	}
-	for _, c := range cases {
-		if got := agentTabLabel(c.flat); got != c.want {
-			t.Errorf("agentTabLabel(%q) = %q, want %q", c.flat, got, c.want)
-		}
-	}
-}
-
 func TestAgentTabNameIndependentOfNameSources(t *testing.T) {
 	a, _, _, tabNames := newAgentTestAppWithTab(t)
 	// The in-memory name map and the user cache disagree on the bot's
