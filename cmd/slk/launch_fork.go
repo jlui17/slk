@@ -26,7 +26,14 @@ func browserLauncher(fallback func(target string) error) func(target string) err
 		if !isURL(target) {
 			return fallback(target)
 		}
-		return exec.Command(argv[0], append(argv[1:], target)...).Start()
+		cmd := exec.Command(argv[0], append(argv[1:], target)...)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		// Reap the child when it exits: in docker slk is PID 1, so an
+		// unwaited child stays a zombie for the life of the session.
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 }
 

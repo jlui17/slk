@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,6 +77,40 @@ func TestBrowserLauncher_BrowserLaunchFailureReturnsError(t *testing.T) {
 	if err := browserLauncher(fallbackMustNotRun(t))("https://example.com/x"); err == nil {
 		t.Fatal("err = nil, want the failed launch")
 	}
+}
+
+// The browser child is reaped once it exits. In docker slk runs as
+// PID 1, so an unwaited child stays a zombie for the life of the
+// session, one per link opened. /proc shows the state: a zombie's
+// stat reads "Z", a reaped child's entry is gone.
+func TestBrowserLauncher_ReapsTheBrowserProcess(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads /proc")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	script := filepath.Join(dir, "browser")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho $$ > "+pidFile+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BROWSER", script)
+	if err := browserLauncher(fallbackMustNotRun(t))("https://example.com/x"); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var stat string
+	for time.Now().Before(deadline) {
+		if pid, err := os.ReadFile(pidFile); err == nil && len(pid) > 0 {
+			b, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/stat")
+			if os.IsNotExist(err) {
+				return // reaped
+			}
+			stat = string(b)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("browser process never reaped; /proc stat %q", stat)
 }
 
 func TestBrowserLauncher_FallsBackToTheOSLauncher(t *testing.T) {
