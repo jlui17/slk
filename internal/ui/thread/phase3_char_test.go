@@ -246,7 +246,7 @@ func TestChar_ThreadOverwideLinesNeverExceedPane(t *testing.T) {
 		m.SetThread(messages.MessageItem{TS: "1.0", UserName: "p", Text: "parent", Timestamp: "9:00"},
 			[]messages.MessageItem{{TS: "2.0", UserName: "u", Text: body, Timestamp: "9:01"}}, "C", "1.0")
 		_ = m.View(30, 40)
-		for _, l := range strings.Split(m.viewContent, "\n") {
+		for _, l := range strings.Split(joinedContent(m), "\n") {
 			if w := ansi.StringWidth(l); w > 40 {
 				t.Errorf("body %q: a content line is %d columns in a 40-column pane", body, w)
 			}

@@ -37,24 +37,23 @@ func TestSetThreadOpensAtBottom(t *testing.T) {
 	// Thread A: a long thread opens scrolled to the bottom.
 	m.SetThread(parent, mk(25), "C1", "100.0")
 	m.View(h, w)
-	if m.yOffset == 0 {
+	if m.list.YOffset() == 0 {
 		t.Fatalf("thread A: expected to open scrolled to the bottom, got YOffset=0")
 	}
 
 	// Simulate scrolling thread A up to the top: leaves hasSnapped=true with
 	// snappedSelection == the newest-reply index.
-	m.setYOffset(0)
-	m.hasSnapped = true
-	m.snappedSelection = m.selected
+	m.list.SetYOffset(0)
+	m.list.MarkSnapped(m.selected)
 
 	// Thread B with the same reply count (so the newest-reply index matches).
 	// Pre-fix this skipped the re-snap and left the viewport at the top.
 	m.SetThread(parent, mk(25), "C2", "200.0")
-	if m.hasSnapped {
+	if m.list.HasSnapped() {
 		t.Fatalf("SetThread must reset hasSnapped so the next View re-snaps to the new selection")
 	}
 	m.View(h, w)
-	if m.yOffset == 0 {
+	if m.list.YOffset() == 0 {
 		t.Errorf("thread B opened at the top (YOffset=0); want scrolled to the latest reply")
 	}
 }

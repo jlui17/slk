@@ -21,18 +21,18 @@ func (m *Model) CodeBlockAt(y, x int) (code string, ok bool) {
 	if y < m.chromeHeight {
 		return "", false
 	}
-	line := y - m.chromeHeight + m.yOffset
-	entry, start, _, ok := m.selectionEntryAt(line)
+	line := y - m.chromeHeight + m.list.YOffset()
+	entry, start, payload, ok := m.forkEntryAt(line)
 	if !ok {
 		return "", false
 	}
-	block, ok := messages.CodeBlockCopyLabelAt(entry.codeBlockCopyLabels, line-start, x)
+	block, ok := messages.CodeBlockCopyLabelAt(payload.codeBlockCopyLabels, line-start, x)
 	if !ok {
 		return "", false
 	}
 	msg := m.parent
-	if entry != &m.parentEntry {
-		msg = m.replies[entry.replyIdx]
+	if payload != &m.parentEntry {
+		msg = m.replies[entry.Ref]
 	}
 	blocks := messages.CodeBlocks(msg)
 	if block >= len(blocks) {

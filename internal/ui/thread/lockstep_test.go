@@ -304,84 +304,6 @@ func TestLockstep_SharedRenderBehaviour(t *testing.T) {
 	}
 }
 
-// TestLockstep_ReactionHitTestFrames pins divergence 6, the one
-// difference between the two models that a merge could break silently:
-// the panes agree on WHERE a reaction pill is drawn but disagree on the
-// coordinate frame their HitTestReaction accepts.
-//
-// It is a test rather than a line in the comment below because a
-// comment cannot notice when one side changes. AGENTS.md: express a
-// cross-model invariant as an assertion, not a comment.
-//
-// Lifecycle: this is a tripwire that fires on CONVERGENCE. When Phase 3
-// unifies the two frames it will start failing by design; the correct
-// response is to DELETE it (and divergence 6 below), not to satisfy it.
-func TestLockstep_ReactionHitTestFrames(t *testing.T) {
-	mm, tm, msgPane, thrPane := lockstepRender(t)
-
-	// Each pane's own pane-local pill row. These happen to be equal for
-	// this fixture, but that is a coincidence of the two chrome heights
-	// and is deliberately NOT asserted -- pane-local row position is not
-	// a shared property (divergence 5).
-	const pill = "🎉 2"
-	msgRow := lockstepRow(t, msgPane, "messages pane", pill)
-	thrRow := lockstepRow(t, thrPane, "thread pane", pill)
-
-	// SHARED: the clickable column extent of the pill is identical.
-	msgCols := lockstepHitColumns(func(col int) bool {
-		_, e, ok := mm.HitTestReaction(msgRow-mm.ChromeHeight(), col)
-		return ok && e == "tada"
-	})
-	thrCols := lockstepHitColumns(func(col int) bool {
-		_, e, ok := tm.HitTestReaction(thrRow, col)
-		return ok && e == "tada"
-	})
-	if len(msgCols) == 0 {
-		t.Fatalf("messages pane reported no reaction hit on the pill row; assertion would be vacuous")
-	}
-	if !slices.Equal(msgCols, thrCols) {
-		t.Errorf("reaction pill column extent differs: messages=%v thread=%v", msgCols, thrCols)
-	}
-
-	// DIVERGENT (divergence 6): messages' row is content-relative -- the
-	// app-level mouse handler subtracts ChromeHeight() before calling
-	// (messages/model.go:2510-2514). thread's row is pane-local and
-	// already includes chromeHeight (thread/model.go:1767-1772). Each
-	// model must MISS at the other's row, or the frames would in fact
-	// agree and Phase 3 would have nothing to reconcile.
-	col := msgCols[0]
-	if _, _, ok := mm.HitTestReaction(msgRow, col); ok {
-		t.Errorf("messages.HitTestReaction now accepts a pane-local row (%d); "+
-			"the frames have converged -- update divergence 6", msgRow)
-	}
-	if _, _, ok := tm.HitTestReaction(thrRow-tm.chromeHeight, col); ok {
-		t.Errorf("thread.HitTestReaction now accepts a content-relative row (%d); "+
-			"the frames have converged -- update divergence 6", thrRow-tm.chromeHeight)
-	}
-
-	// DIVERGENT (divergence 2): the same visual pill yields a different
-	// index, because thread indexes replies (the parent is not a reply)
-	// while messages indexes messages.
-	msgIdx, _, _ := mm.HitTestReaction(msgRow-mm.ChromeHeight(), col)
-	thrIdx, _, _ := tm.HitTestReaction(thrRow, col)
-	if msgIdx != 1 || thrIdx != 0 {
-		t.Errorf("index bases changed: messages=%d (want 1) thread=%d (want 0); "+
-			"update divergence 2", msgIdx, thrIdx)
-	}
-}
-
-// lockstepHitColumns returns every column in [0, lockstepWidth) for
-// which hit reports true.
-func lockstepHitColumns(hit func(col int) bool) []int {
-	var cols []int
-	for c := 0; c < lockstepWidth; c++ {
-		if hit(c) {
-			cols = append(cols, c)
-		}
-	}
-	return cols
-}
-
 // Documented divergences between messages.Model and thread.Model.
 //
 // This list is the specification for the divergence hooks Phase 3's
@@ -408,8 +330,8 @@ func lockstepHitColumns(hit func(col int) bool) []int {
 //     (thread/model.go:94, 1333-1361); messages has no such row. The
 //     consequence is an index-base divergence: for the same on-screen
 //     pill, HitTestReaction returns a REPLY index in thread and a
-//     MESSAGE index in messages. Asserted by
-//     TestLockstep_ReactionHitTestFrames.
+//     MESSAGE index in messages. (Pinned by the convergence tripwire
+//     deleted in Phase 3 PR 5, so no longer asserted.)
 //
 //  3. Leading day divider. messages seeds lastDate empty
 //     (messages/model.go:1773), so the FIRST message gets a day divider
@@ -463,20 +385,12 @@ func lockstepHitColumns(hit func(col int) bool) []int {
 //     label is pluralised, "reply" at n==1. Then a "-" rule. Height is always
 //     2 rows and chromeHeight stays unexported.
 //
-//  6. Reaction hit-test row frame. messages.HitTestReaction takes a
-//     CONTENT-relative row; the app-level mouse handler subtracts
-//     ChromeHeight() first (messages/model.go:2510-2514).
-//     thread.HitTestReaction takes a PANE-local row that still includes
-//     chromeHeight (thread/model.go:1767-1772). Column extents are
-//     identical. Phase 3 must pick one frame; this is the divergence
-//     most likely to break silently, so it is asserted rather than
-//     merely listed.
+//  6. Reaction hit-test row frame. CONVERGED in Phase 3 PR 5: both take a
+//     content-relative row; the App subtracts ChromeHeight() for both.
 //
-//  7. Scroll mechanism. thread drives a bubbles/viewport
-//     (thread/model.go:107); messages hand-rolls yOffset specifically to
-//     avoid viewport's per-SetContent ansi.StringWidth pass
-//     (messages/model.go:279-283). Phase 3 must pick one, and the
-//     hand-rolled side exists for a measured reason.
+//  7. Scroll mechanism. CONVERGED in Phase 3 PR 2+3/5: both scroll through
+//     internal/bubbles/entrylist (thread keeps viewport's eager clamp, U6).
+//
 //
 //  8. Unread landmark -- API and structure, NOT rendering. The
 //     rendering is shared: both panes emit a centred bold "── new ──"
@@ -549,13 +463,7 @@ func lockstepHitColumns(hit func(col int) bool) []int {
 //     diverges in signature: messages.ClickAt(y) returns bool,
 //     thread.ClickAt(y) returns nothing.
 //
-// 14. Outer background wrapper. thread.View wraps its entire output in
-//     a Width/Height/MaxHeight/Background style
-//     (thread/model.go:1764); messages.View (messages/model.go:3321)
-//     delegates to viewInternal, which returns chrome + "\n" + rows
-//     unwrapped (messages/model.go:3312). The panes are visually
-//     identical but not byte-identical in ANSI, which is why the
-//     assertions above compare ANSI-stripped rows.
+// 14. Outer background wrapper. REMOVED in Phase 3 PR 2+3.
 //
 // 15. Inline-image click-to-preview. messages has HitTest
 //     (messages/model.go:2501) and HandleImageReady

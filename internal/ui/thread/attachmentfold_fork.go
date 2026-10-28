@@ -13,7 +13,7 @@ func (m *Model) takeAttachmentFoldRows() []int {
 // that lands before the next draw must still find the fold rows.
 func (m *Model) redraw() {
 	if m.chromeWidth > 0 {
-		m.View(m.lastViewHeight+m.chromeHeight, m.chromeWidth)
+		m.View(m.list.Height()+m.chromeHeight, m.chromeWidth)
 	}
 }
 
@@ -42,7 +42,7 @@ func (m *Model) ToggleAttachmentFold() bool {
 	}
 	m.expandedAttachments[msg.TS] = !m.expandedAttachments[msg.TS]
 	// The message changes height: the next View brings it back into view.
-	m.hasSnapped = false
+	m.list.ResetSnap()
 	m.InvalidateCache()
 	return true
 }
@@ -55,9 +55,9 @@ func (m *Model) ToggleAttachmentFoldAt(y int) bool {
 		return false
 	}
 	m.redraw()
-	line := m.absoluteLineAt(y)
-	entry, start, _, ok := m.selectionEntryAt(line)
-	if !ok || !slices.Contains(entry.attachmentFoldRows, line-start) {
+	line := y - m.chromeHeight + m.list.YOffset()
+	_, start, payload, ok := m.forkEntryAt(line)
+	if !ok || !slices.Contains(payload.attachmentFoldRows, line-start) {
 		return false
 	}
 	m.ClickAt(y)

@@ -48,14 +48,14 @@ func stripRows(view string) []string {
 
 func assertThreadHeightsMatch(t *testing.T, m *Model) {
 	t.Helper()
-	for i, e := range m.cache {
-		if len(e.linesSelected) != len(e.linesNormal) {
+	for i, e := range m.replyEntries {
+		if len(e.Selected) != len(e.Lines) {
 			t.Errorf("reply %d: len(linesSelected)=%d != len(linesNormal)=%d",
-				i, len(e.linesSelected), len(e.linesNormal))
+				i, len(e.Selected), len(e.Lines))
 		}
-		if e.linesSelectedShort != nil && len(e.linesSelectedShort) != len(e.linesNormal) {
+		if short := m.cache[i].linesSelectedShort; short != nil && len(short) != len(e.Lines) {
 			t.Errorf("reply %d: len(linesSelectedShort)=%d != len(linesNormal)=%d",
-				i, len(e.linesSelectedShort), len(e.linesNormal))
+				i, len(short), len(e.Lines))
 		}
 	}
 }
@@ -110,7 +110,7 @@ func TestThreadSelectedTimestamp_ParentSelectedShowsLong(t *testing.T) {
 		t.Fatalf("unselected reply should be short:\n%s", view)
 	}
 	var plain []string
-	for _, pl := range m.parentEntry.linesPlain {
+	for _, pl := range m.list.Entries()[0].Plain {
 		plain = append(plain, pl.Text)
 	}
 	if got := strings.Join(plain, "\n"); strings.Contains(got, "Sep 29") || !strings.Contains(got, "3:40 PM") {
@@ -160,8 +160,8 @@ func TestThreadSelectedTimestamp_TinyWidthFallsBack(t *testing.T) {
 	reply := messages.MessageItem{TS: threadLongTSAt(42), UserID: "U2", UserName: "a", Text: "hi", Timestamp: "15:42"}
 	m.SetThread(parent, []messages.MessageItem{reply}, "C1", parent.TS)
 	_ = m.View(30, 20)
-	for _, e := range m.cache {
-		if got := ansi.Strip(strings.Join(e.linesSelected, "\n")); strings.Contains(got, "Sep 29") {
+	for _, e := range m.replyEntries {
+		if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
 			t.Fatalf("tiny-width selected reply shows long timestamp:\n%s", got)
 		}
 	}
@@ -173,7 +173,7 @@ func TestThreadSelectedTimestamp_TinyWidthFallsBack(t *testing.T) {
 // the short form or the header is garbled.
 func TestThreadSelectedTimestamp_DragOverReplyHeaderKeepsTextIntact(t *testing.T) {
 	m, _ := threadLongTS(t, "priya", "lee", 80, 30)
-	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.yOffset
+	y := m.chromeHeight + replyOffset(m, len(m.replies)-1) - m.list.YOffset()
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
@@ -193,7 +193,7 @@ func TestThreadSelectedTimestamp_DragOverParentHeaderKeepsTextIntact(t *testing.
 	m.MoveDown() // fork: GoToTop selects the parent; the first reply leaves it unselected
 	m.MoveUp()   // parent
 	_ = m.View(30, 80)
-	y := m.chromeHeight - m.yOffset
+	y := m.chromeHeight - m.list.YOffset()
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
@@ -215,7 +215,7 @@ func TestThreadSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 			t.Fatalf("reply %d built a short variant with no text selection", i)
 		}
 	}
-	y := m.chromeHeight + m.entryOffsets[len(m.entryOffsets)-1] - m.yOffset
+	y := m.chromeHeight + replyOffset(m, len(m.replies)-1) - m.list.YOffset()
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	_ = m.View(30, 80)
@@ -247,7 +247,7 @@ func TestThreadParentDate_CopyAndDragMatchDisplay(t *testing.T) {
 	m.GoToTop()
 	m.MoveDown() // fork: GoToTop selects the parent; the first reply leaves it unselected
 	_ = m.View(30, 80)
-	y := m.chromeHeight - m.yOffset
+	y := m.chromeHeight - m.list.YOffset()
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 79)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")

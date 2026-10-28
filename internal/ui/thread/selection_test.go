@@ -22,17 +22,17 @@ func newTestThread() *Model {
 // firstContentY returns the smallest pane-local viewportY that lands on
 // reply content. Chrome is now just `header + separator`, and the parent
 // message lives at the top of the scrollable viewContent (it scrolls with
-// replies so a long parent does not block them). m.entryOffsets[0] is the
-// line index of the first reply inside viewContent, which equals the
-// parent block's height. Pane-local row = chromeHeight + entryOffsets[0]
+// replies so a long parent does not block them). replyOffset(m, 0) is the
+// line index of the first reply inside the list, which equals the
+// parent block's height. Pane-local row = chromeHeight + that offset
 // minus the viewport's YOffset. Tests start at YOffset=0 (newTestThread
 // calls View once and selection isn't moved), so we don't subtract YOffset
 // here.
 func firstContentY(m *Model) int {
-	if len(m.entryOffsets) == 0 {
+	if len(m.replyEntries) == 0 {
 		return m.chromeHeight
 	}
-	return m.chromeHeight + m.entryOffsets[0] - m.yOffset
+	return m.chromeHeight + replyOffset(m, 0) - m.list.YOffset()
 }
 
 func TestThreadSelection_BeginExtendEnd(t *testing.T) {
@@ -95,7 +95,7 @@ func TestThreadSelection_ClearOnClear(t *testing.T) {
 
 func TestThreadSelection_ScrollHintForDrag(t *testing.T) {
 	m := newTestThread()
-	h := m.lastViewHeight
+	h := m.list.Height()
 	if h < 2 {
 		t.Skip("test height too small")
 	}
@@ -172,23 +172,23 @@ func TestThreadSelection_FirstContentRowAnchorsAtFirstReply(t *testing.T) {
 // and many of those resolve to the same end anchor. Bumping
 // m.version on each one needlessly invalidates the thread-pane
 // render cache. ExtendSelectionAt must early-out when the resolved
-// end anchor matches the current m.selRange.End.
+// end anchor matches the current selection end.
 func TestThreadSelection_ExtendUnchangedDoesNotDirty(t *testing.T) {
 	m := newTestThread()
 	m.BeginSelectionAt(firstContentY(m), 0)
 	// First extend establishes a real end anchor and dirties.
 	m.ExtendSelectionAt(firstContentY(m)+1, 10)
-	end := m.selRange.End
-	beforeVersion := m.version
+	end := m.list.Selection().End
+	beforeVersion := m.Version()
 
 	// Re-call with the exact same coordinates: the resolved end
 	// anchor must be identical and no version bump should occur.
 	m.ExtendSelectionAt(firstContentY(m)+1, 10)
 
-	if m.selRange.End != end {
-		t.Fatalf("selRange.End drifted across identical Extend: before=%+v after=%+v", end, m.selRange.End)
+	if m.list.Selection().End != end {
+		t.Fatalf("selRange.End drifted across identical Extend: before=%+v after=%+v", end, m.list.Selection().End)
 	}
-	if m.version != beforeVersion {
-		t.Errorf("ExtendSelectionAt with unchanged end anchor must not bump version (before=%d after=%d)", beforeVersion, m.version)
+	if m.Version() != beforeVersion {
+		t.Errorf("ExtendSelectionAt with unchanged end anchor must not bump version (before=%d after=%d)", beforeVersion, m.Version())
 	}
 }

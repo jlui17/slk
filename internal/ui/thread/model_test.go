@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 	"github.com/gammons/slk/internal/config"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -659,21 +660,23 @@ func TestHitTestReaction_OnPill(t *testing.T) {
 	// Render at a generous size so the reactions fit without wrap.
 	_ = m.View(30, 80)
 
-	if len(m.lastReactionHits) != 2 {
-		t.Fatalf("expected 2 reaction hit rects, got %d", len(m.lastReactionHits))
+	hits := reactionFrameHits(m)
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 reaction hit rects, got %d", len(hits))
 	}
 
-	h := m.lastReactionHits[0]
-	if h.rowEnd <= h.rowStart || h.colEnd <= h.colStart {
-		t.Fatalf("reaction hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.rowStart, h.rowEnd, h.colStart, h.colEnd)
+	h := hits[0]
+	if h.RowEnd <= h.RowStart || h.ColEnd <= h.ColStart {
+		t.Fatalf("reaction hit rect is degenerate: rows=[%d,%d) cols=[%d,%d)", h.RowStart, h.RowEnd, h.ColStart, h.ColEnd)
 	}
-	// Rows should be at or below the chromeHeight (replies area).
-	if h.rowStart < m.chromeHeight {
-		t.Errorf("reaction hit rowStart=%d should be >= chromeHeight=%d", h.rowStart, m.chromeHeight)
+	// Rows are content-relative since Phase 3 (divergence 6 converged
+	// on messages' frame): a reply's pill sits below the parent block.
+	if parentRows := len(m.list.Entries()[0].Lines); h.RowStart < parentRows {
+		t.Errorf("reaction hit rowStart=%d should be >= the parent block's %d rows", h.RowStart, parentRows)
 	}
 
-	rowMid := (h.rowStart + h.rowEnd) / 2
-	colMid := (h.colStart + h.colEnd) / 2
+	rowMid := (h.RowStart + h.RowEnd) / 2
+	colMid := (h.ColStart + h.ColEnd) / 2
 	replyIdx, emoji, ok := m.HitTestReaction(rowMid, colMid)
 	if !ok {
 		t.Fatalf("HitTestReaction(%d,%d) returned ok=false inside recorded rect", rowMid, colMid)
@@ -701,8 +704,8 @@ func TestHitTestReaction_NoHitsWithoutReactions(t *testing.T) {
 	}
 	m.SetThread(parent, replies, "C1", "1.0")
 	_ = m.View(20, 80)
-	if len(m.lastReactionHits) != 0 {
-		t.Errorf("expected 0 reaction hits, got %d", len(m.lastReactionHits))
+	if hits := reactionFrameHits(m); len(hits) != 0 {
+		t.Errorf("expected 0 reaction hits, got %d", len(hits))
 	}
 	if _, _, ok := m.HitTestReaction(0, 0); ok {
 		t.Error("HitTestReaction with no reactions should always return ok=false")
@@ -738,8 +741,8 @@ func TestThreadView_ParentScrollsWithReplies(t *testing.T) {
 	// viewContent must start with the parent block (LONGPARENT) BEFORE
 	// the first reply marker. Find the first occurrence of each and
 	// assert ordering inside viewContent.
-	pIdx := strings.Index(m.viewContent, "LONGPARENT")
-	rIdx := strings.Index(m.viewContent, "REPLY_MARKER")
+	pIdx := strings.Index(joinedContent(m), "LONGPARENT")
+	rIdx := strings.Index(joinedContent(m), "REPLY_MARKER")
 	if pIdx < 0 {
 		t.Fatal("viewContent missing parent body")
 	}
@@ -753,8 +756,8 @@ func TestThreadView_ParentScrollsWithReplies(t *testing.T) {
 	// entryOffsets[0] is now offset by the parent block's height -- not 0
 	// as in the old layout. Defends the math used by snap + reaction-hit
 	// translation + ClickAt.
-	if len(m.entryOffsets) == 0 || m.entryOffsets[0] == 0 {
-		t.Errorf("entryOffsets[0] = %v, want > 0 (parent block precedes first reply)", m.entryOffsets)
+	if len(m.replyEntries) == 0 || replyOffset(m, 0) <= 0 {
+		t.Errorf("reply 0 offset = %d, want > 0 (parent block precedes first reply)", replyOffset(m, 0))
 	}
 }
 
@@ -1004,7 +1007,7 @@ func TestScrollAnchorPreservedAcrossWidening(t *testing.T) {
 	// Anchor on the last line of a mid-list entry, away from either end
 	// so the final maxYOffset clamp doesn't mask the bug.
 	midIdx := 75
-	m.setYOffset(m.entryOffsets[midIdx] + m.cache[midIdx].height - 1)
+	m.list.SetYOffset(replyOffset(m, midIdx) + len(m.replyEntries[midIdx].Lines) - 1)
 	before := m.View(20, 30)
 	beforeTop := topMarkedReply(t, before)
 
@@ -1026,9 +1029,9 @@ func TestScrollAnchorBottomPreservedAcrossWidthResize(t *testing.T) {
 
 	_ = m.View(20, 40) // narrower pane: content grows taller
 
-	if m.yOffset+m.areaHeight < m.totalLines {
+	if m.list.YOffset()+m.list.Height() < m.list.Total() {
 		t.Errorf("resize un-pinned a bottom-anchored viewport: YOffset=%d vpHeight=%d totalLines=%d",
-			m.yOffset, m.areaHeight, m.totalLines)
+			m.list.YOffset(), m.list.Height(), m.list.Total())
 	}
 }
 
@@ -1042,11 +1045,11 @@ func TestScrollAnchorAtTopOfThreadPreservedAcrossWidthResize(t *testing.T) {
 	m := New()
 	m.SetThread(parent, markedReplies(40), "C1", "100.0")
 	_ = m.View(20, 80)
-	m.setYOffset(0)
+	m.list.SetYOffset(0)
 
 	_ = m.View(20, 40) // narrower pane: parent block also rewraps
 
-	if got := m.yOffset; got != 0 {
+	if got := m.list.YOffset(); got != 0 {
 		t.Errorf("resize scrolled a top-of-thread viewport away from the top: YOffset=%d, want 0", got)
 	}
 }
@@ -1064,7 +1067,7 @@ func TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize(t *testing.
 	m := New()
 	m.SetThread(parent, markedReplies(40), "C1", "100.0")
 	_ = m.View(20, 30) // narrow: parent wraps to many lines
-	m.setYOffset(40)
+	m.list.SetYOffset(40)
 
 	before := m.View(20, 30)
 	if threadMarkRE.MatchString(before) {
@@ -1075,4 +1078,36 @@ func TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize(t *testing.
 	if !threadMarkRE.MatchString(after) {
 		t.Fatalf("expected the known limitation (jump into a reply) to still reproduce; if this now fails, #254 was fixed -- replace this test with a real preservation assertion")
 	}
+}
+
+// replyOffset is the absolute line reply k starts on, for tests that used
+// to read entryOffsets (which then held only replies).
+func replyOffset(m *Model, k int) int {
+	i, ok := m.list.IndexOf(m.replies[k].TS)
+	if !ok {
+		return -1
+	}
+	return m.list.Offsets()[i]
+}
+
+// joinedContent is every laid-out row, for tests that used to read
+// viewContent.
+func joinedContent(m *Model) string {
+	var rows []string
+	for _, e := range m.list.Entries() {
+		rows = append(rows, e.Lines...)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// reactionFrameHits is the last frame's reaction hits, for tests that
+// used to read lastReactionHits.
+func reactionFrameHits(m *Model) []entrylist.FrameHit {
+	var out []entrylist.FrameHit
+	for _, h := range m.list.Hits() {
+		if h.Kind == entrylist.HitReaction {
+			out = append(out, h)
+		}
+	}
+	return out
 }

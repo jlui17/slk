@@ -3,7 +3,6 @@ package thread
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/bubbles/selection"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -96,7 +95,7 @@ func TestClickAtParentSelectsParent(t *testing.T) {
 }
 
 // Making the parent clickable must not make the chrome clickable: the
-// header rows sit above the scrolling content, and absoluteLineAt clamps
+// header rows sit above the scrolling content, and the list clamps
 // them onto the parent's first line, so ClickAt needs its own guard.
 func TestClickAtChromeKeepsSelection(t *testing.T) {
 	m := newThreadWithReplies(2)
@@ -132,20 +131,16 @@ func TestBeginSelectionAtParentAnchorsParent(t *testing.T) {
 
 	m.BeginSelectionAt(m.chromeHeight, 1)
 
-	if !m.hasSelection || m.selRange.Start.MessageID != "100.0" {
-		t.Fatalf("selection = %+v, want parent anchor", m.selRange)
+	if !m.HasSelection() || m.list.Selection().Start.MessageID != "100.0" {
+		t.Fatalf("selection = %+v, want parent anchor", m.list.Selection())
 	}
 }
 
 func TestSelectionTextIncludesParent(t *testing.T) {
 	m := newThreadWithReplies(1)
 	m.View(20, 80)
-	m.selRange = selection.Range{
-		Start:  selection.Anchor{MessageID: "100.0", Line: 1, Col: 0},
-		End:    selection.Anchor{MessageID: "100.0", Line: 1, Col: 1},
-		Active: false,
-	}
-	m.hasSelection = true
+	m.BeginSelectionAt(m.chromeHeight+1, 1)
+	m.ExtendSelectionAt(m.chromeHeight+1, 2)
 
 	if got := m.SelectionText(); got == "" {
 		t.Fatal("SelectionText() = empty, want parent text")

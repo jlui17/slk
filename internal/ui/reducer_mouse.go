@@ -367,14 +367,15 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.threadPanel.ToggleAttachmentFoldAt(py) {
 			return nil
 		}
-		// Hit-test reactions first on the thread pane too.
-		// HitTestReaction's rows are pane-local (already inclusive
-		// of the thread chromeHeight), matching the frame returned
-		// by panelAt.
-		if hitReplyIdx, emojiName, hit := a.threadPanel.HitTestReaction(py, px); hit && emojiName != "" {
-			replies := a.threadPanel.Replies()
-			if hitReplyIdx >= 0 && hitReplyIdx < len(replies) {
-				return a.toggleReactionOnMessageItem(a.threadPanel.ChannelID(), replies[hitReplyIdx], emojiName)
+		// Hit-test reactions first on the thread pane too. Same
+		// content-relative frame as the messages pane: subtract the
+		// chrome first.
+		if contentY := py - a.threadPanel.ChromeHeight(); contentY >= 0 {
+			if hitReplyIdx, emojiName, hit := a.threadPanel.HitTestReaction(contentY, px); hit && emojiName != "" {
+				replies := a.threadPanel.Replies()
+				if hitReplyIdx >= 0 && hitReplyIdx < len(replies) {
+					return a.toggleReactionOnMessageItem(a.threadPanel.ChannelID(), replies[hitReplyIdx], emojiName)
+				}
 			}
 		}
 		a.drag.Begin(PanelThread, px, py)

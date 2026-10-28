@@ -21,6 +21,7 @@ type selectionSnapshot struct {
 	onParent   bool
 	ts         string
 	hasSnapped bool
+	selected   int // the cursor index the last snap was taken at
 }
 
 // snapshotSelection is SetThread's entry hook, called before any state
@@ -31,7 +32,7 @@ func (m *Model) snapshotSelection(channelID, threadTS string) selectionSnapshot 
 		m.pendingSelectTS = ""
 		return selectionSnapshot{}
 	}
-	s := selectionSnapshot{sameThread: true, hasSnapped: m.hasSnapped}
+	s := selectionSnapshot{sameThread: true, hasSnapped: m.list.HasSnapped(), selected: m.selected}
 	if m.selected == parentSelected {
 		s.onParent = true
 	} else if m.selected >= 0 && m.selected < len(m.replies) {
@@ -65,7 +66,9 @@ func (m *Model) restoreSelection(prev selectionSnapshot) {
 		// contain it puts the cursor back.
 		m.pendingSelectTS = prev.ts
 	}
-	m.hasSnapped = prev.hasSnapped
+	if prev.hasSnapped {
+		m.list.MarkSnapped(prev.selected)
+	}
 }
 
 // SelectByTS moves the selection cursor to the reply with the given
@@ -90,8 +93,8 @@ func (m *Model) SelectByTS(ts string) bool {
 		return false
 	}
 	m.selected = target
-	m.hasSnapped = false
-	m.viewCacheValid = false
+	m.list.ResetSnap()
+	m.layoutValid = false
 	m.dirty()
 	return true
 }

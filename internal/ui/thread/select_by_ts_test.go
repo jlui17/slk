@@ -137,8 +137,7 @@ func TestReopenStubPassRestoresCursor(t *testing.T) {
 func TestSameThreadReloadKeepsCursor(t *testing.T) {
 	m, parent, replies := threadFixture()
 	m.SelectByTS("200.000002")
-	m.hasSnapped = true
-	m.snappedSelection = m.selected
+	m.list.MarkSnapped(m.selected)
 
 	grown := append(append([]messages.MessageItem{}, replies...),
 		messages.MessageItem{TS: "500.000005", Text: "four"})
@@ -146,7 +145,7 @@ func TestSameThreadReloadKeepsCursor(t *testing.T) {
 	if sel := m.SelectedReply(); sel == nil || sel.TS != "200.000002" {
 		t.Fatalf("reload: want cursor kept on 200.000002, got %+v", sel)
 	}
-	if !m.hasSnapped {
+	if !m.list.HasSnapped() {
 		t.Error("reload with unmoved cursor: want snap state kept so the viewport stays put")
 	}
 
@@ -234,17 +233,17 @@ func TestAddIncomingReplyKeepsViewport(t *testing.T) {
 	m := New()
 	m.SetThread(messages.MessageItem{TS: "100.000001", Text: "parent"}, replies, "C1", "100.000001")
 	m.View(h, w)
-	bottom := m.yOffset
+	bottom := m.list.YOffset()
 	m.SelectByTS("210.000000")
 	m.View(h, w)
-	before := m.yOffset
+	before := m.list.YOffset()
 	if before == 0 || before == bottom {
 		t.Fatalf("test setup: want the viewport mid-thread, got YOffset=%d (bottom %d)", before, bottom)
 	}
 
 	m.AddIncomingReply(messages.MessageItem{TS: "300.000000", UserName: "eve", Text: "new"})
 	m.View(h, w)
-	if got := m.yOffset; got != before {
+	if got := m.list.YOffset(); got != before {
 		t.Errorf("viewport moved on an incoming reply: YOffset %d -> %d", before, got)
 	}
 }
