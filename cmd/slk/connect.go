@@ -40,6 +40,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	client.SetRateLimitNotify(func(wait time.Duration) {
 		p.Send(ui.ToastMsg{Text: fmt.Sprintf("Slack rate-limited; retrying in %s", wait.Round(time.Second))})
 	})
+	client.SetPageTimeout(bootCallTimeout)
 
 	// Seed the build timestamp from the last run so the very first
 	// request of this session already carries a current _x_version_ts
@@ -244,9 +245,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	}()
 	go func() {
 		defer bootWG.Done()
-		gctx, gcancel := bootCtx(ctx)
-		defer gcancel()
-		channels, channelsErr = client.GetChannels(gctx)
+		channels, channelsErr = client.GetChannels(ctx)
 	}()
 	if useSlackSections {
 		bootWG.Add(1)

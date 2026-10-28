@@ -115,6 +115,7 @@ type Client struct {
 	// rateLimitNotify, when non-nil, observes every 429 retry sleep.
 	// Set via SetRateLimitNotify -- see ratelimit_fork.go.
 	rateLimitNotify func(wait time.Duration)
+	pageTimeout     time.Duration // fork: SetPageTimeout, channels_fork.go
 
 	// teamURL is the raw workspace URL from auth.test's response
 	// (e.g. "https://truelist-workspace.slack.com/"). Used to derive
@@ -591,7 +592,7 @@ func (c *Client) GetChannels(ctx context.Context) ([]slack.Channel, error) {
 			ExcludeArchived: true,
 		}
 
-		channels, nextCursor, err := c.api.GetConversationsForUserContext(ctx, params)
+		channels, nextCursor, err := c.conversationsPage(ctx, params) // fork: channels_fork.go
 		if err != nil {
 			// Handle rate limits gracefully
 			if rlErr, ok := err.(*slack.RateLimitedError); ok {
