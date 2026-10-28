@@ -80,15 +80,13 @@ func TestParseAttachmentKeepsTheLinkedMessage(t *testing.T) {
 	}
 }
 
-// A button carries the ids a block_actions payload sends back and the URL
-// of a link button, in an actions block and as a section accessory; the
-// block's block_id rides on each of its buttons. Elements that are not
-// buttons carry none of it.
-func TestParseButtonsCarryActionFields(t *testing.T) {
+// A link button carries its URL, in an actions block and as a section
+// accessory. Elements that are not buttons carry none.
+func TestParseButtonsCarryTheirURL(t *testing.T) {
 	var in slack.Blocks
 	if err := json.Unmarshal([]byte(`[
 		{"type":"section","block_id":"pick","text":{"type":"mrkdwn","text":"Ready?"},
-			"accessory":{"type":"button","action_id":"approve","value":"yes","text":{"type":"plain_text","text":"Approve"}}},
+			"accessory":{"type":"button","action_id":"logs","text":{"type":"plain_text","text":"View logs"},"url":"https://ci.example/42"}},
 		{"type":"actions","block_id":"review","elements":[
 			{"type":"button","action_id":"open_review","text":{"type":"plain_text","text":"Complete review"},"style":"primary","url":"https://x.slack.com/archives/C1/p2"},
 			{"type":"static_select","action_id":"label","placeholder":{"type":"plain_text","text":"Label"},"options":[{"text":{"type":"plain_text","text":"a"},"value":"a"}]}]}]`), &in); err != nil {
@@ -97,13 +95,13 @@ func TestParseButtonsCarryActionFields(t *testing.T) {
 	got := Parse(in)
 
 	acc := got[0].(SectionBlock).Accessory.(LabelAccessory)
-	wantAcc := LabelAccessory{Kind: "button", Label: "Approve", ButtonFields: ButtonFields{ActionID: "approve", BlockID: "pick", Value: "yes"}}
+	wantAcc := LabelAccessory{Kind: "button", Label: "View logs", ButtonFields: ButtonFields{URL: "https://ci.example/42"}}
 	if !reflect.DeepEqual(acc, wantAcc) {
 		t.Errorf("accessory:\n got %+v\nwant %+v", acc, wantAcc)
 	}
 
 	want := []ActionElement{
-		{Kind: "button", Label: "Complete review", ButtonFields: ButtonFields{ActionID: "open_review", BlockID: "review", URL: "https://x.slack.com/archives/C1/p2"}},
+		{Kind: "button", Label: "Complete review", ButtonFields: ButtonFields{URL: "https://x.slack.com/archives/C1/p2"}},
 		{Kind: "static_select", Label: "Label"},
 	}
 	if els := got[1].(ActionsBlock).Elements; !reflect.DeepEqual(els, want) {

@@ -49,7 +49,7 @@ func TestMessageLinks_LinkButton(t *testing.T) {
 func TestMessageLinks_AccessoryLinkButton(t *testing.T) {
 	msg := MessageItem{Blocks: []blockkit.Block{
 		blockkit.SectionBlock{Text: "Build failed", Accessory: blockkit.LabelAccessory{Kind: "button", Label: "View logs", ButtonFields: blockkit.ButtonFields{URL: "https://ci.example/42"}}},
-		blockkit.ActionsBlock{Elements: []blockkit.ActionElement{{Kind: "button", Label: "Retry", ButtonFields: blockkit.ButtonFields{ActionID: "retry"}}}},
+		blockkit.ActionsBlock{Elements: []blockkit.ActionElement{{Kind: "button", Label: "Retry"}}},
 	}}
 	want := []Link{{URL: "https://ci.example/42", Label: "View logs"}}
 	if got := MessageLinks(msg); !reflect.DeepEqual(got, want) {
@@ -70,7 +70,7 @@ func TestInteractHint(t *testing.T) {
 		{"every control a link button", colonyEphemeral(), "o to open"},
 		{"a button without a URL", MessageItem{Blocks: actions(
 			blockkit.ActionElement{Kind: "button", Label: "Open", ButtonFields: link},
-			blockkit.ActionElement{Kind: "button", Label: "Approve", ButtonFields: blockkit.ButtonFields{ActionID: "approve"}},
+			blockkit.ActionElement{Kind: "button", Label: "Approve"},
 		)}, "↗ open in Slack to interact"},
 		{"a select beside a link button", MessageItem{Blocks: actions(
 			blockkit.ActionElement{Kind: "button", Label: "Open", ButtonFields: link},

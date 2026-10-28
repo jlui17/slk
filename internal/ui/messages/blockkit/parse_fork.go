@@ -39,7 +39,7 @@ func tableCellMrkdwn(cell slack.TableCell) string {
 func fillButtonFields(elems []ActionElement, a *slack.ActionBlock) {
 	for i, e := range a.Elements.ElementSet {
 		if b, ok := e.(*slack.ButtonBlockElement); ok {
-			elems[i].ButtonFields = buttonFields(b, a.BlockID)
+			elems[i].ButtonFields = ButtonFields{URL: b.URL}
 		}
 	}
 }
@@ -51,12 +51,8 @@ func withAccessoryButtonFields(acc AccessoryElement, s *slack.SectionBlock) Acce
 	if !ok || s.Accessory.ButtonElement == nil {
 		return acc
 	}
-	label.ButtonFields = buttonFields(s.Accessory.ButtonElement, s.BlockID)
+	label.ButtonFields = ButtonFields{URL: s.Accessory.ButtonElement.URL}
 	return label
-}
-
-func buttonFields(b *slack.ButtonBlockElement, blockID string) ButtonFields {
-	return ButtonFields{ActionID: b.ActionID, BlockID: blockID, Value: b.Value, URL: b.URL}
 }
 
 // ParseJSON parses one block from its JSON, as a Home view carries it.
