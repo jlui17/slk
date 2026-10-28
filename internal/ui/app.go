@@ -3943,28 +3943,32 @@ func (a *App) tryAttachFromClipboard(target *compose.Model, pathCandidate string
 // in the focused pane. Returns a no-op + status toast if not owned;
 // returns nil if no message is selected.
 func (a *App) beginEditOfSelected() tea.Cmd {
-	channelID, ts, text, userID, panel, ok := a.selectedMessageContext()
+	p, channelID, focused := a.focusedContentPane()
+	if !focused {
+		return nil
+	}
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	// Build a synthetic MessageItem just for the ownership check;
-	// avoids fetching the full struct twice.
-	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
+	if !a.isOwnMessage(msg) {
 		return func() tea.Msg { return statusbar.EditNotOwnMsg{} }
 	}
+	ts, panel := msg.TS, a.focusedPanel
 	if channelID == "" || ts == "" {
 		return nil
 	}
 
+	text := messages.EditSource(msg)
 	var stashed string
 	switch panel {
 	case PanelMessages:
 		stashed = a.compose.Value()
-		a.compose.SetValue(text)
+		a.compose.SetValue(a.compose.MentionsForEdit(text))
 		a.compose.SetPlaceholderOverride("Editing message — Enter to save, Esc to cancel")
 	case PanelThread:
 		stashed = a.threadCompose.Value()
-		a.threadCompose.SetValue(text)
+		a.threadCompose.SetValue(a.threadCompose.MentionsForEdit(text))
 		a.threadCompose.SetPlaceholderOverride("Editing message — Enter to save, Esc to cancel")
 	}
 

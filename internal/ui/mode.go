@@ -24,6 +24,7 @@ const (
 	ModeProfileCard  // fork: profilecard.go
 	ModeUserProfile
 	ModeMarks
+	modeCount // must stay last: the number of modes
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
