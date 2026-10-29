@@ -28,10 +28,13 @@ func (r *Registry) markSent(id uint32, decodedBytes int) {
 func (r *Registry) evicted(id uint32) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.evictedLocked(id)
-}
-
-func (r *Registry) evictedLocked(id uint32) bool {
 	at, ok := r.sentAt[id]
 	return ok && r.sent-at > kittyStoreBudgetBytes
+}
+
+// sentBytes is the running upload total.
+func (r *Registry) sentBytes() uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sent
 }

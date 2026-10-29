@@ -3644,6 +3644,7 @@ func (a *App) View() tea.View {
 			int(a.focusedPanel), int(a.view), a.mode.String(),
 			a.threadVisible, a.sidebarVisible, previewActive)
 	}
+	imgpkg.ResendDroppedImages(screen) // fork: internal/image/kitty_fork.go
 	return a.rememberLastView(a.finalizeSixelView(v, a.collectSixelPlacements(frame)))
 }
 

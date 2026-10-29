@@ -139,6 +139,8 @@ type KittyRenderer struct {
 	// a concern, an LRU eviction can be added without changing the
 	// contract.
 	payloads map[payloadKey]string
+
+	uploads map[uint32]kittyUpload // fork: kitty_fork.go, what ResendDropped sends again
 }
 
 // placeholderKey scopes the buildPlaceholderLines memo by the inputs
@@ -256,6 +258,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 				return r
 			}
 		}
+		k.rememberUpload(id, payload, target, cw, ch) // fork: kitty_fork.go
 		imgID := id
 		cellsCols := target.X
 		cellsRows := target.Y
@@ -270,7 +273,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// fact no bytes were ever sent.
 		var fired atomic.Bool
 		r.OnFlush = func(w io.Writer) error {
-			if fired.Swap(true) && !reg.evicted(imgID) { // fork: registry_fork.go
+			if !fired.CompareAndSwap(false, true) {
 				return nil
 			}
 			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",

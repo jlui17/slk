@@ -296,11 +296,16 @@ there and resolve them knowing what the fork wants:
 - `internal/image/probe.go`, `kitty.go`, `cellmetrics.go` — id-matched
   probe replies logged verbatim, cell-size-keyed payload memo, measured
   cell metrics.
-- `internal/image/registry.go`, `kitty.go` — a kitty image is sent again
-  once more than `kittyStoreBudgetBytes` of uploads went out after it
-  (`registry_fork.go`), where upstream sends each image once per process.
-  herdr keeps 64 MiB of a pane's images and drops the oldest past that,
-  so an emoji sent early in a long session drew blank.
+- `internal/image/registry.go`, `kitty.go`, `internal/ui/app.go` — a
+  kitty image a frame shows is sent again once more than
+  `kittyStoreBudgetBytes` of uploads went out after it: `App.View` hands
+  the finished screen to `ResendDroppedImages` (`kitty_fork.go`), where
+  upstream sends each image once per process. herdr keeps 64 MiB of a
+  pane's images and drops the oldest past that, even ones on screen, so
+  an emoji or avatar sent earlier drew blank. A pane's flush still sends
+  its image once: the thread pane flushes every reply's images on each
+  rebuild, so re-sending from flushes re-sent a long thread's images on
+  every rebuild.
 - `internal/bootstrap/*` — `Run`'s post-userBoot chain routed through the
   `overlapPhases` hook (`bootstrap_fork.go`); the `revalidate` entry point
   deleted, its nil-guards moved into the hook; the two serial-order tests

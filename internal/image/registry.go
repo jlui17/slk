@@ -48,7 +48,7 @@ func (r *Registry) Lookup(key string, target image.Point) (id uint32, fresh bool
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.ids[k]; ok {
-		return existing, !r.uploaded[existing] || r.evictedLocked(existing) // fork: registry_fork.go
+		return existing, !r.uploaded[existing]
 	}
 	id = r.next.Add(1)
 	r.ids[k] = id
