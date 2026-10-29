@@ -35,3 +35,10 @@ func kittyUploadPixels(target image.Point, cellPxW, cellPxH int) (pxW, pxH int) 
 	}
 	return pxW, pxH
 }
+
+// kittyUploadBytes is the decoded size of the raster uploaded for a
+// target cell box, what a terminal's image store counts.
+func kittyUploadBytes(target image.Point, cellPxW, cellPxH int) int {
+	pxW, pxH := kittyUploadPixels(target, cellPxW, cellPxH)
+	return pxW * pxH * 4
+}

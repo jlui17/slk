@@ -23,6 +23,8 @@ type Registry struct {
 	mu       sync.Mutex
 	ids      map[string]uint32
 	uploaded map[uint32]bool
+	sent     uint64            // fork: registry_fork.go, decoded bytes uploaded so far
+	sentAt   map[uint32]uint64 // fork: registry_fork.go, sent before each id's last upload
 }
 
 // NewRegistry constructs a registry. IDs start at 1 (kitty rejects 0).
@@ -46,7 +48,7 @@ func (r *Registry) Lookup(key string, target image.Point) (id uint32, fresh bool
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.ids[k]; ok {
-		return existing, !r.uploaded[existing]
+		return existing, !r.uploaded[existing] || r.evictedLocked(existing) // fork: registry_fork.go
 	}
 	id = r.next.Add(1)
 	r.ids[k] = id

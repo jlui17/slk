@@ -270,7 +270,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 		// fact no bytes were ever sent.
 		var fired atomic.Bool
 		r.OnFlush = func(w io.Writer) error {
-			if !fired.CompareAndSwap(false, true) {
+			if fired.Swap(true) && !reg.evicted(imgID) { // fork: registry_fork.go
 				return nil
 			}
 			debuglog.ImgRender("kitty.OnFlush: image_id=%d cells=(%d,%d) cell_px=(%d,%d) payload_len=%d payload_cache=%v",
@@ -278,7 +278,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			if err := emitKittyUpload(w, imgID, payload, cellsCols, cellsRows); err != nil {
 				return err
 			}
-			reg.MarkUploaded(imgID)
+			reg.markSent(imgID, kittyUploadBytes(target, cw, ch)) // fork: registry_fork.go
 			return nil
 		}
 	}
