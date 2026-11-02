@@ -40,6 +40,9 @@ func (db *DB) migrateFork() error {
 	CREATE INDEX IF NOT EXISTS idx_users_workspace_name
 		ON users(workspace_id, display_name, name);
 
+	CREATE INDEX IF NOT EXISTS idx_channels_unread
+		ON channels(workspace_id, id) WHERE has_unread = 1;
+
 	CREATE TABLE IF NOT EXISTS fork_migrations (
 		name TEXT PRIMARY KEY,
 		applied_at INTEGER NOT NULL DEFAULT 0
