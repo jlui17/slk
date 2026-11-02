@@ -9,6 +9,14 @@ it, as in Slack, even though slk could have kept the click for itself. When a
 change would give up something Slack can do, or make it behave differently
 from Slack, ask Justin before building it.
 
+## Fix bugs found along the way without asking
+
+A bug found while working on something else (a count that comes out wrong,
+a leak, state that goes stale) gets fixed without asking Justin first: on
+its own branch, with a test that reproduces it, and named in the recap.
+The section above still applies: ask first when the fix would make slk
+behave differently from Slack. Merging follows the usual rules.
+
 ## Status colors
 
 A color that carries meaning (presence, state) is blue against yellow or
