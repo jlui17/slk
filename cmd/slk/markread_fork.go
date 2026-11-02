@@ -8,8 +8,8 @@ package main
 // newest-activity view is stale by definition, and a read-to-end cannot
 // be told apart from a mark-unread at an uncached reply, which is a
 // deliberate user signal that must not be guessed away. Callers persist
-// the facts and skip the UI dispatch; the next getView reconcile settles
-// it. String comparison is valid: Slack ts are fixed-width secs.micros.
+// the facts and skip the UI dispatch; the next reply, open of the
+// thread, or Threads view page settles it. String comparison is valid: Slack ts are fixed-width secs.micros.
 func threadMarkReadState(lastRead, newestActivity string) (read, known bool) {
 	if newestActivity == "" || lastRead > newestActivity {
 		return false, false

@@ -735,10 +735,6 @@ func run(startupLink *slackurl.Permalink) error {
 	// workspace-scoped values (Client, UserNames, ...) into local
 	// vars BEFORE the `go func()` so they are not affected by a
 	// concurrent router.Set during the goroutine's lifetime.
-	// The rail's thread half, kept off the UI goroutine (see
-	// railThreadsCache). Its notifier is installed once p exists.
-	railThreads := newRailThreadsCache(railThreadsUnread(db))
-
 	wireCallbacks := func(router *workspaceRouter) {
 		if paneWriter != nil {
 			app.SetPaneStateRecorder(func(teamID, channelID, threadTS string) {
@@ -769,7 +765,7 @@ func run(startupLink *slackurl.Permalink) error {
 				log.Printf("Warning: UnreadChannels: %v", err)
 				return nil
 			}
-			return railUnreadWorkspaces(unread, railTeamIDs, router.ByID, railThreads.Unread)
+			return railUnreadWorkspaces(unread, railTeamIDs, router.ByID)
 		}
 		app.SetUnreadService(core.NewUnreadService(channelReadStates, unreadWorkspaces))
 
@@ -1124,9 +1120,7 @@ func run(startupLink *slackurl.Permalink) error {
 					// thread_subscriptions row's last_read is the
 					// source of truth and gets updated when Slack
 					// echoes back a thread_marked event. The UI
-					// updates immediately via applyThreadMarkUnread; on
-					// next refresh cache.ListSubscribedThreads will
-					// reconcile from the persisted subscription row.
+					// updates immediately via applyThreadMarkUnread.
 				}
 				return ui.MessageMarkedUnreadMsg{
 					ChannelID:   chIDStr,
@@ -1287,61 +1281,23 @@ func run(startupLink *slackurl.Permalink) error {
 					},
 				}
 			},
-			ListFetch: func(teamID ids.TeamID) core.Msg {
-				teamIDStr := string(teamID)
-				wctx := router.Active()
-				if wctx == nil {
-					return nil
-				}
-				summaries, err := db.ListSubscribedThreads(teamIDStr, wctx.Client.UserID())
-				if err != nil {
-					log.Printf("Warning: ListSubscribedThreads(%s): %v", teamIDStr, err)
-					return ui.ThreadsListLoadedMsg{
-						TeamID:                 teamIDStr,
-						Summaries:              nil,
-						SubscriptionsAvailable: wctx.SubscriptionsAvailable,
-					}
-				}
-				// With per-thread last_read in thread_subscriptions, the Unread
-				// flag is now authoritative — the old ThreadsHasUnreads
-				// suppression heuristic that protected against stale
-				// channels.last_read_ts is no longer needed.
-				return ui.ThreadsListLoadedMsg{
-					TeamID:                 teamIDStr,
-					Summaries:              summaries,
-					SubscriptionsAvailable: wctx.SubscriptionsAvailable,
-				}
-			},
-			// Workspace-ready (boot) is the primary trigger, with
-			// Threads-view activation as the safety net; the gate
-			// inside ensureThreadSubscriptions collapses both to one
-			// throttled, staggered getView sweep per workspace.
-			// Returns immediately; the list renders from cache and
-			// refreshes via ThreadsListDirtyMsg when the fetch lands.
-			//
-			// ByID, not Active: boot fires this for every workspace
-			// as it connects, including background ones the user may
-			// never activate this session — on Enterprise Grid those
-			// are exactly the workspaces whose threads would
-			// otherwise stay stale.
-			EnsureSubscriptions: func(teamID ids.TeamID) {
+			// One page of the Threads view per call, from Slack, as the
+			// Slack app loads it: the first when the view opens or
+			// refreshes, each older one as the user scrolls.
+			ListFetch: func(teamID ids.TeamID, cursor string) core.Msg {
 				wctx := router.ByID(string(teamID))
 				if wctx == nil || wctx.Client == nil {
-					return
+					return nil
 				}
-				ensureWorkspaceThreadSubs(ctx, wctx, db, p.Send)
+				return fetchThreadsPage(context.Background(), wctx.Client, db, wctx.TeamID, cursor,
+					func(state slackclient.ThreadsAggregate) { wctx.ThreadsBadge.apply(wctx.TeamID, state, p.Send) })
 			},
 			ThreadLastRead: func(channelID ids.ChannelID, threadTS ids.ThreadTS) string {
 				wctx := router.Active()
 				if wctx == nil {
 					return ""
 				}
-				lastRead, err := db.GetThreadLastRead(wctx.TeamID, string(channelID), string(threadTS))
-				if err != nil {
-					debuglog.Cache("ThreadLastRead: %s/%s: %v", channelID, threadTS, err)
-					return ""
-				}
-				return lastRead
+				return threadLastRead(db, wctx.TeamID, string(channelID), string(threadTS))
 			},
 		}))
 
@@ -1581,11 +1537,6 @@ func run(startupLink *slackurl.Permalink) error {
 	if herdrClient != nil {
 		wireAgentTabLabeler(app, cfg.Herdr, p.Send)
 	}
-	// A changed thread-unread answer re-runs the rail refresh, which
-	// then reads the new answer from the cache.
-	railThreads.SetNotify(func(teamID string) {
-		p.Send(ui.ReadStateChangedMsg{WorkspaceID: teamID})
-	})
 
 	// Now that `p` exists, re-install the ImageContext with a real
 	// SendMsg callback so the prefetcher can dispatch ImageReadyMsg
@@ -1715,12 +1666,6 @@ func run(startupLink *slackurl.Permalink) error {
 						LastReadTS:   state.LastReadTS,
 						KeepLastRead: true, // fork: keeps the "── new ──" line on screen
 					})
-				},
-				// Reconnect/wake kick for the throttled thread-
-				// subscription sync; the gate inside decides whether a
-				// getView sweep actually runs.
-				ensureThreadSubs: func() {
-					ensureWorkspaceThreadSubs(context.Background(), wctx, db, p.Send)
 				},
 				resolveConversation: wctx.Client.GetConversationInfo,
 			}

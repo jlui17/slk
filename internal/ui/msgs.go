@@ -211,21 +211,37 @@ type (
 	// synthetic Threads sidebar row. The App switches the message pane to
 	// the threads-list view and (re)fetches the involved-threads list.
 	ThreadsViewActivatedMsg struct{}
-	// ThreadsListLoadedMsg carries a freshly loaded list of involved-thread
-	// summaries for the named workspace. The App ignores it if it doesn't
+	// ThreadsListLoadedMsg carries one page of the named workspace's
+	// Threads view, loaded from Slack. The App ignores it if it doesn't
 	// match the active team.
 	ThreadsListLoadedMsg struct {
-		TeamID    string
+		TeamID string
+		// Cursor is the cursor the page was fetched at: "" for the
+		// first page.
+		Cursor    string
 		Summaries []core.ThreadSummary
-		// SubscriptionsAvailable reflects whether the most recent
-		// subscription sync succeeded in fetching the authoritative
-		// thread-subscription list. The threads view renders a banner
-		// when false (Task 10 wires the renderer).
-		SubscriptionsAvailable bool
+		// NextCursor is the cursor of the following page, "" when
+		// Slack has no more.
+		NextCursor string
+		// Err is why Slack did not answer: the view draws its
+		// "unavailable" banner and leaves its rows as they are.
+		Err error
 	}
-	// ThreadsListDirtyMsg is dispatched when something that could affect
-	// the involved-threads list has changed (new message, mention, etc.)
-	// and the list should be refetched. Ignored if not the active team.
+	// ThreadsBadgeUpdatedMsg carries a workspace's number of unread
+	// followed threads, as Slack counts them: the number the sidebar's
+	// Threads badge shows. Sent at boot and on reconnect (from
+	// client.counts), on each update_global_thread_state event, and
+	// with each Threads view page. Absolute, like
+	// ActivityBadgeUpdatedMsg.
+	ThreadsBadgeUpdatedMsg struct {
+		TeamID        string
+		UnreadThreads int
+	}
+	// ThreadsListDirtyMsg is dispatched when the first page of the
+	// Threads view may have changed (a followed thread got a reply or
+	// was read, a subscription changed, the socket reconnected): the
+	// view reloads its first page if it is open on the named workspace,
+	// and ignores it otherwise.
 	//
 	// Senders need not deduplicate or debounce: reduceThreads coalesces
 	// these on receipt, so several from several senders inside one
@@ -609,8 +625,8 @@ type threadFetchDebounceMsg struct {
 
 // threadsListFetchMsg ends the coalescing window a ThreadsListDirtyMsg
 // opened: it is delivered threadsDirtyDebounce after that message, and
-// its arm is what dispatches the ThreadService.ListFetch the dirty
-// message asked for. teamID is whichever team was active when the window
+// its arm is what dispatches the first-page ThreadService.ListFetch the
+// dirty message asked for. teamID is whichever team was active when the window
 // opened, so a workspace switch during the window can be told apart
 // from a refresh that is still wanted.
 type threadsListFetchMsg struct {

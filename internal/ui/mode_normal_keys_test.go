@@ -1109,7 +1109,7 @@ func TestNormalModeKeys(t *testing.T) {
 			name: "G in the threads view opens the thread it lands on",
 			opts: append(normalOpts(),
 				withView(ViewThreads),
-				withThreadsView([]cache.ThreadSummary{
+				withThreadsView([]core.ThreadSummary{
 					{ChannelID: "C1", ThreadTS: "1.0", ParentTS: "1.0", ParentText: "first", ReplyCount: 1},
 					{ChannelID: "C1", ThreadTS: "2.0", ParentTS: "2.0", ParentText: "second", ReplyCount: 2},
 				})),

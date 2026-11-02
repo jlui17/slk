@@ -16,7 +16,6 @@ type DB struct {
 	// sqlite driver was built without FTS5); search degrades to LIKE
 	// queries instead of failing startup.
 	ftsDisabled bool
-	dir         string // fork: directory of the DB file; sweep lock files live beside it
 }
 
 // dsnPragmas are appended to every DSN passed to New(). They are
@@ -70,7 +69,7 @@ func New(dsn string) (*DB, error) {
 	}
 
 	db := &DB{conn: conn}
-	db.dir = filepath.Dir(dsn) // fork: sweep lock files live beside the DB
+	removeThreadSweepLocks(filepath.Dir(dsn)) // fork: db_fork.go
 	if err := db.migrate(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)

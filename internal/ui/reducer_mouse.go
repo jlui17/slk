@@ -114,12 +114,13 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 		if a.view == ViewThreads {
 			if up {
 				a.threadsView.ScrollUp(wheelLinesPerNotch)
-			} else {
-				a.threadsView.ScrollDown(wheelLinesPerNotch)
+				return nil
 			}
+			a.threadsView.ScrollDown(wheelLinesPerNotch)
 			// No openSelectedThreadCmd here: pure viewport scroll
-			// does not change the highlighted thread card.
-			return nil
+			// does not change the highlighted thread card. It can
+			// bring the end of the list on screen, though.
+			return a.loadMoreThreadsCmd()
 		}
 		if a.view == ViewActivity {
 			if up {

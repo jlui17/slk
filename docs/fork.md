@@ -198,8 +198,6 @@ there and resolve them knowing what the fork wants:
 - `cmd/slk/reconnect_sync.go` (+ its test) — the shared-DB
   `MarkChannelsStale` call replaced by the per-instance watermark hook
   (`sendCacheWatermark`); the test pinning the old staling deleted.
-- `cmd/slk/thread_subscriptions.go` — `sync` call routed through the
-  cross-instance sweep-claim hook (`syncIfUnclaimed`).
 - `internal/ui/reducer_channels.go` — tier-1 freshness additionally
   requires `syncedAfterWatermark`; every load into the channel pane (fetch,
   channel switch, jump to a message) lays the session's ephemerals in
@@ -288,11 +286,10 @@ there and resolve them knowing what the fork wants:
   `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
   selects the parent row, the thread's topmost, where upstream selects the
   first reply; pinned in `keyrouting_fork_test.go`.
-- `internal/cache/threads.go` — `ListSubscribedThreads` runs the fork's
-  `listSubscribedThreadsQuery` (`threads_fork.go`), which counts the parent
-  row as newest activity.
-- `internal/cache/messages.go`, `internal/cache/db.go` — one-line hooks into
-  fork helpers (`retractLatestReply`, `migrateFork`).
+- `internal/cache/db.go` — one-line hooks into fork helpers
+  (`migrateFork`, `removeThreadSweepLocks`).
+- `internal/ui/reducer_threads.go` — a fetched thread is marked through
+  `markFetchedThreadRead`.
 - `internal/image/probe.go`, `kitty.go`, `cellmetrics.go` — id-matched
   probe replies logged verbatim, cell-size-keyed payload memo, measured
   cell metrics.
@@ -394,3 +391,11 @@ upstream's and drop the fork's.
 - `internal/ui/messages/wrap_rows.go` — a message's rows are assembled
   directly instead of through four lipgloss renders, byte for byte the
   same (`fillRows`, `wrapRowBreak`; branch `perf-messages-wrap-rows`).
+- `cmd/slk/thread_subscriptions.go`, `rail_unread.go`, `connect.go`,
+  `reconnect_sync.go`, `internal/slack/client.go`, `events.go`,
+  `internal/ui/reducer_threads.go`, `threadsview/model.go` and their
+  neighbours — the Threads view loads from Slack a page at a time when it
+  opens, and the Threads badge and rail come from Slack's own thread
+  counts, where upstream sweeps every followed thread with getView at
+  boot and on reconnect (branch `threads/on-demand-upstream`; not yet
+  offered).

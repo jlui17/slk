@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -69,7 +69,7 @@ func TestBackgroundTeamThreadMarkIgnored(t *testing.T) {
 	a.threadPanel.SetThread(parent, nil, "C1", "100.0")
 	a.threadPanel.SetLastReadTS("100.0")
 	a.threadVisible = true
-	a.threadsView.SetSummaries([]cache.ThreadSummary{
+	a.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "100.0", Unread: true},
 	})
 

@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -32,7 +31,7 @@ func markOnceApp(t *testing.T, fetch func() []messages.MessageItem) (*App, *[]st
 	parent := messages.MessageItem{TS: markOnceParent, UserID: "U1", Text: "parent"}
 	stale := messages.MessageItem{TS: markOnceStale, UserID: "U2", ThreadTS: markOnceParent}
 	app := newTestApp(t,
-		withThreadsView([]cache.ThreadSummary{{
+		withThreadsView([]core.ThreadSummary{{
 			ChannelID: "C1", ThreadTS: markOnceParent, ParentTS: markOnceParent,
 			ParentUserID: "U1", ParentText: "parent", LastReplyTS: markOnceFresh, Unread: true,
 		}}),

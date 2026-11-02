@@ -101,9 +101,9 @@ func (a countsAdapter) Counts(ctx context.Context) (bootstrap.Counts, error) {
 	out := bootstrap.Counts{
 		Unreads: make([]bootstrap.Unread, 0, len(unreads)),
 		Threads: bootstrap.Threads{
-			HasUnreads:   threads.HasUnreads,
-			UnreadCount:  threads.UnreadCount,
-			MentionCount: threads.MentionCount,
+			HasUnreads:    threads.HasUnreads,
+			UnreadThreads: threads.UnreadThreads,
+			MentionCount:  threads.MentionCount,
 		},
 		ActivityTotal: activity,
 	}

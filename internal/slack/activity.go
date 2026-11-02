@@ -115,7 +115,7 @@ type rawLatestEntry struct {
 // and a single malformed item is skipped rather than failing the page.
 //
 // Returns (zero, err) on network failure or ok=false JSON, mirroring
-// callListThreadSubscriptions / ListThreadSubscriptions.
+// GetThreadsView.
 func (c *Client) GetActivityFeed(ctx context.Context, limit int, cursor string, unreadOnly bool) (ActivityFeedResult, error) {
 	body, err := c.callActivityFeed(ctx, limit, cursor, unreadOnly)
 	if err != nil {

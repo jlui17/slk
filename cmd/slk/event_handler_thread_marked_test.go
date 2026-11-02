@@ -79,9 +79,8 @@ func TestOnThreadMarked_ReadToEnd_DispatchesRead(t *testing.T) {
 	if m := msgs[0]; !m.Read || m.TeamID != "T1" || m.ChannelID != "C1" || m.ThreadTS != "100.0" || m.LastRead != "102.0" {
 		t.Fatalf("read-to-end mis-dispatched: %+v", m)
 	}
-	subs, _ := db.ListActiveThreadSubscriptions("T1")
-	if len(subs) != 1 || subs[0].LastRead != "102.0" {
-		t.Fatalf("subscription not persisted: %+v", subs)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "100.0"); got != "102.0" {
+		t.Fatalf("subscription not persisted: cursor = %q", got)
 	}
 }
 
@@ -145,9 +144,8 @@ func TestOnThreadMarked_SubscribedFlagNeverInfluencesReadDecision(t *testing.T) 
 	if len(msgs) != 1 || !msgs[0].Read {
 		t.Fatalf("read decision must ignore subscribed: %+v", msgs)
 	}
-	subs, _ := db.ListActiveThreadSubscriptions("T1")
-	if len(subs) != 1 || subs[0].LastRead != "101.0" {
-		t.Fatalf("subscribed=false must leave the row active with the cursor advanced, got %+v", subs)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "100.0"); got != "101.0" {
+		t.Fatalf("subscribed=false must still advance the cursor: cursor = %q", got)
 	}
 }
 
@@ -171,7 +169,7 @@ func TestOnThreadMarked_StaleWatermark_PersistsButSkipsDispatch(t *testing.T) {
 	// last_read past everything the cache knows: a read-to-end is
 	// indistinguishable from a mark-unread at an uncached reply, so
 	// guessing either way recreates half the original bug. Persist the
-	// facts, dispatch nothing; the next getView reconcile settles it.
+	// facts, dispatch nothing; the next reply or page load settles it.
 	db := newTestDB(t)
 	seedThread(t, db, "C1", "100.0", "101.0")
 	sender := &captureSender{}
@@ -182,9 +180,8 @@ func TestOnThreadMarked_StaleWatermark_PersistsButSkipsDispatch(t *testing.T) {
 	if msgs := sentOfType[ui.ThreadMarkedRemoteMsg](sender); len(msgs) != 0 {
 		t.Fatalf("stale watermark must not dispatch, got %d", len(msgs))
 	}
-	subs, _ := db.ListActiveThreadSubscriptions("T1")
-	if len(subs) != 1 || subs[0].LastRead != "105.0" {
-		t.Fatalf("stale-watermark mark must still persist: %+v", subs)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "100.0"); got != "105.0" {
+		t.Fatalf("stale-watermark mark must still persist: cursor = %q", got)
 	}
 }
 
@@ -198,8 +195,7 @@ func TestOnThreadMarked_UnknownThread_PersistsButSkipsDispatch(t *testing.T) {
 	if msgs := sentOfType[ui.ThreadMarkedRemoteMsg](sender); len(msgs) != 0 {
 		t.Fatalf("unknown thread must not dispatch, got %d", len(msgs))
 	}
-	subs, _ := db.ListActiveThreadSubscriptions("T1")
-	if len(subs) != 1 {
-		t.Fatalf("unknown-thread mark must still persist: %+v", subs)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "100.0"); got != "100.0" {
+		t.Fatalf("unknown-thread mark must still persist: cursor = %q", got)
 	}
 }

@@ -1,10 +1,12 @@
 // Package threadsview is the UI model for the "Threads" panel: a vertical
 // list of threads the user is involved in, sourced from core.ThreadSummary.
 //
-// The model is purely presentation: callers (typically the App layer) push
-// new summaries via SetSummaries whenever the cache produces a fresh ranking,
-// and read SelectedSummary / Selected to drive panel switching when the user
-// activates a row.
+// The list comes from Slack a page at a time, newest activity first, as
+// the Slack app loads it: callers (typically the App layer) push the first
+// page via SetFirstPage, ask NextPage for the cursor of the next one when
+// the user nears the end of what is loaded, and push it via AppendPage.
+// They read SelectedSummary / Selected to drive panel switching when the
+// user activates a row.
 package threadsview
 
 import (
@@ -105,13 +107,30 @@ type Model struct {
 	hasSnapped       bool
 
 	// subscriptionsAvailable tracks whether Slack's
-	// subscriptions.thread.list call succeeded most recently. When
+	// subscriptions.thread.getView call succeeded most recently. When
 	// false, View renders a one-line "Threads list unavailable"
 	// banner above the list/empty-state. Default is true (optimistic).
 	subscriptionsAvailable bool
 
+	// nextCursor is the cursor of the page after the loaded rows, ""
+	// when Slack has no more. requested is the cursor of the page
+	// NextPage handed out and that has not landed yet, so scrolling
+	// asks for each page once.
+	nextCursor string
+	requested  string
+	// loading is set while the first page is on its way and nothing
+	// is loaded, so the empty view says so instead of "no threads".
+	loading bool
+	// bodyHeight is the list's height at the last View, which NextPage
+	// uses to tell whether the end of the list is on screen.
+	bodyHeight int
+
 	version int64
 }
+
+// loadAheadRows is how close the selection may come to the last loaded
+// row before the next page is fetched.
+const loadAheadRows = 3
 
 // New creates an empty Model. userNames is the user-id -> display-name
 // store used to resolve mention IDs in the parent-text preview and the
@@ -251,10 +270,142 @@ func (m *Model) SetSubscriptionsAvailable(available bool) {
 // selection follows it to its new position; otherwise the selection resets
 // to the top.
 //
-// Identical contents are a no-op (no version bump, no re-snap): the list
-// is reloaded on every thread reply and mark-read, usually unchanged, and
-// each bump forces a full re-render of the panel.
+// The list is all there is: no further page is fetched for it.
 func (m *Model) SetSummaries(s []core.ThreadSummary) {
+	m.nextCursor, m.requested = "", ""
+	m.SetLoading(false)
+	m.replace(s)
+}
+
+// SetFirstPage installs a freshly loaded first page, whose next page is
+// at nextCursor ("" when there is none).
+//
+// keepOlder keeps the rows already loaded that the page does not hold,
+// below it in their loaded order, so a refresh neither takes away the
+// rows the user scrolled to nor drops the selected thread. Slack lists
+// unread threads before read ones, so a thread just read leaves the
+// first page for a later one; it stays in the list until the view is
+// next opened. A page with nothing after it is the whole list, and
+// replaces it. Without keepOlder, the list becomes the page.
+func (m *Model) SetFirstPage(page []core.ThreadSummary, nextCursor string, keepOlder bool) {
+	m.SetLoading(false)
+	m.requested = ""
+	if keepOlder && nextCursor != "" {
+		inPage := make(map[[2]string]bool, len(page))
+		for _, s := range page {
+			inPage[[2]string{s.ChannelID, s.ThreadTS}] = true
+		}
+		merged := slices.Clone(page)
+		for _, s := range m.summaries {
+			if !inPage[[2]string{s.ChannelID, s.ThreadTS}] {
+				merged = append(merged, s)
+			}
+		}
+		if len(merged) > len(page) {
+			m.replace(merged)
+			return // the list still ends where it ended
+		}
+	}
+	m.nextCursor = nextCursor
+	m.replace(page)
+}
+
+// AppendPage adds the page fetched at cursor below the loaded rows. A
+// page for any other cursor is stale (the list was replaced while it
+// was on its way) and is dropped.
+func (m *Model) AppendPage(cursor string, page []core.ThreadSummary, nextCursor string) {
+	if cursor == "" || cursor != m.nextCursor {
+		return
+	}
+	m.requested = ""
+	m.nextCursor = nextCursor
+	loaded := make(map[[2]string]bool, len(m.summaries))
+	for _, s := range m.summaries {
+		loaded[[2]string{s.ChannelID, s.ThreadTS}] = true
+	}
+	added := false
+	for _, s := range page {
+		if !loaded[[2]string{s.ChannelID, s.ThreadTS}] {
+			m.summaries = append(m.summaries, s)
+			added = true
+		}
+	}
+	if added {
+		m.dirty()
+	}
+}
+
+// PageFailed forgets that the page at cursor was asked for, so the next
+// scroll asks again.
+func (m *Model) PageFailed(cursor string) {
+	if m.requested == cursor {
+		m.requested = ""
+	}
+	m.SetLoading(false)
+}
+
+// NextPage returns the cursor of the next page to fetch, when the user
+// is near the end of the loaded rows (the selection within
+// loadAheadRows of the last row, or the last row on screen), Slack has
+// more, and that page has not been asked for yet. ok=true records it
+// as asked for.
+func (m *Model) NextPage() (cursor string, ok bool) {
+	if m.nextCursor == "" || m.requested == m.nextCursor || len(m.summaries) == 0 {
+		return "", false
+	}
+	nearEnd := m.selected >= len(m.summaries)-1-loadAheadRows
+	if m.bodyHeight > 0 && m.yOffset+m.bodyHeight >= len(m.summaries)*cardStride-1 {
+		nearEnd = true
+	}
+	if !nearEnd {
+		return "", false
+	}
+	m.requested = m.nextCursor
+	return m.nextCursor, true
+}
+
+// SetLoading marks the first page as on its way (or not).
+func (m *Model) SetLoading(loading bool) {
+	if m.loading != loading {
+		m.loading = loading
+		m.dirty()
+	}
+}
+
+// ApplyReply records a reply that landed in a loaded thread: the row
+// takes it as its newest activity, turns unread when unread is true,
+// and moves to the top with the selection following its row. A thread
+// that is not loaded is left for the next page or refresh to bring in.
+// Returns true when a row changed.
+func (m *Model) ApplyReply(channelID, threadTS, ts, userID string, unread bool) bool {
+	for i := range m.summaries {
+		s := &m.summaries[i]
+		if s.ChannelID != channelID || s.ThreadTS != threadTS {
+			continue
+		}
+		if ts <= s.LastReplyTS {
+			return false
+		}
+		next := slices.Clone(m.summaries)
+		r := next[i]
+		r.LastReplyTS, r.LastReplyBy = ts, userID
+		r.ReplyCount++
+		r.Unread = r.Unread || unread
+		next = slices.Delete(next, i, i+1)
+		next = slices.Insert(next, 0, r)
+		m.replace(next)
+		return true
+	}
+	return false
+}
+
+// replace swaps in a new list. If the previously-selected (channelID,
+// threadTS) pair is still present in it, the selection follows it to
+// its new position; otherwise the selection resets to the top.
+//
+// Identical contents are a no-op (no version bump, no re-snap): each
+// bump forces a full re-render of the panel.
+func (m *Model) replace(s []core.ThreadSummary) {
 	if slices.Equal(m.summaries, s) {
 		return
 	}
@@ -428,11 +579,9 @@ func (m *Model) ClickAt(rowY int) bool {
 // MarkSelectedRead clears the local Unread flag on the currently selected
 // summary, if any. Returns true when a flag was actually flipped (so callers
 // can refresh dependent state, e.g. the sidebar's threads-row badge). This
-// is a presentation-only update: it does not touch Slack server state and
-// does not advance the thread_subscriptions row's last_read. The next
-// refresh from cache.ListSubscribedThreads will recompute Unread from the
-// persisted per-thread LastRead; a subsequent thread_marked WS echo (or
-// an explicit MarkThreadRead call) is what durably clears it.
+// is a presentation-only update: it does not touch Slack server state.
+// The thread_marked echo of the mark that follows (or the next page
+// load) is what durably clears it.
 func (m *Model) MarkSelectedRead() bool {
 	if m.selected < 0 || m.selected >= len(m.summaries) {
 		return false
@@ -451,12 +600,6 @@ func (m *Model) MarkSelectedRead() bool {
 // MarkByThreadTSReadAt this is presentation-only: it does not touch Slack
 // server state. Used by the U-key mark-unread flow and by the inbound
 // thread_marked WS handler.
-//
-// Note: the next refresh from cache.ListSubscribedThreads recomputes
-// Unread from the thread_subscriptions row's per-thread LastRead. If
-// that value is still ahead of LastReplyTS (e.g. because a stale
-// thread_marked persisted it), the flag may flip back to read on
-// refresh.
 func (m *Model) MarkByThreadTSUnread(channelID, threadTS string) bool {
 	if channelID == "" || threadTS == "" {
 		return false
@@ -483,8 +626,8 @@ func (m *Model) MarkByThreadTSUnread(channelID, threadTS string) bool {
 // This is the correct handler for an inbound thread_marked echo, which
 // carries a cursor. Slack's subscription `active` flag means
 // "subscribed", not "unread", and must never be used for this decision.
-// Presentation-only: the next cache.ListSubscribedThreads refresh
-// recomputes Unread from the same rule against durable state.
+// Presentation-only: the next page load recomputes Unread from the
+// same rule against Slack's cursor.
 func (m *Model) MarkByThreadTSReadAt(channelID, threadTS, lastRead string) bool {
 	if channelID == "" || threadTS == "" {
 		return false
@@ -543,7 +686,7 @@ func (m *Model) View(height, width int) string {
 	var bannerLine string
 	bodyHeight := height
 	if !m.subscriptionsAvailable {
-		bannerText := "Threads list unavailable — Slack subscription state could not be fetched. slk will retry on the next reconnect."
+		bannerText := "Threads list unavailable — Slack could not be reached. slk retries when you reopen Threads or scroll."
 		if w := lipgloss.Width(bannerText); w > width {
 			// Truncate to width.
 			runes := []rune(bannerText)
@@ -568,15 +711,20 @@ func (m *Model) View(height, width int) string {
 	// Body: the empty-state placeholder or the rendered rows. Mirror
 	// the existing logic but render into bodyHeight, then prepend the
 	// banner.
+	m.bodyHeight = bodyHeight
 	var body string
 	if len(m.summaries) == 0 {
-		empty := mutedStyle().Render("no threads")
+		text := "no threads"
+		if m.loading {
+			text = "loading threads…"
+		}
+		empty := mutedStyle().Render(text)
 		body = lipgloss.Place(width, bodyHeight, lipgloss.Center, lipgloss.Center, empty)
 	} else {
 		// Every card is cardContentLines tall with a separator between
 		// cards, so the scroll math needs only the line count; render
-		// just the cards in the viewport. The list can hold ~1000
-		// threads, and rendering all of them made each View ~300ms.
+		// just the cards in the viewport, however many pages the user
+		// has scrolled through.
 		totalLines := len(m.summaries)*cardStride - 1
 		if !m.hasSnapped || m.snappedSelection != m.selected {
 			m.snapToSelected(bodyHeight, totalLines)

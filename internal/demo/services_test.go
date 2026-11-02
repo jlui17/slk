@@ -181,8 +181,8 @@ func TestSearchAndThreadsList(t *testing.T) {
 	if !ok || len(res.TSes) != 1 || !slices.Equal(res.Terms, []string{"rate", "limiter"}) {
 		t.Errorf("SearchChannel = %#v", res)
 	}
-	list, ok := s.threads.ListFetch(ids.TeamID(teamLumen)).(ui.ThreadsListLoadedMsg)
-	if !ok || !list.SubscriptionsAvailable || len(list.Summaries) != 1 || list.Summaries[0].ChannelID != chDeploys {
+	list, ok := s.threads.ListFetch(ids.TeamID(teamLumen), "").(ui.ThreadsListLoadedMsg)
+	if !ok || list.Err != nil || len(list.Summaries) != 1 || list.Summaries[0].ChannelID != chDeploys {
 		t.Errorf("ListFetch = %#v", list)
 	}
 }

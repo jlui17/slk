@@ -555,16 +555,17 @@ func TestFocusedReplyInOpenThreadMarksThread(t *testing.T) {
 	}
 }
 
-// A thread reply produces TWO independent cmds -- the mark-flush tick
-// and the threads-list re-query tick. The tail must batch them; an
-// early return on either one silently drops the other.
-func TestThreadReplyArrival_ArmsFlushAndThreadsDirty(t *testing.T) {
+// A thread reply on screen arms the mark flush, and updates the
+// thread's Threads view row in place rather than asking Slack for the
+// list again.
+func TestThreadReplyArrival_ArmsFlushAndUpdatesTheRow(t *testing.T) {
 	app, _ := markCapture(t)
 	app.activeChannelID = "C1"
-	app.activeTeamID = "T1" // scheduleThreadsDirty returns nil without one
+	app.activeTeamID = "T1"
 	app.threadsDirtyDebounce = time.Millisecond
 	app.threadVisible = true
 	app.threadPanel.SetThread(messages.MessageItem{TS: "1.000000"}, nil, "C1", "1.000000")
+	app.threadsView.SetSummaries([]core.ThreadSummary{{ChannelID: "C1", ThreadTS: "1.000000", LastReplyTS: "2.000000"}})
 
 	_, cmd := app.Update(NewMessageMsg{
 		ChannelID: "C1",
@@ -583,8 +584,11 @@ func TestThreadReplyArrival_ArmsFlushAndThreadsDirty(t *testing.T) {
 	if !sawFlush {
 		t.Error("no markFlushMsg tick: the pending thread mark would never be issued")
 	}
-	if !sawDirty {
-		t.Error("no ThreadsListDirtyMsg tick: the involved-threads list would go stale")
+	if sawDirty {
+		t.Error("ThreadsListDirtyMsg sent: a reply updates its row in place")
+	}
+	if got := app.threadsView.Summaries()[0].LastReplyTS; got != "5.000000" {
+		t.Errorf("row LastReplyTS = %q, want the reply's 5.000000", got)
 	}
 }
 
@@ -1003,17 +1007,19 @@ func TestMarkFlushDebounce_DefaultFitsTheRateTier(t *testing.T) {
 	}
 }
 
-// threadsDirtyCapture returns an App whose ThreadService counts
-// ListFetch calls, with a tiny dirty debounce so the coalescing window
-// closes without the tests waiting on the 150ms production value.
+// threadsDirtyCapture returns an App on the Threads view whose
+// ThreadService counts ListFetch calls, with a tiny dirty debounce so
+// the coalescing window closes without the tests waiting on the
+// production value.
 func threadsDirtyCapture(t *testing.T) (*App, *int) {
 	t.Helper()
 	app := NewApp()
 	app.activeTeamID = "T1"
+	app.view = ViewThreads
 	app.threadsDirtyDebounce = time.Millisecond
 	fetches := new(int)
 	app.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
-		ListFetch: func(ids.TeamID) core.Msg {
+		ListFetch: func(ids.TeamID, string) core.Msg {
 			*fetches++
 			return nil
 		},
@@ -1021,14 +1027,13 @@ func threadsDirtyCapture(t *testing.T) (*App, *int) {
 	return app, fetches
 }
 
-// ThreadsListDirtyMsg has four senders that do not coordinate: the
-// thread_marked and thread_subscription_changed WS handlers send one
-// per event, the subscription sync sends one when it completes, and
-// scheduleThreadsDirty sends one per thread reply and per reply slk
-// itself sends. An actively-read thread therefore produces several for
-// the same stretch of activity, and each delivery re-runs
-// cache.ListSubscribedThreads. Coalescing on receipt is what holds that
-// to one query per window regardless of which senders fired.
+// ThreadsListDirtyMsg has senders that do not coordinate: the
+// update_global_thread_state and thread_subscription_changed WS
+// handlers send one per event, and the reconnect catch-up one per
+// pass. A followed thread being read in another client produces
+// several for the same change, and each delivery would be another
+// getView request. Coalescing on receipt is what holds that to one
+// request per window regardless of which senders fired.
 func TestThreadsDirtyBurst_CoalescesToOneListFetch(t *testing.T) {
 	app, fetches := threadsDirtyCapture(t)
 
@@ -1104,5 +1109,18 @@ func TestThreadsDirty_ForeignTeamNeitherFetchesNorOpensAWindow(t *testing.T) {
 	feed(t, app, cmd, 0)
 	if *fetches != 1 {
 		t.Errorf("ListFetch calls = %d, want 1: the foreign message must not have taken the window", *fetches)
+	}
+}
+
+// A closed Threads view loads afresh when it opens, so a change while
+// it is closed costs no request.
+func TestThreadsDirty_ClosedViewDoesNotFetch(t *testing.T) {
+	app, fetches := threadsDirtyCapture(t)
+	app.view = ViewChannels
+
+	_, cmd := app.Update(ThreadsListDirtyMsg{TeamID: "T1"})
+	feed(t, app, cmd, 0)
+	if *fetches != 0 {
+		t.Errorf("ListFetch calls = %d, want 0 while the view is closed", *fetches)
 	}
 }

@@ -3,7 +3,6 @@ package ui
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -560,7 +559,7 @@ func TestAgentThreadBackgroundListReloadKeepsUnread(t *testing.T) {
 		},
 	}))
 	a.view = ViewThreads
-	a.threadsView.SetSummaries([]cache.ThreadSummary{{
+	a.threadsView.SetSummaries([]core.ThreadSummary{{
 		ChannelID: "C1", ThreadTS: "100.0", ParentTS: "100.0", ParentUserID: "UHUMAN", Unread: true,
 	}})
 	// The user closed the panel but stayed in the threads view.
@@ -571,7 +570,7 @@ func TestAgentThreadBackgroundListReloadKeepsUnread(t *testing.T) {
 	// A reply schedules a list refresh. Landing it must not resurrect the
 	// closed panel: that reopen would fetch and mark the thread read for a
 	// reply the user never saw, wiping the unread state it just raised.
-	reduceThreads(a, ThreadsListLoadedMsg{TeamID: a.activeTeamID, Summaries: []cache.ThreadSummary{{
+	reduceThreads(a, ThreadsListLoadedMsg{TeamID: a.activeTeamID, Summaries: []core.ThreadSummary{{
 		ChannelID: "C1", ThreadTS: "100.0", ParentTS: "100.0", ParentUserID: "UHUMAN", Unread: true,
 	}}})
 	if fetched != 0 {
@@ -594,7 +593,7 @@ func TestAgentThreadOpenClearsUnreadWhenFetchFails(t *testing.T) {
 		Fetch:     func(ids.ChannelID, ids.ThreadTS) core.Msg { return nil },
 	}))
 	a.view = ViewThreads
-	a.threadsView.SetSummaries([]cache.ThreadSummary{{
+	a.threadsView.SetSummaries([]core.ThreadSummary{{
 		ChannelID: "C1", ThreadTS: "100.0", ParentTS: "100.0", ParentUserID: "UHUMAN", Unread: true,
 	}})
 	a.CloseThread()

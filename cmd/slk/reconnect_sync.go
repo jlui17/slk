@@ -65,11 +65,8 @@ type teaSender interface {
 //  3. Refresh the channel actually on screen, through the same path a
 //     channel switch uses.
 //
-// Thread subscriptions are NOT one of the steps. They rejoined the
-// reconnect path later, but at the handler level (syncOnReconnect's
-// ensureThreadSubs kick) with their own 30-minute throttle — one
-// paginated sweep per window, not the unbounded per-reconnect phase
-// measured above.
+// Threads are not swept either: step 1's client.counts carries the
+// Threads badge, and the Threads view loads from Slack when it is open.
 type reconnectSync struct {
 	client      reconnectClient
 	db          *cache.DB
@@ -90,6 +87,12 @@ type reconnectSync struct {
 	// to drop a counts snapshot an event superseded mid-request. Nil
 	// (tests) means no clock: the badge send always runs.
 	badgeEvents *badgeEventClock
+
+	// threadsBadge is the workspace's followed-threads state, which
+	// the counts snapshot refreshes unless an
+	// update_global_thread_state superseded it mid-request. Nil
+	// (tests) skips the Threads badge.
+	threadsBadge *threadsBadge
 }
 
 // run performs one catch-up pass.
@@ -136,7 +139,11 @@ func (r *reconnectSync) refreshUnreadState(ctx context.Context) {
 	if r.badgeEvents != nil {
 		badgeBefore = r.badgeEvents.current()
 	}
-	unreads, _, activityTotal, err := r.client.GetUnreadCounts(ctx)
+	threadsBefore := int64(0)
+	if r.threadsBadge != nil {
+		threadsBefore = r.threadsBadge.events.current()
+	}
+	unreads, threads, activityTotal, err := r.client.GetUnreadCounts(ctx)
 	if err != nil {
 		debuglog.Backfill("team=%s reconnect-sync counts err=%v (unread badges stay stale)", r.workspaceID, err)
 		return
@@ -148,6 +155,12 @@ func (r *reconnectSync) refreshUnreadState(ctx context.Context) {
 		// number, so there is no "empty result" ambiguity to guard on
 		// (a zero total legitimately clears the badge).
 		r.program.Send(ui.ActivityBadgeUpdatedMsg{TeamID: r.workspaceID, Total: activityTotal})
+	}
+	if r.threadsBadge != nil && r.threadsBadge.events.current() == threadsBefore {
+		r.threadsBadge.apply(r.workspaceID, threads, r.program.Send)
+		// Replies missed while offline may have reordered the Threads
+		// view; it reloads its first page if it is open.
+		r.program.Send(ui.ThreadsListDirtyMsg{TeamID: r.workspaceID})
 	}
 	if len(unreads) == 0 {
 		return

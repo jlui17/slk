@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,12 +29,6 @@ func (db *DB) migrateFork() error {
 		updated_at INTEGER NOT NULL DEFAULT 0
 	);
 
-	CREATE TABLE IF NOT EXISTS thread_sweep_claims (
-		workspace_id TEXT PRIMARY KEY,
-		claimed_at INTEGER NOT NULL DEFAULT 0,
-		completed_at INTEGER NOT NULL DEFAULT 0
-	);
-
 	CREATE TABLE IF NOT EXISTS agent_thread_marks (
 		workspace_id TEXT NOT NULL,
 		channel_id TEXT NOT NULL,
@@ -52,7 +48,9 @@ func (db *DB) migrateFork() error {
 	if _, err := db.conn.Exec(schema); err != nil {
 		return err
 	}
-	if err := db.addColumn(`ALTER TABLE thread_sweep_claims ADD COLUMN completed_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+	// The cross-instance claim on the boot getView sweep, which no
+	// longer runs.
+	if err := db.runOnce("drop-thread-sweep-claims", `DROP TABLE IF EXISTS thread_sweep_claims`); err != nil {
 		return err
 	}
 	// Rows cached by a binary on slack-go v0.23.0 carry table cells decoded
@@ -94,4 +92,13 @@ func (db *DB) addColumn(stmt string) error {
 		return nil
 	}
 	return err
+}
+
+// removeThreadSweepLocks deletes the lock files the retired
+// cross-instance getView sweep claim kept beside the cache database.
+func removeThreadSweepLocks(dir string) {
+	paths, _ := filepath.Glob(filepath.Join(dir, "thread-sweep-*.lock"))
+	for _, p := range paths {
+		_ = os.Remove(p)
+	}
 }

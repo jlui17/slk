@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log"
-
 	"github.com/gammons/slk/internal/cache"
 )
 
@@ -19,32 +17,29 @@ import (
 //     ChannelItem.IsVisiblyUnread, the predicate the sidebar dot,
 //     UnreadChannelCount and $SLK_UNREAD share, so a muted channel
 //     never lights the rail.
-//   - threads: threadsUnread(teamID, selfUserID) reports whether
-//     cache.ListSubscribedThreads has an Unread row, which is what the
-//     Threads badge counts. A thread reply never sets the channel's
-//     has_unread (OnMessage's channelEligible), so this is the only way
-//     a thread reaches the dot. Channel mute and wctx.Channels
-//     membership do not apply to it, as they do not to the badge.
+//   - threads: the workspace's ThreadsBadge reports unread followed
+//     threads, Slack's own has_unreads (see threadsBadge). A thread
+//     reply never sets the channel's has_unread (OnMessage's
+//     channelEligible), so this is the only way a thread reaches the
+//     dot. Channel mute and wctx.Channels membership do not apply to
+//     it, as they do not to the Threads badge.
 //
 // In production unread is db.UnreadChannels, teamIDs the configured
-// workspace list, byID router.ByID and threadsUnread
-// railThreadsCache.Unread over railThreadsUnread(db), which answers
-// without waiting for SQLite; all are parameters so the predicate is
-// pure.
+// workspace list and byID router.ByID; all are parameters so the
+// predicate is pure.
 //
 // Two edge cases go opposite ways. byID returning nil (still
-// connecting, or connect failed) lights on any unread channel row, and
-// runs the thread query with an empty self ID so its self-authored
-// suppression cannot fire (cached replies carry a user or bot ID,
-// OnMessage's authorID, so "" matches none): nothing to check against,
-// so MuteStore.Ready's conservative default applies and last session's
-// dots survive boot. A channel row whose channel is not in
-// wctx.Channels never lights: the sidebar cannot show it, so there is
-// no row to explain a dot and no keystroke to clear it.
+// connecting, or connect failed) lights on any unread channel row:
+// nothing to check against, so MuteStore.Ready's conservative default
+// applies and last session's dots survive boot. Its threads are not
+// known until it connects, so they light nothing. A channel row whose
+// channel is not in wctx.Channels never lights: the sidebar cannot
+// show it, so there is no row to explain a dot and no keystroke to
+// clear it.
 //
 // wctx.Channels is read on the UI goroutine without synchronization,
 // the way wireCallbacks' Lookup callback already reads it (#208).
-func railUnreadWorkspaces(unread []cache.UnreadChannel, teamIDs []string, byID func(teamID string) *WorkspaceContext, threadsUnread func(teamID, selfUserID string) bool) []string {
+func railUnreadWorkspaces(unread []cache.UnreadChannel, teamIDs []string, byID func(teamID string) *WorkspaceContext) []string {
 	var out []string
 	lit := map[string]bool{}
 	for _, u := range unread {
@@ -60,11 +55,7 @@ func railUnreadWorkspaces(unread []cache.UnreadChannel, teamIDs []string, byID f
 		if lit[teamID] {
 			continue
 		}
-		selfUserID := ""
-		if wctx := byID(teamID); wctx != nil {
-			selfUserID = wctx.UserID
-		}
-		if threadsUnread(teamID, selfUserID) {
+		if wctx := byID(teamID); wctx != nil && wctx.ThreadsBadge.hasUnreads.Load() {
 			lit[teamID] = true
 			out = append(out, teamID)
 		}
@@ -86,30 +77,4 @@ func railRowLights(u cache.UnreadChannel, wctx *WorkspaceContext) bool {
 		}
 	}
 	return false
-}
-
-// railThreadsUnread is the production threadsUnread input for
-// railUnreadWorkspaces: it runs the same cache.ListSubscribedThreads
-// query the Threads badge is counted from and reports whether any row
-// is Unread. Reusing the query rather than writing an EXISTS twin of
-// it is deliberate: a second predicate is a second place for the rail
-// and the badge to drift apart. It is not cheap: since the subscription
-// sync pages the whole list, a workspace can hold 1000 subscriptions,
-// measured at 40-50ms per workspace on a warm local cache and far more
-// in the field. So it runs behind railThreadsCache, never on the UI
-// goroutine.
-func railThreadsUnread(db *cache.DB) func(teamID, selfUserID string) bool {
-	return func(teamID, selfUserID string) bool {
-		summaries, err := db.ListSubscribedThreads(teamID, selfUserID)
-		if err != nil {
-			log.Printf("Warning: ListSubscribedThreads(%s): %v", teamID, err)
-			return false
-		}
-		for _, s := range summaries {
-			if s.Unread {
-				return true
-			}
-		}
-		return false
-	}
 }

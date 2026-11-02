@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,10 +174,11 @@ func TestMigrateForkBlanksLossyTableCellRows(t *testing.T) {
 	}
 }
 
-// A cache.db written before completed_at existed carries the
-// two-column thread_sweep_claims; opening it must add the column.
-func TestMigrateFork_AddsCompletedAtToPreExistingSweepClaims(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "claims.db")
+// The retired sweep claim leaves a thread_sweep_claims table and lock
+// files beside the database; opening it removes both.
+func TestNew_RemovesTheRetiredSweepClaim(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claims.db")
 	seed, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatalf("opening seed db: %v", err)
@@ -185,17 +187,24 @@ func TestMigrateFork_AddsCompletedAtToPreExistingSweepClaims(t *testing.T) {
 		t.Fatalf("seeding thread_sweep_claims: %v", err)
 	}
 	seed.Close()
+	lock := filepath.Join(dir, "thread-sweep-T1.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	db, err := New(path)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer db.Close()
-	has, err := db.hasColumn("thread_sweep_claims", "completed_at")
-	if err != nil {
+	var n int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'thread_sweep_claims'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if !has {
-		t.Fatal("completed_at not added to a pre-existing thread_sweep_claims")
+	if n != 0 {
+		t.Error("thread_sweep_claims survived opening the database")
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Errorf("sweep lock file still there: %v", err)
 	}
 }

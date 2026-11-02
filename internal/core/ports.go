@@ -104,23 +104,11 @@ type ThreadService interface {
 	// ThreadReplySentMsg or ThreadReplySendFailedMsg).
 	SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, broadcast bool) Msg
 
-	// ListFetch loads the involved-threads list for the workspace
-	// (Slack subscriptions.list). Returns a Msg (typically
-	// ThreadsListLoadedMsg).
-	ListFetch(teamID ids.TeamID) Msg
-
-	// EnsureSubscriptions kicks the workspace's throttled thread-
-	// subscription sync (subscriptions.thread.getView) in the
-	// background. Called on workspace-ready and on Threads-view
-	// activation; the implementation collapses those to at most one
-	// network sweep per throttle window, so callers fire
-	// unconditionally.
-	//
-	// Separate from ListFetch because ListFetch is cache-only and runs
-	// on workspace-ready (for the sidebar's Threads badge), whereas
-	// this may issue subscriptions.thread.getView, which paginates to
-	// a 1000-item hard cap — measured at ~62 requests per workspace.
-	EnsureSubscriptions(teamID ids.TeamID)
+	// ListFetch loads one page of the workspace's Threads view from
+	// Slack (subscriptions.thread.getView): the first page when cursor
+	// is "", else the page after cursor, a previous page's NextCursor.
+	// Returns a Msg (typically ThreadsListLoadedMsg).
+	ListFetch(teamID ids.TeamID, cursor string) Msg
 
 	// ThreadLastRead returns the thread's own last-read cursor from
 	// thread_subscriptions so the thread panel can render a "── new ──"

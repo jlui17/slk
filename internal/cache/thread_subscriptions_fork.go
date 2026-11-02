@@ -2,52 +2,24 @@ package cache
 
 import (
 	"fmt"
-
-	"github.com/gammons/slk/internal/debuglog"
 )
 
-// ThreadNewestActivity returns the ts of the newest known activity in a
-// thread: the max of the subscription row's latest_reply watermark (from
-// subscriptions.thread.getView) and the newest cached message in the
-// thread, parent row included. "" when the thread is entirely unknown.
-// Built from the same inputs as ListSubscribedThreads' Unread column,
-// with one divergence: the list additionally suppresses a self-authored
-// newest message.
-func (db *DB) ThreadNewestActivity(workspaceID, channelID, threadTS string) (string, error) {
-	var latestReply, cachedMaxTS string
-	if err := db.conn.QueryRow(threadNewestActivityQuery, workspaceID, channelID, threadTS,
-		channelID, threadTS, threadTS).Scan(&latestReply, &cachedMaxTS); err != nil {
+// ThreadNewestActivity returns the ts of the newest cached message in a
+// thread, parent row included, or "" when none is cached. The agent
+// thread sidebar compares a thread_marked cursor against it to tell a
+// read from a mark-unread; its thread is open or live-cached, so the
+// cache holds the newest reply.
+func (db *DB) ThreadNewestActivity(channelID, threadTS string) (string, error) {
+	var newest string
+	if err := db.conn.QueryRow(threadNewestActivityQuery, channelID, threadTS, threadTS).Scan(&newest); err != nil {
 		return "", fmt.Errorf("querying thread newest activity: %w", err)
 	}
-	if cachedMaxTS > latestReply {
-		return cachedMaxTS, nil
-	}
-	return latestReply, nil
+	return newest, nil
 }
 
-// The unary + on channel_id has the same reason as in
-// listSubscribedThreadsQuery: it keeps SQLite on the thread_ts and ts
+// The unary + on channel_id keeps SQLite on the thread_ts and ts
 // indexes instead of reading every cached message in the channel.
 const threadNewestActivityQuery = `
-SELECT
-    COALESCE((SELECT latest_reply FROM thread_subscriptions
-              WHERE workspace_id = ? AND channel_id = ? AND thread_ts = ?), ''),
-    COALESCE((SELECT MAX(ts) FROM messages
-              WHERE +channel_id = ? AND (thread_ts = ? OR ts = ?) AND is_deleted = 0), '')
+SELECT COALESCE((SELECT MAX(ts) FROM messages
+                 WHERE +channel_id = ? AND (thread_ts = ? OR ts = ?) AND is_deleted = 0), '')
 `
-
-// retractLatestReply: a deleted message can't stay a thread's
-// newest-activity watermark: with latest_reply pointing at it, a
-// read-to-end at the surviving newest reply computes as unread until
-// the next getView reconcile. Clear the watermark to unknown; unread
-// computations fall back to the surviving cached messages.
-func (db *DB) retractLatestReply(channelID, ts string) error {
-	if _, err := db.conn.Exec(
-		`UPDATE thread_subscriptions SET latest_reply = '' WHERE channel_id = ? AND latest_reply = ?`,
-		channelID, ts,
-	); err != nil {
-		debuglog.Cache("DeleteMessage: retract latest_reply %s/%s ERR=%v", channelID, ts, err)
-		return fmt.Errorf("retracting latest_reply: %w", err)
-	}
-	return nil
-}

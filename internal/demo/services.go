@@ -103,8 +103,9 @@ func (d *Demo) services() services {
 				dir.observe(Event{Kind: EventMessageSent, TeamID: w.teamOf(ch), ChannelID: ch, ThreadTS: tts})
 				return ui.ThreadReplySentMsg{ChannelID: ch, ThreadTS: tts, Message: m, Broadcast: broadcast}
 			},
-			ListFetch: func(teamID ids.TeamID) core.Msg {
-				return ui.ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: w.threadSummaries(string(teamID)), SubscriptionsAvailable: true}
+			// The demo's whole list is one page.
+			ListFetch: func(teamID ids.TeamID, _ string) core.Msg {
+				return ui.ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: w.threadSummaries(string(teamID))}
 			},
 		}),
 		messages: core.NewMessageService(core.MessageServiceFuncs{

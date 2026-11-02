@@ -572,6 +572,12 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 		return nil
 	}
 
+	// The root carries the user's read cursor in the thread, which the
+	// thread panel's "── new ──" boundary reads.
+	if len(history) > 0 && history[0].Timestamp == threadTS {
+		recordThreadCursor(db, client.TeamID(), channelID, history[0])
+	}
+
 	// GetReplies pages to the end, so history is the whole thread: any
 	// cached reply missing from it is one Slack no longer has (or never
 	// had, like a Slackbot ephemeral). Cutoff is the request's start, so

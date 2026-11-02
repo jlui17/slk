@@ -18,8 +18,8 @@ func TestNewRejectsUnknownScenario(t *testing.T) {
 func TestStartupMsgs(t *testing.T) {
 	d := testDemo(t)
 	msgs := d.StartupMsgs()
-	if len(msgs) != 3 {
-		t.Fatalf("got %d startup messages, want 3", len(msgs))
+	if len(msgs) != 5 {
+		t.Fatalf("got %d startup messages, want 5", len(msgs))
 	}
 	lumen, ok := msgs[0].(ui.WorkspaceReadyMsg)
 	if !ok || !lumen.InitialActive || lumen.TeamID != teamLumen || lumen.LastChannelID != chGeneral ||
@@ -29,8 +29,13 @@ func TestStartupMsgs(t *testing.T) {
 	if dw, ok := msgs[1].(ui.WorkspaceReadyMsg); !ok || dw.InitialActive || dw.TeamID != teamDriftwood {
 		t.Errorf("second = %#v", msgs[1])
 	}
-	if c, ok := msgs[2].(ui.ConnectionStateMsg); !ok || c.State != 1 {
-		t.Errorf("third = %#v, want connected", msgs[2])
+	for i, team := range []string{teamLumen, teamDriftwood} {
+		if b, ok := msgs[2+i].(ui.ThreadsBadgeUpdatedMsg); !ok || b.TeamID != team {
+			t.Errorf("msg %d = %#v, want %s's Threads badge", 2+i, msgs[2+i], team)
+		}
+	}
+	if c, ok := msgs[4].(ui.ConnectionStateMsg); !ok || c.State != 1 {
+		t.Errorf("last = %#v, want connected", msgs[4])
 	}
 	if d.InitialTheme() != "tokyo night" {
 		t.Errorf("InitialTheme = %q", d.InitialTheme())

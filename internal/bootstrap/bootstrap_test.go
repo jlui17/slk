@@ -170,7 +170,7 @@ func cannedCounts() Counts {
 			{ChannelID: "C_GENERAL", MentionCount: 7, HasUnread: true, LastRead: "1700000001.000100"},
 			{ChannelID: "D_ALICE", MentionCount: 3, HasUnread: true, LastRead: "1700000002.000200"},
 		},
-		Threads: Threads{HasUnreads: true, UnreadCount: 11, MentionCount: 5},
+		Threads: Threads{HasUnreads: true, UnreadThreads: 11, MentionCount: 5},
 	}
 }
 
@@ -471,7 +471,7 @@ func (f *fakeDeps) UserBoot(context.Context) (*boot.Result, error) {
 func poisonedCounts() Counts {
 	return Counts{
 		Unreads: []Unread{{ChannelID: "C_POISON", MentionCount: 999, HasUnread: true, LastRead: "9999999999.999999"}},
-		Threads: Threads{HasUnreads: true, UnreadCount: 999, MentionCount: 999},
+		Threads: Threads{HasUnreads: true, UnreadThreads: 999, MentionCount: 999},
 	}
 }
 

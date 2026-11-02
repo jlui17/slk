@@ -2,7 +2,7 @@
 //
 // Thread-family reducer for App.Update (Phase 4h).
 //
-// Owns the eleven Update arms that drive the thread panel, the
+// Owns the twelve Update arms that drive the thread panel, the
 // threads-list view, and the thread-reply send path:
 //
 //	ThreadMarkedRemoteMsg       - apply an inbound thread_marked event
@@ -26,22 +26,26 @@
 //	                              panel, mark the thread as read, and
 //	                              refresh the sidebar badge.
 //	ThreadsViewActivatedMsg     - user opened the threads-list view:
-//	                              switch view + focus, kick a list
-//	                              fetch, open the highlighted thread.
-//	ThreadsListLoadedMsg        - threads-list fetch returned: push
-//	                              summaries + refresh badge, re-open
-//	                              the highlighted thread if visible.
-//	ThreadsListDirtyMsg         - "the list might be stale" from any of
-//	                              its uncoordinated senders: open a
-//	                              coalescing window, or join the open
-//	                              one.
-//	threadsListFetchMsg         - that window closing: run the refresh
-//	                              fetch the window's messages asked for.
+//	                              switch view + focus, fetch its first
+//	                              page from Slack, open the highlighted
+//	                              thread of the page last loaded.
+//	ThreadsListLoadedMsg        - a page landed: install the first page
+//	                              or append a later one; never opens a
+//	                              thread.
+//	ThreadsBadgeUpdatedMsg      - Slack's count of unread followed
+//	                              threads: store it, show it on the
+//	                              sidebar's Threads row, refresh the rail.
+//	ThreadsListDirtyMsg         - "the first page might be stale" from
+//	                              any of its uncoordinated senders: open
+//	                              a coalescing window, or join the open
+//	                              one, while the view is on screen.
+//	threadsListFetchMsg         - that window closing: refetch the first
+//	                              page.
 //	SendThreadReplyMsg          - user sent a reply: optimistic
 //	                              placeholder + chat.postMessage call.
 //	ThreadReplySentMsg          - reply landed: swap placeholder for
 //	                              authoritative message, bump parent
-//	                              reply count, mark threads list dirty.
+//	                              reply count and the thread's row.
 //	ThreadReplySendFailedMsg    - reply failed: roll back the
 //	                              placeholder + fire SendFailed toast.
 //
@@ -53,8 +57,8 @@
 // than an extraction (see Phase 3's WorkspaceService skip rationale).
 //
 // The helpers (applyThreadMarkEcho, applyThreadMarkListState,
-// scheduleThreadsDirty, openSelectedThreadCmd) stay on App; this
-// reducer calls them via `a`.
+// openSelectedThreadCmd, loadMoreThreadsCmd) stay on App; this reducer
+// calls them via `a`.
 package ui
 
 import (
@@ -166,6 +170,12 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.FromCache {
 			return labelCmd, true
 		}
+		// A thread opened with no cursor known (never in a loaded
+		// Threads page, no cached root) has one now: the fetch
+		// recorded the root's, which predates the mark below.
+		if a.threadPanel.LastReadTS() == "" {
+			a.applyThreadUnreadBoundary(channelID, m.ThreadTS)
+		}
 		cmd := a.markFetchedThreadRead(channelID, m.ThreadTS, m.Replies)
 		return tea.Batch(cmd, labelCmd), true
 
@@ -180,19 +190,16 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.focusedPanel = PanelMessages
 		var batch []tea.Cmd
 		if a.activeTeamID != "" {
+			// The list loads from Slack on every open, as in the Slack
+			// app; the page last loaded this session stays on screen
+			// until the new one lands.
+			a.threadsRefreshKeepsOlder = false
+			if len(a.threadsView.Summaries()) == 0 {
+				a.threadsView.SetLoading(true)
+			}
 			threads := a.threads
 			team := ids.TeamID(a.activeTeamID)
-			// Activation is the sync's safety-net trigger (boot via
-			// workspace-ready is the primary one). The implementation
-			// throttles, so this fires unconditionally; it returns
-			// immediately and refreshes the list via
-			// ThreadsListDirtyMsg when a fetch lands, so the ListFetch
-			// below still renders from cache first.
-			batch = append(batch, func() tea.Msg {
-				threads.EnsureSubscriptions(team)
-				return nil
-			})
-			batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
+			batch = append(batch, func() tea.Msg { return threads.ListFetch(team, "") })
 		}
 		// Activation is a single event -- fire the fetch immediately
 		// so the right thread panel populates without artificial delay.
@@ -206,61 +213,52 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case ThreadsListLoadedMsg:
 		if m.TeamID != a.activeTeamID {
-			// The list cannot go on screen: the user has switched
-			// away since the fetch was issued. It is still the tail
-			// of a thread change dispatched while that workspace was
-			// active, the switch did not recompute the rail
-			// (reduceWorkspaceSwitched only swaps the channel list),
-			// and the rail's thread half reads the rows this list was
-			// read from -- so refresh the dot, or the change never
-			// reaches it.
-			a.notifyReadStateChanged()
 			return nil, true
 		}
-		a.threadsView.SetSummaries(m.Summaries)
-		a.threadsView.SetSubscriptionsAvailable(m.SubscriptionsAvailable)
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-		// The badge and the rail's thread half count the same query
-		// (cache.ListSubscribedThreads); recompute the rail at the
-		// moment the badge changes so the two cannot disagree for the
-		// workspace the user is looking at.
+		a.threadsView.SetSubscriptionsAvailable(m.Err == nil)
+		if m.Err != nil {
+			a.threadsView.PageFailed(m.Cursor)
+			return nil, true
+		}
+		if m.Cursor == "" {
+			a.threadsView.SetFirstPage(m.Summaries, m.NextCursor, a.threadsRefreshKeepsOlder)
+			a.threadsRefreshKeepsOlder = false
+		} else {
+			a.threadsView.AppendPage(m.Cursor, m.Summaries, m.NextCursor)
+		}
+		if a.view != ViewThreads {
+			return nil, true
+		}
+		// A page never opens a thread: opening one marks it read on
+		// Slack, which only the user may ask for. A refresh can also
+		// move the selection (a thread just read leaves the first
+		// page, as Slack lists unread threads first), and reopening
+		// what is highlighted then would read the next thread, and
+		// the next. A page that leaves the end of the list on screen
+		// asks for the next one, as scrolling there would.
+		return a.loadMoreThreadsCmd(), true
+
+	case ThreadsBadgeUpdatedMsg:
+		if a.threadsBadgeCounts == nil {
+			a.threadsBadgeCounts = make(map[string]int)
+		}
+		a.threadsBadgeCounts[m.TeamID] = m.UnreadThreads
+		if m.TeamID == a.activeTeamID {
+			a.sidebar.SetThreadsUnreadCount(m.UnreadThreads)
+		}
+		// The rail's thread half is the same Slack state, stored
+		// before this was sent.
 		a.notifyReadStateChanged()
-		// Re-open only what's already on screen. A background reload
-		// must not resurrect a panel the user closed: that reopen
-		// fetches and marks the thread read (here and on Slack) for
-		// replies nobody has looked at, silently clearing their unread
-		// state -- including the agent sidebar's.
-		if a.view != ViewThreads || !a.threadVisible {
-			return nil, true
-		}
-		// List reload is a single event; if the dedup short-circuits
-		// no fetch happens anyway. Don't add 200ms latency here.
-		if cmd := a.openSelectedThreadCmd(false); cmd != nil {
-			return cmd, true
-		}
 		return nil, true
 
 	case ThreadsListDirtyMsg:
-		// Team check first: a dirty message for another workspace must
-		// not take the coalescing window from the active one.
-		if m.TeamID != a.activeTeamID {
-			// No fetch, the list is not on screen; but the rows the
-			// sender changed are the rows the rail's thread half reads,
-			// and for the subscription reconcile (boot, reconnect,
-			// wake: ensureWorkspaceThreadSubs in cmd/slk) this is the
-			// only signal an inactive workspace gets. It lands after
-			// WorkspaceReadyMsg's refresh, so without this a thread
-			// read elsewhere while slk was closed kept its dot until
-			// an unrelated event.
-			a.notifyReadStateChanged()
+		// Only an open view refreshes: a closed one loads afresh when
+		// it opens, and another workspace's is not on screen.
+		if m.TeamID != a.activeTeamID || a.view != ViewThreads {
 			return nil, true
 		}
 		// Drop it if a refresh is already waiting: that fetch has not
-		// run yet, so it will see this change too. Senders do not
-		// coalesce among themselves — a thread being read produces one
-		// from the thread_marked handler per auto-mark on top of the
-		// one scheduleThreadsDirty schedules per reply, and each
-		// uncoalesced delivery is another ListSubscribedThreads query.
+		// run yet, so it will see this change too.
 		if a.threadsListFetchScheduled {
 			return nil, true
 		}
@@ -276,15 +274,16 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case threadsListFetchMsg:
 		// Cleared before either return so the window always reopens.
-		// Leaving it set when the team check below drops the fetch
-		// would freeze the threads list for the rest of the session.
+		// Leaving it set when the checks below drop the fetch would
+		// freeze the threads list for the rest of the session.
 		a.threadsListFetchScheduled = false
-		if m.teamID != a.activeTeamID {
+		if m.teamID != a.activeTeamID || a.view != ViewThreads {
 			return nil, true
 		}
+		a.threadsRefreshKeepsOlder = true
 		threads := a.threads
 		team := ids.TeamID(a.activeTeamID)
-		return func() tea.Msg { return threads.ListFetch(team) }, true
+		return func() tea.Msg { return threads.ListFetch(team, "") }, true
 
 	case SendThreadReplyMsg:
 		a.selfSend.BeginSend(m.ChannelID)
@@ -388,9 +387,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
 			mm.IncrementReplyCount(m.ThreadTS, m.Message.TS)
 		}
-		if c := a.scheduleThreadsDirty(); c != nil {
-			return c, true
-		}
+		a.applyThreadsReply(m.ChannelID, m.Message, true)
 		return nil, true
 
 	case ThreadReplySendFailedMsg:
@@ -466,8 +463,8 @@ func (a *App) markOpenThreadRead(channelID, threadTS string, replies []messages.
 			})
 		}
 	}
-	// Optimistic local recompute so the badge updates immediately
-	// rather than waiting on the round-trip. MarkByThreadTSReadAt
+	// Optimistic local recompute so the row and badge update
+	// immediately rather than waiting on the round-trip. MarkByThreadTSReadAt
 	// sets Unread = summary.LastReplyTS > latestTS, so it usually
 	// clears the flag; but it re-derives rather than clears, so it
 	// can also set it. That happens when the summary knows a newer
@@ -475,9 +472,28 @@ func (a *App) markOpenThreadRead(channelID, threadTS string, replies []messages.
 	// which case the thread really is still unread and stays
 	// flagged. ThreadMarkedLocalMsg reconciles this against the
 	// cursor Slack accepted on success; a rejected mark leaves
-	// state untouched and heals on the next list refresh.
+	// state untouched and heals on the next list refresh. The badge
+	// moves now, before the mark is sent, so Slack's
+	// update_global_thread_state for it can only land after.
+	before := a.threadsView.UnreadCount()
 	if a.threadsView.MarkByThreadTSReadAt(channelID, threadTS, latestTS) {
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+		a.adjustThreadsBadge(a.threadsView.UnreadCount() - before)
 	}
 	return cmd
+}
+
+// loadMoreThreadsCmd fetches the Threads view's next page when the user
+// has come near the end of the loaded rows (threadsview.NextPage), or
+// returns nil.
+func (a *App) loadMoreThreadsCmd() tea.Cmd {
+	if a.activeTeamID == "" {
+		return nil
+	}
+	cursor, ok := a.threadsView.NextPage()
+	if !ok {
+		return nil
+	}
+	threads := a.threads
+	team := ids.TeamID(a.activeTeamID)
+	return func() tea.Msg { return threads.ListFetch(team, cursor) }
 }

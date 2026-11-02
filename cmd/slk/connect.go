@@ -95,9 +95,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		AvatarURLs:           &sync.Map{},
 		UserNamesByHandle:    make(map[string]string),
 		LastVisitedByChannel: sharedmap.New[string, int64](),
-		ThreadSubsGate:       threadSubsGate{window: threadSubsSyncInterval},
 	}
-	wctx.SubscriptionsAvailable = true
 
 	// Seed user names + bot flags from cache (fast, local). The bot
 	// flag is what lets channel construction below classify app DMs
@@ -306,14 +304,6 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.MuteStore = store
 	}
 
-	// Thread subscriptions are deliberately NOT fetched here. The
-	// trigger is the WorkspaceReadyMsg the reducer handles after
-	// connectWorkspace returns: ensureThreadSubscriptions runs the
-	// sync throttled (one sweep per threadSubsSyncInterval) and
-	// staggered per workspace, so a Grid boot doesn't fire every
-	// workspace's ~62-request paginated sweep in the same second.
-	// See that function for the full rationale.
-
 	// There is deliberately no workspace-wide user fetch here.
 	//
 	// A users.list sweep used to run in the background at this point,
@@ -412,16 +402,22 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	if !ucOK {
 		debuglog.Cache("workspace_unread_bootstrap: team=%s client.counts failed during bootstrap; leaving read state as cached", token.TeamName)
 	}
-	wctx.ThreadsHasUnreads = res.Counts.Threads.HasUnreads
 	wctx.BadgeEvents = &badgeEventClock{}
-	// The Activity badge rides the same call: the total unread
-	// activity, delivered to the UI before this workspace's WebSocket
-	// goes live so the first frame already shows the real number. The
-	// badge_counts_updated events that keep it current arrive on the
-	// socket; member tokens whose counts the grid restricts never send
-	// this and keep a zero badge.
+	// The Activity and Threads badges ride the same call, delivered to
+	// the UI before this workspace's WebSocket goes live so the first
+	// frame already shows the real numbers. The badge_counts_updated
+	// and update_global_thread_state events that keep them current
+	// arrive on the socket; member tokens whose counts the grid
+	// restricts never send these and keep zero badges. The Threads
+	// view itself is not fetched until it is opened, as the Slack app
+	// does.
 	if ucOK {
 		p.Send(ui.ActivityBadgeUpdatedMsg{TeamID: client.TeamID(), Total: res.Counts.ActivityTotal})
+		wctx.ThreadsBadge.apply(client.TeamID(), slackclient.ThreadsAggregate{
+			HasUnreads:    res.Counts.Threads.HasUnreads,
+			UnreadThreads: res.Counts.Threads.UnreadThreads,
+			MentionCount:  res.Counts.Threads.MentionCount,
+		}, p.Send)
 	}
 	// Boot applies an authoritative FULL snapshot: reset every channel
 	// in the workspace to read, then set the ones client.counts reports
@@ -477,7 +473,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			}
 		}
 		debuglog.Cache("workspace_unread_bootstrap: team=%s total=%d muted=%d threads_has_unreads=%v threads_unread=%d",
-			token.TeamName, len(wctx.Channels), mutedChans, res.Counts.Threads.HasUnreads, res.Counts.Threads.UnreadCount)
+			token.TeamName, len(wctx.Channels), mutedChans, res.Counts.Threads.HasUnreads, res.Counts.Threads.UnreadThreads)
 	}
 
 	// Finder items are built alongside the sidebar items in the loop above
@@ -596,15 +592,6 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 	if h.wsCtx == nil || h.db == nil || h.wsCtx.Client == nil {
 		return false
 	}
-	// Threads: same "socket replays nothing" gap as the channel pass
-	// below. Fired BEFORE the dedupe check and unconditionally: the
-	// threadSubsGate inside throttles to one sweep per
-	// threadSubsSyncInterval, so the kick costs nothing when the last
-	// sync was recent, and a long offline gap must not have its
-	// reconciliation skipped just because a channel pass ran 10 s ago.
-	if h.ensureThreadSubs != nil {
-		h.ensureThreadSubs()
-	}
 	if !h.backfillGate.tryStart(time.Now()) {
 		debuglog.Backfill("team=%s trigger=%s skipped reason=dedupe", h.workspaceID, trigger)
 		return false
@@ -617,6 +604,7 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 		activeChannel:  h.activeChannelID,
 		refreshChannel: h.refreshChannel,
 		badgeEvents:    h.wsCtx.BadgeEvents,
+		threadsBadge:   &h.wsCtx.ThreadsBadge,
 	}
 	go func() {
 		if err := sync.run(context.Background()); err != nil {

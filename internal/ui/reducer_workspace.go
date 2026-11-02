@@ -208,13 +208,13 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.view = ViewChannels
 		a.sidebar.SetThreadsActive(false)
 		a.threadsView.SetSummaries(nil)
-		a.sidebar.SetThreadsUnreadCount(0)
+		a.sidebar.SetThreadsUnreadCount(a.threadsBadgeCounts[m.TeamID])
 		a.sidebar.SetActivityActive(false)
 		a.activityView.SetItems(nil)
 		a.activityView.SetBodies(nil)
 		// Same as the switch arm: the workspace's stored activity
-		// total, which connectWorkspace sent (or a
-		// badge_counts_updated event set) before this landed.
+		// and threads totals, which connectWorkspace sent (or a
+		// badge event set) before this landed.
 		a.sidebar.SetActivityUnreadCount(a.activityBadgeTotals[m.TeamID])
 		a.lastOpenedChannelID = ""
 		a.lastOpenedThreadTS = ""
@@ -289,24 +289,6 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 			return activity.Fetch(team, activityFeedPageLimit, unreadOnly)
 		})
 	}
-	// Initial threads-list fetch fires for every workspace as it
-	// becomes ready; the result is gated by ThreadsListLoadedMsg's
-	// TeamID == activeTeamID check, so background fetches are
-	// dropped without affecting the active sidebar.
-	threads := a.threads
-	team := ids.TeamID(m.TeamID)
-	batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
-	// Boot is also the subscription sync's primary trigger: the socket
-	// replays nothing, so after any offline gap (app closed, laptop
-	// asleep) the cached thread_subscriptions table is stale and only
-	// subscriptions.thread.getView reconciles it. Fires for EVERY
-	// workspace, not just the active one — the reducer stays dumb;
-	// the main-package gate collapses this to one throttled, staggered
-	// network sweep per workspace.
-	batch = append(batch, func() tea.Msg {
-		threads.EnsureSubscriptions(team)
-		return nil
-	})
 	// The rail reader keeps a workspace's cached dot until the router
 	// knows the workspace, so last session's dots survive boot. Now
 	// that this one is connected the answer can change -- a cached dot
@@ -364,13 +346,13 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.sidebar.SetThreadsActive(false)
 	a.sidebar.SetActivityActive(false)
 	a.threadsView.SetSummaries(nil)
-	a.sidebar.SetThreadsUnreadCount(0)
+	a.sidebar.SetThreadsUnreadCount(a.threadsBadgeCounts[m.TeamID])
 	a.activityView.SetItems(nil)
 	a.activityView.SetBodies(nil)
-	// The incoming workspace's badge is its stored activity total, not
-	// zero: the boot counts call (or badge_counts_updated since) left
-	// the real number in activityBadgeTotals. A workspace with no entry
-	// - a grid-restricted member - keeps zero.
+	// The incoming workspace's badges are its stored totals, not zero:
+	// the boot counts call (or a badge event since) left the real
+	// numbers in activityBadgeTotals and threadsBadgeCounts. A
+	// workspace with no entry - a grid-restricted member - keeps zero.
 	a.sidebar.SetActivityUnreadCount(a.activityBadgeTotals[m.TeamID])
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
@@ -461,12 +443,8 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 		a.messagepane.SetLoading(false)
 		a.messagepane.SetMessages(nil)
 	}
-	// Kick off an initial threads-list fetch so the sidebar
-	// Threads row badge populates before the user opens the view.
-	threads := a.threads
+	// Refresh the Activity view for the newly-active workspace.
 	team := ids.TeamID(m.TeamID)
-	batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
-	// Refresh the Activity badge for the newly-active workspace too.
 	activity := a.activity
 	unreadOnly := a.activityView.UnreadOnly()
 	batch = append(batch, func() tea.Msg {

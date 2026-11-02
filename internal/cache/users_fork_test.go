@@ -11,7 +11,7 @@ import (
 // used to self-heal via reconnect presence echoes, and the presence
 // dedupe now (correctly) swallows those.
 func TestUpsertUser_DoesNotClobberLivePresence(t *testing.T) {
-	db := newClaimDB(t, filepath.Join(t.TempDir(), "u.db"))
+	db := newFileDB(t, filepath.Join(t.TempDir(), "u.db"))
 	if err := db.UpsertWorkspace(Workspace{ID: "T1", Name: "T"}); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestUpsertUser_DoesNotClobberLivePresence(t *testing.T) {
 }
 
 func TestUpsertUser_InsertStillSeedsPresence(t *testing.T) {
-	db := newClaimDB(t, filepath.Join(t.TempDir(), "u.db"))
+	db := newFileDB(t, filepath.Join(t.TempDir(), "u.db"))
 	if err := db.UpsertWorkspace(Workspace{ID: "T1", Name: "T"}); err != nil {
 		t.Fatal(err)
 	}
@@ -51,4 +51,15 @@ func TestUpsertUser_InsertStillSeedsPresence(t *testing.T) {
 	if u.Presence != "away" {
 		t.Fatalf("presence = %q on first insert; want the seeded \"away\"", u.Presence)
 	}
+}
+
+// newFileDB opens a database at path, closed at cleanup.
+func newFileDB(t *testing.T, path string) *DB {
+	t.Helper()
+	db, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
 }

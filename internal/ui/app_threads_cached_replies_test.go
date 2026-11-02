@@ -3,7 +3,6 @@ package ui
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -18,7 +17,7 @@ type threadsCalls struct{ fetch, mark int }
 // parent's ts), and whose thread last-read cursor is the first reply.
 func cachedThreadsApp(t *testing.T, cachedReplies bool) (*App, *threadsCalls) {
 	t.Helper()
-	a := newTestAppWithThreadsView(t, []cache.ThreadSummary{
+	a := newTestAppWithThreadsView(t, []core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "1.0", ParentTS: "1.0", ParentText: "p1", ChannelName: "g1"},
 		{ChannelID: "C2", ThreadTS: "2.0", ParentTS: "2.0", ParentText: "p2", ChannelName: "g2"},
 		{ChannelID: "C3", ThreadTS: "3.0", ParentTS: "3.0", ParentText: "p3", ChannelName: "g3"},

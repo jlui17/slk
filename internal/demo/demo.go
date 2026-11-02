@@ -119,9 +119,9 @@ func (d *Demo) imageContext() imgrender.ImageContext {
 
 // StartupMsgs are what cmd/slk sends as workspaces connect: one ready
 // message per workspace (the first is the initial active one), then
-// "connected".
+// each workspace's Threads badge, then "connected".
 func (d *Demo) StartupMsgs() []tea.Msg {
-	var out []tea.Msg
+	var out, badges []tea.Msg
 	for i, s := range d.world.snapshots() {
 		out = append(out, ui.WorkspaceReadyMsg{
 			TeamID: s.id, TeamName: s.name, Domain: s.domain, Theme: s.theme,
@@ -129,7 +129,15 @@ func (d *Demo) StartupMsgs() []tea.Msg {
 			UserStatuses: s.statuses, UserID: s.selfID,
 			InitialActive: i == 0, LastChannelID: s.firstChannel,
 		})
+		unread := 0
+		for _, t := range d.world.threadSummaries(s.id) {
+			if t.Unread {
+				unread++
+			}
+		}
+		badges = append(badges, ui.ThreadsBadgeUpdatedMsg{TeamID: s.id, UnreadThreads: unread})
 	}
+	out = append(out, badges...)
 	return append(out, ui.ConnectionStateMsg{State: connected})
 }
 

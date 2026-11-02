@@ -1072,6 +1072,36 @@ func TestGetUnreadCounts_UsesAPIBaseURL(t *testing.T) {
 	}
 }
 
+// TestGetUnreadCounts_ThreadsBadge: client.counts is asked for
+// per-channel thread counts, as the web client asks, and the Threads
+// badge is the number of unread followed threads, the sum of
+// unread_count_by_channel. The response is a live Colony one, trimmed.
+func TestGetUnreadCounts_ThreadsBadge(t *testing.T) {
+	var flag string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		flag = r.PostForm.Get("thread_counts_by_channel")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[],"threads":{"has_unreads":true,"mention_count":50,"vip_count":0,
+			"mention_count_by_channel":{"C0BMHNZUH4G":6},
+			"unread_count_by_channel":{"C0AHZU5P0MC":1,"C0AJAL5UV34":9,"C0C6ZMJJT1U":27}},
+			"channel_badges":{"thread_mentions":50,"thread_unreads":53}}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
+	_, threads, _, err := c.GetUnreadCounts(context.Background())
+	if err != nil {
+		t.Fatalf("GetUnreadCounts: %v", err)
+	}
+	if flag != "true" {
+		t.Errorf("thread_counts_by_channel = %q, want true", flag)
+	}
+	if want := (ThreadsAggregate{HasUnreads: true, UnreadThreads: 37, MentionCount: 50}); threads != want {
+		t.Errorf("threads = %+v, want %+v", threads, want)
+	}
+}
+
 func TestGetChannelSections_UsesAPIBaseURL(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2047,59 +2077,66 @@ func TestGetHistorySince_NoMessages(t *testing.T) {
 	}
 }
 
-func TestListThreadSubscriptions_PaginatesUntilExhausted(t *testing.T) {
+// TestGetThreadsView_AsksForOnePageLikeTheWebClient pins the request
+// to the official client's: limit 8, threads state, priority mode all,
+// and the refresh reason on the first page.
+func TestGetThreadsView_AsksForOnePageLikeTheWebClient(t *testing.T) {
 	var calls int
-	var capturedCurrentTS []string
+	var form url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		_ = r.ParseForm()
-		capturedCurrentTS = append(capturedCurrentTS, r.PostForm.Get("current_ts"))
+		form = r.PostForm
 		w.Header().Set("Content-Type", "application/json")
-		switch calls {
-		case 1:
-			_, _ = w.Write([]byte(`{
-				"ok": true,
-				"threads": [
-					{"root_msg": {"channel": "C1", "ts": "1700000000.000100", "thread_ts": "1700000000.000100", "last_read": "1700000000.000200", "subscribed": true, "user": "U2", "text": "p1"}},
-					{"root_msg": {"channel": "C2", "ts": "1700000001.000100", "thread_ts": "1700000001.000100", "last_read": "1700000001.000200", "subscribed": true, "user": "U3", "text": "p2"}}
-				],
-				"has_more": true,
-				"max_ts": "1700000001.000100"
-			}`))
-		case 2:
-			_, _ = w.Write([]byte(`{
-				"ok": true,
-				"threads": [
-					{"root_msg": {"channel": "C3", "ts": "1700000002.000100", "thread_ts": "1700000002.000100", "last_read": "1700000002.000200", "subscribed": true, "user": "U4", "text": "p3"}}
-				],
-				"has_more": false,
-				"max_ts": "1700000002.000100"
-			}`))
-		default:
-			t.Fatalf("unexpected call %d", calls)
-		}
+		_, _ = w.Write([]byte(`{"ok":true,"threads":[],"has_more":false}`))
 	}))
 	defer srv.Close()
 
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
+	c := NewClient("xoxc-test", "d-cookie")
+	pointClientAtTestServer(t, c, srv)
+	if _, err := c.GetThreadsView(context.Background(), ""); err != nil {
+		t.Fatalf("GetThreadsView: %v", err)
 	}
-	if calls != 2 {
-		t.Errorf("calls = %d, want 2", calls)
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
-	if len(got) != 3 {
-		t.Errorf("len(got) = %d, want 3", len(got))
+	want := map[string]string{
+		"limit":               "8",
+		"fetch_threads_state": "true",
+		"priority_mode":       "all",
+		"current_ts":          "",
+		"_x_reason":           "fetch-threads-view-via-refresh",
 	}
-	if got[0].Subscription.ChannelID != "C1" || got[2].Subscription.ChannelID != "C3" {
-		t.Errorf("got = %+v", got)
+	for k, v := range want {
+		if got := form.Get(k); got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
 	}
-	if got[0].RootMessage.Text != "p1" {
-		t.Errorf("expected root_msg.text to populate RootMessage.Text, got %+v", got[0].RootMessage)
+}
+
+// TestGetThreadsView_LoadMoreSendsCursorAndReason: an older page sends
+// the previous page's NextCursor as current_ts, with the load-more
+// reason.
+func TestGetThreadsView_LoadMoreSendsCursorAndReason(t *testing.T) {
+	var form url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		form = r.PostForm
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"threads":[],"has_more":false}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("xoxc-test", "d-cookie")
+	pointClientAtTestServer(t, c, srv)
+	if _, err := c.GetThreadsView(context.Background(), "1790000010.000100"); err != nil {
+		t.Fatalf("GetThreadsView: %v", err)
 	}
-	if capturedCurrentTS[0] != "" || capturedCurrentTS[1] != "1700000001.000100" {
-		t.Errorf("current_ts = %v, want [\"\", \"1700000001.000100\"]", capturedCurrentTS)
+	if got := form.Get("current_ts"); got != "1790000010.000100" {
+		t.Errorf("current_ts = %q, want the cursor", got)
+	}
+	if got := form.Get("_x_reason"); got != "fetch-threads-view-via-load-more" {
+		t.Errorf("_x_reason = %q, want fetch-threads-view-via-load-more", got)
 	}
 }
 
@@ -2139,212 +2176,137 @@ func slackThreadsViewServer(t *testing.T, total, pageSize int, calls *int) *http
 	}))
 }
 
-// TestListThreadSubscriptions_PagesByLastLatestReply is the regression
-// for "the Threads view only ever shows ~10 threads": slk used to send
-// max_ts back as current_ts, which on page one is a future watermark,
-// so Slack re-served page one until the 1000-item hard cap.
-func TestListThreadSubscriptions_PagesByLastLatestReply(t *testing.T) {
+// TestGetThreadsView_PagesByLastLatestReply walks the whole list one
+// page per call, each cursor the last thread's latest_reply. Sending
+// max_ts back instead (on page one a future watermark) re-serves page
+// one forever; that was the bug that left the Threads view holding
+// only the first page.
+func TestGetThreadsView_PagesByLastLatestReply(t *testing.T) {
 	var calls int
 	srv := slackThreadsViewServer(t, 25, 8, &calls)
 	defer srv.Close()
 
 	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
-	}
 	seen := map[string]bool{}
-	for _, v := range got {
-		if seen[v.Subscription.ThreadTS] {
-			t.Fatalf("thread %s returned twice", v.Subscription.ThreadTS)
+	cursor := ""
+	for page := 0; ; page++ {
+		if page > 10 {
+			t.Fatal("paging did not end")
 		}
-		seen[v.Subscription.ThreadTS] = true
-	}
-	if len(got) != 25 {
-		t.Errorf("len(got) = %d, want all 25 subscribed threads", len(got))
-	}
-	if calls != 4 {
-		t.Errorf("calls = %d, want 4 (25 threads / 8 per page)", calls)
-	}
-}
-
-// TestListThreadSubscriptions_ErrorsWhenCursorStalls: a cursor that
-// does not move older means another loop over the same page. Returning
-// a partial list would let the reconcile tombstone every thread past
-// it, so fail the sync instead.
-func TestListThreadSubscriptions_ErrorsWhenCursorStalls(t *testing.T) {
-	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"threads":[{"root_msg":{"channel":"C1","ts":"1.0","thread_ts":"1.0","latest_reply":"5.0","subscribed":true}}],"has_more":true,"max_ts":"9.0"}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	if _, err := c.ListThreadSubscriptions(context.Background()); err == nil {
-		t.Fatal("expected an error for a non-advancing cursor, got nil")
-	}
-	if calls != 2 {
-		t.Errorf("calls = %d, want 2 (stall detected on the second page)", calls)
-	}
-}
-
-func TestListThreadSubscriptions_EmptyResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok": true, "threads": [], "has_more": false, "max_ts": ""}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("len(got) = %d, want 0", len(got))
-	}
-}
-
-func TestListThreadSubscriptions_RespectsHardCap(t *testing.T) {
-	// Server returns 100 distinct, strictly-older subs per page with
-	// has_more=true forever. The client should stop after the hard cap
-	// (1000) and never make an 11th call.
-	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Header().Set("Content-Type", "application/json")
-		var b []byte
-		b = append(b, []byte(`{"ok": true, "threads": [`)...)
-		for i := 0; i < 100; i++ {
-			if i > 0 {
-				b = append(b, ',')
+		got, err := c.GetThreadsView(context.Background(), cursor)
+		if err != nil {
+			t.Fatalf("GetThreadsView(%q): %v", cursor, err)
+		}
+		for _, it := range got.Threads {
+			if seen[it.Root.ThreadTimestamp] {
+				t.Fatalf("thread %s served twice", it.Root.ThreadTimestamp)
 			}
-			ts := fmt.Sprintf("17%08d.000000", 99999999-(calls*100+i))
-			b = append(b, []byte(fmt.Sprintf(`{"root_msg": {"channel": "C", "ts": %q, "thread_ts": %q, "latest_reply": %q, "last_read": "1.0", "subscribed": true, "user": "U"}}`, ts, ts, ts))...)
+			seen[it.Root.ThreadTimestamp] = true
 		}
-		b = append(b, []byte(`], "has_more": true, "max_ts": "1.0"}`)...)
-		_, _ = w.Write(b)
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1000 {
-		t.Errorf("len(got) = %d, want 1000 (hard cap)", len(got))
-	}
-	if calls != 10 {
-		t.Errorf("calls = %d, want 10 (1000 / 100 per page)", calls)
-	}
-}
-
-func TestListThreadSubscriptions_FiltersUnsubscribedItems(t *testing.T) {
-	// Defensively drop any items the server marks as subscribed=false.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"ok": true,
-			"threads": [
-				{"root_msg": {"channel": "C1", "ts": "1.0", "thread_ts": "1.0", "last_read": "1.0", "subscribed": true}},
-				{"root_msg": {"channel": "C2", "ts": "2.0", "thread_ts": "2.0", "last_read": "2.0", "subscribed": false}}
-			],
-			"has_more": false,
-			"max_ts": ""
-		}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("len(got) = %d, want 1 (unsubscribed filtered out)", len(got))
-	}
-	if got[0].Subscription.ChannelID != "C1" {
-		t.Errorf("wrong item survived filter: %+v", got[0])
-	}
-}
-
-func TestListThreadSubscriptions_ReturnsErrorOnNotOK(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok": false, "error": "invalid_auth"}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	_, err := c.ListThreadSubscriptions(context.Background())
-	if err == nil {
-		t.Fatalf("expected error on ok=false, got nil")
-	}
-	if !strings.Contains(err.Error(), "invalid_auth") {
-		t.Errorf("error = %q, want contains \"invalid_auth\"", err.Error())
-	}
-}
-
-func TestListThreadSubscriptions_RetriesOnRateLimit(t *testing.T) {
-	var calls int
-	var capturedCurrentTS []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		_ = r.ParseForm()
-		capturedCurrentTS = append(capturedCurrentTS, r.PostForm.Get("current_ts"))
-		if calls == 1 {
-			w.Header().Set("Retry-After", "0") // retry immediately, keep test fast
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
+		if got.NextCursor == "" {
+			break
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok": true, "threads": [], "has_more": false, "max_ts": ""}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	got, err := c.ListThreadSubscriptions(context.Background())
-	if err != nil {
-		t.Fatalf("ListThreadSubscriptions: %v", err)
+		cursor = got.NextCursor
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 API calls (1 rate-limited + 1 retry), got %d", calls)
-	}
-	if len(got) != 0 {
-		t.Errorf("len(got) = %d, want 0", len(got))
-	}
-	// On rate-limit the cursor must NOT advance — the retry hits the same page.
-	if capturedCurrentTS[0] != "" || capturedCurrentTS[1] != "" {
-		t.Errorf("current_ts = %v, want [\"\", \"\"]", capturedCurrentTS)
+	if len(seen) != 25 || calls != 4 {
+		t.Errorf("threads = %d over %d calls, want 25 over 4", len(seen), calls)
 	}
 }
 
-func TestListThreadSubscriptions_GivesUpAfterRepeatedRateLimits(t *testing.T) {
-	// A persistently 429ing endpoint must not spin the background sync
-	// forever: bound the retries, return the error, let the UI banner
-	// and the caller's throttle window back off instead.
-	var calls int
+// TestGetThreadsView_StalledCursorEndsTheList: a has_more page whose
+// last thread is not older than the request's cursor would re-serve
+// the same page; the list ends there instead.
+func TestGetThreadsView_StalledCursorEndsTheList(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Header().Set("Retry-After", "0")
-		w.WriteHeader(http.StatusTooManyRequests)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"has_more":true,"threads":[
+			{"root_msg":{"channel":"C1","ts":"1.000000","thread_ts":"1.000000","latest_reply":"1700000005.000000","subscribed":true}}]}`))
 	}))
 	defer srv.Close()
 
 	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
-	_, err := c.ListThreadSubscriptions(context.Background())
-	if err == nil {
-		t.Fatal("expected error after repeated 429s, got nil")
+	got, err := c.GetThreadsView(context.Background(), "1700000005.000000")
+	if err != nil {
+		t.Fatalf("GetThreadsView: %v", err)
 	}
-	if !strings.Contains(err.Error(), "rate") {
-		t.Errorf("error = %q, want it to mention rate limiting", err.Error())
+	if got.NextCursor != "" {
+		t.Errorf("NextCursor = %q, want \"\" for a cursor that did not advance", got.NextCursor)
 	}
-	// 1 initial + bounded retries; unbounded would hang this test.
-	if calls < 2 || calls > 5 {
-		t.Errorf("calls = %d, want a small bounded retry count (2..5)", calls)
+	if len(got.Threads) != 1 {
+		t.Errorf("threads = %d, want the page's 1", len(got.Threads))
+	}
+}
+
+// Slack lists unread threads before read ones, so where a page crosses
+// from unread to read the cursor jumps to a newer ts; the list goes on.
+func TestGetThreadsView_CursorJumpingForwardContinues(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"has_more":true,"threads":[
+			{"root_msg":{"channel":"C1","ts":"1.000000","thread_ts":"1.000000","latest_reply":"1700000001.000000","last_read":"1.000000","subscribed":true}},
+			{"root_msg":{"channel":"C1","ts":"2.000000","thread_ts":"2.000000","latest_reply":"1700000009.000000","last_read":"1700000009.000000","subscribed":true}}]}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
+	got, err := c.GetThreadsView(context.Background(), "1700000005.000000")
+	if err != nil {
+		t.Fatalf("GetThreadsView: %v", err)
+	}
+	if got.NextCursor != "1700000009.000000" {
+		t.Errorf("NextCursor = %q, want the read part's first cursor", got.NextCursor)
+	}
+}
+
+// TestGetThreadsView_DecodesItemsAndThreadsState reads one page shaped
+// like a live Colony response: the root carries channel, last_read and
+// latest_reply; latest_replies names the newest reply's author; and
+// threads_state is the badge.
+func TestGetThreadsView_DecodesItemsAndThreadsState(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"has_more":false,
+			"threads_state":{"has_unreads":true,"mention_count":50,"unread_count_by_channel":{"C1":3,"C2":27}},
+			"threads":[
+				{"root_msg":{"user":"U1","text":"parent","channel":"C1","ts":"1792426266.369399","thread_ts":"1792426266.369399","reply_count":49,"latest_reply":"1793648740.060919","last_read":"1793646322.882369","subscribed":true},
+				 "latest_replies":[{"user":"U2","ts":"1793648740.060919","text":"newest"}],
+				 "unread_replies":[{"user":"U2","ts":"1793648740.060919"}]},
+				{"root_msg":{"user":"U3","channel":"C2","ts":"2.000000","thread_ts":"2.000000","latest_reply":"3.000000","subscribed":false}}
+			]}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
+	got, err := c.GetThreadsView(context.Background(), "")
+	if err != nil {
+		t.Fatalf("GetThreadsView: %v", err)
+	}
+	if want := (ThreadsAggregate{HasUnreads: true, UnreadThreads: 30, MentionCount: 50}); got.State != want {
+		t.Errorf("State = %+v, want %+v", got.State, want)
+	}
+	if len(got.Threads) != 1 {
+		t.Fatalf("threads = %d, want 1 (the unsubscribed item dropped)", len(got.Threads))
+	}
+	it := got.Threads[0]
+	if it.Root.Channel != "C1" || it.Root.LastRead != "1793646322.882369" || it.Root.LatestReply != "1793648740.060919" ||
+		it.Root.ReplyCount != 49 || it.Root.Text != "parent" || it.Root.User != "U1" {
+		t.Errorf("root = %+v", it.Root.Msg)
+	}
+	if it.LastReplyBy != "U2" {
+		t.Errorf("LastReplyBy = %q, want U2", it.LastReplyBy)
+	}
+}
+
+func TestGetThreadsView_ReturnsErrorOnNotOK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"invalid_auth"}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{token: "xoxc-test", cookie: "d-cookie", apiBaseURL: srv.URL + "/api/"}
+	if _, err := c.GetThreadsView(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "invalid_auth") {
+		t.Errorf("err = %v, want invalid_auth", err)
 	}
 }
 

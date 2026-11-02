@@ -1135,30 +1135,49 @@ type UnreadInfo struct {
 	LastRead     string // Slack message timestamp
 }
 
-// ThreadsAggregate captures Slack's server-side notion of whether the
-// user has any unread thread activity at all, plus the mention/unread
-// counts. The local SQLite cache has no per-thread read state, so the
-// threads-list "Unread" flag is computed by a heuristic that can
-// produce false positives (e.g., a thread reply was read in another
-// Slack client but the parent channel's last_read_ts predates it).
-// HasUnreads from this struct is the authoritative signal that lets us
-// suppress those false positives on startup.
+// ThreadsAggregate is Slack's workspace-wide state of the user's
+// followed threads, the numbers its own Threads badge is drawn from.
+// client.counts (with thread_counts_by_channel), getView's
+// threads_state and the update_global_thread_state event all carry it
+// in the same shape.
 type ThreadsAggregate struct {
-	HasUnreads   bool
-	UnreadCount  int
+	// HasUnreads reports whether any followed thread has a reply the
+	// user has not read.
+	HasUnreads bool
+	// UnreadThreads is the number of followed threads with unread
+	// replies: the sum of unread_count_by_channel, which counts
+	// threads, not replies.
+	UnreadThreads int
+	// MentionCount is the number of unread thread replies that
+	// mention the user.
 	MentionCount int
+}
+
+// threadsStateFields is the JSON shape of a ThreadsAggregate.
+type threadsStateFields struct {
+	HasUnreads           bool           `json:"has_unreads"`
+	MentionCount         int            `json:"mention_count"`
+	UnreadCountByChannel map[string]int `json:"unread_count_by_channel"`
+}
+
+func (f threadsStateFields) aggregate() ThreadsAggregate {
+	a := ThreadsAggregate{HasUnreads: f.HasUnreads, MentionCount: f.MentionCount}
+	for _, n := range f.UnreadCountByChannel {
+		a.UnreadThreads += n
+	}
+	return a
 }
 
 // GetUnreadCounts fetches unread counts for all channels using Slack's
 // internal client.counts API (available with xoxc browser tokens).
-// Also returns the threads aggregate (HasUnreads / counts) for the
-// workspace; the threads block in client.counts is the only place
-// Slack tells us whether per-thread unreads exist without us having to
-// hit subscriptions.thread.* directly. The int is the workspace's
-// total unread activity (see sumActivityV2).
+// Also returns the workspace's threads aggregate, the Threads badge
+// the official client draws from this same call; it asks with
+// thread_counts_by_channel, as that client does, which is what puts
+// the per-channel unread-thread counts in it. The int is the
+// workspace's total unread activity (see sumActivityV2).
 func (c *Client) GetUnreadCounts(ctx context.Context) ([]UnreadInfo, ThreadsAggregate, int, error) {
 	reqURL := c.apiBaseURL + "client.counts"
-	form := url.Values{"token": {c.token}}
+	form := url.Values{"token": {c.token}, "thread_counts_by_channel": {"true"}}
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, ThreadsAggregate{}, 0, fmt.Errorf("creating request: %w", err)
@@ -1197,16 +1216,9 @@ func (c *Client) GetUnreadCounts(ctx context.Context) ([]UnreadInfo, ThreadsAggr
 			MentionCount int    `json:"mention_count"`
 			LastRead     string `json:"last_read"`
 		} `json:"ims"`
-		// Threads is the workspace-wide thread-subscription rollup.
-		// Slack returns this top-level when the user has subscribed
-		// threads (i.e., authored, replied to, or @-mentioned in any
-		// thread). HasUnreads here is the authoritative "do I have any
-		// unread thread activity?" signal.
-		Threads struct {
-			HasUnreads   bool `json:"has_unreads"`
-			UnreadCount  int  `json:"unread_count"`
-			MentionCount int  `json:"mention_count"`
-		} `json:"threads"`
+		// Threads is the workspace-wide followed-threads rollup; see
+		// ThreadsAggregate.
+		Threads threadsStateFields `json:"threads"`
 		// ActivityV2 is the unread-activity rollup the desktop client
 		// shows on its Activity badge: one count per category
 		// (mentions, thread replies, reactions, DMs, invites, ...),
@@ -1253,12 +1265,7 @@ func (c *Client) GetUnreadCounts(ctx context.Context) ([]UnreadInfo, ThreadsAggr
 		})
 	}
 
-	threads := ThreadsAggregate{
-		HasUnreads:   result.Threads.HasUnreads,
-		UnreadCount:  result.Threads.UnreadCount,
-		MentionCount: result.Threads.MentionCount,
-	}
-	return unreads, threads, sumActivityV2(result.ActivityV2), nil
+	return unreads, result.Threads.aggregate(), sumActivityV2(result.ActivityV2), nil
 }
 
 // sumActivityV2 totals an activity_v2 map - the per-category unread
@@ -1914,189 +1921,129 @@ func (c *Client) GetChannelSections(ctx context.Context) ([]SidebarSection, erro
 	return all, nil
 }
 
-// ThreadSubscription is the slk-side projection of one subscribed
-// thread returned by subscriptions.thread.getView. The five fields
-// here map cleanly onto cache.ThreadSubscription. The caller in
-// cmd/slk/reconnect_backfill.go does the adapter cast.
-type ThreadSubscription struct {
-	ChannelID string
-	ThreadTS  string
-	LastRead  string
-	Active    bool
+// ThreadsViewPage is one page of the Threads view, as
+// subscriptions.thread.getView serves it: the user's followed threads,
+// newest latest_reply first.
+type ThreadsViewPage struct {
+	Threads []ThreadsViewItem
+	// NextCursor is the cursor for the next (older) page, "" when
+	// Slack has no more.
+	NextCursor string
+	// State is the response's threads_state: the same workspace-wide
+	// thread badge client.counts and update_global_thread_state carry.
+	State ThreadsAggregate
 }
 
-// ThreadSubscriptionView is one item from subscriptions.thread.getView.
-// It carries both the subscription-state projection (Subscription) and
-// the full parent message Slack ships inside root_msg
-// (RootMessage). The subscription-phase backfiller uses Subscription
-// to upsert the thread_subscriptions row and RootMessage to upsert
-// the parent into the messages cache, eliminating the need for a
-// follow-up conversations.replies fetch when the parent isn't
-// already cached.
-type ThreadSubscriptionView struct {
-	Subscription ThreadSubscription
-	RootMessage  slack.Message
+// ThreadsViewItem is one followed thread on a ThreadsViewPage.
+type ThreadsViewItem struct {
+	// Root is root_msg: the thread's parent, carrying channel,
+	// last_read (the user's read cursor in the thread), latest_reply
+	// and reply_count alongside the usual message fields.
+	Root slack.Message
+	// LastReplyBy is the author of the newest reply in latest_replies,
+	// "" when the item carries none.
+	LastReplyBy string
 }
 
-// listThreadSubscriptionsResponse decodes one page of
-// subscriptions.thread.getView.
-type listThreadSubscriptionsResponse struct {
-	OK      bool   `json:"ok"`
-	Error   string `json:"error"`
-	Threads []struct {
-		// RootMsg is decoded twice: once into the typed
-		// slackThreadRootMsg shape for the channel/last_read/subscribed
-		// fields we need, and once into a slack.Message via json.RawMessage
-		// so the caller can re-marshal it for the messages cache.
-		RootMsg json.RawMessage `json:"root_msg"`
-	} `json:"threads"`
-	HasMore bool   `json:"has_more"`
-	MaxTS   string `json:"max_ts"`
-}
+// threadsViewPageLimit is the page size the official client asks
+// getView for. The server caps a page at 10 whatever is asked.
+const threadsViewPageLimit = "8"
 
-// slackThreadRootMsg is the subset of root_msg fields the
-// subscription-phase reconcile needs. The rest of root_msg flows
-// through as slack.Message via the raw JSON re-parse.
-type slackThreadRootMsg struct {
-	Channel    string `json:"channel"`
-	TS         string `json:"ts"`
-	ThreadTS   string `json:"thread_ts"`
-	LastRead   string `json:"last_read"`
-	Subscribed bool   `json:"subscribed"`
-	// LatestReply is the sort key of the Threads view and therefore
-	// the pagination cursor; see ListThreadSubscriptions.
-	LatestReply string `json:"latest_reply"`
-}
+// The _x_reason values the official client sends on getView: the
+// first page when the Threads view opens or refreshes, and each older
+// page as the user scrolls.
+const (
+	threadsViewReasonRefresh  = "fetch-threads-view-via-refresh"
+	threadsViewReasonLoadMore = "fetch-threads-view-via-load-more"
+)
 
-// listThreadSubscriptionsHardCap bounds how many subscriptions
-// ListThreadSubscriptions will return per call. Protects against
-// runaway requests if Slack ships a buggy has_more flag.
-const listThreadSubscriptionsHardCap = 1000
-
-// ListThreadSubscriptions fetches the workspace's full subscribed-
-// threads list via Slack's internal subscriptions.thread.getView
-// endpoint (the same call the official web client makes when
-// bootstrapping its Threads view). Stops at
-// listThreadSubscriptionsHardCap items.
+// GetThreadsView fetches one page of the Threads view: the first page
+// when cursor is "", else the page after cursor (a previous page's
+// NextCursor). One request, as the official client makes when the
+// Threads view opens and again for each page the user scrolls to.
 //
-// Pagination, as captured from the web client (HAR, 2026-10-02):
-// threads come newest root_msg.latest_reply first, and the next
+// Paging, as captured from the web client: unread threads come first,
+// then read ones, each newest root_msg.latest_reply first, and the next
 // request's current_ts is the latest_reply of the last thread on the
-// previous page (exclusive). The response's max_ts is NOT the cursor:
-// on page one it is a future watermark (now + ~1h), and sending that
-// back re-serves page one forever. That was the bug that left the
-// Threads view holding only the first page.
-//
-// A cursor that fails to move strictly older is an error, not an end:
-// the caller reconciles against the returned set and tombstones every
-// thread missing from it, so a silently truncated list would drop
-// real subscriptions.
-//
-// Items where root_msg.subscribed is false are filtered out —
-// defensive, since the live endpoint hasn't been observed returning
-// them.
-//
-// Returns (nil, err) on network failure or ok=false JSON. The caller
-// (the reconnect backfill phase) treats any error as "subscriptions
-// unavailable" and surfaces the UI banner.
-// listThreadSubscriptionsMaxRateLimitRetries bounds how often one
-// paginated sweep retries a 429ing page. The caller is a background
-// sync; an endpoint that keeps limiting after a few server-advised
-// waits is failed back to the UI banner and the caller's throttle
-// window instead of sleeping forever.
-const listThreadSubscriptionsMaxRateLimitRetries = 3
-
-func (c *Client) ListThreadSubscriptions(ctx context.Context) ([]ThreadSubscriptionView, error) {
-	var all []ThreadSubscriptionView
-	currentTS := ""
-	rateLimitRetries := 0
-	for {
-		body, err := c.callListThreadSubscriptions(ctx, currentTS)
-		if err != nil {
-			var rl *rateLimitError
-			if errors.As(err, &rl) && rateLimitRetries < listThreadSubscriptionsMaxRateLimitRetries {
-				rateLimitRetries++
-				// Retry the SAME page: currentTS deliberately does
-				// not advance.
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(rl.retryAfter):
-				}
-				continue
-			}
-			return nil, err
-		}
-		rateLimitRetries = 0
-		var resp listThreadSubscriptionsResponse
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return nil, fmt.Errorf("parsing subscriptions.thread.getView: %w (body=%s)", err, truncateForLog(body))
-		}
-		if !resp.OK {
-			return nil, fmt.Errorf("subscriptions.thread.getView: %s (body=%s)", resp.Error, truncateForLog(body))
-		}
-		nextTS := ""
-		for _, item := range resp.Threads {
-			var sm slackThreadRootMsg
-			if err := json.Unmarshal(item.RootMsg, &sm); err != nil {
-				// Skip malformed items but keep paginating.
-				debuglog.Backfill("ListThreadSubscriptions: skipping malformed root_msg: %v", err)
-				continue
-			}
-			// Cursor from every item, subscribed or not: it is a
-			// position in the server's ordering, not a filter result.
-			nextTS = sm.LatestReply
-			if nextTS == "" {
-				nextTS = sm.ThreadTS
-			}
-			if !sm.Subscribed {
-				continue
-			}
-			var raw slack.Message
-			if err := json.Unmarshal(item.RootMsg, &raw); err != nil {
-				// Couldn't decode the rich message; skip so we don't
-				// corrupt the messages cache, but the subscription row
-				// is still useful — fall back to a synthetic empty
-				// slack.Message so the caller can still record the row.
-				debuglog.Backfill("ListThreadSubscriptions: root_msg slack.Message decode err=%v; subscription kept without RootMessage", err)
-				raw = slack.Message{}
-			}
-			all = append(all, ThreadSubscriptionView{
-				Subscription: ThreadSubscription{
-					ChannelID: sm.Channel,
-					ThreadTS:  sm.ThreadTS,
-					LastRead:  sm.LastRead,
-					Active:    sm.Subscribed,
-				},
-				RootMessage: raw,
-			})
-			if len(all) >= listThreadSubscriptionsHardCap {
-				debuglog.Backfill("ListThreadSubscriptions: hit hard cap %d, stopping", listThreadSubscriptionsHardCap)
-				return all, nil
-			}
-		}
-		if !resp.HasMore {
-			break
-		}
-		// Slack ts are fixed-width "secs.micros", so string order is
-		// time order.
-		if nextTS == "" || (currentTS != "" && nextTS >= currentTS) {
-			return nil, fmt.Errorf("subscriptions.thread.getView: pagination cursor did not advance (current_ts=%q next=%q)", currentTS, nextTS)
-		}
-		currentTS = nextTS
-	}
-	return all, nil
-}
-
-func (c *Client) callListThreadSubscriptions(ctx context.Context, currentTS string) ([]byte, error) {
+// previous page. The response's max_ts is NOT the cursor: on page one it
+// is a future watermark, and sending it back re-serves page one.
+func (c *Client) GetThreadsView(ctx context.Context, cursor string) (ThreadsViewPage, error) {
 	form := url.Values{}
-	form.Set("limit", "100")
+	form.Set("limit", threadsViewPageLimit)
 	form.Set("fetch_threads_state", "true")
 	form.Set("priority_mode", "all")
-	if currentTS != "" {
-		form.Set("current_ts", currentTS)
+	reason := threadsViewReasonRefresh
+	if cursor != "" {
+		form.Set("current_ts", cursor)
+		reason = threadsViewReasonLoadMore
 	}
-	return c.postForm(ctx, "subscriptions.thread.getView", form)
+	body, err := c.postForm(slackhttp.WithReason(ctx, reason), "subscriptions.thread.getView", form)
+	if err != nil {
+		return ThreadsViewPage{}, err
+	}
+	return parseThreadsView(body, cursor)
+}
+
+// parseThreadsView decodes one getView response. cursor is the
+// request's own cursor: a next cursor equal to it ends the list rather
+// than re-serving the same page.
+func parseThreadsView(body []byte, cursor string) (ThreadsViewPage, error) {
+	var resp struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Threads []struct {
+			RootMsg       json.RawMessage `json:"root_msg"`
+			LatestReplies []slack.Message `json:"latest_replies"`
+		} `json:"threads"`
+		HasMore      bool               `json:"has_more"`
+		ThreadsState threadsStateFields `json:"threads_state"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ThreadsViewPage{}, fmt.Errorf("parsing subscriptions.thread.getView: %w (body=%s)", err, truncateForLog(body))
+	}
+	if !resp.OK {
+		return ThreadsViewPage{}, fmt.Errorf("subscriptions.thread.getView: %s (body=%s)", resp.Error, truncateForLog(body))
+	}
+	page := ThreadsViewPage{State: resp.ThreadsState.aggregate()}
+	next := ""
+	for _, item := range resp.Threads {
+		var root slack.Message
+		if err := json.Unmarshal(item.RootMsg, &root); err != nil {
+			debuglog.Backfill("GetThreadsView: skipping malformed root_msg: %v", err)
+			continue
+		}
+		// Cursor from every item, subscribed or not: it is a position
+		// in the server's ordering, not a filter result.
+		next = root.LatestReply
+		if next == "" {
+			next = root.ThreadTimestamp
+		}
+		if !root.Subscribed {
+			continue
+		}
+		it := ThreadsViewItem{Root: root}
+		newest := ""
+		for _, r := range item.LatestReplies {
+			if r.Timestamp > newest {
+				newest = r.Timestamp
+				it.LastReplyBy = r.User
+				if it.LastReplyBy == "" {
+					it.LastReplyBy = r.BotID
+				}
+			}
+		}
+		page.Threads = append(page.Threads, it)
+	}
+	// Unread threads come before read ones, each part newest first, so
+	// the cursor jumps forward once, where a page crosses from one part
+	// to the other: only a cursor that does not move at all ends the
+	// list.
+	if resp.HasMore && next != "" && next != cursor {
+		page.NextCursor = next
+	} else if resp.HasMore {
+		debuglog.Backfill("GetThreadsView: cursor did not advance (current_ts=%q next=%q); ending the list", cursor, next)
+	}
+	return page, nil
 }
 
 // historyMethod is the API method name. It is also the key slackhttp

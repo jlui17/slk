@@ -76,7 +76,7 @@ func TestSlacktestHarness_BootAndEventsWithNoCredentials(t *testing.T) {
 	}
 
 	// A per-test Handle override beats the default corpus.
-	s.Handle("/api/client.counts", `{"ok":true,"channels":[{"id":"`+slacktest.ChannelID+`","has_unreads":true,"mention_count":7,"last_read":"1700000001.000100"}],"threads":{"has_unreads":true,"unread_count":3,"mention_count":1}}`)
+	s.Handle("/api/client.counts", `{"ok":true,"channels":[{"id":"`+slacktest.ChannelID+`","has_unreads":true,"mention_count":7,"last_read":"1700000001.000100"}],"threads":{"has_unreads":true,"mention_count":1,"unread_count_by_channel":{"C1":3}}}`)
 	unreads, threads, _, err := c.GetUnreadCounts(context.Background())
 	if err != nil {
 		t.Fatalf("GetUnreadCounts: %v", err)
@@ -84,8 +84,8 @@ func TestSlacktestHarness_BootAndEventsWithNoCredentials(t *testing.T) {
 	if len(unreads) != 1 || unreads[0].MentionCount != 7 {
 		t.Errorf("unreads = %+v; want one with MentionCount 7 from the override", unreads)
 	}
-	if !threads.HasUnreads || threads.UnreadCount != 3 {
-		t.Errorf("threads = %+v; want HasUnreads with UnreadCount 3", threads)
+	if !threads.HasUnreads || threads.UnreadThreads != 3 {
+		t.Errorf("threads = %+v; want HasUnreads with UnreadThreads 3", threads)
 	}
 
 	chans, err := c.GetChannels(ctx)

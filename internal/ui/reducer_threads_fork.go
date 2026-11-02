@@ -31,10 +31,12 @@ func (a *App) markFetchedThreadRead(channelID, threadTS string, replies []messag
 // it is shown: the threads-list row, the sidebar's threads badge, and the
 // agent-sidebar row. Every path that decides a thread has been read
 // funnels here so a new one can't update two of the three and leave the
-// herdr row claiming unread replies the user has already seen.
+// herdr row claiming unread replies the user has already seen. It runs
+// before the mark goes to Slack, so the badge may move ahead of Slack's
+// count (adjustThreadsBadge).
 func (a *App) markThreadReadLocally(channelID, threadTS string) {
 	if a.threadsView.MarkByThreadTSRead(channelID, threadTS) {
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+		a.adjustThreadsBadge(-1)
 	}
 	a.markAgentThreadRead(a.activeTeamID, channelID, threadTS)
 }

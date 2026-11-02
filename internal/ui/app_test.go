@@ -669,23 +669,10 @@ func TestApp_ThreadsViewActivation(t *testing.T) {
 	}
 }
 
-func TestApp_ThreadsListLoadedUpdatesUnreadBadge(t *testing.T) {
-	app := NewApp()
-	app.activeTeamID = "T1"
-	summaries := []cache.ThreadSummary{
-		{ChannelID: "C1", ThreadTS: "1.0", Unread: true},
-		{ChannelID: "C2", ThreadTS: "2.0", Unread: false},
-	}
-	_, _ = app.Update(ThreadsListLoadedMsg{TeamID: "T1", Summaries: summaries})
-	if app.sidebar.ThreadsUnreadCount() != 1 {
-		t.Errorf("ThreadsUnreadCount = %d, want 1", app.sidebar.ThreadsUnreadCount())
-	}
-}
-
 func TestApp_ThreadsListLoadedIgnoredForOtherWorkspace(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
-	summaries := []cache.ThreadSummary{{ChannelID: "C1", ThreadTS: "1.0", Unread: true}}
+	summaries := []core.ThreadSummary{{ChannelID: "C1", ThreadTS: "1.0", Unread: true}}
 	_, _ = app.Update(ThreadsListLoadedMsg{TeamID: "T2", Summaries: summaries})
 	if app.sidebar.ThreadsUnreadCount() != 0 {
 		t.Errorf("threads from a different team should not update the active sidebar; got %d", app.sidebar.ThreadsUnreadCount())
@@ -769,13 +756,13 @@ func TestApp_ClickOnThreadInThreadsViewOpensIt(t *testing.T) {
 		fetchedTS = string(threadTS)
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS), Replies: nil}
 	})
-	summaries := []cache.ThreadSummary{
+	summaries := []core.ThreadSummary{
 		{ChannelID: "C_A", ThreadTS: "1.0", ParentTS: "1.0", ParentText: "alpha"},
 		{ChannelID: "C_B", ThreadTS: "2.0", ParentTS: "2.0", ParentText: "bravo"},
 	}
-	// SubscriptionsAvailable=true so the banner row isn't reserved
-	// above the list, keeping the row math simple.
-	a.Update(ThreadsListLoadedMsg{TeamID: "T1", Summaries: summaries, SubscriptionsAvailable: true})
+	// A successful load, so the banner row isn't reserved above the
+	// list, keeping the row math simple.
+	a.Update(ThreadsListLoadedMsg{TeamID: "T1", Summaries: summaries})
 	// Enter the threads view. This selects summary 0 and opens it.
 	a.Update(ThreadsViewActivatedMsg{})
 	if a.view != ViewThreads {
@@ -840,7 +827,7 @@ func TestApp_HandleEnterInThreadsViewOpensSelectedThread(t *testing.T) {
 
 	// Seed the threads view with two summaries and select the SECOND
 	// one. This is what Enter must open.
-	summaries := []cache.ThreadSummary{
+	summaries := []core.ThreadSummary{
 		{ChannelID: "C_THREADA", ThreadTS: "1.0", ParentTS: "1.0"},
 		{ChannelID: "C_THREADB", ThreadTS: "2.0", ParentTS: "2.0"},
 	}
@@ -894,7 +881,7 @@ func TestApp_OpenSelectedThreadDedups(t *testing.T) {
 		fetched++
 		return ThreadRepliesLoadedMsg{ThreadTS: string(threadTS), Replies: nil}
 	})
-	summaries := []cache.ThreadSummary{
+	summaries := []core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "1.0"},
 		{ChannelID: "C1", ThreadTS: "2.0"},
 	}
@@ -936,7 +923,7 @@ func TestApp_WorkspaceSwitchResetsView(t *testing.T) {
 	app.view = ViewThreads
 	app.activeTeamID = "T1"
 	// Stash some summaries to confirm they're cleared.
-	app.threadsView.SetSummaries([]cache.ThreadSummary{{ChannelID: "C1", ThreadTS: "1.0", Unread: true}})
+	app.threadsView.SetSummaries([]core.ThreadSummary{{ChannelID: "C1", ThreadTS: "1.0", Unread: true}})
 	app.sidebar.SetThreadsUnreadCount(1)
 
 	app.Update(WorkspaceSwitchedMsg{TeamID: "T2", TeamName: "Other", Channels: nil})
@@ -952,66 +939,38 @@ func TestApp_WorkspaceSwitchResetsView(t *testing.T) {
 	}
 }
 
-func TestApp_NewThreadReplyTriggersDirtyMsg(t *testing.T) {
+// A reply in a loaded thread updates its row in place and moves it to
+// the top, without asking Slack for the list again.
+func TestApp_NewThreadReplyUpdatesLoadedRowInPlace(t *testing.T) {
 	app := NewApp()
 	app.SetCurrentUserID("USELF")
 	app.activeTeamID = "T1"
-	// Tiny debounce so the test runs fast.
+	app.view = ViewThreads
 	app.threadsDirtyDebounce = 5 * time.Millisecond
-
 	fetched := make(chan string, 4)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID, cursor string) core.Msg {
 		fetched <- string(teamID)
-		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
+		return nil
+	})
+	app.threadsView.SetSummaries([]core.ThreadSummary{
+		{ChannelID: "C1", ThreadTS: "5.0", LastReplyTS: "6.0", ReplyCount: 1},
+		{ChannelID: "C1", ThreadTS: "1.0", LastReplyTS: "2.0", ReplyCount: 1},
 	})
 
-	// Activate threads view; drain the resulting initial fetch so it
-	// doesn't pollute the dirty-trigger assertion below.
-	_, initCmd := app.Update(ThreadsViewActivatedMsg{})
-	for _, m := range drainBatch(initCmd) {
-		if m != nil {
-			app.Update(m)
-		}
-	}
-	select {
-	case <-fetched:
-	case <-time.After(time.Second):
-		t.Fatal("initial threads-list fetch did not fire")
-	}
-	// Drain any extra incidental fetches from openSelectedThreadCmd etc.
-	for len(fetched) > 0 {
-		<-fetched
-	}
-
-	// A thread reply event should schedule a debounced dirty msg → fetch.
 	_, cmd := app.Update(NewMessageMsg{
 		ChannelID: "C1",
-		Message: messages.MessageItem{
-			TS:       "2.0",
-			UserID:   "U2",
-			Text:     "reply",
-			ThreadTS: "1.0",
-		},
+		Message:   messages.MessageItem{TS: "7.0", UserID: "U2", Text: "reply", ThreadTS: "1.0"},
 	})
-	if cmd == nil {
-		t.Fatal("NewMessageMsg with ThreadTS expected to return a cmd")
-	}
-	// Drive every leaf message produced by the cmd graph back into the
-	// app, to whatever depth it runs to: the reply's dirty tick is only
-	// the first of several hops -- the dirty message opens a coalescing
-	// window whose own tick delivers threadsListFetchMsg, and that arm
-	// is what dispatches the fetch. Each tea.Tick blocks for its
-	// duration inside drainBatch, which is fine at the 5ms debounce set
-	// above.
 	feed(t, app, cmd, 0)
 
+	got := app.threadsView.Summaries()
+	if got[0].ThreadTS != "1.0" || got[0].LastReplyTS != "7.0" || got[0].LastReplyBy != "U2" || got[0].ReplyCount != 2 || !got[0].Unread {
+		t.Errorf("top row = %+v, want thread 1.0 with the reply applied and unread", got[0])
+	}
 	select {
 	case team := <-fetched:
-		if team != "T1" {
-			t.Errorf("re-fetch teamID = %q, want T1", team)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected re-fetch after thread reply, did not happen")
+		t.Errorf("reply fetched the list for %s; want the row updated in place", team)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -1021,7 +980,7 @@ func TestApp_NewMessageWithoutThreadTSDoesNotTriggerDirty(t *testing.T) {
 	app.threadsDirtyDebounce = 5 * time.Millisecond
 
 	fetched := make(chan struct{}, 4)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID, cursor string) core.Msg {
 		fetched <- struct{}{}
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1054,10 +1013,12 @@ func TestApp_NewMessageWithoutThreadTSDoesNotTriggerDirty(t *testing.T) {
 	}
 }
 
-func TestApp_WorkspaceReadyTriggersThreadsListFetch(t *testing.T) {
+// Boot loads no Threads view: the badge comes from client.counts, and
+// the list from Slack when the view opens, as in the Slack app.
+func TestApp_WorkspaceReadyDoesNotFetchThreadsList(t *testing.T) {
 	app := NewApp()
 	fetched := make(chan string, 1)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID, cursor string) core.Msg {
 		fetched <- string(teamID)
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1072,11 +1033,8 @@ func TestApp_WorkspaceReadyTriggersThreadsListFetch(t *testing.T) {
 	}
 	select {
 	case team := <-fetched:
-		if team != "T1" {
-			t.Errorf("fetcher called with team=%q, want T1", team)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("WorkspaceReadyMsg did not trigger threads-list fetch")
+		t.Errorf("WorkspaceReadyMsg fetched the threads list for %s", team)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -1094,7 +1052,7 @@ func TestApp_InsertInThreadsViewFocusesThreadCompose(t *testing.T) {
 	app.activeTeamID = "T1"
 	// Simulate having activated the threads view with one summary, so
 	// the right thread panel is open.
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "1.0", ParentText: "hi"},
 	})
 	app.view = ViewThreads
@@ -1114,7 +1072,7 @@ func TestApp_InsertInThreadsViewFocusesThreadCompose(t *testing.T) {
 
 func TestApp_BackgroundWorkspaceReadyDoesNotClobberActiveState(t *testing.T) {
 	app := NewApp()
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID, cursor string) core.Msg {
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
 
@@ -1130,7 +1088,7 @@ func TestApp_BackgroundWorkspaceReadyDoesNotClobberActiveState(t *testing.T) {
 
 	// Simulate user state in the active workspace.
 	app.view = ViewThreads
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "1.0", Unread: true},
 	})
 	app.sidebar.SetThreadsUnreadCount(1)
@@ -1157,7 +1115,9 @@ func TestApp_BackgroundWorkspaceReadyDoesNotClobberActiveState(t *testing.T) {
 	}
 }
 
-func TestApp_WorkspaceSwitchedTriggersThreadsListFetchAndSelectsThreadsRow(t *testing.T) {
+// A switch lands off the Threads view, so it loads no list; the
+// Threads badge shows the incoming workspace's count from Slack.
+func TestApp_WorkspaceSwitchedSelectsThreadsRowAndShowsItsBadge(t *testing.T) {
 	app := NewApp()
 	// Move sidebar selection off the Threads row first to verify the reset.
 	app.sidebar.SetItems([]sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
@@ -1165,9 +1125,10 @@ func TestApp_WorkspaceSwitchedTriggersThreadsListFetchAndSelectsThreadsRow(t *te
 	if app.sidebar.IsThreadsSelected() {
 		t.Fatal("precondition: should be off Threads row")
 	}
+	app.Update(ThreadsBadgeUpdatedMsg{TeamID: "T2", UnreadThreads: 4})
 
 	fetched := make(chan string, 1)
-	app.setThreadsListFetcherForTest(func(teamID ids.TeamID) core.Msg {
+	app.setThreadsListFetcherForTest(func(teamID ids.TeamID, cursor string) core.Msg {
 		fetched <- string(teamID)
 		return ThreadsListLoadedMsg{TeamID: string(teamID), Summaries: nil}
 	})
@@ -1180,16 +1141,16 @@ func TestApp_WorkspaceSwitchedTriggersThreadsListFetchAndSelectsThreadsRow(t *te
 	if !app.sidebar.IsThreadsSelected() {
 		t.Errorf("WorkspaceSwitchedMsg should reset sidebar to Threads row")
 	}
+	if got := app.sidebar.ThreadsUnreadCount(); got != 4 {
+		t.Errorf("Threads badge = %d, want T2's 4", got)
+	}
 	for _, m := range drainBatch(cmd) {
 		_ = m
 	}
 	select {
 	case team := <-fetched:
-		if team != "T2" {
-			t.Errorf("fetcher called with team=%q, want T2", team)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("WorkspaceSwitchedMsg did not trigger threads-list fetch")
+		t.Errorf("WorkspaceSwitchedMsg fetched the threads list for %s", team)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -2842,7 +2803,7 @@ func TestMessageMarkedUnreadMsg_ThreadLevel_UpdatesThreadPaneAndThreadsView(t *t
 		{TS: "R2", UserID: "U1", Text: "r2"},
 	}, "C1", "P1")
 	app.threadVisible = true
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", Unread: false},
 	})
 
@@ -2869,9 +2830,11 @@ func TestMessageMarkedUnreadMsg_ThreadLevel_UpdatesThreadPaneAndThreadsView(t *t
 		}
 	}
 
-	// Sidebar threads-row badge reflects the new unread count.
-	if got := app.sidebar.ThreadsUnreadCount(); got != 1 {
-		t.Errorf("expected sidebar.ThreadsUnreadCount=1 after thread mark-unread, got %d", got)
+	// The sidebar badge waits for Slack's update_global_thread_state:
+	// this runs after Slack accepted the mark, so the event may have
+	// counted it already.
+	if got := app.sidebar.ThreadsUnreadCount(); got != 0 {
+		t.Errorf("sidebar.ThreadsUnreadCount = %d after thread mark-unread, want it left to Slack", got)
 	}
 }
 
@@ -2998,7 +2961,7 @@ func TestChannelMarkedRemoteMsg_InactiveChannel_OnlyUpdatesSidebar(t *testing.T)
 
 func TestThreadMarkedRemoteMsg_CursorBehindLatestFlipsRowUnread(t *testing.T) {
 	app := NewApp()
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "5.000000", Unread: false},
 	})
 
@@ -3028,7 +2991,7 @@ func TestThreadMarkedRemoteMsg_CursorBehindLatestFlipsRowUnread(t *testing.T) {
 
 func TestThreadMarkedRemoteMsg_CursorAtLatestClearsRow(t *testing.T) {
 	app := NewApp()
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "5.000000", Unread: true},
 	})
 
@@ -3092,7 +3055,7 @@ func TestThreadMarkedLocalMsg_LeavesOpenPanelBoundaryInPlace(t *testing.T) {
 		}, "C1", "P1")
 	app.threadVisible = true
 	app.threadPanel.SetLastReadTS("R1")
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
 	})
 
@@ -3189,7 +3152,7 @@ func TestThreadMarkedRemoteMsg_SelfEchoHoldsPanelBoundary(t *testing.T) {
 	// Re-flag the row so the list-state assertion below cannot pass
 	// vacuously off work the issue and local arms already did: this
 	// stands in for a threads-list refresh landing before the echo.
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
 	})
 
@@ -3276,7 +3239,7 @@ func TestThreadMarkedRemoteMsg_SelfEchoSuppressionIsConsumedOnce(t *testing.T) {
 // as "unread" and re-flag the thread the user was looking at.
 func TestThreadMarkedRemoteMsg_SelfReplyDoesNotReFlagUnread(t *testing.T) {
 	app := NewApp()
-	app.threadsView.SetSummaries([]cache.ThreadSummary{
+	app.threadsView.SetSummaries([]core.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "7.000000", Unread: false},
 	})
 

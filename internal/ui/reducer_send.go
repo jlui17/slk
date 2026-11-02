@@ -44,7 +44,7 @@
 // read-state, and the message service. No single existing
 // controller owns all of that cross-section.
 //
-// Helpers (applyChannelMark, applyThreadMarkUnread, scheduleThreadsDirty,
+// Helpers (applyChannelMark, applyThreadMarkUnread, applyThreadsReply,
 // recordChannelMark, recordThreadMark, scheduleMarkFlush,
 // notifyReadStateChanged, userNameFor, nowFormatted, cancelEdit,
 // CloseThread) stay on App; the reducer calls them via `a`.
@@ -429,35 +429,17 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=thread_reply_on_screen_mark_read",
 			m.ChannelID, m.Message.TS)
 	} else {
-		// The reply never touches the channel's has_unread, but the WS
-		// handler cached it before sending this message, and the rail's
-		// thread half (railThreadsUnread in cmd/slk) reads that cache:
-		// a subscribed thread with a newer reply is unread. Re-read now,
-		// as the channel arm does, rather than waiting for the threads
-		// list refresh scheduled below -- that fetch is dropped if the
-		// user switches workspaces inside its debounce window.
-		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=thread_reply_refresh_rail",
+		// The reply never touches the channel's has_unread. A followed
+		// thread's reply reaches the Threads badge and the rail as
+		// Slack's update_global_thread_state.
+		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=thread_reply_off_screen",
 			m.ChannelID, m.Message.TS)
-		a.notifyReadStateChanged()
+	}
+	if isThreadReply {
+		a.applyThreadsReply(m.ChannelID, m.Message, inOpenThreadPanel && a.terminalFocused)
 	}
 
-	var cmds []tea.Cmd
-	if c := a.scheduleMarkFlush(); c != nil {
-		cmds = append(cmds, c)
-	}
-	// A thread reply (regardless of channel) may have changed the
-	// involved-threads list -- ask for a re-query. A burst of replies
-	// sends one dirty message each; the receiving arm in reduceThreads
-	// is what collapses them into a single fetch.
-	if m.Message.ThreadTS != "" {
-		if c := a.scheduleThreadsDirty(); c != nil {
-			cmds = append(cmds, c)
-		}
-	}
-	if len(cmds) == 0 {
-		return nil
-	}
-	return tea.Batch(cmds...)
+	return a.scheduleMarkFlush()
 }
 
 // reduceSendMessage handles SendMessageMsg. Extracted to keep the

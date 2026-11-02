@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/usernames"
 )
 
 // BenchmarkViewScroll simulates j/k scrolling through a long threads list
 // where only m.selected changes between View() calls.
 func BenchmarkViewScroll(b *testing.B) {
-	summaries := make([]cache.ThreadSummary, 200)
+	summaries := make([]core.ThreadSummary, 200)
 	for i := range summaries {
-		summaries[i] = cache.ThreadSummary{
+		summaries[i] = core.ThreadSummary{
 			ChannelID:    fmt.Sprintf("C%03d", i),
 			ChannelName:  fmt.Sprintf("ch-%03d", i),
 			ChannelType:  "channel",

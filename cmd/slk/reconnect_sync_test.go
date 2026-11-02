@@ -358,68 +358,82 @@ func TestReconnect_NoActiveChannelMakesNoHistoryCall(t *testing.T) {
 	}
 }
 
-// The socket replays nothing, so after a wake-from-sleep or reconnect
-// the thread_subscriptions table is missing every subscription,
-// unsubscription, mark and reply from the gap. The reconnect catch-up
-// must kick the (throttled) subscription sync alongside the channel
-// work — without the kick, threads stay stale until the next boot.
-func TestSyncOnReconnect_KicksThreadSubscriptionSync(t *testing.T) {
-	kicked := make(chan struct{}, 1)
+// The socket replays nothing, so a reconnect must bring the Threads
+// badge up to date, and it does so from the one client.counts it
+// already makes: no subscriptions.thread.getView, however long the
+// gap. The Threads view, if open, reloads its first page.
+func TestSyncOnReconnect_RefreshesThreadsBadgeWithoutTheThreadsView(t *testing.T) {
+	srv := newFakeSlack(t, map[string]string{"/api/client.counts": `{"ok":true,"channels":[],
+		"threads":{"has_unreads":true,"mention_count":1,"unread_count_by_channel":{"C1":2,"C2":1}}}`})
+	sender := &captureSender{}
+	wctx := &WorkspaceContext{Client: newTestClient(t, srv.Server)}
 	h := &rtmEventHandler{
 		db:              newTestDB(t),
-		wsCtx:           &WorkspaceContext{Client: &slackclient.Client{}},
+		wsCtx:           wctx,
+		workspaceID:     "T1",
+		program:         sender,
 		backfillGate:    dedupeGate{window: 30 * time.Second},
 		activeChannelID: func() string { return "" },
-		ensureThreadSubs: func() {
-			kicked <- struct{}{}
-		},
 	}
 
 	if !h.syncOnReconnect("wake") {
 		t.Fatal("syncOnReconnect was deduped on its first call")
 	}
-	select {
-	case <-kicked:
-	case <-time.After(time.Second):
-		t.Fatal("reconnect catch-up did not kick the thread subscription sync")
+	deadline := time.Now().Add(2 * time.Second)
+	var badge *ui.ThreadsBadgeUpdatedMsg
+	var dirty bool
+	for badge == nil || !dirty {
+		if time.Now().After(deadline) {
+			t.Fatalf("badge = %+v, dirty = %v; want both from the reconnect pass", badge, dirty)
+		}
+		time.Sleep(5 * time.Millisecond)
+		sender.mu.Lock()
+		for _, m := range sender.sent {
+			switch m := m.(type) {
+			case ui.ThreadsBadgeUpdatedMsg:
+				badge = &m
+			case ui.ThreadsListDirtyMsg:
+				dirty = m.TeamID == "T1"
+			}
+		}
+		sender.mu.Unlock()
+	}
+	if badge.TeamID != "T1" || badge.UnreadThreads != 3 {
+		t.Errorf("badge = %+v, want T1 with 3 unread threads", *badge)
+	}
+	if !wctx.ThreadsBadge.hasUnreads.Load() {
+		t.Error("the rail's thread state was not updated from the counts")
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, r := range srv.reqs {
+		if r.path != "/api/client.counts" {
+			t.Errorf("reconnect requested %s; want only client.counts", r.path)
+		}
 	}
 }
 
-// The kick is a trigger, not a fetch: threadSubsGate inside
-// ensureThreadSubscriptions decides whether a sweep actually runs.
-// A reconnect flap that passes the 30 s dedupe must still cost zero
-// getView requests when the last sync was recent — but the wiring
-// must not hold the kick back either, or a long offline gap followed
-// by a flap would defer the reconciliation indefinitely. The handler
-// therefore fires unconditionally and stays dumb about throttling.
-func TestSyncOnReconnect_KickSurvivesDedupedPass(t *testing.T) {
-	kicked := make(chan struct{}, 2)
-	h := &rtmEventHandler{
-		db:              newTestDB(t),
-		wsCtx:           &WorkspaceContext{Client: &slackclient.Client{}},
-		backfillGate:    dedupeGate{window: 30 * time.Second},
-		activeChannelID: func() string { return "" },
-		ensureThreadSubs: func() {
-			kicked <- struct{}{}
-		},
+// An update_global_thread_state that lands while the reconnect's
+// client.counts is in flight is newer than its threads block, which
+// must not overwrite it.
+func TestReconnect_ThreadStateEventMidRequestSupersedesSnapshot(t *testing.T) {
+	db := newTestDB(t)
+	seedWorkspaceChannels(t, db, 1)
+	sender := &captureSender{}
+	badge := &threadsBadge{}
+	r := &reconnectSync{
+		client: &stampingCounts{inner: &fakeCounts{}, clock: &badge.events},
+		db:     db, workspaceID: "T1", program: sender,
+		threadsBadge: badge,
 	}
+	r.refreshUnreadState(context.Background())
 
-	h.syncOnReconnect("reconnect")
-	if h.syncOnReconnect("reconnect") {
-		t.Fatal("second pass inside the dedupe window should have been suppressed")
-	}
-	select {
-	case <-kicked:
-	case <-time.After(time.Second):
-		t.Fatal("first pass did not kick the thread subscription sync")
-	}
-	select {
-	case <-kicked:
-		// Both designs are defensible; this pins "kick even when the
-		// channel pass was deduped", since the thread gate throttles
-		// anyway and the kick is free.
-	case <-time.After(time.Second):
-		t.Fatal("deduped pass did not forward the kick to the thread gate, which owns the real throttle")
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	for _, m := range sender.sent {
+		if _, ok := m.(ui.ThreadsBadgeUpdatedMsg); ok {
+			t.Fatal("threads snapshot was sent despite a mid-request update_global_thread_state superseding it")
+		}
 	}
 }
 
@@ -433,7 +447,7 @@ const countsWithMentionsBody = `{
   ],
   "mpims": [{"id":"G000","has_unreads":true,"mention_count":5,"last_read":"1700000007.000100"}],
   "ims": [{"id":"D000","has_unreads":true,"mention_count":2,"last_read":"1700000008.000100"}],
-  "threads": {"has_unreads":false,"unread_count":0,"mention_count":0}
+  "threads": {"has_unreads":false,"mention_count":0}
 }`
 
 // TestReconnect_CarriesServerMentionCountsIntoTheCache drives the whole

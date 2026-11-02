@@ -69,34 +69,15 @@ type WorkspaceContext struct {
 	// foreground for muted channels. Nil when the bootstrap fetch
 	// failed or hasn't run yet — callers must nil-check before use.
 	MuteStore *service.MuteStore
-	// ThreadsHasUnreads is the workspace-wide threads-have-any-unread
-	// signal returned by client.counts on startup. The local SQLite
-	// heuristic for per-thread unread state can produce false positives
-	// (the parent channel's last_read_ts is older than a thread reply
-	// the user already read in another Slack client). When Slack tells
-	// us the workspace has zero unread threads, we trust that and
-	// suppress the heuristic-derived flags entirely.
-	ThreadsHasUnreads bool
 	// BadgeEvents stamps the arrival time of the workspace's last
 	// badge_counts_updated, so the reconnect catch-up can drop a
 	// client.counts snapshot that an event superseded mid-request. See
 	// badgeEventClock.
 	BadgeEvents *badgeEventClock
-	// ThreadSubsGate throttles the workspace's
-	// subscriptions.thread.getView fetches to one per
-	// threadSubsSyncInterval. Fired on workspace-ready, on Threads
-	// view activation, and by the reconnect/wake catch-up. See
-	// ensureThreadSubscriptions.
-	ThreadSubsGate threadSubsGate
-	// SubscriptionsAvailable indicates whether the most recent
-	// threadSubscriptionSync attempt succeeded in fetching Slack's
-	// authoritative thread-subscription list. true on bootstrap
-	// (optimistic — no banner before the first Threads-view open, by
-	// which point nothing has been attempted) and after every
-	// successful sync; false after a failed one. The UI uses it to
-	// decide whether to draw the "Threads list unavailable" banner.
-	SubscriptionsAvailable bool
-	Channels               []sidebar.ChannelItem
+	// ThreadsBadge is the workspace's followed-threads state as Slack
+	// last reported it; see threadsBadge.
+	ThreadsBadge threadsBadge
+	Channels     []sidebar.ChannelItem
 	// FinderItems is the list shown in the Ctrl+P finder: the channels
 	// the user has joined. Channels they have not joined are not held
 	// here at all — they arrive per query from the finder's debounced
@@ -237,9 +218,9 @@ func (w *WorkspaceContext) SetCustomEmoji(emojis map[string]string) {
 // connect goroutine per workspace and then calls p.Run immediately,
 // so each goroutine's Add lands while the program is already handling
 // messages -- including the WorkspaceReadyMsg of whichever workspace
-// finished first, whose callbacks (EnsureSubscriptions, the rail's
-// unread reader on every read-state event, later the workspace
-// switcher) call ByID, and the wake watcher's All. Two workspaces
+// finished first, whose callbacks (the rail's unread reader on every
+// read-state event, later the workspace switcher) call ByID, and the
+// wake watcher's All. Two workspaces
 // finishing together, or one finishing while another's ready message
 // is being handled, is a concurrent map write or read/write -- a
 // runtime fatal, not a data race the detector merely reports -- and

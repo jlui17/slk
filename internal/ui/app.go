@@ -113,11 +113,12 @@ const channelSearchDebounceDelay = 300 * time.Millisecond
 const defaultMarkFlushDebounce = 5 * time.Second
 
 // defaultThreadsDirtyDebounce is the App.threadsDirtyDebounce NewApp
-// starts with, and the fallback for a zero field in scheduleThreadsDirty
-// and in reduceThreads' ThreadsListDirtyMsg arm. It only delays a query
-// against local SQLite, so it is two orders of magnitude below the mark
-// flush above.
-const defaultThreadsDirtyDebounce = 150 * time.Millisecond
+// starts with, and the fallback for a zero field in reduceThreads'
+// ThreadsListDirtyMsg arm. Each window ends in one getView request
+// while the Threads view is open; a second gathers the burst one change
+// sends (the reply's update_global_thread_state, the read's
+// thread_marked, a subscription event) into that one request.
+const defaultThreadsDirtyDebounce = time.Second
 
 type App struct {
 	appFork // fork: app_fork.go
@@ -313,26 +314,36 @@ type App struct {
 
 	threadsDirtyDebounce time.Duration
 
-	// threadsListFetchScheduled is set while a threads-list refresh is
+	// threadsListFetchScheduled is set while a Threads view refresh is
 	// waiting out threadsDirtyDebounce, and cleared when the
 	// threadsListFetchMsg that ends the wait arrives. Further
 	// ThreadsListDirtyMsg deliveries are dropped while it is set: the
-	// refresh they would ask for is already scheduled, and it reads
-	// the cache when it runs rather than when it was scheduled.
+	// refresh they would ask for is already scheduled, and it asks
+	// Slack when it runs rather than when it was scheduled.
 	//
 	// That holds except across a workspace switch, where a dirty for
 	// the newly-active team can be dropped into a window opened for
 	// the old one, whose fetch is then discarded by the team check in
-	// the threadsListFetchMsg arm — so neither refreshes. Benign:
-	// reduceWorkspaceSwitched dispatches its own ListFetch for the new
-	// team, and the window reopens for the next dirty either way.
+	// the threadsListFetchMsg arm — so neither refreshes. Benign: the
+	// switch leaves the Threads view, which loads afresh when opened.
 	//
 	// The coalescing lives here, on the receiving side, because the
-	// message's senders — the thread_marked and
-	// thread_subscription_changed WS handlers, the subscription
-	// sync's completion callback, and scheduleThreadsDirty's two
-	// callers — do not coordinate.
+	// message's senders — the update_global_thread_state and
+	// thread_subscription_changed WS handlers and the reconnect
+	// catch-up — do not coordinate.
 	threadsListFetchScheduled bool
+
+	// threadsRefreshKeepsOlder is set while a dirty refresh's first
+	// page is on its way: that page keeps the rows the user has
+	// scrolled to below it (threadsview.SetFirstPage), where the page
+	// an open of the view loads replaces the list.
+	threadsRefreshKeepsOlder bool
+
+	// threadsBadgeCounts holds each workspace's number of unread
+	// followed threads, as Slack last counted them
+	// (ThreadsBadgeUpdatedMsg), keyed by team id. The sidebar's
+	// Threads badge shows the active workspace's value.
+	threadsBadgeCounts map[string]int
 
 	// terminalFocused tracks whether the terminal running slk currently
 	// has focus. Maintained by reduceFocus from tea.FocusMsg /
@@ -1707,7 +1718,7 @@ func (a *App) handleDown() tea.Cmd {
 			a.threadsView.MoveDown()
 			// j: held-key burst — debounce the network fetch so we
 			// don't fire one conversations.replies call per row.
-			return a.openSelectedThreadCmd(true)
+			return tea.Batch(a.openSelectedThreadCmd(true), a.loadMoreThreadsCmd())
 		}
 		if a.view == ViewActivity {
 			a.activityView.MoveDown()
@@ -1865,8 +1876,10 @@ func (a *App) handleGoToBottom() tea.Cmd {
 	case PanelMessages:
 		if a.view == ViewThreads {
 			a.threadsView.GoToBottom()
-			// G is a one-shot jump — fire the fetch immediately.
-			return a.openSelectedThreadCmd(false)
+			// G is a one-shot jump — fire the fetch immediately. G
+			// reaches the last loaded row, so it also loads the next
+			// page, as scrolling there does.
+			return tea.Batch(a.openSelectedThreadCmd(false), a.loadMoreThreadsCmd())
 		}
 		if a.view == ViewActivity {
 			a.activityView.GoToBottom()
@@ -1940,6 +1953,7 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 				a.threadsView.ScrollUp(n)
 			} else {
 				a.threadsView.ScrollDown(n)
+				return a.loadMoreThreadsCmd()
 			}
 		} else if a.view == ViewActivity {
 			if delta < 0 {
@@ -2489,37 +2503,29 @@ func (a *App) applyThreadUnreadBoundary(channelID, threadTS string) {
 		ids.ChannelID(channelID), ids.ThreadTS(threadTS)))
 }
 
-// scheduleThreadsDirty returns a tea.Cmd that fires a ThreadsListDirtyMsg
-// for the active workspace after the configured debounce interval. Returns
-// nil when no workspace is active — without an activeTeamID the dirty
-// handler would just drop the message anyway.
-//
-// The tick does not itself coalesce anything: tea.Tick arms a one-shot
-// timer per call, so a burst of thread replies arms a timer each and
-// sends a dirty message each. Collapsing those into a single
-// ListSubscribedThreads query is the receiving arm's job in
-// reduceThreads, where the dirty messages the WS handlers send are
-// collapsed with them.
-//
-// Which leaves this tick redundant, and additive with the one the
-// receiving arm arms: a reply's list re-query now lands roughly two
-// debounce intervals after the reply. Deliberately left in place when
-// the receive-side window was added — it predates that window and has
-// two callers, so removing it is a separate change. Doing so would
-// also improve coalescing slightly, by letting a reply's dirty join a
-// window already open instead of arriving after it closed.
-func (a *App) scheduleThreadsDirty() tea.Cmd {
-	if a.activeTeamID == "" {
-		return nil
+// adjustThreadsBadge moves the active workspace's Threads badge by delta
+// when the user's own reading flips a loaded row, ahead of Slack's
+// update_global_thread_state, which then sets the real number. Only
+// for changes made before the mark goes to Slack: the event cannot
+// overtake those, where a change applied after Slack answered could
+// land on top of the event and count twice. A workspace with no count
+// from Slack yet keeps zero.
+func (a *App) adjustThreadsBadge(delta int) {
+	n, ok := a.threadsBadgeCounts[a.activeTeamID]
+	if !ok || delta == 0 {
+		return
 	}
-	team := a.activeTeamID
-	d := a.threadsDirtyDebounce
-	if d == 0 {
-		d = defaultThreadsDirtyDebounce
-	}
-	return tea.Tick(d, func(time.Time) tea.Msg {
-		return ThreadsListDirtyMsg{TeamID: team}
-	})
+	n = max(n+delta, 0)
+	a.threadsBadgeCounts[a.activeTeamID] = n
+	a.sidebar.SetThreadsUnreadCount(n)
+}
+
+// applyThreadsReply records a thread reply in the Threads view's row
+// for its thread, if one is loaded: the row moves to the top and, for
+// someone else's reply the user is not looking at, turns unread.
+func (a *App) applyThreadsReply(channelID string, msg messages.MessageItem, onScreen bool) {
+	unread := msg.UserID != a.currentUserID && !onScreen
+	a.threadsView.ApplyReply(channelID, msg.ThreadTS, msg.TS, msg.UserID, unread)
 }
 
 // recordChannelMark stages a channel read-cursor advance. Newest-wins:
@@ -4084,8 +4090,8 @@ func (a *App) applyThreadMark(channelID, threadTS, lastRead string) {
 }
 
 // applyThreadMarkListState is applyThreadMark's threads-list half: it
-// settles the row's unread flag and the sidebar badge against lastRead
-// without touching an open thread panel's landmark.
+// settles the row's unread flag against lastRead without touching an
+// open thread panel's landmark.
 //
 // Three callers. applyThreadMark runs it as its own tail, after moving
 // the landmark for a mark slk did not issue. The other two are the two
@@ -4096,26 +4102,12 @@ func (a *App) applyThreadMark(channelID, threadTS, lastRead string) {
 // deliberately set on open from the pre-open cursor (see
 // openSelectedThreadCmd); the mark carries the cursor slk just set —
 // the newest reply — so applying it to the panel would erase the
-// landmark. The read state itself is real, though, so the list flag and
-// the badge must still settle, which is what this does.
+// landmark. The read state itself is real, though, so the list flag
+// must still settle, which is what this does. The sidebar badge and the
+// rail are not touched: the mark reaches them as Slack's
+// update_global_thread_state.
 func (a *App) applyThreadMarkListState(channelID, threadTS, lastRead string) {
-	if a.threadsView.MarkByThreadTSReadAt(channelID, threadTS, lastRead) {
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-	}
-	// The cursor is already in thread_subscriptions -- markThreadRead
-	// writes it before ThreadMarkedLocalMsg, OnThreadMarked before
-	// ThreadMarkedRemoteMsg -- and the rail's thread half reads that
-	// table (railThreadsUnread in cmd/slk), so recompute the rail here,
-	// whether or not the list had a row to settle: after a workspace
-	// switch the list is empty but the cursor still moved.
-	//
-	// This is the one thread mark site that fans out. The optimistic
-	// ones -- MarkSelectedRead on open, the ThreadRepliesLoadedMsg
-	// recompute, applyThreadMarkUnread -- change nothing in the DB at
-	// that moment, so the rail would only re-read the answer it already
-	// shows; the mark they issue, or its thread_marked echo, lands here
-	// and refreshes it then.
-	a.notifyReadStateChanged()
+	a.threadsView.MarkByThreadTSReadAt(channelID, threadTS, lastRead)
 }
 
 // applyThreadMarkEcho handles an inbound thread_marked WS event.
@@ -4128,7 +4120,7 @@ func (a *App) applyThreadMarkListState(channelID, threadTS, lastRead string) {
 // reply, and the panel renders no landmark once its boundary reaches
 // the newest reply — so applying one wipes the "── new ──" divider a
 // round trip after the user opened the thread to look at it. They are
-// suppressed: the threads-list flag and sidebar badge still settle, but
+// suppressed: the threads-list flag still settles, but
 // the landmark is left where opening the thread put it. A mark slk did
 // not issue carries no record and still moves the landmark, which is
 // correct — the user really did read the thread elsewhere. See
@@ -4180,9 +4172,9 @@ func (a *App) applyThreadMarkUnread(channelID, threadTS, boundaryTS string) {
 		a.threadPanel.ThreadTS() == threadTS {
 		a.threadPanel.SetLastReadTS(boundaryTS)
 	}
-	if a.threadsView.MarkByThreadTSUnread(channelID, threadTS) {
-		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
-	}
+	// The badge follows Slack's update_global_thread_state: this runs
+	// after Slack accepted the mark, so its event may already be in.
+	a.threadsView.MarkByThreadTSUnread(channelID, threadTS)
 	a.markAgentThreadUnread(a.activeTeamID, channelID, threadTS, boundaryTS)
 }
 

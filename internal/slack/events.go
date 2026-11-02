@@ -67,6 +67,11 @@ type EventHandler interface {
 	// client). activityTotal is the sum of the event's activity_v2
 	// map, the same number client.counts reports at boot.
 	OnBadgeCountsUpdated(activityTotal int)
+	// OnGlobalThreadState is delivered when Slack pushes
+	// update_global_thread_state: the user's followed-threads badge
+	// changed (a reply landed in a followed thread, or one was read in
+	// any client). state has the shape client.counts reports at boot.
+	OnGlobalThreadState(state ThreadsAggregate)
 
 	// OnChannelMarked is delivered when Slack pushes a channel_marked /
 	// im_marked / group_marked / mpim_marked event (read state changed
@@ -97,7 +102,7 @@ type EventHandler interface {
 	// nothing else. What subscribed IS good for is telling a receiver
 	// whether creating a missing thread_subscriptions row is
 	// legitimate; the durable `active` column stays owned by
-	// OnThreadSubscriptionChanged and the getView reconcile.
+	// OnThreadSubscriptionChanged.
 	OnThreadMarked(channelID, threadTS, lastRead string, subscribed Subscribed)
 
 	// OnThreadSubscriptionChanged is delivered for thread_subscribed and
@@ -806,6 +811,13 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 
 	case "pin_added", "pin_removed":
 		dispatchPinEvent(data, handler) // fork: pinsbookmarks_fork.go
+
+	case "update_global_thread_state":
+		var evt threadsStateFields
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return
+		}
+		handler.OnGlobalThreadState(evt.aggregate())
 
 	case "hello":
 		debuglog.WS("hello: connected")

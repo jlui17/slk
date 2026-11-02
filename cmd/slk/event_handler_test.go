@@ -563,7 +563,7 @@ func TestOnMessage_UnknownConversation_RetryDependsOnFailure(t *testing.T) {
 // subscribed=true is the case where reconstructing a missing row is
 // legitimate: Slack says the user is subscribed, so a row the local
 // cache has never seen is a gap in the cache, not a phantom.
-func TestOnThreadMarked_AdvancesCursorWithoutTombstoning(t *testing.T) {
+func TestOnThreadMarked_SubscribedCreatesAndAdvancesCursor(t *testing.T) {
 	db := newTestDB(t)
 	h := &rtmEventHandler{
 		db:          db,
@@ -573,31 +573,14 @@ func TestOnThreadMarked_AdvancesCursorWithoutTombstoning(t *testing.T) {
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("want 1 active sub after thread_marked, got %d", len(got))
-	}
-	if got[0].ChannelID != "C1" || got[0].ThreadTS != "1700000100.000000" ||
-		got[0].LastRead != "1700000150.000000" || !got[0].Active {
-		t.Fatalf("subscription row mismatch: %+v", got[0])
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000150.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000150.000000")
 	}
 
-	// A later cursor move must advance last_read and leave the row
-	// active. Writing `active` here used to tombstone the row, making
-	// the thread disappear from the Threads list.
+	// A later cursor move advances it.
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000200.000000", true)
-	got, err = db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("thread must stay in the list after being read, got %d active", len(got))
-	}
-	if got[0].LastRead != "1700000200.000000" {
-		t.Errorf("LastRead = %q, want 1700000200.000000", got[0].LastRead)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000200.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000200.000000")
 	}
 }
 
@@ -637,7 +620,7 @@ func TestOnThreadMarked_EmptyLastReadIsIgnored(t *testing.T) {
 // echo, so opening an unsubscribed thread from the messages pane
 // reaches this handler. markThreadRead deliberately writes nothing for
 // such a thread; inserting a row here would fabricate the active=1 row
-// it refused to create and put a phantom entry in the Threads list.
+// it refused to create.
 // `subscribed` (Slack's subscription.active) is the signal that says
 // which case this is.
 func TestOnThreadMarked_UnsubscribedDoesNotCreateRow(t *testing.T) {
@@ -650,16 +633,7 @@ func TestOnThreadMarked_UnsubscribedDoesNotCreateRow(t *testing.T) {
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", false)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("want no active subscription rows for an unsubscribed thread, got %d: %+v", len(got), got)
-	}
-	// ListActiveThreadSubscriptions filters on active=1, so it would
-	// also report 0 for a fabricated row that happened to be
-	// tombstoned. Assert on the row itself: no cursor means no row.
+	// No cursor means no row.
 	lastRead, err := db.GetThreadLastRead("T1", "C1", "1700000100.000000")
 	if err != nil {
 		t.Fatalf("GetThreadLastRead: %v", err)
@@ -685,22 +659,14 @@ func TestOnThreadMarked_UnsubscribedAdvancesExistingRow(t *testing.T) {
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000200.000000", false)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("want the existing row still active, got %d rows", len(got))
-	}
-	if got[0].LastRead != "1700000200.000000" {
-		t.Errorf("LastRead = %q, want 1700000200.000000", got[0].LastRead)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000200.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000200.000000")
 	}
 }
 
-// `active` is owned by thread_subscribed / thread_unsubscribed / the
-// getView reconcile. Neither cursor writer may resurrect a tombstoned
-// row, including the inserting one taken when subscribed=true.
-func TestOnThreadMarked_SubscribedLeavesTombstonedRowTombstoned(t *testing.T) {
+// A thread the user unfollowed keeps its cursor moving: the inserting
+// writer taken when subscribed=true still updates the existing row.
+func TestOnThreadMarked_SubscribedAdvancesTombstonedRow(t *testing.T) {
 	db := newTestDB(t)
 	if err := db.UpsertThreadSubscription("T1", "C1", "1700000100.000000", "1700000150.000000", false); err != nil {
 		t.Fatalf("UpsertThreadSubscription: %v", err)
@@ -713,13 +679,6 @@ func TestOnThreadMarked_SubscribedLeavesTombstonedRowTombstoned(t *testing.T) {
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000200.000000", true)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("a tombstoned row must stay tombstoned, got %d active: %+v", len(got), got)
-	}
 	lastRead, err := db.GetThreadLastRead("T1", "C1", "1700000100.000000")
 	if err != nil {
 		t.Fatalf("GetThreadLastRead: %v", err)
@@ -729,7 +688,7 @@ func TestOnThreadMarked_SubscribedLeavesTombstonedRowTombstoned(t *testing.T) {
 	}
 }
 
-func TestOnThreadSubscriptionChanged_UpsertsActive(t *testing.T) {
+func TestOnThreadSubscriptionChanged_RecordsCursor(t *testing.T) {
 	db := newTestDB(t)
 	h := &rtmEventHandler{
 		db:          db,
@@ -739,34 +698,8 @@ func TestOnThreadSubscriptionChanged_UpsertsActive(t *testing.T) {
 
 	h.OnThreadSubscriptionChanged("C1", "1700000100.000000", "1700000150.000000", true)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 || got[0].ChannelID != "C1" || !got[0].Active {
-		t.Fatalf("subscription row mismatch: %+v", got)
-	}
-}
-
-func TestOnThreadSubscriptionChanged_TombstonesOnUnsubscribe(t *testing.T) {
-	db := newTestDB(t)
-	if err := db.UpsertThreadSubscription("T1", "C1", "1700000100.000000", "1700000150.000000", true); err != nil {
-		t.Fatalf("UpsertThreadSubscription: %v", err)
-	}
-	h := &rtmEventHandler{
-		db:          db,
-		workspaceID: "T1",
-		isActive:    func() bool { return true },
-	}
-
-	h.OnThreadSubscriptionChanged("C1", "1700000100.000000", "1700000150.000000", false)
-
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("expected 0 active after unsubscribe, got %d: %+v", len(got), got)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000150.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000150.000000")
 	}
 }
 
@@ -775,9 +708,8 @@ func TestOnThreadSubscriptionChanged_TombstonesOnUnsubscribe(t *testing.T) {
 // workspaces and the user is focused on another one, an incoming
 // thread_marked event on the inactive workspace must STILL be
 // persisted to the local thread_subscriptions cache. Without this,
-// switching to the inactive workspace later would show stale read
-// state (and, for newly-unread threads, no unread indicator at all
-// until the next reconnect-driven reconcile).
+// opening the thread after switching to that workspace would put the
+// "── new ──" boundary at a stale cursor.
 //
 // This mirrors OnMessage / OnChannelMarked which both persist to the
 // cache regardless of active-workspace state and only gate the UI
@@ -794,28 +726,15 @@ func TestOnThreadMarked_PersistsOnInactiveWorkspace(t *testing.T) {
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("inactive workspace must still persist thread_marked; got %d active rows, want 1", len(got))
-	}
-	if got[0].ChannelID != "C1" || got[0].ThreadTS != "1700000100.000000" ||
-		got[0].LastRead != "1700000150.000000" || !got[0].Active {
-		t.Fatalf("subscription row mismatch on inactive workspace: %+v", got[0])
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000150.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000150.000000")
 	}
 }
 
-// TestOnThreadMarked_InactiveWorkspaceRefreshesRail pins the send the
-// inactive branch used to skip. The rail's thread half reads the
-// last_read this handler just wrote, so a thread read in another
-// client while the user is on a different workspace must reach the
-// rail, and ReadStateChangedMsg is what notifyReadStateChanged answers
-// to (the pattern refreshMutedForActive's inactive case uses). The
-// active-only messages must still stay out: there is no list or badge
-// on screen for this workspace.
-func TestOnThreadMarked_InactiveWorkspaceRefreshesRail(t *testing.T) {
+// An inactive workspace's thread events change nothing on screen: its
+// Threads view is not open, and the badge and rail move when Slack
+// pushes update_global_thread_state.
+func TestThreadEvents_InactiveWorkspaceSendNothing(t *testing.T) {
 	db := newTestDB(t)
 	sender := &captureSender{}
 	h := &rtmEventHandler{
@@ -826,52 +745,18 @@ func TestOnThreadMarked_InactiveWorkspaceRefreshesRail(t *testing.T) {
 	}
 
 	h.OnThreadMarked("C1", "1700000100.000000", "1700000150.000000", true)
-
-	assertOnlyRailRefresh(t, sender.sent)
-}
-
-// TestOnThreadSubscriptionChanged_InactiveWorkspaceRefreshesRail is the
-// same guard for thread_subscribed / thread_unsubscribed: an
-// auto-subscription from an @-mention in an inactive workspace is a new
-// subscribed thread the rail may need to light, and an unsubscribe one
-// it may need to stop lighting.
-func TestOnThreadSubscriptionChanged_InactiveWorkspaceRefreshesRail(t *testing.T) {
-	db := newTestDB(t)
-	sender := &captureSender{}
-	h := &rtmEventHandler{
-		db:          db,
-		workspaceID: "T1",
-		isActive:    func() bool { return false },
-		program:     sender,
-	}
-
 	h.OnThreadSubscriptionChanged("C1", "1700000100.000000", "1700000150.000000", true)
 
-	assertOnlyRailRefresh(t, sender.sent)
-}
-
-// assertOnlyRailRefresh checks that an inactive-workspace thread event
-// dispatched exactly one ReadStateChangedMsg for T1 and nothing else.
-func assertOnlyRailRefresh(t *testing.T, sent []tea.Msg) {
-	t.Helper()
-	if len(sent) != 1 {
-		t.Fatalf("sent %d messages, want exactly one ReadStateChangedMsg: %+v", len(sent), sent)
-	}
-	rs, ok := sent[0].(ui.ReadStateChangedMsg)
-	if !ok {
-		t.Fatalf("sent %T, want ui.ReadStateChangedMsg", sent[0])
-	}
-	if rs.WorkspaceID != "T1" {
-		t.Errorf("ReadStateChangedMsg.WorkspaceID = %q, want T1", rs.WorkspaceID)
+	if len(sender.sent) != 0 {
+		t.Errorf("sent %+v, want nothing for an inactive workspace", sender.sent)
 	}
 }
 
 // TestOnThreadSubscriptionChanged_PersistsOnInactiveWorkspace guards
 // against the same class of bug for thread_subscribed /
-// thread_unsubscribed events. Without this, a thread the user just
-// got @-mentioned in on an inactive workspace would never make it
-// into the local thread_subscriptions table, and the threads view
-// would silently omit it on next workspace switch.
+// thread_unsubscribed events: the cursor of a thread the user just got
+// @-mentioned in on an inactive workspace is cached for when they open
+// it.
 func TestOnThreadSubscriptionChanged_PersistsOnInactiveWorkspace(t *testing.T) {
 	db := newTestDB(t)
 	h := &rtmEventHandler{
@@ -882,12 +767,8 @@ func TestOnThreadSubscriptionChanged_PersistsOnInactiveWorkspace(t *testing.T) {
 
 	h.OnThreadSubscriptionChanged("C1", "1700000100.000000", "1700000150.000000", true)
 
-	got, err := db.ListActiveThreadSubscriptions("T1")
-	if err != nil {
-		t.Fatalf("ListActiveThreadSubscriptions: %v", err)
-	}
-	if len(got) != 1 || got[0].ChannelID != "C1" || !got[0].Active {
-		t.Fatalf("inactive workspace must still persist thread_subscribed; got %+v, want 1 active row", got)
+	if got := mustThreadLastRead(t, db, "T1", "C1", "1700000100.000000"); got != "1700000150.000000" {
+		t.Errorf("last_read = %q, want %q", got, "1700000150.000000")
 	}
 }
 
@@ -1098,4 +979,14 @@ func TestApplyActionIDs_Misaligned(t *testing.T) {
 		t.Errorf("long ids: %+v", atts)
 	}
 	applyActionIDs(nil, [][]string{{"1"}}) // must not panic
+}
+
+// mustThreadLastRead reads a thread's cached read cursor.
+func mustThreadLastRead(t *testing.T, db *cache.DB, teamID, channelID, threadTS string) string {
+	t.Helper()
+	got, err := db.GetThreadLastRead(teamID, channelID, threadTS)
+	if err != nil {
+		t.Fatalf("GetThreadLastRead: %v", err)
+	}
+	return got
 }

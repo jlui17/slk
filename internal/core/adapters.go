@@ -124,13 +124,12 @@ func (c commandAdapter) Run(teamID string, channelID ids.ChannelID, threadTS ids
 // NewThreadService. Any field may be nil; the resulting service
 // no-ops that operation (and returns the zero value for read paths).
 type ThreadServiceFuncs struct {
-	Fetch               ThreadFetchFunc
-	CacheRead           ThreadCacheReadFunc
-	Mark                ThreadMarkFunc
-	SendReply           ThreadReplySendFunc
-	ListFetch           ThreadsListFetchFunc
-	EnsureSubscriptions func(teamID ids.TeamID)
-	ThreadLastRead      func(channelID ids.ChannelID, threadTS ids.ThreadTS) string
+	Fetch          ThreadFetchFunc
+	CacheRead      ThreadCacheReadFunc
+	Mark           ThreadMarkFunc
+	SendReply      ThreadReplySendFunc
+	ListFetch      ThreadsListFetchFunc
+	ThreadLastRead func(channelID ids.ChannelID, threadTS ids.ThreadTS) string
 }
 
 // NewThreadService builds a ThreadService from a ThreadServiceFuncs
@@ -172,18 +171,11 @@ func (t threadAdapter) SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS,
 	return t.fns.SendReply(channelID, threadTS, text, broadcast)
 }
 
-func (t threadAdapter) ListFetch(teamID ids.TeamID) Msg {
+func (t threadAdapter) ListFetch(teamID ids.TeamID, cursor string) Msg {
 	if t.fns.ListFetch == nil {
 		return nil
 	}
-	return t.fns.ListFetch(teamID)
-}
-
-func (t threadAdapter) EnsureSubscriptions(teamID ids.TeamID) {
-	if t.fns.EnsureSubscriptions == nil {
-		return
-	}
-	t.fns.EnsureSubscriptions(teamID)
+	return t.fns.ListFetch(teamID, cursor)
 }
 
 func (t threadAdapter) ThreadLastRead(channelID ids.ChannelID, threadTS ids.ThreadTS) string {
@@ -769,9 +761,10 @@ type ThreadMarkFunc func(channelID ids.ChannelID, threadTS ids.ThreadTS, ts ids.
 // broadcast is Slack's "Also send to #channel" (reply_broadcast=true).
 type ThreadReplySendFunc func(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, broadcast bool) Msg
 
-// ThreadsListFetchFunc loads the involved-threads list for a workspace.
-// Returns the resulting Msg (typically ThreadsListLoadedMsg).
-type ThreadsListFetchFunc func(teamID ids.TeamID) Msg
+// ThreadsListFetchFunc loads one page of a workspace's Threads view;
+// see ThreadService.ListFetch. Returns the resulting Msg (typically
+// ThreadsListLoadedMsg).
+type ThreadsListFetchFunc func(teamID ids.TeamID, cursor string) Msg
 
 // ActivityFetchFunc loads the first page of the Activity feed for a
 // workspace. Returns the resulting Msg (typically

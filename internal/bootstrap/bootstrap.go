@@ -150,16 +150,12 @@ type Unread struct {
 	LastRead     string
 }
 
-// Threads is client.counts' workspace-wide thread rollup — a
-// restatement of slack.ThreadsAggregate.
-//
-// HasUnreads is the authoritative answer to "does the user have unread
-// thread activity", and slk needs it because the local cache holds no
-// per-thread read state and its heuristic produces false positives.
+// Threads is client.counts' workspace-wide followed-threads rollup — a
+// restatement of slack.ThreadsAggregate, which documents the fields.
 type Threads struct {
-	HasUnreads   bool
-	UnreadCount  int
-	MentionCount int
+	HasUnreads    bool
+	UnreadThreads int
+	MentionCount  int
 }
 
 // Counts is everything one client.counts call learned.

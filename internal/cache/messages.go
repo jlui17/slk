@@ -260,9 +260,6 @@ func (db *DB) DeleteMessage(channelID, ts string) error {
 		debuglog.Cache("DeleteMessage: channel=%s ts=%s ERR=%v", channelID, ts, err)
 		return fmt.Errorf("deleting message: %w", err)
 	}
-	if err := db.retractLatestReply(channelID, ts); err != nil {
-		return err
-	}
 	debuglog.Cache("DeleteMessage: channel=%s ts=%s", channelID, ts)
 	return nil
 }

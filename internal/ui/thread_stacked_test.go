@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -115,7 +114,7 @@ func TestStacked_RepliesLandAt120(t *testing.T) {
 }
 
 func TestStacked_ThreadsViewKeepsTheListInFront(t *testing.T) {
-	sums := []cache.ThreadSummary{{
+	sums := []core.ThreadSummary{{
 		ChannelID: "C1", ChannelName: "general", ChannelType: "channel",
 		ThreadTS: "50.0", ParentTS: "50.0", ParentUserID: "U1",
 		ParentText: "hello", ReplyCount: 1,

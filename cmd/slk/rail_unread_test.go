@@ -27,31 +27,12 @@ func railLookup(all map[string]*WorkspaceContext) func(string) *WorkspaceContext
 	return func(teamID string) *WorkspaceContext { return all[teamID] }
 }
 
-// noThreadsUnread is the thread half for the channel-only cases: no
-// workspace has an unread subscribed thread.
-func noThreadsUnread(_, _ string) bool { return false }
-
-// seedSubscribedThread writes one active subscription for T1 the way
-// the getView reconcile does (last_read and latest_reply both set),
-// then caches the given replies on top of it, so a test can build
-// either shape ListSubscribedThreads' predicate distinguishes: the
-// authoritative watermark (latest_reply > last_read) or a cached
-// reply newer than both.
-func seedSubscribedThread(t *testing.T, db *cache.DB, lastRead, latestReply string, replies ...cache.Message) {
-	t.Helper()
-	const channelID, threadTS = "D1", "1700000100.000000"
-	if err := db.ReconcileThreadSubscriptions("T1", []cache.ThreadSubscription{{
-		WorkspaceID: "T1", ChannelID: channelID, ThreadTS: threadTS,
-		LastRead: lastRead, LatestReply: latestReply, Active: true,
-	}}); err != nil {
-		t.Fatalf("ReconcileThreadSubscriptions: %v", err)
-	}
-	for _, r := range replies {
-		r.WorkspaceID, r.ChannelID, r.ThreadTS = "T1", channelID, threadTS
-		if err := db.UpsertMessage(r); err != nil {
-			t.Fatalf("UpsertMessage %s: %v", r.TS, err)
-		}
-	}
+// threadsUnreadWorkspace returns a connected workspace whose Threads
+// badge from Slack reports unread followed threads.
+func threadsUnreadWorkspace(channels ...sidebar.ChannelItem) *WorkspaceContext {
+	w := &WorkspaceContext{Channels: channels}
+	w.ThreadsBadge.hasUnreads.Store(true)
+	return w
 }
 
 func TestRailUnreadWorkspaces(t *testing.T) {
@@ -125,7 +106,7 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := railUnreadWorkspaces(tc.unread, nil, railLookup(tc.all), noThreadsUnread)
+			got := railUnreadWorkspaces(tc.unread, nil, railLookup(tc.all))
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("railUnreadWorkspaces = %v, want %v", got, tc.want)
 			}
@@ -156,13 +137,13 @@ func TestRailUnreadWorkspaces_MuteStoreNotReady(t *testing.T) {
 	all := map[string]*WorkspaceContext{"T1": wctx}
 	unread := []cache.UnreadChannel{unreadRow("T1", "C1")}
 
-	if got := railUnreadWorkspaces(unread, nil, railLookup(all), noThreadsUnread); !reflect.DeepEqual(got, []string{"T1"}) {
+	if got := railUnreadWorkspaces(unread, nil, railLookup(all)); !reflect.DeepEqual(got, []string{"T1"}) {
 		t.Fatalf("store not ready: got %v, want [T1] (assume nothing is muted)", got)
 	}
 
 	wctx.MuteStore.ApplyPrefChange("muted_channels", "C1")
 	wctx.Channels[0].IsMuted = wctx.MuteStore.IsMuted("C1")
-	if got := railUnreadWorkspaces(unread, nil, railLookup(all), noThreadsUnread); got != nil {
+	if got := railUnreadWorkspaces(unread, nil, railLookup(all)); got != nil {
 		t.Fatalf("store ready and C1 muted: got %v, want none", got)
 	}
 }
@@ -176,15 +157,14 @@ func TestRailUnreadWorkspaces_RailAndTitleAgree(t *testing.T) {
 		"T1": {Channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}}},
 		"T2": {Channels: []sidebar.ChannelItem{{ID: "C2"}}},
 		"T3": {Channels: []sidebar.ChannelItem{{ID: "C3", IsMuted: true}, {ID: "C4"}}},
-		"T4": {Channels: []sidebar.ChannelItem{{ID: "C5"}}},
+		// T4 has nothing unread in its channel list; only a thread.
+		"T4": threadsUnreadWorkspace(sidebar.ChannelItem{ID: "C5"}),
 	}
 	unread := []cache.UnreadChannel{
 		unreadRow("T1", "C1"), unreadRow("T2", "C2"), unreadRow("T3", "C3"), unreadRow("T3", "C4"),
 	}
-	// T4 has nothing unread in its channel list; only a thread.
-	threadsUnread := func(teamID, _ string) bool { return teamID == "T4" }
 	teamIDs := []string{"T1", "T2", "T3", "T4"}
-	ids := railUnreadWorkspaces(unread, teamIDs, railLookup(all), threadsUnread)
+	ids := railUnreadWorkspaces(unread, teamIDs, railLookup(all))
 
 	m := workspace.New([]workspace.WorkspaceItem{{ID: "T1"}, {ID: "T2"}, {ID: "T3"}, {ID: "T4"}}, 1)
 	m.SetUnreadReader(func() []string { return ids })
@@ -259,107 +239,52 @@ func TestRailUnreadWorkspaces_ArchivedChannelInCache(t *testing.T) {
 	}
 
 	all := map[string]*WorkspaceContext{"T1": wctx}
-	if got := railUnreadWorkspaces(unread, nil, railLookup(all), noThreadsUnread); got != nil {
+	if got := railUnreadWorkspaces(unread, nil, railLookup(all)); got != nil {
 		t.Errorf("archived channel lit the rail: got %v, want none", got)
 	}
 }
 
 // TestRailUnreadWorkspaces_Threads pins the thread half of the rail
-// predicate against the real cache: a workspace with nothing visibly
-// unread in its channel list still lights when one of its subscribed
-// threads is unread by ListSubscribedThreads' rule, and stays dark
-// when that rule says read. The self-authored case is the one
-// suppression the rule has; the cached-reply case is the field shape
-// (two Betterleave DM threads whose latest_reply equalled last_read
-// while a newer reply sat in the cache), which a plain
-// latest_reply > last_read query misses.
+// predicate: a workspace with nothing visibly unread in its channel
+// list still lights when Slack reports unread followed threads, and a
+// workspace still connecting has no thread state to light it.
 func TestRailUnreadWorkspaces_Threads(t *testing.T) {
-	const self = "USELF"
-	reply := func(ts, user string) cache.Message {
-		return cache.Message{TS: ts, UserID: user, Text: "reply"}
-	}
 	cases := []struct {
-		name        string
-		lastRead    string
-		latestReply string
-		replies     []cache.Message
-		unread      []cache.UnreadChannel
-		channels    []sidebar.ChannelItem
-		want        []string
+		name   string
+		unread []cache.UnreadChannel
+		all    map[string]*WorkspaceContext
+		want   []string
 	}{
 		{
-			name:        "unread thread by the getView watermark, no unread channels",
-			lastRead:    "1700000150.000000",
-			latestReply: "1700000200.000000",
-			want:        []string{"T1"},
+			name: "unread threads, no unread channels",
+			all:  map[string]*WorkspaceContext{"T1": threadsUnreadWorkspace()},
+			want: []string{"T1"},
 		},
 		{
-			name:        "unread thread by a cached reply newer than the watermark",
-			lastRead:    "1700000150.000000",
-			latestReply: "1700000150.000000",
-			replies:     []cache.Message{reply("1700000200.000000", "UOTHER")},
-			want:        []string{"T1"},
-		},
-		{
-			name:        "newest cached reply is self-authored: read",
-			lastRead:    "1700000150.000000",
-			latestReply: "1700000150.000000",
-			replies:     []cache.Message{reply("1700000200.000000", self)},
-			want:        nil,
-		},
-		{
-			name:        "thread fully read",
-			lastRead:    "1700000200.000000",
-			latestReply: "1700000200.000000",
-			replies:     []cache.Message{reply("1700000200.000000", "UOTHER")},
-			want:        nil,
-		},
-		{
-			// #207's membership rule is for channel rows: a channel the
-			// sidebar cannot show has no dot to explain. It does not
-			// apply to threads, because the Threads badge does not
-			// filter on wctx.Channels either; the thread is on screen
-			// in the Threads view whether or not its channel is listed.
-			name:        "thread in a channel absent from the workspace list still lights",
-			lastRead:    "1700000150.000000",
-			latestReply: "1700000200.000000",
-			channels:    []sidebar.ChannelItem{{ID: "C1"}},
-			want:        []string{"T1"},
+			name: "threads all read",
+			all:  map[string]*WorkspaceContext{"T1": {}},
+			want: nil,
 		},
 		{
 			// Threads are not subject to channel mute: the muted
 			// channel keeps the channel half dark, the thread lights.
-			name:        "muted unread channel plus unread thread",
-			lastRead:    "1700000150.000000",
-			latestReply: "1700000200.000000",
-			unread:      []cache.UnreadChannel{unreadRow("T1", "C1")},
-			channels:    []sidebar.ChannelItem{{ID: "C1", IsMuted: true}},
-			want:        []string{"T1"},
+			name:   "muted unread channel plus unread threads",
+			unread: []cache.UnreadChannel{unreadRow("T1", "C1")},
+			all:    map[string]*WorkspaceContext{"T1": threadsUnreadWorkspace(sidebar.ChannelItem{ID: "C1", IsMuted: true})},
+			want:   []string{"T1"},
+		},
+		{
+			name: "workspace still connecting",
+			all:  map[string]*WorkspaceContext{},
+			want: nil,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			db := newTestDB(t)
-			seedSubscribedThread(t, db, tc.lastRead, tc.latestReply, tc.replies...)
-			all := map[string]*WorkspaceContext{"T1": {UserID: self, Channels: tc.channels}}
-			got := railUnreadWorkspaces(tc.unread, []string{"T1"}, railLookup(all), railThreadsUnread(db))
+			got := railUnreadWorkspaces(tc.unread, []string{"T1"}, railLookup(tc.all))
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("railUnreadWorkspaces = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-// TestRailUnreadWorkspaces_ThreadsUnknownWorkspace pins the nil-wctx
-// default for the thread half: while a workspace is still connecting
-// its self user ID is unknown, so the self-authored suppression cannot
-// apply and any unread subscribed thread lights it, the same
-// "unknown, so light it" choice the channel half makes.
-func TestRailUnreadWorkspaces_ThreadsUnknownWorkspace(t *testing.T) {
-	db := newTestDB(t)
-	seedSubscribedThread(t, db, "1700000150.000000", "1700000200.000000")
-	got := railUnreadWorkspaces(nil, []string{"T1"}, railLookup(nil), railThreadsUnread(db))
-	if !reflect.DeepEqual(got, []string{"T1"}) {
-		t.Errorf("railUnreadWorkspaces = %v, want [T1]", got)
 	}
 }

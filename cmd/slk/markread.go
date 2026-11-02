@@ -27,9 +27,10 @@ type threadMarker interface {
 // back to unread on the next threads-list refresh.
 //
 // A failed local write is logged, not returned: Slack accepted the mark,
-// so the thread genuinely is read and the cache heals on the next
-// getView reconcile. Only a rejected mark is an error, because that is
-// the case where the UI must not clear the unread flag.
+// so the thread genuinely is read and the cached cursor heals on the
+// next thread_marked or Threads view page. Only a rejected mark is an
+// error, because that is the case where the UI must not clear the
+// unread flag.
 func markThreadRead(ctx context.Context, client threadMarker, db *cache.DB, teamID, channelID, threadTS, ts string) error {
 	if err := client.MarkThread(ctx, channelID, threadTS, ts); err != nil {
 		return err
@@ -38,8 +39,7 @@ func markThreadRead(ctx context.Context, client threadMarker, db *cache.DB, team
 		// ...IfExists, not UpdateThreadLastRead: this path fires for
 		// ANY thread the user opens, including ones opened from the
 		// messages pane that they never subscribed to. The inserting
-		// variant would fabricate an active=1 row and put a phantom
-		// entry in the Threads list.
+		// variant would fabricate an active=1 row for them.
 		//
 		// Slack echoes this very mark back as thread_marked, so the
 		// guard only holds because OnThreadMarked applies the same
@@ -244,9 +244,7 @@ func (h *rtmEventHandler) OnChannelMarked(channelID, ts string, unreadCount, men
 
 // OnThreadMarked persists a thread read-cursor move from Slack's
 // thread_marked event. It writes last_read ONLY: `active` is owned by
-// thread_subscribed / thread_unsubscribed / the getView reconcile.
-// Writing `active` here used to tombstone the row on every read, which
-// made the thread vanish from the Threads list until the next sweep.
+// thread_subscribed / thread_unsubscribed.
 //
 // subscribed (Slack's subscription.active) chooses the cursor writer,
 // and does nothing else. It is a subscription signal, never a
@@ -262,8 +260,7 @@ func (h *rtmEventHandler) OnChannelMarked(channelID, ts string, unreadCount, men
 //     this handler sees marks for threads the user merely opened from
 //     the messages pane and never subscribed to. markThreadRead
 //     deliberately writes no row for those; inserting one here would
-//     undo that guard one hop later and surface a phantom entry in the
-//     Threads list, which filters on active=1.
+//     undo that guard one hop later.
 //
 // Neither writer touches `active` on a row that already exists, so a
 // tombstoned row stays tombstoned either way — it takes
@@ -299,23 +296,15 @@ func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, s
 	if h.program == nil {
 		return
 	}
-	active := h.isActive == nil || h.isActive()
-	// The rail's thread half reads the last_read written above
-	// (railThreadsUnread), so a thread read in another client while the
-	// user is on a different workspace must reach it now, or the dot
-	// stays lit until an unrelated event. ReadStateChangedMsg is what
-	// notifyReadStateChanged answers to, the same choice
-	// muteRefreshMsg makes for an inactive mute change.
-	if !active {
-		h.program.Send(ui.ReadStateChangedMsg{WorkspaceID: h.workspaceID})
-	}
+	// The Threads badge and the rail are Slack's to settle: a read
+	// moves them through update_global_thread_state.
 	if h.db == nil {
 		return
 	}
 	// The payload's flag is subscription state, not read state; read
 	// vs unread comes from lining last_read up against the newest
 	// activity the cache knows for the thread.
-	newest, err := h.db.ThreadNewestActivity(h.workspaceID, channelID, threadTS)
+	newest, err := h.db.ThreadNewestActivity(channelID, threadTS)
 	if err != nil {
 		debuglog.Cache("OnThreadMarked: ThreadNewestActivity %s/%s: %v",
 			channelID, threadTS, err)
@@ -329,8 +318,8 @@ func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, s
 	}
 	// Dispatched for every workspace, tagged (contract:
 	// ui.NewMessageMsg.TeamID); the threads-view/sidebar handling
-	// ignores background-team marks and picks up fresh state on the
-	// next switch via threadsListFetcher.
+	// ignores background-team marks; the agent-thread sidebar
+	// (reducer_threads_fork.go) takes every team's.
 	h.program.Send(ui.ThreadMarkedRemoteMsg{
 		TeamID:    h.workspaceID,
 		ChannelID: channelID,
@@ -338,11 +327,4 @@ func (h *rtmEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, s
 		LastRead:  lastRead,
 		Read:      read,
 	})
-	// The authoritative recompute of the whole list, from the cache
-	// rows the write above just updated. The reducer coalesces dirty
-	// messages on receipt and filters them by team, so it is only
-	// worth sending for the active workspace.
-	if active {
-		h.program.Send(ui.ThreadsListDirtyMsg{TeamID: h.workspaceID})
-	}
 }

@@ -203,7 +203,7 @@ const countsBody = `{
   "ok": true,
   "channels": [{"id":"C1","has_unreads":true,"mention_count":2,"unread_count_display":5,"last_read":"1.0"}],
   "ims": [{"id":"D1","has_unreads":true,"last_read":"2.0"}],
-  "threads": {"has_unreads":true,"unread_count":3,"mention_count":1}
+  "threads": {"has_unreads":true,"mention_count":1,"unread_count_by_channel":{"C1":2,"C2":1}}
 }`
 
 func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
@@ -224,9 +224,8 @@ func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
 	if !byID["C1"] || !byID["D1"] {
 		t.Errorf("unread flags = %+v; want both C1 and D1 unread", byID)
 	}
-	// The threads rollup is the authoritative answer to "does the user
-	// have unread thread activity"; the local cache has no per-thread
-	// read state and its heuristic produces false positives without it.
+	// The threads rollup is the Threads badge: unread followed threads
+	// summed over unread_count_by_channel.
 	want := struct {
 		has          bool
 		unread, ment int
@@ -234,7 +233,7 @@ func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
 	got := struct {
 		has          bool
 		unread, ment int
-	}{counts.Threads.HasUnreads, counts.Threads.UnreadCount, counts.Threads.MentionCount}
+	}{counts.Threads.HasUnreads, counts.Threads.UnreadThreads, counts.Threads.MentionCount}
 	if got != want {
 		t.Errorf("threads = %+v; want %+v", got, want)
 	}

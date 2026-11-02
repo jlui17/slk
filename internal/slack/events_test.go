@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ type mockEventHandler struct {
 	assistantStatuses   []AssistantStatus
 	selfPresenceChanges []string
 	dndChanges          []dndChangeRecord
+	threadStates        []ThreadsAggregate
 	badgeCounts         []int
 	lastBlocks          slack.Blocks
 	lastAttachments     []slack.Attachment
@@ -142,6 +144,9 @@ func (m *mockEventHandler) OnDNDChange(enabled bool, endUnix int64) {
 }
 func (m *mockEventHandler) OnBadgeCountsUpdated(activityTotal int) {
 	m.badgeCounts = append(m.badgeCounts, activityTotal)
+}
+func (m *mockEventHandler) OnGlobalThreadState(state ThreadsAggregate) {
+	m.threadStates = append(m.threadStates, state)
 }
 
 func (m *mockEventHandler) OnChannelMarked(channelID, ts string, unreadCount, mentionCount int) {
@@ -430,6 +435,19 @@ func TestDispatchWebSocketBadgeCountsUpdatedEvent(t *testing.T) {
 	}
 	if handler.badgeCounts[0] != 7 {
 		t.Errorf("expected summed activity total 7, got %d", handler.badgeCounts[0])
+	}
+}
+
+// The payload is the one a live session logged, trimmed: the Threads
+// badge is the number of unread followed threads, the sum of
+// unread_count_by_channel, not channel_badges.thread_unreads.
+func TestDispatchWebSocketGlobalThreadStateEvent(t *testing.T) {
+	handler := &mockEventHandler{}
+	data := []byte(`{"type":"update_global_thread_state","has_unreads":true,"mention_count":53,"mention_count_by_channel":{"C1":50,"C2":3},"unread_count_by_channel":{"C1":27,"C2":9,"C3":1},"timestamp":"1793643063.614940","vip_count":0,"channel_badges":{"thread_mentions":53,"thread_unreads":57},"event_ts":"1793643063.615000"}`)
+	dispatchWebSocketEvent(data, handler)
+	want := []ThreadsAggregate{{HasUnreads: true, UnreadThreads: 37, MentionCount: 53}}
+	if !reflect.DeepEqual(handler.threadStates, want) {
+		t.Errorf("thread states = %+v, want %+v", handler.threadStates, want)
 	}
 }
 
