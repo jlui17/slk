@@ -29,6 +29,9 @@ case "$role" in
   user)  state_vol=slk-test-state;  bin_name=slk-linux ;;
   *) echo "SLK_ROLE must be 'agent' or 'user', got '$role'" >&2; exit 1 ;;
 esac
+# A caller that needs a sandbox of its own (tools/bench.py deletes cache.db
+# between runs) names its volume; the role still picks binary and labels.
+state_vol=${SLK_STATE_VOL:-$state_vol}
 
 # The seeder container costs ~0.5-1s per launch on Docker Desktop, so a host-side
 # stamp keyed by the volume's CreatedAt skips it once seeded. Removing the
