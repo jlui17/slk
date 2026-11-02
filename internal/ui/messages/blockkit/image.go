@@ -137,6 +137,15 @@ func fetchOrPlaceholder(url string, target image.Point, ctx Context, rowStart in
 		URL:      url,
 	}
 
+	// Fast path: prerendered output baked off the UI thread by the
+	// fetch worker (Fetcher.Prerendered). Same contract as the
+	// RenderImage call below, minus the protocol encode. Checked
+	// before Cached: the fetcher keeps no decoded image for one it
+	// prerendered.
+	if pr, ok := ctx.Fetcher.Prerendered(key, target, ctx.Protocol); ok {
+		fl, sxl := sideChannelOutput(key, ctx.Protocol, pr.OnFlush, pr.Fallback, rowStart, target)
+		return pr.Lines, fl, sxl, hit, true
+	}
 	var cachedT0 time.Time
 	if perf != nil {
 		cachedT0 = time.Now()
@@ -206,13 +215,6 @@ func fetchOrPlaceholder(url string, target image.Point, ctx Context, rowStart in
 		return ph, nil, nil, hit, true
 	}
 
-	// Fast path: prerendered output baked off the UI thread by the
-	// fetch worker (Fetcher.Prerendered). Same contract as the
-	// RenderImage call below, minus the protocol encode.
-	if pr, ok := ctx.Fetcher.Prerendered(key, target, ctx.Protocol); ok {
-		fl, sxl := sideChannelOutput(key, ctx.Protocol, pr.OnFlush, pr.Fallback, rowStart, target)
-		return pr.Lines, fl, sxl, hit, true
-	}
 	// Kitty slow path: the worker did not prerender (its keyed source
 	// lives under "F-"+key, see maybePrerender), so register and encode
 	// here under the UI's "BK-"+key. Reached only on the first render

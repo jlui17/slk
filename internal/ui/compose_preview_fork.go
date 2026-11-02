@@ -178,9 +178,6 @@ func (a *App) pasteThumb(data []byte, maxRows int) pasteThumb {
 // renderPasteThumb draws img at target cells. Kitty goes through a
 // content-hash key, not RenderImage: its anonymous key is derived from
 // the image bounds, so two screenshots of one size would share an id.
-// The kitty source is shrunk first because kitty sources are never
-// evicted, and a full-size screenshot would stay in memory for the
-// session.
 func renderPasteThumb(proto imgpkg.Protocol, img image.Image, data []byte, target, cell image.Point) []string {
 	if proto != imgpkg.ProtoKitty {
 		return imgpkg.RenderImage(imgpkg.ProtoHalfBlock, img, target).Lines
@@ -189,8 +186,7 @@ func renderPasteThumb(proto imgpkg.Protocol, img image.Image, data []byte, targe
 	draw.BiLinear.Scale(small, small.Bounds(), img, img.Bounds(), draw.Over, nil)
 	sum := sha1.Sum(data)
 	kittyKey := "paste-" + hex.EncodeToString(sum[:])
-	imgpkg.KittyRendererInstance().SetSource(kittyKey, small)
-	r := imgpkg.KittyRendererInstance().RenderKey(kittyKey, target)
+	r := imgpkg.KittyRendererInstance().RenderSource(kittyKey, small, target)
 	if r.OnFlush != nil {
 		_ = r.OnFlush(imgpkg.KittyOutput)
 	}

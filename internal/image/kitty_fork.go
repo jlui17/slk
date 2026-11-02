@@ -42,3 +42,19 @@ func kittyUploadBytes(target image.Point, cellPxW, cellPxH int) int {
 	pxW, pxH := kittyUploadPixels(target, cellPxW, cellPxH)
 	return pxW * pxH * 4
 }
+
+// RenderSource is SetSource then RenderKey, except the renderer lets go
+// of img once the render is built. RenderKey reads a source only to
+// encode a payload, and every caller sets the source just before, so
+// keeping it in sources only pins the decoded raster for the session:
+// a few MB per image at a HiDPI cell size. key must not be shared with
+// another goroutine's SetSource, or that goroutine's RenderKey can find
+// the source already gone.
+func (k *KittyRenderer) RenderSource(key string, img image.Image, target image.Point) Render {
+	k.SetSource(key, img)
+	r := k.RenderKey(key, target)
+	k.mu.Lock()
+	delete(k.sources, key)
+	k.mu.Unlock()
+	return r
+}

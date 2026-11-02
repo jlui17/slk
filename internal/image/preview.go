@@ -206,8 +206,7 @@ func (p *Preview) renderImage(proto Protocol, target image.Point) Render {
 		// showing the first (#199). PV- keeps the full-size preview
 		// apart from the inline thumbnail's F-<fileID> source.
 		key := "PV-" + p.fid
-		kittyRendererInstance.SetSource(key, p.img)
-		r = kittyRendererInstance.RenderKey(key, target)
+		r = kittyRendererInstance.RenderSource(key, p.img, target)
 	} else {
 		r = RenderImage(proto, p.img, target)
 	}

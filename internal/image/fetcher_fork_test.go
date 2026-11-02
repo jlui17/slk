@@ -114,3 +114,46 @@ func TestFetcher_FitWithinDoesNotPopulateDecodedMemo(t *testing.T) {
 		t.Error("a Target fetch must still populate the memo Cached() serves from")
 	}
 }
+
+// A fetch the worker prerenders leaves no decoded raster behind: not in
+// the decoded memo, and for kitty not as a renderer source. Both held
+// the image at full cell-pixel size for the whole session, a few MB per
+// inline image on a HiDPI terminal. The prerendered Render is what the
+// UI reads.
+func TestFetcher_PrerenderedFetchKeepsNoDecodedRaster(t *testing.T) {
+	pngBytes := tinyPNG(t, 100, 100, imgcolor.RGBA{200, 0, 0, 255})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	for _, proto := range []Protocol{ProtoHalfBlock, ProtoSixel, ProtoKitty} {
+		t.Run(proto.String(), func(t *testing.T) {
+			cache, _ := NewCache(t.TempDir(), 10)
+			f := NewFetcher(cache, http.DefaultClient)
+			kr := NewKittyRenderer(NewRegistry())
+			f.ConfigurePrerender(proto)
+			if proto == ProtoKitty {
+				f.ConfigurePrerenderKitty(kr)
+			}
+			cellTarget, pixelTarget := image.Pt(10, 5), image.Pt(80, 80)
+
+			if _, err := f.Fetch(context.Background(), FetchRequest{
+				Key: "k1", URL: srv.URL, Target: pixelTarget, CellTarget: cellTarget,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, ok := f.Prerendered("k1", cellTarget, proto); !ok {
+				t.Fatal("Prerendered missed after a fetch with a cell target")
+			}
+			if _, ok := f.Cached("k1", pixelTarget); ok {
+				t.Error("decoded memo holds the image although it was prerendered")
+			}
+			if n := len(kr.sources); n != 0 {
+				t.Errorf("kitty renderer keeps %d source image(s) after the prerender", n)
+			}
+		})
+	}
+}

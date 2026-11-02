@@ -324,18 +324,21 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 	// a nonzero pixel target, so a preview entry would never be found
 	// again — it would just pin a screen-sized RGBA for the life of
 	// the process.
-	if !fitted {
-		f.decoded.Store(decodedMemoKey(req.Key, req.Target), img)
-	}
-
+	//
 	// Eagerly run protocol encoding off the UI thread so the next
 	// View() doesn't have to. Skipped when not configured or when
 	// CellTarget is zero (e.g., avatars and full-screen preview).
+	// Both Cached() callers try Prerendered first, so a prerendered
+	// image needs no decoded entry: storing one anyway would pin its
+	// RGBA (a few MB at a HiDPI cell size) for the session.
 	prStart := time.Now()
-	f.maybePrerender(req.Key, img, req.CellTarget)
+	prerendered := f.maybePrerender(req.Key, img, req.CellTarget)
 	debuglog.ImgFetch("prerender: key=%s req_id=%d cell_target=(%d,%d) dur_ms=%d",
 		req.Key, req.ReqID, req.CellTarget.X, req.CellTarget.Y,
 		time.Since(prStart).Milliseconds())
+	if !fitted && !prerendered {
+		f.decoded.Store(decodedMemoKey(req.Key, req.Target), img)
+	}
 
 	mime := mimeFromExt(filepath.Ext(path))
 	return FetchResult{Img: img, Source: path, Mime: mime}, nil
@@ -348,7 +351,9 @@ func (f *Fetcher) fetchInner(ctx context.Context, req FetchRequest) (FetchResult
 // Kitty is special: SetSource + RenderKey go through the package-level
 // KittyRenderer mutex which is also held briefly by the UI thread's
 // fallback path; both paths are mutually safe.
-func (f *Fetcher) maybePrerender(key string, img image.Image, cellT image.Point) {
+//
+// Reports whether it stored a Render.
+func (f *Fetcher) maybePrerender(key string, img image.Image, cellT image.Point) bool {
 	f.prerenderMu.RLock()
 	proto := f.prerenderProto
 	kr := f.prerenderKitty
@@ -356,25 +361,25 @@ func (f *Fetcher) maybePrerender(key string, img image.Image, cellT image.Point)
 	f.prerenderMu.RUnlock()
 
 	if proto == ProtoOff || cellT.X <= 0 || cellT.Y <= 0 {
-		return
+		return false
 	}
 	if m == nil {
-		return // not configured yet
+		return false // not configured yet
 	}
 
 	var r Render
 	switch proto {
 	case ProtoKitty:
 		if kr == nil {
-			return
+			return false
 		}
 		ckey := "F-" + key // mirrors renderAttachmentBlock's stable kitty source key
-		kr.SetSource(ckey, img)
-		r = kr.RenderKey(ckey, cellT)
+		r = kr.RenderSource(ckey, img, cellT)
 	default:
 		r = RenderImage(proto, img, cellT)
 	}
 	m.Store(prerenderKey(key, cellT, proto), r)
+	return true
 }
 
 // download fetches url and returns its body bytes + Content-Type.

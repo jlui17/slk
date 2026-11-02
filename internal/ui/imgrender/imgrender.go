@@ -343,6 +343,27 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 		AttIdx:          attIdx,
 	}
 
+	// Fast path: prerendered output baked off the UI thread. Checked
+	// before Cached: the fetcher keeps no decoded image for one it
+	// prerendered.
+	if pr, ok := r.ctx.Fetcher.Prerendered(key, target, r.ctx.Protocol); ok {
+		var fl []func(io.Writer) error
+		var sxlMap map[int]SixelEntry
+		if r.ctx.Protocol == imgpkg.ProtoSixel && pr.OnFlush != nil {
+			var bb bytes.Buffer
+			if err := pr.OnFlush(&bb); err == nil {
+				sxlMap = map[int]SixelEntry{
+					baseRow: {Key: key, Bytes: bb.Bytes(), Fallback: pr.Fallback, Height: target.Y, Width: target.X},
+				}
+			}
+		} else if pr.OnFlush != nil {
+			fl = []func(io.Writer) error{pr.OnFlush}
+		}
+		debuglog.ImgRender("RenderBlock: key=%s decision=prerendered proto=%v target=(%d,%d)",
+			key, r.ctx.Protocol, target.X, target.Y)
+		return BlockResult{Lines: pr.Lines, Flushes: fl, SixelRows: sxlMap, Height: target.Y, Hit: hit}
+	}
+
 	img, cached := r.ctx.Fetcher.Cached(key, pixelTarget)
 	if !cached {
 		if _, failed := r.failed[key]; failed {
@@ -384,25 +405,6 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 		}()
 		debuglog.ImgRender("RenderBlock: key=%s decision=placeholder_spawned_fetch req_id=%d", key, reqID)
 		return BlockResult{Lines: buildPlaceholder(att.Name, target), Height: target.Y, Hit: hit}
-	}
-
-	// Fast path: prerendered output baked off the UI thread.
-	if pr, ok := r.ctx.Fetcher.Prerendered(key, target, r.ctx.Protocol); ok {
-		var fl []func(io.Writer) error
-		var sxlMap map[int]SixelEntry
-		if r.ctx.Protocol == imgpkg.ProtoSixel && pr.OnFlush != nil {
-			var bb bytes.Buffer
-			if err := pr.OnFlush(&bb); err == nil {
-				sxlMap = map[int]SixelEntry{
-					baseRow: {Key: key, Bytes: bb.Bytes(), Fallback: pr.Fallback, Height: target.Y, Width: target.X},
-				}
-			}
-		} else if pr.OnFlush != nil {
-			fl = []func(io.Writer) error{pr.OnFlush}
-		}
-		debuglog.ImgRender("RenderBlock: key=%s decision=prerendered proto=%v target=(%d,%d)",
-			key, r.ctx.Protocol, target.X, target.Y)
-		return BlockResult{Lines: pr.Lines, Flushes: fl, SixelRows: sxlMap, Height: target.Y, Hit: hit}
 	}
 
 	// Slow path: prerender wasn't populated. Encode on this goroutine.
