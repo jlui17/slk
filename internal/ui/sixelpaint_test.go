@@ -481,15 +481,11 @@ func TestWindowSizeChangeForcesExactlyNextSixelFrame(t *testing.T) {
 		t.Fatalf("frame after real resize: ok=%v Force=%v, want forced", ok, f2.Force)
 	}
 
-	// The flag was consumed: the following identical frame reuses the
-	// forced frame's ID instead of publishing another forced frame
-	// (fork memo; see sixelpaint_fork.go).
+	// The flag was consumed: the following frame is not forced.
 	next := a.finalizeSixelView(tea.NewView("c"), nil)
-	if next.WindowTitle != forced.WindowTitle {
-		t.Fatalf("subsequent identical frame republished: %q -> %q", forced.WindowTitle, next.WindowTitle)
-	}
-	if a.forceSixelRepaint {
-		t.Fatal("force flag survived the forced publication")
+	f3, ok := a.sixelFrames.Take(frameIDFromTitle(t, next.WindowTitle))
+	if !ok || f3.Force {
+		t.Fatalf("subsequent frame: ok=%v Force=%v, want not forced", ok, f3.Force)
 	}
 
 	// A duplicate size message (same dimensions) must not force again.

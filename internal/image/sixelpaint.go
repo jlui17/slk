@@ -111,6 +111,8 @@ type SixelPlan struct {
 	Painted int
 	Erased  int
 	next    map[sixelSlot]SixelPlacement
+	// gone holds the placements the Erase bytes clear.
+	gone []SixelPlacement
 }
 
 // NewSixelPainter returns an empty painter. The terminal write side is
@@ -141,6 +143,7 @@ func (p *SixelPainter) Plan(want []SixelPlacement, eraseSGR string, force bool) 
 	var eraseBuf bytes.Buffer
 	var buf bytes.Buffer
 	painted, erased := 0, 0
+	var gone []SixelPlacement
 
 	// Erase slots that are gone or whose content/footprint changed (or
 	// all of them under force). Sorted for deterministic output (maps
@@ -158,6 +161,7 @@ func (p *SixelPainter) Plan(want []SixelPlacement, eraseSGR string, force bool) 
 		}
 		writeErase(&eraseBuf, old, eraseSGR)
 		erased++
+		gone = append(gone, old)
 	}
 
 	// Paint anything not already on screen.
@@ -179,7 +183,7 @@ func (p *SixelPainter) Plan(want []SixelPlacement, eraseSGR string, force bool) 
 		debuglog.ImgRender("sixel painter: painted=%d erased=%d live=%d bytes=%d",
 			painted, erased, len(next), buf.Len())
 	}
-	return SixelPlan{Erase: eraseBuf.Bytes(), Bytes: buf.Bytes(), Painted: painted, Erased: erased, next: next}
+	return SixelPlan{Erase: eraseBuf.Bytes(), Bytes: buf.Bytes(), Painted: painted, Erased: erased, next: next, gone: gone}
 }
 
 // Commit installs the state produced by Plan. Call it only after the

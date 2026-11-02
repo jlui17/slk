@@ -30,6 +30,8 @@ type SixelFrame struct {
 	// EraseSGR is the background sequence to set before each ECH so
 	// vacated cells take the pane's theme background.
 	EraseSGR string
+	// Screen is the frame's text, the View content Bubble Tea diffs.
+	Screen string
 	// Force repaints every valid wanted placement even when unchanged
 	// (renderer full redraws such as terminal resize).
 	Force bool
@@ -191,6 +193,7 @@ func (w *FrameOutput) Write(p []byte) (int, error) {
 	if marked {
 		if frame, ok := w.frames.Take(id); ok {
 			plan = w.painter.Plan(frame.Placements, frame.EraseSGR, frame.Force)
+			plan.Erase = appendFrameCells(plan.Erase, plan.gone, frame.Screen)
 		} else {
 			debuglog.ImgRender("sixel frame: missing id=%d", id)
 		}

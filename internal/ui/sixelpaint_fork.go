@@ -12,6 +12,9 @@ import (
 
 // sixelFrameMemo remembers the last published sixel frame so an
 // identical View can reuse its frame ID instead of publishing again.
+// Identical includes the screen text: FrameOutput rewrites the cells an
+// erase clears from the frame's Screen, so a reused ID must not carry
+// stale text.
 // Reuse keeps the marked WindowTitle byte-stable, which is what lets
 // bubbletea's viewEquals early-out skip the full-screen re-parse and
 // cell diff on messages that changed nothing. Reusing an ID the store
@@ -22,10 +25,11 @@ type sixelFrameMemo struct {
 	id         uint64
 	placements []imgpkg.SixelPlacement
 	eraseSGR   string
+	screen     string
 }
 
-func (m *sixelFrameMemo) reusableID(placements []imgpkg.SixelPlacement, eraseSGR string) (uint64, bool) {
-	if !m.valid || m.eraseSGR != eraseSGR || len(placements) != len(m.placements) {
+func (m *sixelFrameMemo) reusableID(placements []imgpkg.SixelPlacement, eraseSGR, screen string) (uint64, bool) {
+	if !m.valid || m.eraseSGR != eraseSGR || m.screen != screen || len(placements) != len(m.placements) {
 		return 0, false
 	}
 	for i := range placements {
@@ -36,28 +40,30 @@ func (m *sixelFrameMemo) reusableID(placements []imgpkg.SixelPlacement, eraseSGR
 	return m.id, true
 }
 
-func (m *sixelFrameMemo) remember(placements []imgpkg.SixelPlacement, eraseSGR string, id uint64) {
+func (m *sixelFrameMemo) remember(placements []imgpkg.SixelPlacement, eraseSGR, screen string, id uint64) {
 	m.valid = true
 	m.id = id
 	m.placements = slices.Clone(placements)
 	m.eraseSGR = eraseSGR
+	m.screen = screen
 }
 
 func (a *App) publishSixelFrame(screen string, placements []imgpkg.SixelPlacement) uint64 {
 	attachSixelGuards(screen, placements)
 	eraseSGR := messages.BgANSI()
 	if !a.forceSixelRepaint {
-		if id, ok := a.sixelMemo.reusableID(placements, eraseSGR); ok {
+		if id, ok := a.sixelMemo.reusableID(placements, eraseSGR, screen); ok {
 			return id
 		}
 	}
 	id := a.sixelFrames.Publish(imgpkg.SixelFrame{
 		Placements: placements,
 		EraseSGR:   eraseSGR,
+		Screen:     screen,
 		Force:      a.forceSixelRepaint,
 	})
 	a.forceSixelRepaint = false
-	a.sixelMemo.remember(placements, eraseSGR, id)
+	a.sixelMemo.remember(placements, eraseSGR, screen, id)
 	return id
 }
 

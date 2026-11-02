@@ -21,20 +21,20 @@ func memoPlacements() []imgpkg.SixelPlacement {
 }
 
 // The memo must be sensitive to every field the painter's sameSlot
-// compares (Key, Row, Col, Rows, Cols, Guard) plus EraseSGR and the
-// placement count — and, like sameSlot, deliberately blind to Bytes
-// (Key is the content identity).
+// compares (Key, Row, Col, Rows, Cols, Guard) plus EraseSGR, the screen
+// text and the placement count — and, like sameSlot, deliberately blind
+// to Bytes (Key is the content identity).
 func TestSixelFrameMemo_FieldSensitivity(t *testing.T) {
 	base := imgpkg.SixelPlacement{Key: "k", Row: 2, Col: 3, Rows: 4, Cols: 5, Guard: "g", Bytes: []byte("payload")}
 	m := &sixelFrameMemo{}
-	m.remember([]imgpkg.SixelPlacement{base}, "sgr", 7)
+	m.remember([]imgpkg.SixelPlacement{base}, "sgr", "screen", 7)
 
-	if id, ok := m.reusableID([]imgpkg.SixelPlacement{base}, "sgr"); !ok || id != 7 {
+	if id, ok := m.reusableID([]imgpkg.SixelPlacement{base}, "sgr", "screen"); !ok || id != 7 {
 		t.Fatalf("identical frame: id=%d ok=%v, want 7 true", id, ok)
 	}
 	bytesOnly := base
 	bytesOnly.Bytes = []byte("different payload")
-	if _, ok := m.reusableID([]imgpkg.SixelPlacement{bytesOnly}, "sgr"); !ok {
+	if _, ok := m.reusableID([]imgpkg.SixelPlacement{bytesOnly}, "sgr", "screen"); !ok {
 		t.Fatal("Bytes must not participate in the comparison")
 	}
 
@@ -48,20 +48,23 @@ func TestSixelFrameMemo_FieldSensitivity(t *testing.T) {
 	} {
 		mutated := base
 		mutate(&mutated)
-		if _, ok := m.reusableID([]imgpkg.SixelPlacement{mutated}, "sgr"); ok {
+		if _, ok := m.reusableID([]imgpkg.SixelPlacement{mutated}, "sgr", "screen"); ok {
 			t.Errorf("%s change reused the frame", name)
 		}
 	}
-	if _, ok := m.reusableID([]imgpkg.SixelPlacement{base}, "other-sgr"); ok {
+	if _, ok := m.reusableID([]imgpkg.SixelPlacement{base}, "other-sgr", "screen"); ok {
 		t.Error("EraseSGR change reused the frame")
 	}
-	if _, ok := m.reusableID([]imgpkg.SixelPlacement{base, base}, "sgr"); ok {
+	if _, ok := m.reusableID([]imgpkg.SixelPlacement{base}, "sgr", "other screen"); ok {
+		t.Error("screen change reused the frame")
+	}
+	if _, ok := m.reusableID([]imgpkg.SixelPlacement{base, base}, "sgr", "screen"); ok {
 		t.Error("placement-count change reused the frame")
 	}
-	if _, ok := m.reusableID(nil, "sgr"); ok {
+	if _, ok := m.reusableID(nil, "sgr", "screen"); ok {
 		t.Error("non-empty -> empty reused the frame")
 	}
-	if _, ok := (&sixelFrameMemo{}).reusableID(nil, "sgr"); ok {
+	if _, ok := (&sixelFrameMemo{}).reusableID(nil, "sgr", "screen"); ok {
 		t.Error("unprimed memo offered a frame ID")
 	}
 }
@@ -86,15 +89,18 @@ func TestFinalizeSixelView_UnchangedFrameReusesID(t *testing.T) {
 	}
 }
 
-// A text change on rows no image covers leaves every guard equal, so the
-// frame ID is reused: this is the presence-event/tick case the memo
-// exists for.
-func TestFinalizeSixelView_TextChangeAwayFromImageReusesID(t *testing.T) {
+// A text change on rows no image covers leaves every guard equal, but
+// the frame FrameOutput takes for the flush must carry the new text: an
+// erase rewrites the cells it clears from it. Reuse is for an identical
+// view, the only one Bubble Tea's viewEquals early-out can skip anyway.
+func TestFinalizeSixelView_TextChangeAwayFromImageCarriesTheNewText(t *testing.T) {
 	a := sixelTestApp()
-	first := a.finalizeSixelView(tea.NewView(memoScreen), memoPlacements())
-	second := a.finalizeSixelView(tea.NewView("CHANGED\nline2\nline3"), memoPlacements())
-	if first.WindowTitle != second.WindowTitle {
-		t.Fatalf("text change away from the image republished: %q -> %q", first.WindowTitle, second.WindowTitle)
+	a.finalizeSixelView(tea.NewView(memoScreen), memoPlacements())
+	const changed = "CHANGED\nline2\nline3"
+	second := a.finalizeSixelView(tea.NewView(changed), memoPlacements())
+	frame, ok := a.sixelFrames.Take(frameIDFromTitle(t, second.WindowTitle))
+	if !ok || frame.Screen != changed {
+		t.Fatalf("flushed frame: ok=%v Screen=%q, want %q", ok, frame.Screen, changed)
 	}
 }
 
