@@ -50,11 +50,13 @@ func rerendered(before, after []entrylist.Entry) []string {
 }
 
 // assertMatchesFullRebuild renders m, then renders it again from a
-// discarded cache, and fails unless the view and every entry match.
+// discarded cache, and fails unless the view, every entry and the rows
+// each entry draws when the cursor moves to it match.
 func assertMatchesFullRebuild(t *testing.T, m *Model) {
 	t.Helper()
 	got := m.View(prH, prW)
 	gotEntries := slices.Clone(m.list.Entries())
+	gotSelected := allSelectedRows(m)
 	m.InvalidateCache()
 	want := m.View(prH, prW)
 	if got != want {
@@ -63,6 +65,18 @@ func assertMatchesFullRebuild(t *testing.T, m *Model) {
 	if !reflect.DeepEqual(gotEntries, m.list.Entries()) {
 		t.Error("entries differ from a full rebuild")
 	}
+	if !reflect.DeepEqual(gotSelected, allSelectedRows(m)) {
+		t.Error("selected rows differ from a full rebuild")
+	}
+}
+
+// allSelectedRows returns the rows each entry of m draws as the cursor's.
+func allSelectedRows(m *Model) [][]string {
+	rows := make([][]string, len(m.list.Entries()))
+	for i := range rows {
+		rows[i] = entrySelectedRows(m, i)
+	}
+	return rows
 }
 
 // Every event the channel pane handles in place must leave the pane

@@ -32,6 +32,8 @@ type WrapStyles struct {
 	// stats, when non-nil, collects per-sub-step durations (channel
 	// pane perf instrumentation).
 	stats *entryPerfStats
+
+	deferSelected bool // fork: lazyselected_fork.go
 }
 
 // NewWrapStyles returns the styles for the current theme; focused picks
@@ -81,6 +83,8 @@ type WrappedRows struct {
 	// built from (EntryPayload.SelectedLines); empty when Selected
 	// already carries the short form.
 	ShortSrc string
+
+	Lazy LazySelected // fork: lazyselected_fork.go
 }
 
 // WrapRows fills and borders a rendered message for a content pane's
@@ -107,7 +111,7 @@ func WrapRows(msg MessageItem, r RenderedMessage, width int, s WrapStyles) Wrapp
 	}
 	filledNormal := s.fillRows(rendered, width-1, s.fill, s.fillRow)
 	normal := s.invisRow.around(filledNormal)
-	selected := s.SelectedVariant(renderedSel, width)
+	selected, lazy := s.selectedOrDeferred(renderedSel, width) // fork: lazyselected_fork.go
 	var shortSrc string
 	if renderedSel != rendered {
 		shortSrc = rendered
@@ -130,6 +134,7 @@ func WrapRows(msg MessageItem, r RenderedMessage, width int, s WrapStyles) Wrapp
 		Selected: selected,
 		Plain:    plain,
 		ShortSrc: shortSrc,
+		Lazy:     lazy,
 	}
 }
 

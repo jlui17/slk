@@ -179,6 +179,28 @@ func TestModel_TargetedInvalidationMatchesFullRebuild(t *testing.T) {
 		},
 		{name: "the cursor moves up", event: func(m *Model) { m.MoveUp() }},
 		{name: "the cursor jumps", event: func(m *Model) { m.SelectByIndex(1) }},
+		{
+			name: "the cursor visits every message",
+			event: func(m *Model) {
+				for i := range base {
+					m.SelectByIndex(i)
+					_ = m.View(prH, prW)
+				}
+			},
+		},
+		{
+			// The visited message drew its selected rows; the reaction
+			// renders it again, and its selected rows with it.
+			name: "a reaction on a message the cursor visited",
+			event: func(m *Model) {
+				m.SelectByIndex(2)
+				_ = m.View(prH, prW)
+				m.SelectByIndex(5)
+				_ = m.View(prH, prW)
+				m.UpdateReaction(ts[2], "tada", "U9", false)
+			},
+			rendered: []string{ts[2]},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

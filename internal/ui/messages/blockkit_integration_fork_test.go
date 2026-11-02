@@ -51,11 +51,11 @@ func TestSelectedVariantLeavesNoRunWithoutBackground(t *testing.T) {
 	}
 	m := New([]MessageItem{msg}, "general")
 	m.buildCache(60, false)
-	for _, e := range m.list.Entries() {
+	for j, e := range m.list.Entries() {
 		if e.Ref != 0 {
 			continue
 		}
-		for variant, lines := range map[string][]string{"selected": e.Selected} {
+		for variant, lines := range map[string][]string{"selected": entrySelectedRows(m, j)} {
 			for i, line := range lines {
 				if bare := blockkittest.RunesWithoutBackground(line); bare != "" {
 					t.Errorf("%s line %d prints %q with no background set:\n%q", variant, i, bare, line)

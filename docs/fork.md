@@ -307,6 +307,12 @@ there and resolve them knowing what the fork wants:
   `widthcache_fork.go`), so a thread opening and closing switches
   between two cached widths, where upstream renders every message again
   at each width. `buildCache` and `partialRebuild` hook into it.
+- `internal/ui/messages/wrap_rows.go`, `model.go` — a pane's cache build
+  renders no selected variant: `WrapStyles.DeferSelected` has `WrapRows`
+  leave `Selected` nil and fill `Lazy`, and `EntryPayload.SelectedLines`
+  builds the cursor entry's rows on first use, byte for byte the ones
+  `WrapRows` builds (`lazyselected_fork.go`). Upstream's tests that read
+  `Entry.Selected` read the rows through the payload instead.
 - `internal/cache/db.go` — one-line hooks into fork helpers
   (`migrateFork`, `removeThreadSweepLocks`).
 - `internal/ui/reducer_threads.go` — a fetched thread is marked through

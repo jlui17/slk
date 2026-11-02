@@ -117,7 +117,7 @@ func renderCardCase(c cardRenderCase, width int) []string {
 	entry := entries[len(entries)-1]
 	lines := entry.Lines
 	if c.selected {
-		lines = entry.Selected
+		lines = entrySelectedRows(m, len(entries)-1)
 	}
 	out := make([]string, len(lines))
 	for i, l := range lines {

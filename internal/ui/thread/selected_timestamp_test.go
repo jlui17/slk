@@ -49,9 +49,9 @@ func stripRows(view string) []string {
 func assertThreadHeightsMatch(t *testing.T, m *Model) {
 	t.Helper()
 	for i, e := range m.replyEntries {
-		if len(e.Selected) != len(e.Lines) {
+		if selected := replySelectedRows(m, i); len(selected) != len(e.Lines) {
 			t.Errorf("reply %d: len(linesSelected)=%d != len(linesNormal)=%d",
-				i, len(e.Selected), len(e.Lines))
+				i, len(selected), len(e.Lines))
 		}
 		if short := m.cache[i].SelectedShort; short != nil && len(short) != len(e.Lines) {
 			t.Errorf("reply %d: len(SelectedShort)=%d != len(linesNormal)=%d",
@@ -160,8 +160,8 @@ func TestThreadSelectedTimestamp_TinyWidthFallsBack(t *testing.T) {
 	reply := messages.MessageItem{TS: threadLongTSAt(42), UserID: "U2", UserName: "a", Text: "hi", Timestamp: "15:42"}
 	m.SetThread(parent, []messages.MessageItem{reply}, "C1", parent.TS)
 	_ = m.View(30, 20)
-	for _, e := range m.replyEntries {
-		if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
+	for i := range m.replyEntries {
+		if got := ansi.Strip(strings.Join(replySelectedRows(m, i), "\n")); strings.Contains(got, "Sep 29") {
 			t.Fatalf("tiny-width selected reply shows long timestamp:\n%s", got)
 		}
 	}

@@ -98,12 +98,16 @@ func assertMatchesFullRebuildAt(t *testing.T, m *Model, w int) {
 	t.Helper()
 	got := m.View(prH, w)
 	gotEntries := slices.Clone(m.list.Entries())
+	gotSelected := allSelectedRows(m)
 	m.InvalidateCache()
 	if want := m.View(prH, w); got != want {
 		t.Errorf("view differs from a full rebuild\n got: %q\nwant: %q", got, want)
 	}
 	if !reflect.DeepEqual(gotEntries, m.list.Entries()) {
 		t.Error("entries differ from a full rebuild")
+	}
+	if !reflect.DeepEqual(gotSelected, allSelectedRows(m)) {
+		t.Error("selected rows differ from a full rebuild")
 	}
 }
 
@@ -129,19 +133,20 @@ type paneState struct {
 	yOffset  int
 	selected string // the cursor's message ts
 	entries  []entrylist.Entry
+	rows     [][]string // allSelectedRows
 }
 
 func capturePane(m *Model, h, w int) paneState {
 	frame := m.View(h, w)
 	sel, _ := m.SelectedMessage()
-	return paneState{frame, m.YOffset(), sel.TS, slices.Clone(m.list.Entries())}
+	return paneState{frame, m.YOffset(), sel.TS, slices.Clone(m.list.Entries()), allSelectedRows(m)}
 }
 
 // A thread opened and closed after the message list changed (another
 // channel, an older page, a new message, a channel left and come back
 // to) leaves the channel pane as a pane that never opened a thread: at
-// each width the same frame, scroll position and entries, and the
-// cursor on the message it was on.
+// each width the same frame, scroll position, entries and cursor rows,
+// and the cursor on the message it was on.
 func TestModel_OtherWidthAfterMessagesChangeMatchesFreshPane(t *testing.T) {
 	const h = 40
 	general := tallMessages(1700000000, 60, func(i int) int { return 2 + (i%5)*6 })
@@ -263,6 +268,9 @@ func TestModel_OtherWidthAfterMessagesChangeMatchesFreshPane(t *testing.T) {
 				}
 				if !reflect.DeepEqual(c.got.entries, c.want.entries) {
 					t.Errorf("%s: entries differ from a fresh pane's", c.step)
+				}
+				if !reflect.DeepEqual(c.got.rows, c.want.rows) {
+					t.Errorf("%s: cursor rows differ from a fresh pane's", c.step)
 				}
 			}
 		})

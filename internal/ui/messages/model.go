@@ -48,6 +48,7 @@ type EntryPayload struct {
 	// splices the short-form plain text into the row by column.
 	ShortSrc      string
 	SelectedShort []string
+	Lazy          LazySelected // fork: lazyselected_fork.go
 
 	// Flushes are per-frame kitty image uploads, invoked once per frame
 	// for visible entries. nil when the entry has no inline images.
@@ -79,15 +80,16 @@ type EntryPayload struct {
 // timestamp variant built once from ShortSrc by build. Rows past the
 // short variant (the channel pane's spacer) are shared by every variant.
 func (p *EntryPayload) SelectedLines(e *entrylist.Entry, hasSelection bool, build func(src string) []string) []string {
+	selected := p.selectedRows(e) // fork: lazyselected_fork.go
 	if !hasSelection || p.ShortSrc == "" {
-		return e.Selected
+		return selected
 	}
 	if p.SelectedShort == nil {
 		short := build(p.ShortSrc)
-		if len(short) > len(e.Selected) {
-			return e.Selected // unreachable: variants share a height
+		if len(short) > len(selected) {
+			return selected // unreachable: variants share a height
 		}
-		p.SelectedShort = append(short, e.Selected[len(short):]...)
+		p.SelectedShort = append(short, selected[len(short):]...)
 	}
 	return p.SelectedShort
 }
@@ -1420,7 +1422,7 @@ func (m *Model) buildCacheStyles(width int) cacheStyles {
 	// the scrollbar pass and break TestSelection_HighlightDoesNotCorrupt...
 	m.cacheMoreBelow = hintStyle.Render("  -- more below --")
 	return cacheStyles{
-		wrap:        NewWrapStyles(m.focused),
+		wrap:        NewWrapStyles(m.focused).DeferSelected(), // fork: lazyselected_fork.go
 		spacerLines: []string{m.cacheSpacer},
 	}
 }
@@ -1572,7 +1574,6 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	trail := 0
 	if i < len(m.messages)-1 {
 		linesN = append(linesN, cs.spacerLines...)
-		linesS = append(linesS, cs.spacerLines...)
 		linesP = append(linesP, plainLine{Text: "", Bytes: []int{0}})
 		trail = len(cs.spacerLines)
 	}
@@ -1591,6 +1592,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 		AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 		coldEmoji:           probe != nil && probe.cold,
+		Lazy:                w.Lazy, // fork: lazyselected_fork.go
 	}
 }
 

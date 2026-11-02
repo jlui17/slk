@@ -173,9 +173,9 @@ func TestBuildCache_BlockKitRunsKeepBackground(t *testing.T) {
 	m.buildCache(100, false)
 
 	var lines []string
-	for _, e := range m.list.Entries() {
+	for i, e := range m.list.Entries() {
 		if e.Ref == 0 {
-			lines = e.Selected
+			lines = entrySelectedRows(m, i)
 			break
 		}
 	}

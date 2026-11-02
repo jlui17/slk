@@ -57,8 +57,8 @@ func TestThreadSelectedVariantLeavesNoRunWithoutBackground(t *testing.T) {
 	if len(m.replyEntries) == 0 {
 		t.Fatal("View() did not populate the render cache")
 	}
-	for _, e := range m.replyEntries {
-		for variant, lines := range map[string][]string{"selected": e.Selected} {
+	for j := range m.replyEntries {
+		for variant, lines := range map[string][]string{"selected": replySelectedRows(m, j)} {
 			for i, line := range lines {
 				if bare := blockkittest.RunesWithoutBackground(line); bare != "" {
 					t.Errorf("%s line %d prints %q with no background set:\n%q", variant, i, bare, line)

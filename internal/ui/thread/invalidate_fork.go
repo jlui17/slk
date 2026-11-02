@@ -221,7 +221,7 @@ func (m *Model) renderReplyEntry(i int, reply messages.MessageItem, width int, w
 	// The thread pane's kitty upload order: body, blocks,
 	// reactions, then attachments.
 	flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
-	w := messages.WrapRows(reply, r, width, wrap)
+	w := messages.WrapRows(reply, r, width, wrap.DeferSelected()) // selected rows built on demand
 	return entrylist.Entry{
 			ID:         reply.TS,
 			Ref:        i,
@@ -234,5 +234,6 @@ func (m *Model) renderReplyEntry(i int, reply messages.MessageItem, width int, w
 		}, messages.EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes,
 			CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 			AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
+			Lazy:                w.Lazy,
 		}
 }

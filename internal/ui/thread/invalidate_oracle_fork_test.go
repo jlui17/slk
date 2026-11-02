@@ -72,11 +72,13 @@ func orRerendered(before, after []entrylist.Entry) []string {
 }
 
 // assertMatchesFullRebuild renders m, then renders it again from a
-// discarded cache, and fails unless the frame and every entry match.
+// discarded cache, and fails unless the frame, every entry and the rows
+// each reply draws when the cursor moves to it match.
 func assertMatchesFullRebuild(t *testing.T, m *Model) {
 	t.Helper()
 	got := m.View(orH, orW)
 	gotEntries := slices.Clone(m.list.Entries())
+	gotSelected := allReplySelectedRows(m)
 	m.InvalidateCache()
 	want := m.View(orH, orW)
 	if got != want {
@@ -85,6 +87,19 @@ func assertMatchesFullRebuild(t *testing.T, m *Model) {
 	if !reflect.DeepEqual(gotEntries, m.list.Entries()) {
 		t.Error("entries differ from a full rebuild")
 	}
+	if !reflect.DeepEqual(gotSelected, allReplySelectedRows(m)) {
+		t.Error("selected rows differ from a full rebuild")
+	}
+}
+
+// allReplySelectedRows returns the rows each reply of m draws as the
+// cursor's.
+func allReplySelectedRows(m *Model) [][]string {
+	rows := make([][]string, len(m.replyEntries))
+	for i := range rows {
+		rows[i] = replySelectedRows(m, i)
+	}
+	return rows
 }
 
 // Every event the thread pane handles without a full rebuild leaves it
@@ -242,6 +257,27 @@ func TestThread_TargetedInvalidationMatchesFullRebuild(t *testing.T) {
 			rendered: append([]string{parent.TS}, ts...),
 		},
 		{name: "the cursor moves up", event: func(m *Model) { m.MoveUp() }},
+		{
+			name: "the cursor visits every reply",
+			event: func(m *Model) {
+				for range base[1:] { // up to the first reply
+					m.MoveUp()
+					_ = m.View(orH, orW)
+				}
+				m.GoToBottom()
+			},
+		},
+		{
+			name: "an edit of a reply the cursor visited",
+			event: func(m *Model) {
+				m.MoveUp()
+				_ = m.View(orH, orW)
+				m.MoveDown()
+				_ = m.View(orH, orW)
+				m.UpdateMessageInPlace(messages.MessageItem{TS: ts[3], Text: "edited", IsEdited: true})
+			},
+			rendered: []string{ts[3]},
+		},
 		{name: "the cursor moves to the parent", event: func(m *Model) { m.GoToTop() }, rendered: []string{parent.TS}},
 	}
 	for _, tc := range cases {

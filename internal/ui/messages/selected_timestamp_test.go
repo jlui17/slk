@@ -43,9 +43,9 @@ func selectedEntry(t *testing.T, m *Model) entrylist.Entry {
 func assertHeightsMatch(t *testing.T, m *Model) {
 	t.Helper()
 	for i, e := range m.list.Entries() {
-		if len(e.Selected) != len(e.Lines) {
+		if selected := entrySelectedRows(m, i); len(selected) != len(e.Lines) {
 			t.Errorf("entry %d: len(linesSelected)=%d != len(linesNormal)=%d",
-				i, len(e.Selected), len(e.Lines))
+				i, len(selected), len(e.Lines))
 		}
 		if p := m.cache[i]; p.SelectedShort != nil && len(p.SelectedShort) != len(e.Lines) {
 			t.Errorf("entry %d: len(SelectedShort)=%d != len(linesNormal)=%d",
@@ -116,7 +116,8 @@ func TestSelectedTimestamp_AvatarNarrowFallsBack(t *testing.T) {
 	m.SetAvatarFunc(func(string) string { return "AAAA\nAAAA" })
 	_ = m.View(40, 24)
 	e := selectedEntry(t, m)
-	if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
+	i, _ := m.list.IndexOf(e.ID)
+	if got := ansi.Strip(strings.Join(entrySelectedRows(m, i), "\n")); strings.Contains(got, "Sep 29") {
 		t.Fatalf("avatar-narrow selected row shows long timestamp:\n%s", got)
 	}
 	assertHeightsMatch(t, m)
