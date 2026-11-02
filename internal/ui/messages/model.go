@@ -73,6 +73,8 @@ type EntryPayload struct {
 	// blank reservation of emoji.Place's cold path: only such entries
 	// change when an emoji image lands. Only the channel pane fills it.
 	coldEmoji bool
+
+	focused bool // fork: focus_fork.go
 }
 
 // SelectedLines returns the rows to draw for a cursor entry e: its
@@ -1589,6 +1591,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		Hits:       r.Hits,
 	}
 	return entry, EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes, sixelRows: r.SixelRows,
+		focused:             cs.wrap.focused,       // fork: focus_fork.go
 		CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 		AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 		coldEmoji:           probe != nil && probe.cold,
@@ -1975,6 +1978,7 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 // into the displayed row by column; the long header would come out
 // garbled. The short variant is memoised in m.cache[i].
 func (m *Model) selectedLines(i int) []string {
+	m.refocusEntry(i) // fork: focus_fork.go
 	e := &m.list.Entries()[i]
 	return m.cache[i].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
 		return NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
