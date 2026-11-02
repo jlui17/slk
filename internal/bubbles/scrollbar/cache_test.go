@@ -67,3 +67,28 @@ func TestCacheOverlayMatchesOracle(t *testing.T) {
 		}
 	}
 }
+
+// TestCacheTrimKeepsLinesBelowTotal: content that grows at the bottom
+// keeps its cut lines, so the next frame reuses them; lines past a
+// shorter content's end are dropped rather than held.
+func TestCacheTrimKeepsLinesBelowTotal(t *testing.T) {
+	const width, height = 10, 3
+	row := strings.Repeat("x", width+2)
+	var c Cache
+	content := []string{row, row, row, row, row}
+	_ = c.Overlay(append([]string(nil), content[2:]...), width, len(content), 2, height, nil, track, thumb)
+
+	c.Trim(6)
+	for line := 2; line < 5; line++ {
+		if _, ok := c.get(line, row); !ok {
+			t.Errorf("line %d was dropped by Trim past it", line)
+		}
+	}
+	c.Trim(3)
+	if len(c.lines) != 3 {
+		t.Errorf("Trim(3) left %d entries", len(c.lines))
+	}
+	if _, ok := c.get(2, row); !ok {
+		t.Error("line 2 was dropped by Trim(3)")
+	}
+}

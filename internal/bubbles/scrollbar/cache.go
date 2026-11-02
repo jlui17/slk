@@ -37,6 +37,17 @@ func (c *Cache) Reset() {
 	c.lines = c.lines[:0]
 }
 
+// Trim drops the entries for lines at or past total. Callers call it
+// when they swap in content of total lines that may keep most of its
+// rows, such as a message appended or edited: the entries below total
+// stay, and each is still used only while its line draws the same row.
+func (c *Cache) Trim(total int) {
+	if total < len(c.lines) {
+		clear(c.lines[max(total, 0):])
+		c.lines = c.lines[:max(total, 0)]
+	}
+}
+
 func (c *Cache) setWidth(width int) {
 	if c != nil && c.width != width {
 		c.Reset()

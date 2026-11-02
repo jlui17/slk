@@ -313,7 +313,7 @@ func (m *Model) SetEntries(es []Entry, width int, keepPosition bool) {
 	}
 	m.entries, m.width, m.live = es, width, -1
 	m.recompute()
-	m.gutter.Reset()
+	m.gutter.Trim(m.total)
 	if m.eager {
 		m.setY(m.yOffset)
 	}
