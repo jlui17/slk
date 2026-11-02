@@ -302,6 +302,11 @@ there and resolve them knowing what the fork wants:
   Every one is held to a full rebuild by `invalidate_oracle_fork_test.go`;
   the four upstream tests that asserted a nil cache after
   `PatchUserName` assert the re-resolved mention instead.
+- `internal/ui/messages/model.go` — the channel pane keeps the render
+  cache of the width it was drawn at before (`widthSlot`,
+  `widthcache_fork.go`), so a thread opening and closing switches
+  between two cached widths, where upstream renders every message again
+  at each width. `buildCache` and `partialRebuild` hook into it.
 - `internal/cache/db.go` — one-line hooks into fork helpers
   (`migrateFork`, `removeThreadSweepLocks`).
 - `internal/ui/reducer_threads.go` — a fetched thread is marked through

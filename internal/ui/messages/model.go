@@ -221,7 +221,8 @@ type Model struct {
 	// neighbours whose trailing spacer changed.
 	relayout bool
 
-	navDrawn []string // fork: invalidate_fork.go
+	navDrawn []string  // fork: invalidate_fork.go
+	alt      widthSlot // fork: widthcache_fork.go
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
@@ -1624,6 +1625,9 @@ func (p *coldEmojiProbe) Prerendered(key string, cellTarget goimage.Point, proto
 // focus differs from the build that rendered the entries (see
 // markEntryStale).
 func (m *Model) buildCache(width int, keepPosition bool) {
+	if m.swapWidth(width, keepPosition) { // fork: widthcache_fork.go
+		return
+	}
 	reuse := m.relayout && m.cache != nil && m.cacheWidth == width &&
 		m.cacheFocused == m.focused && !m.nav.Active
 	oldEntries, oldCache := m.list.Entries(), m.cache
@@ -1761,6 +1765,7 @@ func (m *Model) reusedEntry(i int, reuse bool, old []entrylist.Entry, oldCache [
 //
 // Postcondition: m.staleEntries is empty.
 func (m *Model) partialRebuild(width int) {
+	m.alt.note(m.staleEntries) // fork: widthcache_fork.go
 	cs := m.buildCacheStyles(width)
 	updates := make(map[int]entrylist.Entry, len(m.staleEntries))
 	for ts := range m.staleEntries {
