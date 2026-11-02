@@ -368,6 +368,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.MessageActions):
 		return a.openAppShortcuts()
 
+	case key.Matches(msg, a.keys.Pins, a.keys.Bookmarks):
+		return a.pinsBookmarksKey(msg) // fork: pinsbookmarks.go
+
 	case a.view == ViewActivity && key.Matches(msg, a.keys.ActivityUnread):
 		return func() tea.Msg { return ActivityToggleUnreadMsg{} }
 

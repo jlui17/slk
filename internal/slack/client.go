@@ -117,6 +117,8 @@ type Client struct {
 	rateLimitNotify func(wait time.Duration)
 	pageTimeout     time.Duration // fork: SetPageTimeout, channels_fork.go
 
+	pinCountNotify func(channelID string, count int, started time.Time) // fork: pinsbookmarks_fork.go
+
 	// teamURL is the raw workspace URL from auth.test's response
 	// (e.g. "https://truelist-workspace.slack.com/"). Used to derive
 	// the workspace subdomain for in-app permalink routing.
@@ -800,10 +802,12 @@ func (c *Client) GetHistory(ctx context.Context, channelID string, limit int, ol
 		params.Oldest = oldest
 	}
 
+	started := time.Now() // fork: pinsbookmarks_fork.go
 	resp, err := c.api.GetConversationHistory(params)
 	if err != nil {
 		return nil, fmt.Errorf("getting history: %w", err)
 	}
+	c.notifyPinCount(channelID, resp.PinCount, started) // fork: pinsbookmarks_fork.go
 
 	return resp.Messages, nil
 }

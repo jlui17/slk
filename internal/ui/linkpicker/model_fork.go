@@ -3,9 +3,10 @@ package linkpicker
 import (
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/gammons/slk/internal/bubbles/chrome"
 )
 
 // SetDisplay replaces row index's Display text in place (async
@@ -191,15 +192,9 @@ func (m *Model) handleForkKey(key string) bool {
 			m.move(1)
 		case "up", "ctrl+p":
 			m.move(-1)
-		case "backspace":
-			if r := []rune(m.filter); len(r) > 0 {
-				m.setFilter(string(r[:len(r)-1]))
-			}
-		case "space":
-			m.setFilter(m.filter + " ")
 		default:
-			if utf8.RuneCountInString(key) == 1 {
-				m.setFilter(m.filter + key)
+			if filter, ok := chrome.EditFilter(m.filter, key); ok {
+				m.setFilter(filter)
 			}
 		}
 		return true

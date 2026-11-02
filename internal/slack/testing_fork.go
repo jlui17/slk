@@ -33,6 +33,12 @@ func WithInnerTransport(inner http.RoundTripper) TestOption {
 	}
 }
 
+// WithTeamID sets the team auth.test would have answered with, for a
+// client that never connects.
+func WithTeamID(teamID string) TestOption {
+	return func(c *Client) { c.teamID = teamID }
+}
+
 // WithWSDialer replaces the dialer StartWebSocket builds, so the
 // production wss URL can be redirected to a test server at the dial —
 // the WebSocket analogue of WithInnerTransport.

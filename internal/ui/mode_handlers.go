@@ -68,6 +68,7 @@ var modeHandlers = map[Mode]modeHandler{
 	ModeProfileCard:          handleProfileCardMode,
 	ModeUserProfile:          handleUserProfileMode,
 	ModeMarks:                handleMarksMode,
+	ModePinsBookmarks:        handlePinsBookmarksMode, // fork: mode_pinsbookmarks.go
 }
 
 // normalizeFinderKey maps a tea.KeyMsg to the plain-string form the

@@ -105,7 +105,7 @@ func (a *App) linkPickerItems(links []messages.Link) []linkpicker.Item {
 // permalink's channel, or the URL of a row that draws its URL: text
 // that is known now and never changes.
 func (a *App) linkPickerItem(l messages.Link, label, whole string) linkpicker.Item {
-	item := linkpicker.Item{URL: l.URL, Label: label, FilterText: whole + " " + l.URL, InApp: a.linkOpensInApp(l.URL)}
+	item := linkpicker.Item{URL: l.URL, Label: label, FilterText: whole + " " + l.URL, InApp: a.opensInSlk(l.URL)}
 	if pl, ok := slackurl.Parse(l.URL); ok {
 		item.Display = permalinkRowText(pl)
 		item.Side = a.permalinkPlace(pl, item.InApp)

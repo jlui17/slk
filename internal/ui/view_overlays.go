@@ -80,6 +80,7 @@ func (a *App) applyOverlays(screen string) string {
 	if a.marksOverlay.IsVisible() {
 		screen = a.marksOverlay.ViewOverlay(a.width, a.height, screen)
 	}
+	screen = a.pinsBookmarksOverlay(screen) // fork: pinsbookmarks.go
 	if a.mode == ModePresenceCustomSnooze {
 		screen = presencemenu.CustomSnoozeView(a.width, a.height, screen, a.presence.SnoozeBuf())
 	}
@@ -109,6 +110,7 @@ func (a *App) overlayActive() bool {
 		a.mode == ModeProfileCard ||
 		a.userProfile.IsVisible() ||
 		a.marksOverlay.IsVisible() ||
+		a.pinsBookmarks.model.IsVisible() ||
 		a.mode == ModePresenceCustomSnooze ||
 		a.bootstrap.IsLoading()
 }

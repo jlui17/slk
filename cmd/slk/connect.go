@@ -39,6 +39,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		p.Send(ui.ToastMsg{Text: fmt.Sprintf("Slack rate-limited; retrying in %s", wait.Round(time.Second))})
 	})
 	client.SetPageTimeout(bootCallTimeout)
+	notifyPinCounts(client, p.Send) // fork: pinsbookmarks_wiring.go
 
 	// Seed the build timestamp from the last run so the very first
 	// request of this session already carries a current _x_version_ts

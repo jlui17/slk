@@ -24,6 +24,7 @@ const (
 	ModeProfileCard  // fork: profilecard.go
 	ModeUserProfile
 	ModeMarks
+	ModePinsBookmarks
 	modeCount // must stay last: the number of modes
 )
 
@@ -51,7 +52,8 @@ func (m Mode) IsModalOverlay() bool {
 		ModeWorkspaceSearch,
 		ModeProfileCard,
 		ModeUserProfile,
-		ModeMarks:
+		ModeMarks,
+		ModePinsBookmarks:
 		return true
 	default:
 		return false
@@ -98,6 +100,8 @@ func (m Mode) String() string {
 		return "PROFILE"
 	case ModeMarks:
 		return "MARKS"
+	case ModePinsBookmarks: // the status bar names the section: pinsbookmarks.Model.String
+		return "PINS"
 	default:
 		return "UNKNOWN"
 	}

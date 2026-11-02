@@ -47,11 +47,12 @@ type appFork struct {
 	// clipboard reader; see paste_async_fork.go.
 	asyncPaste asyncPasteState
 
-	pasteThumbFocus pasteThumbFocus   // compose_preview_focus_fork.go
-	appShortcuts    appShortcutsState // appshortcuts.go
-	appHome         appHomeState      // apphome.go
-	profileCard     profileCardState  // profilecard.go
-	ephemerals      ephemerals        // ephemeral_fork.go
+	pasteThumbFocus pasteThumbFocus    // compose_preview_focus_fork.go
+	appShortcuts    appShortcutsState  // appshortcuts.go
+	appHome         appHomeState       // apphome.go
+	profileCard     profileCardState   // profilecard.go
+	pinsBookmarks   pinsBookmarksState // pinsbookmarks.go
+	ephemerals      ephemerals         // ephemeral_fork.go
 
 	// pastePreviewMemo holds the compose boxes' pasted-image thumbnails
 	// by bytes, size and protocol; only View touches it

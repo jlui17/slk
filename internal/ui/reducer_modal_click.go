@@ -57,6 +57,7 @@ type modalClickTarget struct {
 	activation tea.KeyMsg       // nil when a row click has no activation (help)
 	point      pointClickable   // nil unless the modal has a point hot spot
 	onPoint    func() tea.Cmd   // set: a point hit calls this instead of synthesising activation
+	dismiss    func() tea.Cmd   // fork: set: a click outside the box calls this instead of synthesising Esc
 }
 
 // activeModalClickTarget resolves the modal addressed by the current
@@ -92,6 +93,9 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{box: box, point: box, onPoint: a.pressConfirmPromptHighlighted}, true
 	case ModeProfileCard: // fork: profilecard.go
 		return modalClickTarget{box: &a.profileCard.model}, true
+	case ModePinsBookmarks: // fork: pinsbookmarks.go; outside closes, a filter typed or not
+		m := &a.pinsBookmarks.model
+		return modalClickTarget{box: m, click: m, activation: enter, dismiss: a.closePinsBookmarks}, true
 	case ModeUserProfile:
 		// The hot spots are the email's 📋 and, when the huddle row
 		// carries one, its 📋: a click does what e / c does. Inside
@@ -134,7 +138,7 @@ func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 
 	// Outside the box -> dismiss.
 	if m.X < startX || m.X >= startX+w || m.Y < startY || m.Y >= startY+h {
-		return esc()
+		return target.dismissOr(esc) // fork: modal_click_fork.go
 	}
 
 	// Inside the box on a point hot spot -> its press, or its activation.

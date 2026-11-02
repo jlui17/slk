@@ -1470,6 +1470,7 @@ func run(startupLink *slackurl.Permalink) error {
 		app.SetAppHomeService(appHomeService{router})         // fork: apphome_wiring.go
 		app.SetProfileCardService(profileService{router})     // fork: profilecard_wiring.go
 
+		app.SetPinsBookmarksService(pinsBookmarksService{router}) // fork: pinsbookmarks_wiring.go
 	}
 
 	// Bind all callbacks once. They read router.Active() at invocation.

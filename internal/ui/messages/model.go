@@ -166,7 +166,7 @@ type Model struct {
 	chromeChannel     string
 	chromeTopic       string
 	chromeChannelType string
-	headerRow         func(width int) string // fork: apphome_fork.go
+	headerRows        [headerSlots]func(width int) string // fork: apphome_fork.go
 	chromeCacheValid  bool
 
 	nav ReactionNav

@@ -10,6 +10,8 @@
       │  # incidents│  esc                back                               │ │                 ┃  
       │             │  ''                 back-jump to where you jumped from │ │                 ┃  
       │             │  G                  bottom                             │ │                 ┃  
+      │             │  B / :bookmarks     channel's bookmarks                │ │                 ┃  
+      │             │  p / :pins          channel's pins                     │ │                 ┃  
       │             │  ctrl+w o / :only   close other windows                │ │                 ┃  
       │             │  q                  close thread view                  │ │                 ┃  
       │             │  ctrl+w q / :q      close window                       │ │                 ┃  
@@ -19,8 +21,6 @@
       │             │  y                  copy message                       │ │                 ┃  
       │             │  Y/C                copy permalink                     │ │                 ┃  
       │             │  ctrl+w w           cycle windows                      │ │                 ┃  
-      │             │  :delmarks          delete marks by letter             │ │                 ┃  
-      │             │  D                  delete message                     │ │                 ┃  
       │             │                                                          │                 ┃  
       │             │ / search   esc/q close                                   │                 ┃  
       │             │                                                          │                 ┃  

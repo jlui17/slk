@@ -77,6 +77,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		cmd, fetchFired := reduceChannelSelected(a, m)
 		cmd = tea.Batch(cmd, a.appHomeChannelSelected(m)) // fork: apphome.go; before the link nav completes, which it reads
 		cmd = tea.Batch(cmd, a.closeOffscreenActionPrompt())
+		cmd = tea.Batch(cmd, a.pinsBookmarksChannelSelected(m, fetchFired)) // fork: pinsbookmarks.go
 		if refused {
 			// reduceChannelSelected refused the switch, so a pending
 			// jump to this channel must not complete — not against

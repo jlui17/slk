@@ -92,6 +92,8 @@ type KeyMap struct {
 	AppHomeTab           key.Binding // fork: apphome.go
 	AgentMark            key.Binding
 	Retitle              key.Binding
+	Pins                 key.Binding // fork: pinsbookmarks.go
+	Bookmarks            key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -211,5 +213,8 @@ func DefaultKeyMap() KeyMap {
 		// (agentthread_mark.go, agentthread_retitle.go).
 		AgentMark: key.NewBinding(key.WithHelp(":agent", "mark or unmark thread as an agent thread")),
 		Retitle:   key.NewBinding(key.WithHelp(":retitle", "rename thread's herdr tab from its transcript")),
+		// fork: pinsbookmarks.go
+		Pins:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p / :pins", "channel's pins")),
+		Bookmarks: key.NewBinding(key.WithKeys("B"), key.WithHelp("B / :bookmarks", "channel's bookmarks")),
 	}
 }

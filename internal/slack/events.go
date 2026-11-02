@@ -804,6 +804,9 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		}
 		handler.OnBadgeCountsUpdated(sumActivityV2(evt.ActivityV2))
 
+	case "pin_added", "pin_removed":
+		dispatchPinEvent(data, handler) // fork: pinsbookmarks_fork.go
+
 	case "hello":
 		debuglog.WS("hello: connected")
 		handler.OnConnect()

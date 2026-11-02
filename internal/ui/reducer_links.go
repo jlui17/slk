@@ -77,6 +77,9 @@ func (a *App) routeLink(rawURL string, inHerdr HerdrTarget) tea.Cmd {
 	if cmd, ok := a.routeProfileLink(rawURL, inHerdr); ok { // fork: profilecard.go
 		return cmd
 	}
+	if cmd, ok := a.routeChannelLink(rawURL); ok { // fork: channel_link_fork.go
+		return cmd
+	}
 	pl, ok := slackurl.Parse(rawURL)
 	if !ok {
 		return a.browserOpener(rawURL)

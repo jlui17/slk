@@ -15,6 +15,7 @@ import (
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/apphome"
 	"github.com/gammons/slk/internal/ui/appshortcuts"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
 )
@@ -145,7 +146,7 @@ func (a *App) closeAppHome() {
 	if a.view == ViewAppHome {
 		a.view = ViewChannels
 	}
-	a.messagepane.SetHeaderRow(nil)
+	a.messagepane.SetHeaderRow(messages.HeaderTabs, nil)
 	*s = appHomeState{svc: s.svc, noHome: s.noHome, visit: s.visit, clicks: s.clicks, after: s.after}
 }
 
@@ -487,7 +488,7 @@ func (a *App) applyAppHome(m appHomeLoadedMsg) tea.Cmd {
 	s.model.SetHomeOnly(!m.home.MessagesTab)
 	s.model.SetView(v)
 	if m.home.MessagesTab {
-		a.messagepane.SetHeaderRow(func(w int) string { return apphome.TabRow(w, false) })
+		a.messagepane.SetHeaderRow(messages.HeaderTabs, func(w int) string { return apphome.TabRow(w, false) })
 	}
 	if a.view == ViewAppHome {
 		return a.appHomeOpenedCmd()

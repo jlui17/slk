@@ -200,7 +200,7 @@ func (m *Model) renderBox(termWidth int) string {
 	window := m.windowOf(shown)
 	title = m.withTitleStatus(title, innerWidth, shown, window)
 
-	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
+	badgeStyle := styles.InAppBadge()
 	mutedStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
 
 	sideWidth := m.sideWidth(innerWidth)

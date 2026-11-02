@@ -1125,6 +1125,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceAgentWorkingVerdict,
 		reduceCacheWatermark,
 		reducePasteAsync,
+		reducePinsBookmarks, // fork: pinsbookmarks.go
 		reduceOpenLinksInHerdr,
 		reduceProfileCard, // fork: profilecard.go
 	); handled {
@@ -2224,6 +2225,7 @@ func (a *App) SetMode(mode Mode) {
 	if a.mode == ModeMarks && mode != ModeMarks {
 		a.marksOverlay.Close()
 	}
+	a.leavePinsBookmarks(mode) // fork: pinsbookmarks.go
 	a.mode = mode
 	a.statusbar.SetMode(mode)
 }
