@@ -20,9 +20,8 @@ tab=$(jq -r .result.tab.tab_id <<<"$out"); pane=$(jq -r .result.root_pane.pane_i
 herdr pane run "$pane" "cd <worktree> && SLK_ROLE=agent tools/run-docker.sh '<permalink>'"
 ```
 
-Record the tab id, and the container name from
-`docker ps --filter label=slk.role=agent` once it is up. Outside herdr, hand
-him the `cd … && tools/run-docker.sh '<permalink>'` line to run himself.
+Record the tab id. Outside herdr, hand him the
+`cd … && tools/run-docker.sh '<permalink>'` line to run himself.
 
 - **`SLK_ROLE=agent` is not optional.** A fresh herdr shell has no
   `CLAUDECODE`, so without it `run-docker.sh` takes the user role: his state
@@ -50,6 +49,7 @@ closes the thread view.
 
 ## Take it down
 
-When he says he is done, or the change merges: `herdr tab close <tab id>`
-and stop the recorded container, both by the ids recorded above. Tabs he
-opened from inside the try-it tab are his.
+When he says he is done, or the change merges: `herdr tab close <tab id>`,
+by the id recorded above. Closing the tab stops its slk; never stop
+`slk-agent-backend`, which other agents' sessions share. Tabs he opened
+from inside the try-it tab are his.

@@ -7,38 +7,25 @@
 # tear it, and slk rebuilds the cache from the API). The one exception is the
 # config's anthropic_api_key, which every launch copies in again
 # (tools/sync-host-api-key.sh). Every pane that runs this
-# script in the same role shares that volume, and the containers share the
-# docker VM's kernel, so cross-process flocks are exercised for real.
-# Reseed with: docker volume rm slk-test-state (or slk-agent-state)
+# script in the same role shares that volume, so cross-process flocks are
+# exercised for real.
+# Reseed by removing the role's backend and then its volume, only while the
+# backend runs no launch: docs/developing-on-santa-hosts.md has the check.
 #
-# Agent sessions (CLAUDECODE set, or SLK_ROLE=agent) run fully isolated from
-# interactive use: their own state volume, their own binary, and containers
-# named/labeled by role. The separate binary is load-bearing, not tidiness:
-# a rebuild writes the file a live container is executing over the bind
-# mount, which can crash it — so an agent build must never touch the file a
-# user session runs. Cleanup must only ever match label slk.role=agent.
+# Every launch of a role runs by `docker exec` in the role's one
+# long-lived container, slk-<role>-backend, and the launch's host bridge
+# stops what it started there once the launcher is gone. Roles (user,
+# agent) and the backend: tools/backend.sh.
 set -euo pipefail
 
-repo=$(cd "$(dirname "$0")/.." && pwd)
-image=slk-go:1.26
-
-role=${SLK_ROLE:-${CLAUDECODE:+agent}}
-role=${role:-user}
-case "$role" in
-  agent) state_vol=slk-agent-state; bin_name=slk-linux-agent ;;
-  user)  state_vol=slk-test-state;  bin_name=slk-linux ;;
-  *) echo "SLK_ROLE must be 'agent' or 'user', got '$role'" >&2; exit 1 ;;
-esac
-# A caller that needs a sandbox of its own (tools/bench.py deletes cache.db
-# between runs) names its volume; the role still picks binary and labels.
-state_vol=${SLK_STATE_VOL:-$state_vol}
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+. "$repo/tools/backend.sh"
 
 # The seeder container costs ~0.5-1s per launch on Docker Desktop, so a host-side
 # stamp keyed by the volume's CreatedAt skips it once seeded. Removing the
 # volume changes CreatedAt, so a stamp that outlives its volume can never skip
 # seeding a fresh one; the stamp is written only after the seeder succeeds, so
 # a concurrent or failed seed just runs the (idempotent) seeder again.
-stamp_dir=${XDG_CACHE_HOME:-$HOME/.cache}/slk-sandbox
 stamp="$stamp_dir/seeded-$state_vol"
 if ! vol_created=$(docker volume inspect -f '{{ .CreatedAt }}' "$state_vol" 2>/dev/null); then
   docker volume create "$state_vol" >/dev/null
@@ -76,13 +63,13 @@ if [ "$(cat "$stamp" 2>/dev/null)" != "$vol_created" ]; then
   printf '%s\n' "$vol_created" >"$stamp"
 fi
 
+ensure_backend
+
 bin="$repo/bin/$bin_name"
 if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" "$repo/go.mod" "$repo/go.sum" \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print -quit 2>/dev/null)" ]; then
   echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
-  docker run --rm -v "$repo":/src -w /src \
-    -v slk-gomodcache:/go/pkg/mod -v slk-gobuildcache:/root/.cache/go-build \
-    -e GOFLAGS=-buildvcs=false \
-    "$image" go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
+  docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" \
+    go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
 fi
 
 # The container has no host timezone, so timestamps render as UTC unless the
@@ -104,130 +91,123 @@ esac
 herdr_bridge=$tui
 [ "${1:-}" = herdr ] && herdr_bridge=1
 
-# The container has no browser, so the `o` keybinding's launch can't happen
-# inside it. slk honors $BROWSER; point it at tools/spool-open, which drops
-# the URL into a spool directory this watcher opens on the host. The spool
-# must live under /tmp — Docker Desktop shares it with the VM by default.
-spool=$(mktemp -d /tmp/slk-open.XXXXXX)
-watcher_pid=
+# The ID marks every process this launch starts in the backend, so the
+# bridge (and tools/refresh-sessions.sh) can stop exactly those. The
+# launch's directory under $launches holds its link-open spool: the
+# container has no browser, so slk's $BROWSER, tools/spool-open, drops each
+# URL there for the host bridge to open.
+exec_id=$$-$RANDOM$RANDOM
+spool=$launches/$exec_id
+mkdir "$spool"
+signalled=
 bridge_pid=
 cleanup() {
-  # Closing a pane HUPs the whole process group, so the watcher and the
-  # bridge may already be gone; a failed kill must not stop cleanup (set -e)
-  # before the spool is removed.
-  kill $watcher_pid $bridge_pid 2>/dev/null || true
+  # Signalled (a pane closing, a kill), this shell has half a second before
+  # herdr's SIGKILL, less than slk may take to shut down. The bridge, out
+  # of the pane's session, outlives it and does the whole job once this
+  # shell is gone: stop the launch in the backend, hand slk's debug log
+  # (written in the spool under SLK_LOG_DIR) over, remove the spool. This
+  # shell does it only when slk exited on its own, so the log is in place
+  # when the script returns, or when the bridge is dead: the stop is then
+  # the backstop nothing else would run. Running both is safe, since
+  # stop-exec.sh signals a run only once.
+  trap '' HUP INT TERM
+  if [ -n "$signalled" ] && kill -0 "$bridge_pid" 2>/dev/null; then
+    return
+  fi
+  docker exec "$backend" sh "$repo/tools/stop-exec.sh" "$exec_id" >/dev/null 2>&1 || true
+  if [ -n "${SLK_LOG_DIR:-}" ]; then
+    mv "$spool/slk-debug.log" "$SLK_LOG_DIR/" 2>/dev/null || true
+  fi
   rm -rf "$spool"
 }
 trap cleanup EXIT
-# A PID-targeted signal must not skip cleanup and orphan the watcher or the
-# bridge; `exit` re-routes through the EXIT trap. Bash delivers these traps
-# only once the foreground docker run returns.
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-if [ -n "$tui" ]; then
-(
-  while :; do
-    for f in "$spool"/url-*; do
-      [ -e "$f" ] || continue
-      url=$(cat "$f")
-      rm -f "$f"
-      # `|| true`: a bad URL must not kill the watcher (set -e is
-      # inherited by the subshell).
-      open "$url" || true
-    done
-    sleep 0.3
-  done
-) &
-watcher_pid=$!
-fi
+# A PID-targeted signal must not skip cleanup; `exit` re-routes through the
+# EXIT trap. Bash delivers these traps only once the foreground docker exec
+# returns.
+trap 'signalled=1; exit 129' HUP
+trap 'signalled=1; exit 130' INT
+trap 'signalled=1; exit 143' TERM
 
-# The container can't reach two host things it needs, so one host-side
-# Python process (tools/host-bridge.py) serves both on ports the container
-# reaches as host.docker.internal:<port>:
+# One host-side Python process per launch (tools/host-bridge.py) serves what
+# the container can't reach on its own, the first two on ports it reaches
+# as host.docker.internal:<port>:
 #  - herdr: Docker Desktop does not forward bind-mounted unix sockets across
 #    its VM boundary, so the herdr socket rides in over a TCP relay.
 #  - clipboard: Ctrl+V smart paste reads the macOS clipboard over HTTP.
 #    Darwin only: the bridge reads the clipboard with osascript.
-# The bridge watches this shell's PID so it can't outlive the run even if
-# the EXIT trap never fires. Best-effort: a bridge that fails to start only
-# costs the sidebar integration and clipboard paste, never the launch.
-bridges=()
+#  - spool: it opens each URL slk drops in the spool.
+#  - exec: an exec'd slk outlives its docker client, so when this shell is
+#    gone, however it went, the bridge stops the launch in the backend.
+# That last job is why a launch without its bridge does not start.
+bridges=("exec=$backend:$exec_id:$spool")
 if [ -n "$herdr_bridge" ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
   bridges+=("herdr=$HERDR_SOCKET_PATH")
 fi
 if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
   bridges+=(clipboard)
 fi
+[ -n "$tui" ] && bridges+=("spool=$spool")
+port_file=$(mktemp)
+python3 "$repo/tools/host-bridge.py" $$ "${bridges[@]}" >"$port_file" &
+bridge_pid=$!
+ports=
+ready=
+for _ in $(seq 1 500); do
+  read -r ports <"$port_file" && ready=1 && break
+  sleep 0.01
+done
+rm -f "$port_file"
+if [ -z "$ready" ]; then
+  echo "host bridge did not start; not launching, since nothing would stop this launch's slk in $backend once it is gone" >&2
+  exit 1
+fi
 herdr_port=
 clipboard_port=
-if [ ${#bridges[@]} -gt 0 ]; then
-  port_file=$(mktemp)
-  python3 "$repo/tools/host-bridge.py" $$ "${bridges[@]}" >"$port_file" &
-  bridge_pid=$!
-  ports=
-  for _ in $(seq 1 500); do
-    read -r ports <"$port_file" || true
-    [ -n "$ports" ] && break
-    sleep 0.01
-  done
-  rm -f "$port_file"
-  for p in $ports; do
-    case "$p" in
-      herdr=*) herdr_port=${p#herdr=} ;;
-      clipboard=*) clipboard_port=${p#clipboard=} ;;
-    esac
-  done
-  if [ -z "$ports" ]; then
-    echo "warning: host bridge did not report its ports; starting without the agent-sidebar integration or Ctrl+V image paste" >&2
-    kill "$bridge_pid" 2>/dev/null || true
-    bridge_pid=
-  fi
-fi
+for p in $ports; do
+  case "$p" in
+    herdr=*) herdr_port=${p#herdr=} ;;
+    clipboard=*) clipboard_port=${p#clipboard=} ;;
+  esac
+done
 
 # Terminal identity rides into the container so graphics-protocol detection
 # sees the real terminal; the kitty probe's reply comes back over the -it pty.
-# -w /src puts slk-debug.log (written to cwd under SLK_DEBUG) in the
-# host checkout instead of dying with the --rm container. No exec: the EXIT
-# trap must run to stop the spool watcher and the bridges.
+# The checkout is the cwd, so slk-debug.log (written to cwd under SLK_DEBUG)
+# lands in it. No exec: the EXIT trap must run to clean up.
 #
 # Headless hooks (tools/smoke.sh composes all three):
 #   no host tty  -> -t only: the app still gets a pty, stdin stays detached
-#   SLK_LOG_DIR  -> host dir mounted as the container cwd, so slk-debug.log
-#                   survives the --rm container somewhere other than /src
+#   SLK_LOG_DIR  -> host dir slk-debug.log lands in instead of the checkout,
+#                   moved there from the launch's spool when slk exits
 #   SLK_TIMEOUT  -> wraps slk in `timeout -s INT <secs>` for a bounded run
 #                   that still shuts down cleanly (INT -> tea quit -> tally)
 tty_args=(-it)
 [ -t 0 ] || tty_args=(-t)
-workdir=/src
-log_mount=()
-if [ -n "${SLK_LOG_DIR:-}" ]; then
-  workdir=/log
-  log_mount=(-v "$SLK_LOG_DIR":/log)
-fi
-cmd=(/src/bin/"$bin_name")
-[ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout -s INT "$SLK_TIMEOUT" "${cmd[@]}")
+workdir=$repo
+[ -n "${SLK_LOG_DIR:-}" ] && workdir=$spool
+cmd=("$repo/bin/$bin_name")
+# --foreground: slk is not PID 1, and timeout would otherwise move it out of
+# the tty's foreground process group (SIGTTIN on read).
+[ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout --foreground -s INT "$SLK_TIMEOUT" "${cmd[@]}")
 # A key rotated in the host config reaches the volume's copy before slk
 # starts. The key rides in by name, so argv stays secret-free; exec keeps
-# slk PID 1, and a failed copy never blocks the launch.
+# slk the launch's root process, and a failed copy never blocks the launch.
 SLK_HOST_ANTHROPIC_API_KEY=$(sed -n 's/^anthropic_api_key *= *"\(.*\)"$/\1/p' "$HOME/.config/slk/config.toml" 2>/dev/null || true)
 export SLK_HOST_ANTHROPIC_API_KEY
-cmd=(sh -c '/src/tools/sync-host-api-key.sh || true; exec "$@"' sh "${cmd[@]}")
+cmd=(sh -c '"$0" || true; exec "$@"' "$repo/tools/sync-host-api-key.sh" "${cmd[@]}")
 # GOMEMLIMIT: image-decode bursts on a warm cache measured a 974MB RSS
 # peak per instance from GC lazily returning pages; the soft ceiling
 # trades brief GC pressure during those bursts for a bounded footprint
 # when many instances run at once. Wrong if a legitimately live heap
 # approaches it (sustained GC thrash) — raise it then.
-echo "container: slk-${role}-$$" >&2
-docker run --rm "${tty_args[@]}" \
-  --name "slk-${role}-$$" \
-  --label "slk.role=${role}" \
-  -v "$repo":/src \
+echo "container: $backend" >&2
+echo "exec: $exec_id" >&2
+docker exec "${tty_args[@]}" \
   -w "$workdir" \
-  ${log_mount[@]+"${log_mount[@]}"} \
-  -v "$state_vol":/state \
-  -v "$spool":/host-open \
-  -e BROWSER=/src/tools/spool-open \
+  -e SLK_EXEC_ID="$exec_id" \
+  -e SLK_SPOOL_DIR="$spool" \
+  -e BROWSER="$repo/tools/spool-open" \
   ${tz:+-e TZ="$tz"} \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \
@@ -246,4 +226,4 @@ docker run --rm "${tty_args[@]}" \
   ${KITTY_WINDOW_ID:+-e KITTY_WINDOW_ID="$KITTY_WINDOW_ID"} \
   ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"} \
   ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"} \
-  "$image" "${cmd[@]}" "$@"
+  "$backend" "${cmd[@]}" "$@"

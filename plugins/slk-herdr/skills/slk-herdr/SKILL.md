@@ -6,10 +6,11 @@ description: Use when managing Justin's live slk sessions (the Slack TUI) in her
 # Managing slk sessions in herdr
 
 Justin runs many slk sessions at once, one per herdr pane, each parked on
-the channel or thread it is working on. Each session is a docker container
-started by `tools/run-docker.sh` in the slk checkout. This skill is how to
-find, restart, relaunch and move those sessions without losing their state
-or touching anything else on the machine.
+the channel or thread it is working on. `tools/run-docker.sh` in the slk
+checkout starts each one by `docker exec` in the role's one long-lived
+container, `slk-<role>-backend`. This skill is how to find, restart,
+relaunch and move those sessions without losing their state or touching
+anything else on the machine.
 
 ## The slk checkout, and which build the sessions run
 
@@ -30,22 +31,28 @@ This machine also runs Justin's own processes. The slk repo's CLAUDE.md
 holds the full rule; when this skill runs from another repo that file is
 not loaded, so these are the parts that apply here:
 
-- A user session (container label `slk.role=user`) is stopped only by
-  `tools/refresh-sessions.sh`, which reads each container's name from its
-  own pane's process. That is the restart Justin asked for. Never stop
-  one by a name pattern or a label sweep.
-- An agent session (label `slk.role=agent`) is stopped only when this
-  session created it, by the container name recorded at launch.
+- A user session is stopped only by `tools/refresh-sessions.sh`, which
+  reads each session's exec id from its own pane's process. That is the
+  restart Justin asked for. Never stop one by a pattern or a sweep.
+- Never stop, restart or remove `slk-user-backend`: every user session
+  runs inside it.
+- An agent session is stopped only when this session created it: in a
+  herdr pane, by closing that pane; a launch whose stderr this session
+  captured, by the `exec: <id>` line `run-docker.sh` prints there
+  (`docker exec slk-agent-backend sh <checkout>/tools/stop-exec.sh <id>`).
+  `slk-agent-backend` itself is shared with other agents' sessions.
+- Closing a pane stops the slk in it.
 - Never print a pane's process argv or env. `herdr pane process-info`
-  returns the full `docker run` argv; parse it inside a script and print
-  only pane ids and container names, as `tools/refresh-sessions.sh` does.
+  returns the full `docker exec` argv; parse it inside a script and print
+  only pane ids, exec ids and container names, as
+  `tools/refresh-sessions.sh` does.
 
 ## User role versus agent role
 
 `run-docker.sh` picks its role from the environment. When `CLAUDECODE` is
 set (any Claude Code shell, including yours), it runs as the agent role:
-a separate state volume, `bin/slk-linux-agent`, and `slk-agent-*`
-containers. That keeps an agent's own test slk away from Justin's.
+a separate state volume, `bin/slk-linux-agent`, and `slk-agent-backend`.
+That keeps an agent's own test slk away from Justin's.
 
 Justin's sessions, their saved pane states and their config live in the
 user role. To read or act on them from an agent shell, set the role
@@ -57,7 +64,7 @@ A command that `herdr pane run` types into one of Justin's panes runs in
 his shell, which has no `CLAUDECODE`, so it gets the user role on its own.
 
 A user-role call rebuilds `bin/slk-linux` when the sources are newer, and
-every live user container executes that bind-mounted file, so a rebuild
+every live user session executes that bind-mounted file, so a rebuild
 under a running session can crash it. While user sessions are live, gate
 every bare `SLK_ROLE=user … run-docker.sh` call on nothing being newer
 than the binary, so the call runs only when it will not rebuild:
@@ -113,19 +120,24 @@ and the screen for connected or not.
 ## Refreshing every live session
 
 Run `~/src/personal/slk/tools/refresh-sessions.sh`. It is the whole
-runbook: it finds the user-role slk panes, stops all their containers,
-relaunches the first pane alone (which rebuilds the binary when the
+runbook: it finds the user-role slk panes, stops all of them, relaunches
+the first pane alone (which rebuilds the binary when the
 sources changed), waits for it to draw, then relaunches the rest. Check
 afterwards that each pane's last line reads `● Connected`.
 
 Why it is shaped this way:
 
-- **It quits through docker, not keystrokes.** slk is PID 1 in its
-  container, so `docker stop` delivers SIGTERM, which slk handles: it
-  exits cleanly and releases its herdr sidebar entry. Scripting "press Q,
-  confirm" against a pane whose screen may be a stale frame is fragile.
+- **It quits through a signal, not keystrokes.** Each session gets SIGINT
+  inside the backend (`tools/stop-exec.sh`), which slk handles: it exits
+  cleanly and releases its herdr sidebar entry. Scripting "press Q,
+  confirm" against a pane whose screen may be a stale frame is fragile. A
+  pane still running in a container of its own, from before the shared
+  backend, gets `docker stop` instead and comes back in the backend.
 - **Every session stops before the first relaunch,** so the rebuild never
-  replaces the binary under a running container.
+  replaces the binary under a running session. That first relaunch is
+  also when a changed `run-docker.sh` reaches the backend: a launch
+  recreates an out-of-date `slk-user-backend` only while nothing runs in
+  it, and otherwise warns and uses it as it is.
 - **A restart keeps each session's place.** slk saves each pane's channel
   and thread (its pane state) and restores it when slk starts again in
   the same pane, so the refresh relaunches in place, not in new tabs.
@@ -169,9 +181,11 @@ herdr pane move <pane_id> --new-tab --workspace <workspace_id> --label '<tab lab
   `move_result.pane.pane_id`), and herdr closes the tab the move left
   empty. Keep the tab's label by passing it to `--label`.
 - The running slk follows the move and keeps working. Its pane state stays
-  saved under the id the pane had when slk started. So the next time slk
-  restarts in the moved pane (a refresh, for example), it opens fresh,
-  without its thread. Tell Justin this when you move a session.
+  saved under the id the pane had when slk started, and the moved pane's
+  shell keeps that old id in `HERDR_PANE_ID`. So a refresh relaunches it on
+  the same thread, still saving under the old id; `herdr pane states`
+  shows that state under the old id, and `herdr reboot` calls it `stale`
+  and never relaunches it. Tell Justin this when you move a session.
 
 ## Opening a new session on a thread
 

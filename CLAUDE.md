@@ -54,11 +54,14 @@ rule can cover — the symptom is `signal: killed` / exit 137). Never invoke
 
 Agent sessions are auto-isolated from the user's live slk: `run-docker.sh`
 detects `CLAUDECODE` and uses its own state volume (`slk-agent-state`),
-its own binary (`bin/slk-linux-agent`), and `slk-agent-*` container names
-with a `slk.role=agent` label. Never build to `bin/slk-linux` and never
-kill/stop/rm any docker container or volume that isn't one this session
-created and isn't labeled `slk.role=agent` — the user's live session runs
-from the same image and checkout.
+and its own binary (`bin/slk-linux-agent`). Every pane of a role runs via
+`docker exec` in one shared container, `slk-agent-backend` or
+`slk-user-backend`, which other sessions use at the same time: stop your
+own session by closing its pane, and never stop, restart or remove either
+backend. Never build to `bin/slk-linux` and never kill/stop/rm any other
+docker container or volume that isn't one this session created and isn't
+labeled `slk.role=agent` — the user's live session runs from the same
+image and checkout.
 
 Details: `docs/developing-on-santa-hosts.md`.
 

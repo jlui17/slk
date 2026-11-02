@@ -1,8 +1,9 @@
 #!/bin/sh
-# $BROWSER hook for the run-docker.sh container: the container has no
-# browser, so spool the URL for the host-side watcher (run-docker.sh)
-# to open. Write-then-rename so the watcher never reads a partial file.
+# $BROWSER hook for a run-docker.sh launch: the container has no browser,
+# so spool the URL into the launch's SLK_SPOOL_DIR for the host bridge
+# (tools/host-bridge.py) to open. Write-then-rename so the bridge never
+# reads a partial file.
 set -eu
-tmp="/host-open/.url-$$"
+tmp="$SLK_SPOOL_DIR/.url-$$"
 printf '%s\n' "$1" > "$tmp"
-mv "$tmp" "/host-open/url-$$"
+mv "$tmp" "$SLK_SPOOL_DIR/url-$$"

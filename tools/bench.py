@@ -27,6 +27,9 @@
 # without pulling one out from under anyone. Other slk instances still share
 # the CPU; the header line counts them. Debug logs are kept only when a run
 # fails. The launcher trace holds the Anthropic key, so it never hits disk.
+#
+# The bench volume gets a backend container of its own (run-docker.sh),
+# BACKEND, removed with the volume (and its launch directory).
 import argparse
 import datetime
 import fcntl
@@ -49,11 +52,22 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGE = "slk-go:1.26"
 SEED_VOL = "slk-agent-state"
 VOL = "slk-bench-state"
+BACKEND = "slk-agent-backend-" + VOL  # run-docker.sh's name for it
 STAMP = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
                      "slk-sandbox", "seeded-" + VOL)
 SLK_DATA = "/state/xdg/data/slk"
 WINDOW = 20  # seconds per launch; the request tally covers this window
 PAUSE = 5  # seconds between launches, to go easy on Slack
+
+
+def slk_instances(names):
+    """How many slk processes run in these containers, read from the host
+    (docker top), so a shared backend counts each of its panes."""
+    count = 0
+    for name in names:
+        out = subprocess.run(["docker", "top", name, "-o", "pid,comm"], capture_output=True, text=True).stdout
+        count += sum(1 for line in out.splitlines() if line.split()[-1:] in (["slk-linux"], ["slk-linux-agent"]))
+    return count
 
 
 def vol_sh(script, *mounts):
@@ -64,6 +78,7 @@ def vol_sh(script, *mounts):
 
 def seed_volume():
     """Make VOL a fresh copy of the agent sandbox, already marked seeded for run-docker.sh."""
+    subprocess.run(["docker", "rm", "-f", BACKEND], capture_output=True)
     subprocess.run(["docker", "volume", "rm", VOL], capture_output=True)
     subprocess.run(["docker", "volume", "create", VOL], check=True, stdout=subprocess.DEVNULL)
     vol_sh("cp -a /seed/. /state/", SEED_VOL + ":/seed:ro")
@@ -127,19 +142,20 @@ def launch(window, sampler=None):
         return next((t for t, l in trace if re.match(pattern, l)), None)
 
     r = {"rc": p.returncode, "first_frame": frame,
-         "stamp_check": at(r"\++ bin="),
+         "stamp_check": at(r"\+ ensure_backend$"),
          "rebuilt": any("go build" in l for _, l in trace)}
-    tz, hb, hb_end, run = (at(r"\++ readlink /etc/localtime"), at(r"\+ bridges=\(\)$"),
-                           at(r"\+ tty_args="), at(r"\+ docker run --rm -i?t "))
-    if None in (r["stamp_check"], tz, hb, hb_end, run):
+    binl, tz, hb, hb_end, run = (at(r"\++ bin="), at(r"\++ readlink /etc/localtime"), at(r"\+ bridges=\("),
+                                 at(r"\+ tty_args="), at(r"\+ docker exec -i?t "))
+    if None in (r["stamp_check"], binl, tz, hb, hb_end, run):
         print("bench: launcher trace incomplete (rc=%s), tail:" % p.returncode, file=sys.stderr)
         for _, line in trace[-10:]:
             if "API_KEY" not in line:
                 print("  " + line[:200], file=sys.stderr)
         return r
-    r["staleness_find"] = tz - r["stamp_check"]
+    r["backend"] = binl - r["stamp_check"]
+    r["staleness_find"] = tz - binl
     r["host_bridge"] = hb_end - hb
-    r["shell_other"] = run - r["stamp_check"] - r["staleness_find"] - r["host_bridge"]
+    r["shell_other"] = run - binl - r["staleness_find"] - r["host_bridge"]
     r["shell_total"] = run
 
     hellos, probes, teams = [], 0.0, 0
@@ -187,11 +203,12 @@ def launch(window, sampler=None):
 
 ROWS = [
     ("stamp check (docker volume inspect)", "stamp_check"),
+    ("backend check (docker inspect)", "backend"),
     ("binary staleness find", "staleness_find"),
-    ("host bridge start (herdr + clipboard)", "host_bridge"),
+    ("host bridge start", "host_bridge"),
     ("other launcher shell", "shell_other"),
-    ("= launcher before docker run", "shell_total"),
-    ("docker run -> slk main()", "docker_run_to_main"),
+    ("= launcher before docker exec", "shell_total"),
+    ("docker exec -> slk main()", "docker_run_to_main"),
     ("slk init incl. terminal probes", "init_and_probes"),
     ("  of which probe timeouts", "probes"),
     ("probes done -> first frame", "probes_to_frame"),
@@ -264,7 +281,7 @@ def bench_steady(settle=30, span=120, every=10):
         print("  CPU %% of one core: avg %.2f, per-%ds median %.2f min %.2f max %.2f"
               % (avg, every, statistics.median(cpu), min(cpu), max(cpu)))
         print("  slk RSS MiB:       median %.1f min %.1f max %.1f" % (statistics.median(rss), min(rss), max(rss)))
-        print("  cgroup memory MiB: median %.1f min %.1f max %.1f  (docker stats' number; includes page cache)"
+        print("  cgroup memory MiB: median %.1f min %.1f max %.1f  (docker stats' number; whole container, includes page cache)"
               % (statistics.median(cg), min(cg), max(cg)))
     names = subprocess.run(["docker", "ps", "--filter", "label=slk.role=user", "--format", "{{.Names}}"],
                            capture_output=True, text=True).stdout.split()
@@ -272,7 +289,8 @@ def bench_steady(settle=30, span=120, every=10):
         out = subprocess.run(["docker", "stats", "--no-stream", "--format",
                               "{{.Name}} {{.CPUPerc}} {{.MemUsage}}"] + names,
                              capture_output=True, text=True).stdout
-        print("\nlive user instances (docker stats --no-stream, read-only), %d running:" % len(names))
+        print("\nlive user instances (docker stats --no-stream, read-only), %d running in %d container(s):"
+              % (slk_instances(names), len(names)))
         print("  " + out.strip().replace("\n", "\n  "))
 
 
@@ -312,13 +330,13 @@ def main():
         return subprocess.run(["docker", "ps", "--format", "{{.Names}}"] + [a for f in filters for a in ("--filter", f)],
                               capture_output=True, text=True).stdout.split()
 
-    if running("volume=" + VOL):
+    if slk_instances(running("volume=" + VOL)):
         sys.exit("bench: another bench is running (%s uses %s)" % (" ".join(running("volume=" + VOL)), VOL))
-    print("bench: %s, %s cores, docker %s; alongside %d slk-user and %d other slk-agent containers" % (
+    print("bench: %s, %s cores, docker %s; alongside %d user and %d other agent slk instances" % (
         subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip(),
         os.cpu_count(),
         subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"], capture_output=True, text=True).stdout.strip(),
-        len(running("label=slk.role=user")), len(running("name=^slk-agent-"))))
+        slk_instances(running("label=slk.role=user")), slk_instances(running("label=slk.role=agent"))))
     if set(sections) & {"launch", "cold", "steady"}:
         seed_volume()
         try:
@@ -329,8 +347,10 @@ def main():
             if "steady" in sections:
                 bench_steady()
         finally:
+            subprocess.run(["docker", "rm", "-f", BACKEND], capture_output=True)
             subprocess.run(["docker", "volume", "rm", VOL], capture_output=True)
             os.remove(STAMP)
+            shutil.rmtree(os.path.join(os.path.dirname(STAMP), BACKEND), ignore_errors=True)
     if "build" in sections:
         bench_build(args.n)
 
