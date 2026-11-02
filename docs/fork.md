@@ -286,6 +286,12 @@ there and resolve them knowing what the fork wants:
   `TestMoveUpFromFirstReplySelectsParent`) — `GoToTop`, which `gg` calls,
   selects the parent row, the thread's topmost, where upstream selects the
   first reply; pinned in `keyrouting_fork_test.go`.
+- `internal/ui/thread/model.go`, `internal/ui/reducer_io.go` — the
+  thread's parent entry and its list of entries are kept between frames
+  (`parentRow`, `setReplyList` in `viewmemo_fork.go`), where upstream
+  renders the parent and hands the list new entries on every View. An
+  image landing for the parent invalidates the thread
+  (`ShowsMessage`), as one for a reply does.
 - `internal/cache/db.go` — one-line hooks into fork helpers
   (`migrateFork`, `removeThreadSweepLocks`).
 - `internal/ui/reducer_threads.go` — a fetched thread is marked through

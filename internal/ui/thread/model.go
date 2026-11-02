@@ -118,6 +118,8 @@ type Model struct {
 	expandedAttachments map[string]bool
 	parentEntry         messages.EntryPayload
 
+	memo viewMemo // fork: viewmemo_fork.go
+
 	// replyIDToIdx maps reply TS -> reply index; rebuilt with the reply
 	// cache. HasReply reads it.
 	replyIDToIdx map[string]int
@@ -180,6 +182,7 @@ func (m *Model) dropCache() {
 	m.cache = nil
 	m.replyEntries = nil
 	m.list.KeepLookups(1)
+	m.memo = viewMemo{} // fork: viewmemo_fork.go
 }
 
 // SetImageContext configures the inline-image rendering pipeline for
@@ -1107,84 +1110,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	m.list.SetStyles(messages.ThemeListStyles())
 	m.list.SetHeight(replyAreaHeight, m.selected)
 
-	// The parent is rendered every frame for its current state (selected
-	// or not, focused or not) and is entry 0 of the list: its rows, then
-	// the rule under it. The rule is not selectable text (Plain stops
-	// before it). The parent renders on every View, so its image uploads
-	// go out here rather than with the replies'. We discard the parent's
-	// reaction hits in v1, as before; its image hits are kept so a click
-	// on its image opens the preview.
-	parentIsSelected := m.selected == parentSelected
-	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
-	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
-	for _, fl := range slices.Concat(parentRendered.BodyFlushes, parentRendered.BlockFlushes, parentRendered.ReactionFlushes, parentRendered.AttachmentFlushes) {
-		if fl != nil {
-			_ = fl(imgpkg.KittyOutput)
-		}
-	}
-	m.parentEntry = messages.EntryPayload{
-		CodeBlockCopyLabels: parentRendered.CodeBlockCopyLabels,
-		AttachmentFoldRows:  parentRendered.AttachmentFoldRows,
-	}
-	// Replies only get a day divider when their day differs from the
-	// parent's, so the parent header carries its own date; otherwise a
-	// thread whose first replies share the parent's day shows no date.
-	// Before the plain mirror, so copy and drag highlight match what is
-	// drawn. Skipped when the header would not fit, and for a
-	// summary-built parent that has no time yet.
-	if !parentIsSelected && m.parent.Timestamp != "" {
-		if date := messages.DateFromTS(m.parent.TS); date != "" {
-			dated := messages.FormatShortDate(date) + ", " + m.parent.Timestamp
-			parentContent = messages.ReplaceHeaderTimestamp(parentContent, parentHeader, m.parent.Timestamp, dated, parentHeaderBudget)
-		}
-	}
-	parentPlain := messages.PlainLines(parentContent)
-	// Selection border for the parent row mirrors the per-reply
-	// cache-build treatment (borderSelect / borderInvis below): thick
-	// left border + tint when the cursor sits on the parent, invisible
-	// border otherwise so the parent's width matches the reply rows.
-	if parentIsSelected {
-		// After the plain mirror, so it keeps the short form. Skipped
-		// while a text selection exists; see selectedLines.
-		if !m.list.HasSelection() {
-			parentContent = messages.SelectedHeader(parentContent, parentHeader, m.parent.TS, m.parent.Timestamp, parentHeaderBudget)
-		}
-		parentContent = lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-			BorderForeground(styles.SelectionBorderColor(m.focused)).
-			BorderBackground(styles.SelectionTintColor(m.focused)).
-			Background(styles.SelectionTintColor(m.focused)).
-			Render(parentContent)
-	} else {
-		parentContent = lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-			BorderForeground(styles.Background).BorderBackground(styles.Background).
-			Render(parentContent)
-	}
-	// Pad every parent row to the pane width with the theme background.
-	// The outer wrapper used to do this (the parent, unlike a reply, is
-	// not width-filled when rendered); this is the same per-row padding,
-	// applied where it is needed.
-	parentContent = lipgloss.NewStyle().Width(width).Background(styles.Background).Render(parentContent)
-	parentSeparator := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.Border).
-		Render(strings.Repeat("─", width))
-	parent := entrylist.Entry{
-		ID:         m.parent.TS,
-		Ref:        parentSelected,
-		Selectable: true,
-		Lines:      append(strings.Split(parentContent, "\n"), parentSeparator),
-		ColOffset:  1,
-	}
-	if m.parent.TS != "" {
-		// A parent without a ts cannot be clicked or text-selected.
-		parent.Plain = parentPlain
-		for _, h := range parentRendered.Hits {
-			if h.Kind == entrylist.HitImage || h.Kind == entrylist.HitFile {
-				parent.Hits = append(parent.Hits, h)
-			}
-		}
-	}
+	parent := m.parentRow(width) // fork: viewmemo_fork.go
 
 	if len(m.replies) == 0 {
 		// "No replies yet" under the parent. It goes through the list so
@@ -1278,53 +1204,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		}
 	}
 
-	// The list: the parent, then for each reply its day divider (when
-	// its local day differs from the previous one, seeded with the
-	// parent's), the "── new ──" landmark before the first reply past
-	// the unread boundary, the reply, and a full-width rule between
-	// replies. Dividers, landmark and rules are decorations: not
-	// selectable, not text-selectable.
-	ruleStyle := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.Border)
-	replySeparator := ruleStyle.Render(strings.Repeat("─", width))
-	var newLandmark string
-	if m.unreadBoundaryTS != "" {
-		newLandmark = lipgloss.NewStyle().
-			Width(width).
-			Background(styles.Background).
-			Foreground(styles.Error).
-			Bold(true).
-			Align(lipgloss.Center).
-			Render("── new ──")
-	}
-	dateSeparatorStyle := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.TextMuted).
-		Bold(true).
-		Align(lipgloss.Center)
-	decoration := func(row string) entrylist.Entry { return entrylist.Entry{Ref: -1, Lines: []string{row}} }
-	entries := make([]entrylist.Entry, 0, 2*len(m.replyEntries)+2)
-	entries = append(entries, parent)
-	lastDate := messages.DateFromTS(m.parent.TS)
-	landmarkInserted := false
-	for i, e := range m.replyEntries {
-		if replyDate := messages.DateFromTS(m.replies[i].TS); replyDate != "" && replyDate != lastDate {
-			entries = append(entries, decoration(dateSeparatorStyle.Render("── "+messages.FormatDateSeparator(replyDate)+" ──")))
-			lastDate = replyDate
-		}
-		if !landmarkInserted && newLandmark != "" && m.replies[i].TS > m.unreadBoundaryTS {
-			entries = append(entries, decoration(newLandmark))
-			landmarkInserted = true
-		}
-		entries = append(entries, e)
-		if i < len(m.replyEntries)-1 {
-			entries = append(entries, decoration(replySeparator))
-		}
-	}
-	m.list.SetEntries(entries, width, keepPosition)
+	m.setReplyList(width, keepPosition, parent) // fork: viewmemo_fork.go
 
 	// Kitty uploads for every reply (the thread cache is small, so no
 	// visibility scoping), written straight to the terminal output: APC
