@@ -37,6 +37,12 @@ func (db *DB) migrateFork() error {
 		PRIMARY KEY (workspace_id, channel_id, thread_ts)
 	);
 
+	CREATE TABLE IF NOT EXISTS counted_mentions (
+		channel_id TEXT NOT NULL,
+		ts TEXT NOT NULL,
+		PRIMARY KEY (channel_id, ts)
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_users_workspace_name
 		ON users(workspace_id, display_name, name);
 

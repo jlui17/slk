@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -65,5 +66,49 @@ func BenchmarkUnreadChannels(b *testing.B) {
 		if err != nil || len(got) != workspaces*unread {
 			b.Fatalf("got %d rows, err %v", len(got), err)
 		}
+	}
+}
+
+// counted_mentions keeps a day of a channel's counted messages and
+// drops older ones as newer ones are counted, so it stays small.
+func TestCountChannelMention_PrunesCountedMessagesAfterADay(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer db.Close()
+	newRSChannel(t, db, "C1", "T1")
+	newRSChannel(t, db, "C2", "T1")
+
+	for _, m := range []struct{ ch, ts string }{
+		{"C1", "1700000000.000100"},
+		{"C2", "1700000000.000100"},
+		{"C1", "1700050000.000100"},
+		{"C1", "1700090000.000100"}, // a day past the first
+	} {
+		if err := db.CountChannelMention(m.ch, m.ts); err != nil {
+			t.Fatalf("CountChannelMention(%s, %s): %v", m.ch, m.ts, err)
+		}
+	}
+
+	rows, err := db.conn.Query(`SELECT channel_id || ' ' || ts FROM counted_mentions ORDER BY 1`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, s)
+	}
+	want := []string{"C1 1700050000.000100", "C1 1700090000.000100", "C2 1700000000.000100"}
+	if !slices.Equal(got, want) {
+		t.Errorf("counted_mentions = %q, want %q", got, want)
+	}
+	if st, err := db.GetChannelReadState("C1"); err != nil || st.MentionCount != 3 {
+		t.Errorf("C1 mention_count = %d (err %v), want 3", st.MentionCount, err)
 	}
 }

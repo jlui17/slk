@@ -1,7 +1,9 @@
 package main
 
 import (
+	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -152,4 +154,70 @@ func TestOnReaction_CacheCountsEachUserOnce(t *testing.T) {
 	wantEyes("add over a row stored once per slk", []string{bot, "U2"}, 2)
 	removed()
 	wantEyes("remove", []string{"U2"}, 1)
+}
+
+// Every slk running on the machine shares one cache and gets every
+// message event, so the cache sees each message once per slk, at about
+// the same moment. A DM badges every message, so one message must
+// badge 1. A slk that applies the message after the DM was read must
+// not badge it again, and the next message must still badge.
+func TestOnMessage_MentionCountsEachMessageOnce(t *testing.T) {
+	const slks = 17
+	const dm, first, second = "D1", "1700000000.000100", "1700000001.000100"
+	path := filepath.Join(t.TempDir(), "cache.db")
+	var db *cache.DB
+	var panes []*rtmEventHandler
+	for range slks {
+		h, err := cache.New(path)
+		if err != nil {
+			t.Fatalf("cache.New: %v", err)
+		}
+		t.Cleanup(func() { h.Close() })
+		db = h
+		panes = append(panes, &rtmEventHandler{
+			db:            h,
+			workspaceID:   "T1",
+			currentUserID: "USELF",
+			channelTypes:  map[string]string{dm: "dm"},
+			channelNames:  map[string]string{dm: "alice"},
+			userNames:     usernames.NewStore(),
+			isActive:      func() bool { return false },
+		})
+	}
+	if err := db.UpsertWorkspace(cache.Workspace{ID: "T1", Name: "T"}); err != nil {
+		t.Fatalf("UpsertWorkspace: %v", err)
+	}
+	if err := db.UpsertChannel(cache.Channel{ID: dm, WorkspaceID: "T1", Name: "alice", Type: "dm"}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+	deliver := func(panes []*rtmEventHandler, ts string) {
+		var wg sync.WaitGroup
+		for _, h := range panes {
+			wg.Go(func() {
+				h.OnMessage(dm, "UALICE", ts, "hi", "", "", false, false, nil, slack.Blocks{}, nil, "", "")
+			})
+		}
+		wg.Wait()
+	}
+
+	deliver(panes, first)
+	if got := mentionCount(t, db, dm); got != 1 {
+		t.Fatalf("after one DM message reached %d slks: mention_count = %d, want 1", slks, got)
+	}
+
+	if err := db.UpdateChannelReadState(dm, first, false); err != nil {
+		t.Fatalf("UpdateChannelReadState: %v", err)
+	}
+	if err := db.SetChannelMentionCount(dm, 0); err != nil {
+		t.Fatalf("SetChannelMentionCount: %v", err)
+	}
+	deliver(panes[:1], first) // a slk that lagged behind the read
+	if got := mentionCount(t, db, dm); got != 0 {
+		t.Fatalf("the read DM's message applied again: mention_count = %d, want 0", got)
+	}
+
+	deliver(panes, second)
+	if got := mentionCount(t, db, dm); got != 1 {
+		t.Fatalf("after the next DM message: mention_count = %d, want 1", got)
+	}
 }

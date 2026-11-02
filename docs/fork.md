@@ -86,6 +86,11 @@ there and resolve them knowing what the fork wants:
   adds one to the count for every event. Every slk on the machine shares
   the cache and gets every event, so upstream's write counted a reaction
   once per slk.
+- `cmd/slk/rtm_handler.go` — `OnMessage` badges a mention through
+  `CountChannelMention` (`channels_read_state_fork.go`), which counts each
+  message once, where upstream's `IncrementChannelMentionCount` adds one
+  per call; upstream's is left in place, unused. Upstream's badged a DM
+  message once per slk.
 - `internal/core/types.go`, `ports.go`, `adapters.go` — `Attachment`'s
   `OriginalW/H`, `MessageService.Preview`, and
   the `Preview` member of `MessageServiceFuncs`; the adapter method and
@@ -364,6 +369,16 @@ there and resolve them knowing what the fork wants:
   prints the new hash in its `got:` line; paste it in.
 - Docs (`README.md`, `wiki/*`, `docs/STATUS.md`, `docs/superpowers/*`) —
   fork features documented in place; markdown conflicts, resolve by hand.
+
+## Many slks, one cache
+
+Several slks often run at once on one machine, sharing one `cache.db`,
+and every one of them gets every Slack event. So a cache write driven by
+a Slack event must leave the same result however many slks apply it: set
+what the event carries, or count once per thing the event identifies
+(`CountChannelMention`, `cacheReaction`), never add to what is there. Its
+test applies the event through several handlers on one cache file
+(`TestOnMessage_MentionCountsEachMessageOnce`).
 
 ## Overlapped boot, unchanged call pattern
 

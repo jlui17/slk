@@ -342,7 +342,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		// mention.InText's empty-self guard makes the direct-mention
 		// probe a no-op for it while still honouring @here/@channel.
 		if messageMentionsSelf(h.channelTypes[channelID], text, h.currentUserID) {
-			if err := h.db.IncrementChannelMentionCount(channelID); err != nil {
+			if err := h.db.CountChannelMention(channelID, ts); err != nil { // fork: channels_read_state_fork.go
 				log.Printf("Warning: failed to increment mention count for %s: %v", channelID, err)
 			}
 		}
