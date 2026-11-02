@@ -13,8 +13,8 @@ import (
 // clipboard from a host-side HTTP bridge at addr ("host:port"). Used
 // when slk runs in a container (see tools/run-docker.sh), where
 // golang.design/x/clipboard has no X11 display to init against and
-// the container can't see the host's clipboard at all; the bridge in
-// tools/clipboard-bridge.py runs on the host and serves the macOS
+// the container can't see the host's clipboard at all; the clipboard
+// bridge in tools/host-bridge.py runs on the host and serves the macOS
 // clipboard. GET /image answers 200 with PNG bytes, GET /text with
 // UTF-8 text; either answers 204 when the clipboard holds nothing of
 // that kind.

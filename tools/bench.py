@@ -129,19 +129,17 @@ def launch(window, sampler=None):
     r = {"rc": p.returncode, "first_frame": frame,
          "stamp_check": at(r"\++ bin="),
          "rebuilt": any("go build" in l for _, l in trace)}
-    tz, hb, cb, cb_end, run = (at(r"\++ readlink /etc/localtime"), at(r"\+ bridge_port=$"),
-                               at(r"\+ clipboard_port=$"), at(r"\+ tty_args="),
-                               at(r"\+ docker run --rm -i?t "))
-    if None in (r["stamp_check"], tz, hb, cb, cb_end, run):
+    tz, hb, hb_end, run = (at(r"\++ readlink /etc/localtime"), at(r"\+ bridges=\(\)$"),
+                           at(r"\+ tty_args="), at(r"\+ docker run --rm -i?t "))
+    if None in (r["stamp_check"], tz, hb, hb_end, run):
         print("bench: launcher trace incomplete (rc=%s), tail:" % p.returncode, file=sys.stderr)
         for _, line in trace[-10:]:
             if "API_KEY" not in line:
                 print("  " + line[:200], file=sys.stderr)
         return r
     r["staleness_find"] = tz - r["stamp_check"]
-    r["herdr_bridge"] = cb - hb
-    r["clipboard_bridge"] = cb_end - cb
-    r["shell_other"] = run - r["stamp_check"] - r["staleness_find"] - r["herdr_bridge"] - r["clipboard_bridge"]
+    r["host_bridge"] = hb_end - hb
+    r["shell_other"] = run - r["stamp_check"] - r["staleness_find"] - r["host_bridge"]
     r["shell_total"] = run
 
     hellos, probes, teams = [], 0.0, 0
@@ -190,8 +188,7 @@ def launch(window, sampler=None):
 ROWS = [
     ("stamp check (docker volume inspect)", "stamp_check"),
     ("binary staleness find", "staleness_find"),
-    ("herdr bridge start", "herdr_bridge"),
-    ("clipboard bridge start", "clipboard_bridge"),
+    ("host bridge start (herdr + clipboard)", "host_bridge"),
     ("other launcher shell", "shell_other"),
     ("= launcher before docker run", "shell_total"),
     ("docker run -> slk main()", "docker_run_to_main"),

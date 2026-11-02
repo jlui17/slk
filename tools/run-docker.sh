@@ -111,16 +111,16 @@ herdr_bridge=$tui
 spool=$(mktemp -d /tmp/slk-open.XXXXXX)
 watcher_pid=
 bridge_pid=
-clipboard_pid=
 cleanup() {
-  [ -n "$watcher_pid" ] && kill "$watcher_pid" 2>/dev/null
-  [ -n "$bridge_pid" ] && kill "$bridge_pid" 2>/dev/null
-  [ -n "$clipboard_pid" ] && kill "$clipboard_pid" 2>/dev/null
+  # Closing a pane HUPs the whole process group, so the watcher and the
+  # bridge may already be gone; a failed kill must not stop cleanup (set -e)
+  # before the spool is removed.
+  kill $watcher_pid $bridge_pid 2>/dev/null || true
   rm -rf "$spool"
 }
 trap cleanup EXIT
 # A PID-targeted signal must not skip cleanup and orphan the watcher or the
-# bridges; `exit` re-routes through the EXIT trap. Bash delivers these traps
+# bridge; `exit` re-routes through the EXIT trap. Bash delivers these traps
 # only once the foreground docker run returns.
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -142,50 +142,46 @@ if [ -n "$tui" ]; then
 watcher_pid=$!
 fi
 
-# Docker Desktop does not forward bind-mounted unix sockets across its VM
-# boundary, so the herdr socket rides in as host.docker.internal:<port> via a
-# host-side TCP bridge. The bridge watches this shell's PID so it can't
-# outlive the run even if the EXIT trap never fires. Best-effort like the
-# reporter itself: a bridge that fails to start only costs the sidebar
-# integration, never the launch.
-bridge_port=
+# The container can't reach two host things it needs, so one host-side
+# Python process (tools/host-bridge.py) serves both on ports the container
+# reaches as host.docker.internal:<port>:
+#  - herdr: Docker Desktop does not forward bind-mounted unix sockets across
+#    its VM boundary, so the herdr socket rides in over a TCP relay.
+#  - clipboard: Ctrl+V smart paste reads the macOS clipboard over HTTP.
+#    Darwin only: the bridge reads the clipboard with osascript.
+# The bridge watches this shell's PID so it can't outlive the run even if
+# the EXIT trap never fires. Best-effort: a bridge that fails to start only
+# costs the sidebar integration and clipboard paste, never the launch.
+bridges=()
 if [ -n "$herdr_bridge" ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
+  bridges+=("herdr=$HERDR_SOCKET_PATH")
+fi
+if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
+  bridges+=(clipboard)
+fi
+herdr_port=
+clipboard_port=
+if [ ${#bridges[@]} -gt 0 ]; then
   port_file=$(mktemp)
-  python3 "$repo/tools/herdr-bridge.py" "$HERDR_SOCKET_PATH" $$ >"$port_file" &
+  python3 "$repo/tools/host-bridge.py" $$ "${bridges[@]}" >"$port_file" &
   bridge_pid=$!
-  for _ in $(seq 1 50); do
-    bridge_port=$(head -n 1 "$port_file")
-    [ -n "$bridge_port" ] && break
-    sleep 0.1
+  ports=
+  for _ in $(seq 1 500); do
+    read -r ports <"$port_file" || true
+    [ -n "$ports" ] && break
+    sleep 0.01
   done
   rm -f "$port_file"
-  if [ -z "$bridge_port" ]; then
-    echo "warning: herdr bridge did not report a port; starting without the agent-sidebar integration" >&2
+  for p in $ports; do
+    case "$p" in
+      herdr=*) herdr_port=${p#herdr=} ;;
+      clipboard=*) clipboard_port=${p#clipboard=} ;;
+    esac
+  done
+  if [ -z "$ports" ]; then
+    echo "warning: host bridge did not report its ports; starting without the agent-sidebar integration or Ctrl+V image paste" >&2
     kill "$bridge_pid" 2>/dev/null || true
     bridge_pid=
-  fi
-fi
-
-# The container has no access to the macOS clipboard, so Ctrl+V smart paste
-# reads it through a host-side HTTP bridge at host.docker.internal:<port>.
-# Darwin only: the bridge reads the clipboard with osascript. Same shape as
-# the herdr bridge — watches this shell's PID, and best-effort: losing it
-# costs only clipboard paste, never the launch.
-clipboard_port=
-if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
-  port_file=$(mktemp)
-  python3 "$repo/tools/clipboard-bridge.py" $$ >"$port_file" &
-  clipboard_pid=$!
-  for _ in $(seq 1 50); do
-    clipboard_port=$(head -n 1 "$port_file")
-    [ -n "$clipboard_port" ] && break
-    sleep 0.1
-  done
-  rm -f "$port_file"
-  if [ -z "$clipboard_port" ]; then
-    echo "warning: clipboard bridge did not report a port; starting without Ctrl+V image paste" >&2
-    kill "$clipboard_pid" 2>/dev/null || true
-    clipboard_pid=
   fi
 fi
 
@@ -236,9 +232,9 @@ docker run --rm "${tty_args[@]}" \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \
   ${SLK_HOST_ANTHROPIC_API_KEY:+-e SLK_HOST_ANTHROPIC_API_KEY} \
-  ${bridge_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$bridge_port"} \
-  ${bridge_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
-  ${bridge_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
+  ${herdr_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$herdr_port"} \
+  ${herdr_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
+  ${herdr_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
   ${clipboard_port:+-e SLK_CLIPBOARD_ADDR="host.docker.internal:$clipboard_port"} \
   -e GOMEMLIMIT=400MiB \
   -e XDG_CONFIG_HOME=/state/xdg/config \
