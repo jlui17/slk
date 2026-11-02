@@ -400,81 +400,12 @@ func substituteBgSGR(s, from, to string) string {
 			continue
 		}
 		// s[seqStart+2:j] is the param list, s[j] == 'm'.
-		params := splitSGRParams(s[seqStart+2 : j])
-		out := make([]string, 0, len(params))
-		for _, p := range params {
-			if p.isBg && p.text == from {
-				out = append(out, to)
-			} else {
-				out = append(out, p.text)
-			}
-		}
 		b.WriteString("\x1b[")
-		b.WriteString(strings.Join(out, ";"))
+		writeSubstitutedSGRParams(&b, s[seqStart+2:j], from, to) // fork: sgr_fork.go
 		b.WriteString("m")
 		i = j + 1
 	}
 	return b.String()
-}
-
-// sgrParam is one logical SGR parameter. For extended-color groups
-// (38;5;N, 38;2;R;G;B, 48;5;N, 48;2;R;G;B) text contains the joined
-// form (e.g. "48;5;40" or "48;2;26;26;46") and isBg is true for any
-// bg variant. For single parameters text is just the number (e.g.
-// "40", "1", "31") and isBg is true only when the number is in the
-// basic bg range (40–47, 100–107).
-type sgrParam struct {
-	text string
-	isBg bool
-}
-
-// splitSGRParams tokenizes an SGR parameter list with awareness of
-// extended-color sub-sequences so a "40" appearing as an argument to
-// "38;5" is not mistaken for a standalone bg-black token.
-func splitSGRParams(params string) []sgrParam {
-	if params == "" {
-		return nil
-	}
-	parts := strings.Split(params, ";")
-	out := make([]sgrParam, 0, len(parts))
-	for i := 0; i < len(parts); i++ {
-		p := parts[i]
-		switch p {
-		case "38", "48":
-			isBg := p == "48"
-			// Look ahead for "5;N" or "2;R;G;B".
-			if i+1 < len(parts) {
-				switch parts[i+1] {
-				case "5":
-					if i+2 < len(parts) {
-						out = append(out, sgrParam{
-							text: strings.Join(parts[i:i+3], ";"),
-							isBg: isBg,
-						})
-						i += 2
-						continue
-					}
-				case "2":
-					if i+4 < len(parts) {
-						out = append(out, sgrParam{
-							text: strings.Join(parts[i:i+5], ";"),
-							isBg: isBg,
-						})
-						i += 4
-						continue
-					}
-				}
-			}
-			// Malformed — treat as a bare param so we don't drop data.
-			out = append(out, sgrParam{text: p, isBg: false})
-		default:
-			out = append(out, sgrParam{
-				text: p,
-				isBg: isBasicBgParam(p),
-			})
-		}
-	}
-	return out
 }
 
 // isBasicBgParam reports whether s is a single SGR parameter representing
