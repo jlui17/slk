@@ -52,6 +52,10 @@ func buildPlainLine(line string) PlainLine {
 	state := -1
 	rest := line
 	for len(rest) > 0 {
+		if m, off, r, ok := plainASCIIRun(bytesMap, byteOffset, rest); ok { // fork: plain_fork.go
+			bytesMap, byteOffset, rest, state = m, off, r, -1
+			continue
+		}
 		var cluster string
 		var w int
 		cluster, rest, w, state = uniseg.FirstGraphemeClusterInString(rest, state)
