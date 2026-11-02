@@ -180,12 +180,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// Search terms are highlighted inside the renderer (fork:
 	// bodyOpts.SearchTerms), across styled spans.
 	rendered := RenderSlackMarkdownWith(bodySrc, bodyOpts)
-	bodyStyle := styles.MessageText
-	if msg.Subtype == "me_message" {
-		// A /me line, italic as in Slack's own clients.
-		bodyStyle = bodyStyle.Italic(true)
-	}
-	text := bodyStyle.Render(WordWrap(rendered, contentWidth))
+	text := renderBodyText(msg.Subtype == "me_message", WordWrap(rendered, contentWidth)) // fork: bodytext_fork.go
 	if stats != nil {
 		stats.bodyTotal += time.Since(bodyT0)
 	}
