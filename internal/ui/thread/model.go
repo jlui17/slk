@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 	"time"
 
@@ -118,7 +117,8 @@ type Model struct {
 	expandedAttachments map[string]bool
 	parentEntry         messages.EntryPayload
 
-	memo viewMemo // fork: viewmemo_fork.go
+	memo  viewMemo   // fork: viewmemo_fork.go
+	marks replyMarks // fork: invalidate_fork.go
 
 	// replyIDToIdx maps reply TS -> reply index; rebuilt with the reply
 	// cache. HasReply reads it.
@@ -271,6 +271,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 // scroll where they were — see restoreSelection in select.go.
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	prev := m.snapshotSelection(channelID, threadTS)
+	m.reconcileReplies(parent, replies, channelID, threadTS) // fork: invalidate_fork.go
 	if channelID != m.channelID || threadTS != m.threadTS {
 		m.unreadBoundaryTS = ""
 	}
@@ -294,7 +295,7 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	// the viewport scrolled to the top. Mirrors messages.Model.SetMessages.
 	m.list.ResetSnap()
 	m.restoreSelection(prev)
-	m.InvalidateCache()
+	m.invalidateLayout() // fork: the replies were reconciled above
 }
 
 // SetLastReadTS sets the timestamp the user has already read up to in
@@ -355,7 +356,7 @@ func (m *Model) AddReply(msg messages.MessageItem) {
 		}
 	}
 	m.replies = append(m.replies, msg)
-	m.InvalidateCache()
+	m.relayoutReplies() // fork: invalidate_fork.go
 	m.selected = len(m.replies) - 1
 }
 
@@ -376,7 +377,7 @@ func (m *Model) SwapLocalSentReply(localTS string, msg messages.MessageItem) boo
 		if m.replies[i].TS == localTS {
 			m.list.HoldBottom()
 			m.replies[i] = msg
-			m.InvalidateCache()
+			m.relayoutReplies() // fork: a new ts, rendered; the rest kept
 			return true
 		}
 	}
@@ -394,7 +395,7 @@ func (m *Model) RemoveLocalSentReply(localTS string) bool {
 	for i := len(m.replies) - 1; i >= 0; i-- {
 		if m.replies[i].TS == localTS {
 			m.replies = append(m.replies[:i], m.replies[i+1:]...)
-			m.InvalidateCache()
+			m.relayoutReplies() // fork
 			if m.selected >= len(m.replies) && len(m.replies) > 0 {
 				m.selected = len(m.replies) - 1
 			}
@@ -420,13 +421,13 @@ func (m *Model) UpsertSelfSentReply(msg messages.MessageItem) {
 			if m.replies[i].TS == msg.TS {
 				m.list.HoldBottom()
 				m.replies[i] = msg
-				m.InvalidateCache()
+				m.invalidateReplies(msg.TS) // fork
 				return
 			}
 		}
 	}
 	m.replies = append(m.replies, msg)
-	m.InvalidateCache()
+	m.relayoutReplies() // fork
 	m.selected = len(m.replies) - 1
 }
 
@@ -523,7 +524,7 @@ func (m *Model) UpdateMessageInPlace(item messages.MessageItem) bool {
 		if r.TS == item.TS {
 			m.list.HoldBottom()
 			m.replies[i].ApplyChange(item)
-			m.InvalidateCache()
+			m.invalidateReplies(item.TS) // fork: invalidate_fork.go
 			return true
 		}
 	}
@@ -546,7 +547,7 @@ func (m *Model) RemoveMessageByTS(ts string) bool {
 					m.selected = len(m.replies) - 1
 				}
 			}
-			m.InvalidateCache()
+			m.relayoutReplies() // fork
 			return true
 		}
 	}
@@ -563,7 +564,7 @@ func (m *Model) UpdateParentInPlace(item messages.MessageItem) bool {
 	}
 	m.list.HoldBottom()
 	m.parent.ApplyChange(item)
-	m.InvalidateCache()
+	m.invalidateReplies(item.TS) // fork: the parent's entry only
 	return true
 }
 
@@ -648,7 +649,7 @@ func (m *Model) PatchUserStatus(userID string, st peerstatus.Status) {
 	}
 	m.userStatuses[userID] = st
 	if m.hasAuthor(userID) {
-		m.invalidateAuthors()
+		m.invalidateAuthorsOf(userID) // fork: invalidate_fork.go
 	}
 }
 
@@ -719,7 +720,7 @@ func (m *Model) PatchUserName(userID, displayName string) {
 	// Bump userNamesV so chromeCache (which renders the parent message
 	// and consults userNames for its mentions) also rebuilds.
 	m.userNamesV++
-	m.dropCache()
+	m.markUserStale(userID) // fork: only the rows that author or mention them
 	m.layoutValid = false
 	if m.parent.UserID == userID && m.parent.UserName != displayName {
 		m.parent.UserName = displayName
@@ -847,7 +848,7 @@ func (m *Model) EnterReactionNav() {
 	if reply := m.SelectedReply(); reply != nil && len(reply.Reactions) > 0 {
 		m.nav.Active = true
 		m.nav.Index = 0
-		m.InvalidateCache()
+		m.invalidateNav() // fork: invalidate_fork.go
 	}
 }
 
@@ -855,7 +856,7 @@ func (m *Model) EnterReactionNav() {
 func (m *Model) ExitReactionNav() {
 	m.nav.Active = false
 	m.nav.Index = 0
-	m.InvalidateCache()
+	m.invalidateNav() // fork
 }
 
 // ReactionNavActive returns whether reaction navigation is active.
@@ -870,7 +871,7 @@ func (m *Model) ReactionNavLeft() {
 		return
 	}
 	m.nav.Left(len(reply.Reactions))
-	m.InvalidateCache()
+	m.invalidateNav() // fork
 }
 
 // ReactionNavRight moves the reaction cursor right with wrapping.
@@ -880,7 +881,7 @@ func (m *Model) ReactionNavRight() {
 		return
 	}
 	m.nav.Right(len(reply.Reactions))
-	m.InvalidateCache()
+	m.invalidateNav() // fork
 }
 
 // SelectedReaction returns the currently highlighted reaction emoji name,
@@ -901,7 +902,7 @@ func (m *Model) ClampReactionNav() {
 		return
 	}
 	m.nav.Clamp(len(reply.Reactions))
-	m.InvalidateCache()
+	m.invalidateNav() // fork
 }
 
 // UpdateReaction updates the reaction state for a specific message in the thread.
@@ -925,7 +926,7 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 	// fold (as in messages.Model.UpdateReaction).
 	m.list.HoldBottom()
 	messages.ApplyReaction(msg, emojiName, userID, m.currentUserID, remove)
-	m.InvalidateCache()
+	m.invalidateReplies(messageTS) // fork: invalidate_fork.go
 	if m.nav.Active {
 		m.ClampReactionNav()
 	}
@@ -1135,6 +1136,8 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	// reply-cache rebuild.
 	keepPosition := m.layoutValid
 
+	m.refreshStaleReplies(width) // fork: invalidate_fork.go
+
 	// Rebuild the reply cache if the replies or the width changed.
 	//
 	// The predicate intentionally excludes m.selected, m.focused,
@@ -1161,6 +1164,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		}
 		m.cache = m.cache[:0]
 		m.replyEntries = m.replyEntries[:0]
+		m.marks.begin(m.focused) // fork: invalidate_fork.go
 		if m.replyIDToIdx == nil {
 			m.replyIDToIdx = make(map[string]int, len(m.replies))
 		} else {
@@ -1172,27 +1176,9 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		// for every visible reply on every j/k.
 		wrap := messages.NewWrapStyles(m.focused)
 		for i, reply := range m.replies {
-			// renderMessage's last arg ("isSelected") drives reaction-
-			// nav pill highlighting, so it MUST be i == m.selected.
-			r := m.renderMessage(reply, width, i == m.selected)
-			// The thread pane's kitty upload order: body, blocks,
-			// reactions, then attachments.
-			flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
-			w := messages.WrapRows(reply, r, width, wrap)
-			m.replyEntries = append(m.replyEntries, entrylist.Entry{
-				ID:         reply.TS,
-				Ref:        i,
-				Selectable: true,
-				Lines:      w.Lines,
-				Selected:   w.Selected,
-				Plain:      w.Plain,
-				ColOffset:  1,
-				Hits:       r.Hits,
-			})
-			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes,
-				CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
-				AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
-			})
+			e, p := m.renderReplyEntry(i, reply, width, wrap) // fork: invalidate_fork.go
+			m.replyEntries = append(m.replyEntries, e)
+			m.cache = append(m.cache, p)
 			m.replyIDToIdx[reply.TS] = i
 		}
 		m.cacheWidth = width

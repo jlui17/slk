@@ -83,6 +83,9 @@ func (m *Model) parentRow(width int) entrylist.Entry {
 // are kept so a click on its image opens the preview.
 func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Entry, []func(io.Writer) error) {
 	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
+	if parentIsSelected && m.nav.Active {
+		m.marks.navDrawn = append(m.marks.navDrawn, m.parent.TS)
+	}
 	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
 	flushes := slices.Concat(parentRendered.BodyFlushes, parentRendered.BlockFlushes, parentRendered.ReactionFlushes, parentRendered.AttachmentFlushes)
 	m.parentEntry = messages.EntryPayload{

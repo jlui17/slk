@@ -594,8 +594,8 @@ func TestThreadPatchUserName_AppliesWhenSharedMapAlreadyHasName(t *testing.T) {
 	if m.parent.UserName != "bob" || m.replies[0].UserName != "bob" {
 		t.Errorf("parent/reply UserName = %q/%q, want bob/bob", m.parent.UserName, m.replies[0].UserName)
 	}
-	if m.cache != nil {
-		t.Error("PatchUserName should invalidate the cache so the <@U1> mention re-resolves")
+	if got := ansi.Strip(m.View(20, 80)); !strings.Contains(got, "hey @bob") {
+		t.Errorf("the <@U1> mention should re-resolve to @bob:\n%s", got)
 	}
 	if m.userNamesV == namesVBefore {
 		t.Error("userNamesV should bump (chromeCache renders the parent header)")
@@ -627,8 +627,8 @@ func TestThreadPatchUserName_InvalidatesCacheEvenWithNoMatchingRows(t *testing.T
 
 	m.PatchUserName("U99", "carol")
 
-	if m.cache != nil {
-		t.Error("PatchUserName should have invalidated m.cache so the mention re-resolves")
+	if got := ansi.Strip(m.View(20, 80)); !strings.Contains(got, "hello @carol") {
+		t.Errorf("the <@U99> mention should re-resolve to @carol:\n%s", got)
 	}
 	if m.userNamesV <= verBefore {
 		t.Errorf("userNamesV should bump after PatchUserName (chromeCache depends on it); before=%d after=%d", verBefore, m.userNamesV)

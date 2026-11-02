@@ -221,6 +221,8 @@ type Model struct {
 	// neighbours whose trailing spacer changed.
 	relayout bool
 
+	navDrawn []string // fork: invalidate_fork.go
+
 	// focused tracks whether this panel currently has user focus. When
 	// false, the selected-message "▌" border dims from Accent to
 	// TextMuted (via styles.SelectionBorderColor) so the unfocused
@@ -617,9 +619,9 @@ func (m *Model) SetMessages(msgs []MessageItem) {
 		debuglog.Cache("messages.Model.SetMessages: channel=%q before=[%s] after=[%s]",
 			m.channelName, oldSummary, newSummary)
 	}
+	m.markChangedStale(msgs) // fork: invalidate_fork.go
 	m.messages = msgs
 	m.ClearSelection()
-	m.dropCache()
 	// Force the next View() to re-snap yOffset to the new selection -- without
 	// this, switching to a channel that happens to have the same selected
 	// index as the previous channel would leave yOffset at its old value.
@@ -680,7 +682,7 @@ func (m *Model) SwapLocalSent(localTS string, msg MessageItem) bool {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].TS == localTS {
 			m.messages[i] = msg
-			m.dropCache()
+			m.markRelayout() // fork: a new ts, rendered; the rest kept
 			m.dirty()
 			// Same rationale as UpsertSelfSent's replace branch: the
 			// authoritative entry may differ in height (e.g. server-
@@ -703,7 +705,7 @@ func (m *Model) RemoveLocalSent(localTS string) bool {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].TS == localTS {
 			m.messages = append(m.messages[:i], m.messages[i+1:]...)
-			m.dropCache()
+			m.markRelayout() // fork
 			m.dirty()
 			m.list.ResetSnap()
 			if m.selected >= len(m.messages) && len(m.messages) > 0 {
@@ -739,7 +741,8 @@ func (m *Model) UpsertSelfSent(msg MessageItem) {
 		for i := len(m.messages) - 1; i >= 0; i-- {
 			if m.messages[i].TS == msg.TS {
 				m.messages[i] = msg
-				m.dropCache()
+				m.markEntryStale(msg.TS) // fork
+				m.markRelayout()         // fork
 				m.dirty()
 				// Force the next View() to re-snap yOffset to the
 				// updated selected entry's range, even when m.selected
@@ -750,7 +753,7 @@ func (m *Model) UpsertSelfSent(msg MessageItem) {
 		}
 	}
 	m.messages = append(m.messages, msg)
-	m.dropCache()
+	m.markRelayout() // fork
 	m.dirty()
 	m.selected = len(m.messages) - 1
 }
@@ -955,7 +958,7 @@ func (m *Model) PrependMessages(msgs []MessageItem) {
 	}
 	// fork: ephemeral_fork.go
 	m.prependOlder(msgs)
-	m.dropCache()
+	m.markRelayout() // fork: only the older entries are rendered
 	m.dirty()
 }
 
@@ -963,7 +966,7 @@ func (m *Model) EnterReactionNav() {
 	if msg, ok := m.SelectedMessage(); ok && len(msg.Reactions) > 0 {
 		m.nav.Active = true
 		m.nav.Index = 0
-		m.dropCache()
+		m.markNavStale() // fork: invalidate_fork.go
 		m.dirty()
 	}
 }
@@ -974,7 +977,7 @@ func (m *Model) ExitReactionNav() {
 	}
 	m.nav.Active = false
 	m.nav.Index = 0
-	m.dropCache()
+	m.markNavStale() // fork
 	m.dirty()
 }
 
@@ -988,7 +991,7 @@ func (m *Model) ReactionNavLeft() {
 		return
 	}
 	m.nav.Left(len(msg.Reactions))
-	m.dropCache()
+	m.markNavStale() // fork
 	m.dirty()
 }
 
@@ -998,7 +1001,7 @@ func (m *Model) ReactionNavRight() {
 		return
 	}
 	m.nav.Right(len(msg.Reactions))
-	m.dropCache()
+	m.markNavStale() // fork
 	m.dirty()
 }
 
@@ -1017,7 +1020,7 @@ func (m *Model) ClampReactionNav() {
 		return
 	}
 	m.nav.Clamp(len(msg.Reactions))
-	m.dropCache()
+	m.markNavStale() // fork
 	m.dirty()
 }
 
@@ -1203,7 +1206,7 @@ func (m *Model) PatchUserName(userID, displayName string) {
 	// (RenderSlackMarkdown consults userNames at render time), so any
 	// cached row that mentioned <@userID> is now stale. Mirror
 	// SetUserNames's behavior: invalidate unconditionally on map change.
-	m.dropCache()
+	m.markUserStale(userID) // fork: only the rows that author or mention them
 	for i := range m.messages {
 		if m.messages[i].UserID == userID && m.messages[i].UserName != displayName {
 			m.messages[i].UserName = displayName
@@ -1236,7 +1239,7 @@ func (m *Model) PatchUserStatus(userID string, st peerstatus.Status) {
 	}
 	m.userStatuses[userID] = st
 	if m.hasAuthor(userID) {
-		m.dropCache()
+		m.markAuthorStale(userID) // fork: invalidate_fork.go
 		m.dirty()
 	}
 }
@@ -1249,12 +1252,12 @@ func (m *Model) ExpireStatuses(now time.Time) bool {
 		if st.Expired(now) {
 			m.userStatuses[uid] = st.Clear(now)
 			if m.hasAuthor(uid) {
+				m.markAuthorStale(uid) // fork: invalidate_fork.go
 				changed = true
 			}
 		}
 	}
 	if changed {
-		m.dropCache()
 		m.dirty()
 	}
 	return changed
@@ -1366,7 +1369,7 @@ func (m *Model) SetLastReadTS(ts string) {
 		return
 	}
 	m.lastReadTS = ts
-	m.dropCache()
+	m.markRelayout() // fork: only the "── new ──" divider moves
 	m.dirty()
 }
 
@@ -1543,6 +1546,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	if m.avatarFn != nil {
 		opt.Avatar = m.avatarFn(msg.UserID)
 	}
+	m.noteNavDrawn(msg.TS, opt.IsSelected) // fork: invalidate_fork.go
 	rc := m.renderContext()
 	var probe *coldEmojiProbe
 	if f := rc.Emoji.PlaceCtx.Fetcher; f != nil {

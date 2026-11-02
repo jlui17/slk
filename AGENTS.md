@@ -169,6 +169,8 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | The emoji a message uses as `:shortcode:`s, by the canonical name the history records | `emoji.UsedInText(text, customs)` |
 | Slack's skin-tone number (2–6) for a modifier codepoint (U+1F3FB–U+1F3FF) | `emoji.SlackSkinToneNumber` |
 | Does Block Kit already render the message body? | `blockkit.RendersBody(blocks)`, `messages.BlocksCarryBody(msg)` |
+| Does a message carry a user's ID anywhere a mention can render from (text, blocks, legacy attachments, files)? | `messages.RefersTo(&msg, userID)` |
+| Re-render only the channel or thread entries an event changed, instead of dropping the render cache | channel pane: `markEntryStale(ts)` (in place), `markRelayout()` (messages added, removed or moved), `markUserStale` / `markAuthorStale` / `markNavStale` (`messages/invalidate_fork.go`); thread pane: `invalidateReplies(ts...)`, `relayoutReplies()`, `invalidateNav()` (`thread/invalidate_fork.go`). Each event is held to a full rebuild in the panes' `invalidate_oracle_fork_test.go`; add a case there for a new one |
 | Splice sixel halfblock fallback rows into rendered Block Kit / legacy / file-attachment lines (panes without the sixel placement pipeline, i.e. the thread pane) | `blockkit.SpliceSixelFallbacks(lines, rows)` — grafts each row at the entry's `Col`, keeping the line's own surroundings; the only splice loop |
 | Current DND state from a Slack API result | `slack.DNDStateFromStatus` |
 | Persist a full Web API profile's custom status and huddle (including clears) | `cmd/slk/applyProfileStatus(teamID, userID, profile, db, send)` after `UpsertUser`, before any resolved-user notice or row repair; `UpsertUser` alone deliberately preserves status on conflict |

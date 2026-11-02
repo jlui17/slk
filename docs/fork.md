@@ -292,6 +292,16 @@ there and resolve them knowing what the fork wants:
   renders the parent and hands the list new entries on every View. An
   image landing for the parent invalidates the thread
   (`ShowsMessage`), as one for a reply does.
+- `internal/ui/messages/model.go`, `internal/ui/thread/model.go` — a
+  name resolving, a status change, a mark from another client, a
+  reaction-nav step, a reload that brings back what is shown, older
+  messages, a sent message's ts and (in the thread) a new reply, an edit
+  or a reaction re-render only the entries they change
+  (`invalidate_fork.go` in each package), where upstream drops the whole
+  render cache. The thread's reply render moved to `renderReplyEntry`.
+  Every one is held to a full rebuild by `invalidate_oracle_fork_test.go`;
+  the four upstream tests that asserted a nil cache after
+  `PatchUserName` assert the re-resolved mention instead.
 - `internal/cache/db.go` — one-line hooks into fork helpers
   (`migrateFork`, `removeThreadSweepLocks`).
 - `internal/ui/reducer_threads.go` — a fetched thread is marked through

@@ -1318,8 +1318,8 @@ func TestPatchUserName_AppliesWhenSharedMapAlreadyHasName(t *testing.T) {
 	if m.messages[0].UserName != "bob" {
 		t.Errorf("msg[0].UserName = %q, want bob", m.messages[0].UserName)
 	}
-	if m.cache != nil {
-		t.Error("PatchUserName should invalidate the cache so the <@U1> mention re-resolves")
+	if got := ansi.Strip(m.View(80, 10)); !strings.Contains(got, "@bob") {
+		t.Errorf("the <@U1> mention should re-resolve to @bob:\n%s", got)
 	}
 	if m.Version() == verBefore {
 		t.Error("Version should bump after PatchUserName")
@@ -1350,8 +1350,8 @@ func TestPatchUserName_InvalidatesCacheEvenWithNoMatchingMessages(t *testing.T) 
 		t.Fatal("expected cache populated after View(); harness assumption failed")
 	}
 	m.PatchUserName("U99", "carol")
-	if m.cache != nil {
-		t.Error("PatchUserName should have invalidated m.cache so the mention re-resolves")
+	if got := ansi.Strip(m.View(80, 10)); !strings.Contains(got, "@carol") {
+		t.Errorf("the <@U99> mention should re-resolve to @carol:\n%s", got)
 	}
 }
 
