@@ -17,8 +17,9 @@ type Herdr struct {
 	// model (e.g. "claude-sonnet-5-5") asked to name the tab after the
 	// open agent thread at open, and after any open thread on :retitle,
 	// refining the deterministic label. Empty means deterministic labels
-	// only. Needs an API key: AnthropicAPIKey, or the ANTHROPIC_API_KEY
-	// env var.
+	// only. Needs a credential (tablabel.ResolveCredential): AnthropicAPIKey,
+	// the ANTHROPIC_API_KEY env var, or, with neither, the host's ant login
+	// (`ant auth login`), which the docker launch's host bridge serves.
 	TabNameModel string `toml:"tab_name_model"`
 	// TabNameEffort is the effort the tab-label calls run at: low,
 	// medium, high, xhigh or max. Empty means low.
@@ -31,21 +32,27 @@ type Herdr struct {
 	// same values as tab_name_effort. Empty means low.
 	AgentStatusJudgeEffort string `toml:"agent_status_judge_effort"`
 	// AnthropicAPIKey is the key the tab_name_model calls use. Empty
-	// falls back to the ANTHROPIC_API_KEY env var. A secret: never log it.
+	// falls back to the ANTHROPIC_API_KEY env var, and with neither the
+	// calls use the host's ant login. A configured key wins even when the
+	// API rejects it: delete the line to switch to the ant login. A
+	// secret: never log it.
 	AnthropicAPIKey string `toml:"anthropic_api_key"`
 	// TabNameHints are freeform per-user lines handed to the tab-label
 	// model as naming guidance (e.g. "task ids look like colony-123").
 	TabNameHints []string `toml:"tab_name_hints"`
 }
 
-// ResolveAnthropicAPIKey is the key every model call uses:
-// herdr.anthropic_api_key wins, the ANTHROPIC_API_KEY env var is the
-// fallback.
-func (h Herdr) ResolveAnthropicAPIKey() string {
+// ResolveAnthropicAPIKey is the configured key and where it came from,
+// for logs: herdr.anthropic_api_key wins, the ANTHROPIC_API_KEY env var
+// is the fallback. Both are "" when neither is set.
+func (h Herdr) ResolveAnthropicAPIKey() (key, source string) {
 	if h.AnthropicAPIKey != "" {
-		return h.AnthropicAPIKey
+		return h.AnthropicAPIKey, "herdr.anthropic_api_key"
 	}
-	return os.Getenv("ANTHROPIC_API_KEY")
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		return key, "ANTHROPIC_API_KEY"
+	}
+	return "", ""
 }
 
 // ResolveOpenCommand is the command the O and alt+o openers, and slk

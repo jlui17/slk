@@ -452,7 +452,8 @@ processes: its launcher shell (`tools/run-docker.sh`) and
 `tools/host-bridge.py`. The bridge runs the exec over the Docker Engine
 API on docker's unix socket and relays the pane's terminal to it in raw
 mode. It also serves what the container can't reach: the herdr socket,
-the macOS clipboard for Ctrl+V, and the link spool that `o` writes to.
+the macOS clipboard for Ctrl+V, the host's ant login for the model calls
+(next section), and the link spool that `o` writes to.
 When the pane or its launcher goes away, the bridge stops the pane's
 slk.
 
@@ -501,6 +502,55 @@ Invariants:
   a failed try repeats every 3s through a paused or hung docker, and at
   120s the bridge gives up and leaves the launch directory to a later
   launch's sweep.
+
+## Model calls: a key, else the host's ant login
+
+The herdr tab-label and agent status calls (`internal/tablabel`) pick
+their credential in one place, `tablabel.ResolveCredential`: a configured
+key (`herdr.anthropic_api_key`, then `ANTHROPIC_API_KEY`) wins; without
+one, the host's `ant` login; with neither, no model calls and one debug
+line. In docker, each pane's bridge serves the login over HTTP: `GET
+/token` at `SLK_ANTHROPIC_TOKEN_ADDR` runs `ant auth print-credentials`
+on the host and answers with the access token and its expiry alone, or a
+503 saying why there is none (ant missing, not logged in). The bridge
+fetches as it starts, so slk's startup check finds a token ready. Both
+sides reuse a token for a minute at most, so a new `ant auth login` (another
+org) or a logout reaches slk within two minutes, and never past 90s
+before its expiry; ant refreshes in a token's last two minutes, so the
+fetch after that gets a new one. slk
+sends it as `Authorization: Bearer` with the `oauth-2025-04-20` beta,
+and drops it after a 401 so the next call fetches again.
+
+Why:
+
+- **No long-lived secret in the container.** The refresh token never
+  leaves the host; the container sees 8-hour access tokens only.
+- **Long sessions keep working.** The token is fetched again near expiry,
+  where a token copied in at launch would die 8 hours in.
+
+Rejected:
+
+- **Mounting `~/.config/anthropic` and letting the SDK read the profile**
+  (anthropic-sdk-go's `option.WithProfile`): the refresh token in every
+  container, and every slk plus the host's ant refreshing and rewriting
+  one credentials file.
+- **Copying the access token into the state volume at launch**, the way
+  the key is: it expires mid-session.
+- **Falling back to the ant login when a configured key is rejected**:
+  it hides a dead key. A rejected key fails every call with "the
+  configured key (...) was rejected; remove it to use the ant login".
+
+Invariants:
+
+- **The host config owns the key.** Every launch makes the state
+  volume's `anthropic_api_key` match the host's, deleting it when the
+  host has none (`tools/sync-host-api-key.sh`); otherwise a deleted key
+  would keep winning from the volume.
+- **The endpoint serves only the ant login.** ant runs without an
+  exported `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, which would
+  override its profile. Like the clipboard endpoint, it listens on the
+  host's loopback without auth, so a local process can read the token,
+  as it can read ant's own credentials file.
 
 ## Threads load on demand
 

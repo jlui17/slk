@@ -17,7 +17,7 @@
 # kernel sends it no SIGWINCH; the launcher forwards its own. On start it
 # also removes launch directories that earlier launches left behind.
 #
-# It also serves what the container can't reach on its own, the first two
+# It also serves what the container can't reach on its own, the first three
 # at host.docker.internal:<port>, which it adds to the exec's environment:
 #
 #   herdr      TCP -> unix-socket forwarder for the herdr socket. Docker
@@ -26,11 +26,16 @@
 #   clipboard  HTTP server for Ctrl+V smart paste: the container cannot see
 #              the macOS clipboard, so it asks here for whatever image or
 #              text the host clipboard holds, read through osascript.
+#   anthropic-token
+#              HTTP server for the model calls' credential when no key is
+#              configured: GET /token answers with the host's ant login
+#              access token (`ant auth print-credentials`), so the refresh
+#              token stays on the host. SLK_ANTHROPIC_TOKEN_ADDR.
 #   spool      Opens on the host each URL tools/spool-open drops into the
 #              launch directory: the container has no browser.
 #
 # Usage: host-bridge.py <launcher-pid> <container> <exec-id> <launch-dir>
-#            [herdr=<socket-path>] [clipboard] [spool]
+#            [herdr=<socket-path>] [clipboard] [anthropic-token] [spool]
 #            -- [-w <dir>] [-e NAME[=value]]... <command>...
 # An -e NAME without a value passes this process's own, so a secret stays
 # out of argv.
@@ -152,6 +157,91 @@ class ClipboardHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         # Keep the parent shell's stderr quiet; the TUI owns that terminal.
+        pass
+
+
+class TokenUnavailable(Exception):
+    """Why the host has no ant login token to serve."""
+
+
+# A token is fetched again once it has less than this left: ant itself
+# refreshes in a token's last two minutes, so that fetch gets the new one.
+TOKEN_REFRESH_SECS = 90
+# A token is reused for this long at most, so a new `ant auth login` or a
+# logout reaches slk within a minute or two (slk reuses one as long).
+TOKEN_REUSE_SECS = 60
+
+
+def ant_access_token():
+    """The active ant profile's access token and its expiry (unix seconds),
+    from `ant auth print-credentials`, which refreshes a token near its
+    expiry. The refresh token never leaves this function. An exported key
+    or token would override the profile, so ant runs without them: this
+    serves the ant login alone."""
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    try:
+        result = subprocess.run(["ant", "auth", "print-credentials"], capture_output=True, env=env, timeout=30)
+    except FileNotFoundError:
+        raise TokenUnavailable("ant is not installed on the host")
+    except subprocess.TimeoutExpired:
+        raise TokenUnavailable("ant auth print-credentials timed out")
+    if result.returncode != 0:
+        reason = result.stderr.decode(errors="replace").strip().splitlines()
+        raise TokenUnavailable("ant auth print-credentials failed: %s (run `ant auth login` on the host)"
+                               % (reason[0] if reason else "exit %d" % result.returncode))
+    try:
+        creds = json.loads(result.stdout)
+        return {"access_token": creds["access_token"], "expires_at": int(creds["expires_at"])}
+    except (ValueError, KeyError, TypeError):
+        raise TokenUnavailable("the active ant profile has no OAuth access token (run `ant auth login` on the host)")
+
+
+class AnthropicToken:
+    """The ant login's access token, reused for TOKEN_REUSE_SECS and until
+    TOKEN_REFRESH_SECS before it expires. A failure is never kept: a later
+    ask runs ant again."""
+
+    def __init__(self, fetch=ant_access_token):
+        self.fetch = fetch
+        self.lock = threading.Lock()
+        self.token = None
+        self.fetched_at = 0.0
+
+    def get(self):
+        with self.lock:
+            if (self.token is None or time.monotonic() - self.fetched_at >= TOKEN_REUSE_SECS
+                    or self.token["expires_at"] - time.time() < TOKEN_REFRESH_SECS):
+                self.token = None
+                self.token = self.fetch()
+                self.fetched_at = time.monotonic()
+            return self.token
+
+    def warm(self):
+        try:
+            self.get()
+        except TokenUnavailable:
+            pass
+
+
+class AnthropicTokenHandler(BaseHTTPRequestHandler):
+    """GET /token: 200 with {"access_token", "expires_at"}, or 503 with why
+    there is none, in plain text."""
+
+    def do_GET(self):
+        if self.path != "/token":
+            self.send_error(404)
+            return
+        try:
+            body, status, content_type = json.dumps(self.server.tokens.get()).encode(), 200, "application/json"
+        except TokenUnavailable as e:
+            body, status, content_type = str(e).encode(), 503, "text/plain; charset=utf-8"
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
         pass
 
 
@@ -635,6 +725,13 @@ def main():
             server = HTTPServer(("127.0.0.1", 0), ClipboardHandler)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             env.append("SLK_CLIPBOARD_ADDR=host.docker.internal:%d" % server.server_port)
+        elif arg == "anthropic-token":
+            server = HTTPServer(("127.0.0.1", 0), AnthropicTokenHandler)
+            server.tokens = AnthropicToken()
+            # Fetched now, while slk starts, so slk's first ask finds it ready.
+            threading.Thread(target=server.tokens.warm, daemon=True).start()
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            env.append("SLK_ANTHROPIC_TOKEN_ADDR=host.docker.internal:%d" % server.server_port)
         elif arg == "spool":
             threading.Thread(target=watch_spool, args=(launch_dir,), daemon=True).start()
         else:

@@ -5,8 +5,9 @@
 # Config and cached tokens are seeded ONCE from the host into the role's
 # state volume (never the live cache.db: copying a WAL database mid-write can
 # tear it, and slk rebuilds the cache from the API). The one exception is the
-# config's anthropic_api_key, which every launch copies in again
-# (tools/sync-host-api-key.sh). Every pane that runs this
+# config's anthropic_api_key, which every launch copies in again, or
+# deletes when the host config has none (tools/sync-host-api-key.sh).
+# Every pane that runs this
 # script in the same role shares that volume, so cross-process flocks are
 # exercised for real.
 # Reseed by removing the role's backend and then its volume, only while the
@@ -141,6 +142,8 @@ trap 'signalled=1; exit 143' TERM
 #    its VM boundary, so the herdr socket rides in over a TCP relay.
 #  - clipboard: Ctrl+V smart paste reads the macOS clipboard over HTTP.
 #    Darwin only: the bridge reads the clipboard with osascript.
+#  - anthropic-token: with no key configured, the model calls use the
+#    host's ant login, whose access token the bridge serves over HTTP.
 #  - spool: it opens each URL slk drops in the spool.
 bridges=()
 if [ -n "$herdr_bridge" ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
@@ -149,7 +152,7 @@ fi
 if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
   bridges+=(clipboard)
 fi
-[ -n "$tui" ] && bridges+=(spool)
+[ -n "$tui" ] && bridges+=(anthropic-token spool)
 
 # Terminal identity rides into the container so graphics-protocol detection
 # sees the real terminal; the kitty probe's reply comes back over the pty.
@@ -169,7 +172,7 @@ cmd=("$repo/bin/$bin_name")
 # the tty's foreground process group (SIGTTIN on read).
 [ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout --foreground -s INT "$SLK_TIMEOUT" "${cmd[@]}")
 # A key rotated in the host config reaches the volume's copy before slk
-# starts. The key rides in by name, so argv stays secret-free; exec keeps
+# starts, and a key deleted there is deleted from it. The key rides in by name, so argv stays secret-free; exec keeps
 # slk the launch's root process, and a failed copy never blocks the launch.
 SLK_HOST_ANTHROPIC_API_KEY=$(sed -n 's/^anthropic_api_key *= *"\(.*\)"$/\1/p' "$HOME/.config/slk/config.toml" 2>/dev/null || true)
 export SLK_HOST_ANTHROPIC_API_KEY

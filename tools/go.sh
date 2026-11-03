@@ -74,7 +74,15 @@ done
 # silently skip, or run with defaults, inside the container. Passed by name
 # so docker reads the value from its own environment: a key on the command
 # line is visible to ps and to anything that wraps docker.
-for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY SLK_AGENT_STATUS_EVAL_RUNS \
+# With no key configured, they use the host's ant login: its access token
+# rides in as SLK_TABLABEL_LIVE_TOKEN (tablabel.LiveTokens). ant runs
+# without an exported key or token, which would override its profile.
+if [[ -n "${SLK_TABLABEL_LIVE:-}" ]] && command -v ant >/dev/null 2>&1; then
+  SLK_TABLABEL_LIVE_TOKEN=$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
+    ant auth print-credentials --access-token 2>/dev/null || true)
+  export SLK_TABLABEL_LIVE_TOKEN
+fi
+for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY SLK_TABLABEL_LIVE_TOKEN SLK_AGENT_STATUS_EVAL_RUNS \
   SLK_AGENT_STATUS_EVAL_MODEL SLK_AGENT_STATUS_EVAL_EFFORT; do
   if [[ -n "${!var:-}" ]]; then
     docker_args+=(-e "$var")
@@ -82,7 +90,7 @@ for var in SLK_TABLABEL_LIVE ANTHROPIC_API_KEY SLK_AGENT_STATUS_EVAL_RUNS \
 done
 
 # The live tests take the key from slk's config first (herdr.anthropic_api_key),
-# so a live run gets that one file, read-only, where the container's root
+# as slk does, so a live run gets that one file, read-only, where the container's root
 # user looks for it. Only a live run: every other go command keeps a
 # container with no user config in it.
 slk_config="${XDG_CONFIG_HOME:-$HOME/.config}/slk/config.toml"

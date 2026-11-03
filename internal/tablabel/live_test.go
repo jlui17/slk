@@ -15,9 +15,10 @@ import (
 
 // TestRelabelLive hits the real Anthropic API with a root-only transcript,
 // what a thread opened before anyone replied sends; set SLK_TABLABEL_LIVE=1
-// to run it. The model, effort and key are the ones slk itself uses (see
-// liveClients); tools/go.sh carries the gate, the config file and the env
-// key into the docker container it runs tests in on Santa hosts.
+// to run it. The model, effort and credential are the ones slk itself uses
+// (see liveClients); tools/go.sh carries the gate, the config file, the env
+// key and the ant login's token into the docker container it runs tests in
+// on Santa hosts.
 func TestRelabelLive(t *testing.T) {
 	c, _ := liveClients(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -47,12 +48,13 @@ func liveClients(t *testing.T) (labeler, judge *Client) {
 	if cfg.TabNameModel == "" {
 		t.Fatal("no model: set herdr.tab_name_model in slk's config.toml")
 	}
-	apiKey := cfg.ResolveAnthropicAPIKey()
-	if apiKey == "" {
-		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
+	cred, err := ResolveCredential(context.Background(), cfg, LiveTokens())
+	if err != nil {
+		t.Fatalf("%v: set herdr.anthropic_api_key in slk's config.toml, or run `ant auth login` on the host", err)
 	}
-	return New(cfg.TabNameModel, cfg.ResolveTabNameEffort(), apiKey),
-		New(cfg.ResolveAgentStatusJudgeModel(), cfg.ResolveAgentStatusJudgeEffort(), apiKey)
+	t.Logf("credential: %s", cred.Source)
+	return New(cfg.TabNameModel, cfg.ResolveTabNameEffort(), cred),
+		New(cfg.ResolveAgentStatusJudgeModel(), cfg.ResolveAgentStatusJudgeEffort(), cred)
 }
 
 // liveConfig reads the model, effort and key where slk does, reading only

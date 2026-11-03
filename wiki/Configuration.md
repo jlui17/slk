@@ -149,7 +149,9 @@ max_image_cache_mb = 200
 # 400 KB of transcript). Needs an
 # Anthropic API key: anthropic_api_key here, or, when that is empty,
 # ANTHROPIC_API_KEY in slk's environment (the config value wins when both
-# are set). With the key in it this file holds a secret, so its permissions
+# are set). With neither, slk in docker (tools/run-docker.sh) uses the
+# host's `ant auth login` instead; a key, even a rejected one, always wins
+# over it. With the key in it this file holds a secret, so its permissions
 # matter: chmod 600 it, and slk's own saves keep the mode the file has.
 # The label derives once, at thread open; :retitle re-derives it later the
 # same way, from the thread as it then stands, and names the tab after
@@ -166,7 +168,7 @@ tab_name_model = ""   # e.g. "claude-sonnet-5-5"; empty disables (default)
 tab_name_effort = ""   # low, medium, high, xhigh or max; empty means low (default)
 agent_status_judge_model = ""   # the working-state judge; empty means tab_name_model (default)
 agent_status_judge_effort = ""   # same values as tab_name_effort; empty means low (default)
-anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY (default)
+anthropic_api_key = ""   # empty falls back to ANTHROPIC_API_KEY, then the ant login (default)
 tab_name_hints = []   # e.g. ["task ids look like colony-123 or #1170"]
 
 # The O and alt+o keybindings open a Slack permalink in a new herdr tab or

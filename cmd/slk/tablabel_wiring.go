@@ -18,10 +18,15 @@ import (
 // the goroutine when the API hangs.
 const labelTimeout = 20 * time.Second
 
+// credentialTimeout bounds the first ant login token fetch at startup,
+// which holds up the TUI's start. The host bridge fetches the token as it
+// starts, ahead of slk, so it usually has one ready.
+const credentialTimeout = 5 * time.Second
+
 // wireAgentTabLabeler installs the model-backed assists — tab labels (at
 // thread open and on :retitle) and the working judge, each with its own
 // model and effort — when configured (herdr.tab_name_model) and
-// credentialed (Herdr.ResolveAnthropicAPIKey). Results
+// credentialed (tablabel.ResolveCredential). Results
 // re-enter the program loop as ui messages; a failed label request is
 // logged and dropped, leaving the deterministic label standing, and a
 // failed judge request is logged and re-enters as a failed verdict.
@@ -29,13 +34,16 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 	if cfg.TabNameModel == "" {
 		return
 	}
-	apiKey := cfg.ResolveAnthropicAPIKey()
-	if apiKey == "" {
-		debuglog.Notify("tablabel: tab_name_model set but no API key (herdr.anthropic_api_key or ANTHROPIC_API_KEY); deterministic labels only")
+	ctx, cancel := context.WithTimeout(context.Background(), credentialTimeout)
+	cred, err := tablabel.ResolveCredential(ctx, cfg, antLoginTokens())
+	cancel()
+	if err != nil {
+		debuglog.Notify("tablabel: tab_name_model set but %v; deterministic labels only", err)
 		return
 	}
-	labeler := tablabel.New(cfg.TabNameModel, cfg.ResolveTabNameEffort(), apiKey)
-	judge := tablabel.New(cfg.ResolveAgentStatusJudgeModel(), cfg.ResolveAgentStatusJudgeEffort(), apiKey)
+	debuglog.Notify("tablabel: model calls authenticate with %s", cred.Source)
+	labeler := tablabel.New(cfg.TabNameModel, cfg.ResolveTabNameEffort(), cred)
+	judge := tablabel.New(cfg.ResolveAgentStatusJudgeModel(), cfg.ResolveAgentStatusJudgeEffort(), cred)
 	request := func(call func(context.Context) (tea.Msg, error)) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), labelTimeout)

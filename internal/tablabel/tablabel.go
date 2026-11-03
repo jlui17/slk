@@ -10,11 +10,12 @@ package tablabel
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 const relabelSystemPrompt = "You label terminal tabs. The user message is a transcript " +
@@ -51,16 +52,17 @@ const maxTranscriptBytes = 400000
 
 // Client labels threads via one fixed model at one fixed effort.
 type Client struct {
-	model  string
-	effort string
-	client anthropic.Client
+	model    string
+	effort   string
+	rejected string
+	client   anthropic.Client
 }
 
-// New returns a Client calling model at effort with apiKey. The key is
-// passed explicitly because the SDK's default client otherwise reads
-// ANTHROPIC_API_KEY on its own.
-func New(model, effort, apiKey string) *Client {
-	return &Client{model: model, effort: effort, client: anthropic.NewClient(option.WithAPIKey(apiKey))}
+// New returns a Client calling model at effort, authenticated by cred
+// (ResolveCredential). The credential is passed explicitly because the
+// SDK's default client otherwise reads ANTHROPIC_API_KEY on its own.
+func New(model, effort string, cred Credential) *Client {
+	return &Client{model: model, effort: effort, rejected: cred.rejected, client: anthropic.NewClient(cred.option)}
 }
 
 // Relabel asks the model to judge, from a thread transcript (as much of the
@@ -120,6 +122,9 @@ func (c *Client) complete(ctx context.Context, system string, user ...string) (s
 		System:       []anthropic.TextBlockParam{{Text: system}},
 		Messages:     []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
+	if apiErr := (*anthropic.Error)(nil); errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("%s: %w", c.rejected, err)
+	}
 	if err != nil {
 		return "", err
 	}

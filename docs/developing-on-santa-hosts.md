@@ -31,8 +31,13 @@ so cross-builds behave the same as native.
 ### Live model tests
 
 `internal/tablabel`'s live tests call the real Anthropic API with the model,
-effort and key from slk's `config.toml`, and skip unless
-`SLK_TABLABEL_LIVE=1`. The agent status eval judges every case in
+effort and credential slk would use, and skip unless `SLK_TABLABEL_LIVE=1`:
+the key from the host `config.toml` or `ANTHROPIC_API_KEY`, else the host's
+ant login, whose current access token `tools/go.sh` hands the container. A
+run that outlives that token (8 hours from its last refresh) fails with a
+401. `tools/agent-status-eval.sh <ref>` runs the judge at `<ref>` with that
+ref's credential code, so a ref from before the ant login needs a key. The
+agent status eval judges every case in
 `internal/tablabel/testdata/agent_status_eval.json` and prints a pass table:
 
 ```sh
@@ -42,7 +47,7 @@ SLK_AGENT_STATUS_EVAL_RUNS=3 SLK_AGENT_STATUS_EVAL_EFFORT=low tools/agent-status
 ```
 
 The host `config.toml` is not what live sessions use: `run-docker.sh` seeds
-the state volume's config once and syncs only the key after that, so a
+the state volume's config once and syncs only the key line after that, so a
 session can judge at another effort than the tests read. Set
 `SLK_AGENT_STATUS_EVAL_EFFORT` (and `_MODEL`) to test what sessions run.
 
@@ -57,7 +62,8 @@ and runs it with the TUI attached to your terminal. Your config and cached
 workspace tokens are seeded **once** from the host into a `slk-test-state`
 docker volume — never the live `cache.db`, which slk rebuilds from the API.
 Only `anthropic_api_key` is copied in again on every launch, so a key rotated
-in the host config reaches a session when it restarts.
+in the host config reaches a session when it restarts, and a key deleted
+from the host config is deleted from the volume's copy.
 slk's keyring re-mint fails inside linux and falls back to the cached tokens,
 so auth just works.
 
@@ -76,6 +82,31 @@ docker rm -f slk-user-backend && docker volume rm slk-test-state
 
 For the agent sandbox, the same with `slk-agent-backend` and
 `slk-agent-state`.
+
+### Model calls: an API key or the ant login
+
+The herdr tab-label and agent status calls authenticate with a key when one
+is configured (`herdr.anthropic_api_key`, then `ANTHROPIC_API_KEY`), and
+otherwise with the host's `ant` login: each pane's bridge serves its access
+token over HTTP (`SLK_ANTHROPIC_TOKEN_ADDR`), so only short-lived tokens
+enter the container. A configured key always wins, even one the API
+rejects; slk's debug log then says "the configured key (...) was rejected;
+remove it to use the ant login". With neither, slk keeps deterministic
+labels and logs why once at startup. The startup line `tablabel: model
+calls authenticate with ...` names the source in use. A new `ant auth
+login` (another org) or a logout reaches running sessions within two
+minutes; no refresh needed.
+
+To switch from a key to the ant login:
+
+1. On the host, `ant auth login`; `ant auth status` shows the active
+   profile.
+2. Delete the `anthropic_api_key` line from the host's
+   `~/.config/slk/config.toml`, and make sure no shell exports
+   `ANTHROPIC_API_KEY`.
+3. Refresh the slk panes (the slk-herdr skill's refresh). Each launch
+   deletes the key from the state volume's copy and starts the bridge's
+   token endpoint.
 
 ### The shared backend
 

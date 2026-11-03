@@ -141,7 +141,7 @@ func cmdRetitle(a *App, _ commandArgs) tea.Cmd {
 		return toastWithClear(a, "Open a thread first", 2*time.Second)
 	}
 	if a.agentSidebar.requestLabel == nil {
-		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model + anthropic_api_key)", 2*time.Second)
+		return toastWithClear(a, "Tab labeling not configured (herdr.tab_name_model + a key or the ant login)", 2*time.Second)
 	}
 	var botUserID string
 	if a.tracksThread("", channelID, threadTS) {

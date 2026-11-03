@@ -175,11 +175,12 @@ func envOr(key, fallback string) string {
 	return cmp.Or(os.Getenv(key), fallback)
 }
 
-// tabHintsEvalAPIKey finds the key where slk does, reading only what it
-// needs: config.toml is decoded without config.Load's workspace validation,
-// since an eval is not slk startup. The path restates xdgConfig (cmd/slk),
-// which can't be imported. A missing file is an empty config.
-func tabHintsEvalAPIKey(t *testing.T) string {
+// tabHintsEvalCredential resolves the credential the way slk does, reading
+// only what it needs: config.toml is decoded without config.Load's
+// workspace validation, since an eval is not slk startup. The path restates
+// xdgConfig (cmd/slk), which can't be imported. A missing file is an empty
+// config.
+func tabHintsEvalCredential(t *testing.T) tablabel.Credential {
 	t.Helper()
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
@@ -194,7 +195,11 @@ func tabHintsEvalAPIKey(t *testing.T) string {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read slk config: %v", err)
 	}
-	return cfg.Herdr.ResolveAnthropicAPIKey()
+	cred, err := tablabel.ResolveCredential(context.Background(), cfg.Herdr, tablabel.LiveTokens())
+	if err != nil {
+		t.Fatalf("%v: set herdr.anthropic_api_key in slk's config.toml, or run `ant auth login` on the host", err)
+	}
+	return cred
 }
 
 // TestTabHintsEval prints one TSV row per transcript and repeat: pane, mode,
@@ -226,11 +231,7 @@ func TestTabHintsEval(t *testing.T) {
 			}
 		}
 	}
-	apiKey := tabHintsEvalAPIKey(t)
-	if apiKey == "" {
-		t.Fatal("no API key: set herdr.anthropic_api_key in slk's config.toml, or ANTHROPIC_API_KEY")
-	}
-	client := tablabel.New(model, effort, apiKey)
+	client := tablabel.New(model, effort, tabHintsEvalCredential(t))
 	dir := os.Getenv("SLK_TABHINTS_TRANSCRIPTS")
 	if dir == "" {
 		dir = "transcripts"

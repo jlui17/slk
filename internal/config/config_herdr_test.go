@@ -4,19 +4,19 @@ import "testing"
 
 func TestResolveAnthropicAPIKey(t *testing.T) {
 	rows := []struct {
-		name, config, env, want string
+		name, config, env, want, wantSource string
 	}{
-		{"config only", "from-config", "", "from-config"},
-		{"env only", "", "from-env", "from-env"},
-		{"config wins over env", "from-config", "from-env", "from-config"},
-		{"neither", "", "", ""},
+		{"config only", "from-config", "", "from-config", "herdr.anthropic_api_key"},
+		{"env only", "", "from-env", "from-env", "ANTHROPIC_API_KEY"},
+		{"config wins over env", "from-config", "from-env", "from-config", "herdr.anthropic_api_key"},
+		{"neither", "", "", "", ""},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			t.Setenv("ANTHROPIC_API_KEY", row.env)
-			got := Herdr{AnthropicAPIKey: row.config}.ResolveAnthropicAPIKey()
-			if got != row.want {
-				t.Errorf("ResolveAnthropicAPIKey = %q, want %q", got, row.want)
+			got, source := Herdr{AnthropicAPIKey: row.config}.ResolveAnthropicAPIKey()
+			if got != row.want || source != row.wantSource {
+				t.Errorf("ResolveAnthropicAPIKey = %q, %q, want %q, %q", got, source, row.want, row.wantSource)
 			}
 		})
 	}
