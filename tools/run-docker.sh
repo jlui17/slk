@@ -12,10 +12,11 @@
 # Reseed by removing the role's backend and then its volume, only while the
 # backend runs no launch: docs/developing-on-santa-hosts.md has the check.
 #
-# Every launch of a role runs by `docker exec` in the role's one
-# long-lived container, slk-<role>-backend, and the launch's host bridge
-# stops what it started there once the launcher is gone. Roles (user,
-# agent) and the backend: tools/backend.sh.
+# Every launch of a role runs as an exec in the role's one long-lived
+# container, slk-<role>-backend: tools/host-bridge.py runs it over the
+# Docker Engine API with this terminal attached, and stops what it started
+# there once this shell is gone. Roles (user, agent) and the backend:
+# tools/backend.sh.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -101,20 +102,23 @@ spool=$launches/$exec_id
 mkdir "$spool"
 signalled=
 bridge_pid=
+tty_state=
 cleanup() {
-  # Signalled (a pane closing, a kill), this shell has half a second before
-  # herdr's SIGKILL, less than slk may take to shut down. The bridge, out
-  # of the pane's session, outlives it and does the whole job once this
-  # shell is gone: stop the launch in the backend, hand slk's debug log
-  # (written in the spool under SLK_LOG_DIR) over, remove the spool. This
-  # shell does it only when slk exited on its own, so the log is in place
-  # when the script returns, or when the bridge is dead: the stop is then
-  # the backstop nothing else would run. Running both is safe, since
-  # stop-exec.sh signals a run only once.
+  # The bridge stops the launch in the backend, hands slk's debug log
+  # (written in the spool under SLK_LOG_DIR) over and removes the spool,
+  # however the launch ends. Signalled (a pane closing, a kill), this shell
+  # has half a second before herdr's SIGKILL, less than slk may take to
+  # shut down, so it leaves all of that to the bridge, which is out of the
+  # pane's session and outlives it. A launch directory still here once the
+  # bridge is gone (SIGKILLed, or it never started) is this shell's to
+  # clean up; stop-exec.sh signals a run only once, so repeating a stop
+  # the bridge already ran is harmless.
   trap '' HUP INT TERM
   if [ -n "$signalled" ] && kill -0 "$bridge_pid" 2>/dev/null; then
     return
   fi
+  [ -d "$spool" ] || return 0
+  [ -z "$tty_state" ] || stty "$tty_state" 2>/dev/null || true
   docker exec "$backend" sh "$repo/tools/stop-exec.sh" "$exec_id" >/dev/null 2>&1 || true
   if [ -n "${SLK_LOG_DIR:-}" ]; then
     mv "$spool/slk-debug.log" "$SLK_LOG_DIR/" 2>/dev/null || true
@@ -123,67 +127,41 @@ cleanup() {
 }
 trap cleanup EXIT
 # A PID-targeted signal must not skip cleanup; `exit` re-routes through the
-# EXIT trap. Bash delivers these traps only once the foreground docker exec
-# returns.
+# EXIT trap.
 trap 'signalled=1; exit 129' HUP
 trap 'signalled=1; exit 130' INT
 trap 'signalled=1; exit 143' TERM
 
-# One host-side Python process per launch (tools/host-bridge.py) serves what
-# the container can't reach on its own, the first two on ports it reaches
-# as host.docker.internal:<port>:
+# One host-side Python process per launch, tools/host-bridge.py, runs slk
+# in the backend over the Docker Engine API with this terminal attached,
+# stops it there once this shell is gone, and serves what the container
+# can't reach on its own, the first two on ports it reaches as
+# host.docker.internal:<port>:
 #  - herdr: Docker Desktop does not forward bind-mounted unix sockets across
 #    its VM boundary, so the herdr socket rides in over a TCP relay.
 #  - clipboard: Ctrl+V smart paste reads the macOS clipboard over HTTP.
 #    Darwin only: the bridge reads the clipboard with osascript.
 #  - spool: it opens each URL slk drops in the spool.
-#  - exec: an exec'd slk outlives its docker client, so when this shell is
-#    gone, however it went, the bridge stops the launch in the backend.
-# That last job is why a launch without its bridge does not start.
-bridges=("exec=$backend:$exec_id:$spool")
+bridges=()
 if [ -n "$herdr_bridge" ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
   bridges+=("herdr=$HERDR_SOCKET_PATH")
 fi
 if [ -n "$tui" ] && [ "$(uname)" = Darwin ]; then
   bridges+=(clipboard)
 fi
-[ -n "$tui" ] && bridges+=("spool=$spool")
-port_file=$(mktemp)
-python3 "$repo/tools/host-bridge.py" $$ "${bridges[@]}" >"$port_file" &
-bridge_pid=$!
-ports=
-ready=
-for _ in $(seq 1 500); do
-  read -r ports <"$port_file" && ready=1 && break
-  sleep 0.01
-done
-rm -f "$port_file"
-if [ -z "$ready" ]; then
-  echo "host bridge did not start; not launching, since nothing would stop this launch's slk in $backend once it is gone" >&2
-  exit 1
-fi
-herdr_port=
-clipboard_port=
-for p in $ports; do
-  case "$p" in
-    herdr=*) herdr_port=${p#herdr=} ;;
-    clipboard=*) clipboard_port=${p#clipboard=} ;;
-  esac
-done
+[ -n "$tui" ] && bridges+=(spool)
 
 # Terminal identity rides into the container so graphics-protocol detection
-# sees the real terminal; the kitty probe's reply comes back over the -it pty.
+# sees the real terminal; the kitty probe's reply comes back over the pty.
 # The checkout is the cwd, so slk-debug.log (written to cwd under SLK_DEBUG)
-# lands in it. No exec: the EXIT trap must run to clean up.
+# lands in it.
 #
 # Headless hooks (tools/smoke.sh composes all three):
-#   no host tty  -> -t only: the app still gets a pty, stdin stays detached
+#   no host tty  -> slk still gets a pty; its stdin stays detached
 #   SLK_LOG_DIR  -> host dir slk-debug.log lands in instead of the checkout,
 #                   moved there from the launch's spool when slk exits
 #   SLK_TIMEOUT  -> wraps slk in `timeout -s INT <secs>` for a bounded run
 #                   that still shuts down cleanly (INT -> tea quit -> tally)
-tty_args=(-it)
-[ -t 0 ] || tty_args=(-t)
 workdir=$repo
 [ -n "${SLK_LOG_DIR:-}" ] && workdir=$spool
 cmd=("$repo/bin/$bin_name")
@@ -203,8 +181,7 @@ cmd=(sh -c '"$0" || true; exec "$@"' "$repo/tools/sync-host-api-key.sh" "${cmd[@
 # approaches it (sustained GC thrash) — raise it then.
 echo "container: $backend" >&2
 echo "exec: $exec_id" >&2
-docker exec "${tty_args[@]}" \
-  -w "$workdir" \
+exec_args=(-w "$workdir" \
   -e SLK_EXEC_ID="$exec_id" \
   -e SLK_SPOOL_DIR="$spool" \
   -e BROWSER="$repo/tools/spool-open" \
@@ -212,10 +189,6 @@ docker exec "${tty_args[@]}" \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \
   ${SLK_HOST_ANTHROPIC_API_KEY:+-e SLK_HOST_ANTHROPIC_API_KEY} \
-  ${herdr_port:+-e HERDR_ENV=1 -e HERDR_PANE_ID="$HERDR_PANE_ID" -e SLK_HERDR_ADDR="host.docker.internal:$herdr_port"} \
-  ${herdr_port:+${HERDR_TAB_ID:+-e HERDR_TAB_ID="$HERDR_TAB_ID"}} \
-  ${herdr_port:+${HERDR_WORKSPACE_ID:+-e HERDR_WORKSPACE_ID="$HERDR_WORKSPACE_ID"}} \
-  ${clipboard_port:+-e SLK_CLIPBOARD_ADDR="host.docker.internal:$clipboard_port"} \
   -e GOMEMLIMIT=400MiB \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \
@@ -226,4 +199,20 @@ docker exec "${tty_args[@]}" \
   ${KITTY_WINDOW_ID:+-e KITTY_WINDOW_ID="$KITTY_WINDOW_ID"} \
   ${COLORTERM_CELL_WIDTH:+-e COLORTERM_CELL_WIDTH="$COLORTERM_CELL_WIDTH"} \
   ${COLORTERM_CELL_HEIGHT:+-e COLORTERM_CELL_HEIGHT="$COLORTERM_CELL_HEIGHT"} \
-  "$backend" "${cmd[@]}" "$@"
+  "${cmd[@]}" "$@")
+# The bridge leaves this pane's session, so the kernel no longer sends it
+# SIGWINCH: this shell forwards its own. A trapped signal ends `wait`
+# early, hence the loop; the last `wait` returns the exit status bash
+# kept. `<&0`: a background job of a non-interactive shell otherwise reads
+# /dev/null. No exec: the EXIT trap must run to clean up.
+tty_state=$(stty -g 2>/dev/null || true)
+python3 "$repo/tools/host-bridge.py" $$ "$backend" "$exec_id" "$spool" \
+  ${bridges[@]+"${bridges[@]}"} -- "${exec_args[@]}" <&0 &
+bridge_pid=$!
+trap 'kill -WINCH "$bridge_pid" 2>/dev/null || true' WINCH
+while kill -0 "$bridge_pid" 2>/dev/null; do
+  wait "$bridge_pid" || true
+done
+rc=0
+wait "$bridge_pid" || rc=$?
+exit "$rc"

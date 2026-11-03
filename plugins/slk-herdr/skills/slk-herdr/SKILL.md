@@ -7,10 +7,10 @@ description: Use when managing Justin's live slk sessions (the Slack TUI) in her
 
 Justin runs many slk sessions at once, one per herdr pane, each parked on
 the channel or thread it is working on. `tools/run-docker.sh` in the slk
-checkout starts each one by `docker exec` in the role's one long-lived
-container, `slk-<role>-backend`. This skill is how to find, restart,
-relaunch and move those sessions without losing their state or touching
-anything else on the machine.
+checkout runs each one in the role's one long-lived container,
+`slk-<role>-backend`, attached to the pane by `tools/host-bridge.py`.
+This skill is how to find, restart, relaunch and move those sessions
+without losing their state or touching anything else on the machine.
 
 ## The slk checkout, and which build the sessions run
 
@@ -43,9 +43,8 @@ not loaded, so these are the parts that apply here:
   `slk-agent-backend` itself is shared with other agents' sessions.
 - Closing a pane stops the slk in it.
 - Never print a pane's process argv or env. `herdr pane process-info`
-  returns the full `docker exec` argv; parse it inside a script and print
-  only pane ids, exec ids and container names, as
-  `tools/refresh-sessions.sh` does.
+  returns them in full; parse it inside a script and print only pane ids
+  and exec ids, as `tools/refresh-sessions.sh` does.
 
 ## User role versus agent role
 
@@ -130,9 +129,7 @@ Why it is shaped this way:
 - **It quits through a signal, not keystrokes.** Each session gets SIGINT
   inside the backend (`tools/stop-exec.sh`), which slk handles: it exits
   cleanly and releases its herdr sidebar entry. Scripting "press Q,
-  confirm" against a pane whose screen may be a stale frame is fragile. A
-  pane still running in a container of its own, from before the shared
-  backend, gets `docker stop` instead and comes back in the backend.
+  confirm" against a pane whose screen may be a stale frame is fragile.
 - **Every session stops before the first relaunch,** so the rebuild never
   replaces the binary under a running session. That first relaunch is
   also when a changed `run-docker.sh` reaches the backend: a launch

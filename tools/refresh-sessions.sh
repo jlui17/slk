@@ -17,27 +17,26 @@ SLK_ROLE=${SLK_ROLE:-user}
 . "$repo/tools/backend.sh"
 
 # Discover the role's slk panes from each pane's foreground: a launch shows
-# run-docker.sh's `docker exec` into the role's backend, carrying the
-# launch's SLK_EXEC_ID and running the role's slk binary (a tools/go.sh run
-# in a pane is a `docker exec` into the same backend, running go). A pane
-# still running a launch from before the
-# shared backend shows its `docker run` with the slk.role label and the
-# container name instead; refresh stops those too, and relaunches every
-# pane into the backend, which is how live sessions move over. Parsing
-# stays in python and prints only pane id, kind and exec id or container
-# name, so an env value in that argv can't leak into transcripts.
+# the run-docker.sh that started it, and that launcher's pid begins its exec
+# id, the name of its launch directory under the role's $launches. That
+# holds for a launch from before host-bridge.py attached it too, so a
+# refresh moves those over. Only argv's script name is read, and python
+# prints only pane ids and exec ids, so nothing else in a pane's argv (a
+# permalink) or env can leak into transcripts.
 panes=()
-kinds=()
-targets=()
-while IFS=$'\t' read -r pane kind target; do
+exec_ids=()
+while IFS=$'\t' read -r pane ids; do
   panes+=("$pane")
-  kinds+=("$kind")
-  targets+=("$target")
+  exec_ids+=($ids)
 done < <(
   herdr workspace list | python3 -c '
-import json, subprocess, sys
+import json, os, subprocess, sys
 
-role, backend, slk_bin = sys.argv[1:]
+launches = sys.argv[1]
+try:
+    names = os.listdir(launches)
+except FileNotFoundError:
+    names = []
 
 def run(*args):
     return json.loads(subprocess.check_output(("herdr",) + args))
@@ -52,15 +51,15 @@ for ws in json.load(sys.stdin)["result"]["workspaces"]:
             continue
         for proc in info["result"]["process_info"].get("foreground_processes") or []:
             argv = proc.get("argv") or []
-            if backend in argv and any(a.endswith("/bin/" + slk_bin) for a in argv):
-                ids = [a.split("=", 1)[1] for a in argv if a.startswith("SLK_EXEC_ID=")]
+            if len(argv) > 1 and os.path.basename(argv[1]) == "run-docker.sh":
+                # Every one: a reused pid can leave an old launch directory
+                # under the same prefix, and stopping a launch that is gone
+                # does nothing.
+                ids = [n for n in names if n.startswith("%d-" % proc["pid"])]
                 if ids:
-                    print(pane_id, "exec", ids[0], sep="\t")
+                    print(pane_id, " ".join(ids), sep="\t")
                     break
-            if "slk.role=" + role in argv and "--name" in argv:
-                print(pane_id, "run", argv[argv.index("--name") + 1], sep="\t")
-                break
-' "$role" "$backend" "$bin_name"
+' "$launches"
 )
 
 if [ "${#panes[@]}" -eq 0 ]; then
@@ -86,23 +85,9 @@ if [ "${#blocked[@]}" -gt 0 ]; then
 fi
 
 # Stop them all: SIGINT to each launch inside the backend (slk's shutdown
-# path; tools/stop-exec.sh returns once they are gone), docker stop
-# (SIGTERM, which slk handles the same way) for a container of its own.
+# path; tools/stop-exec.sh returns once they are gone).
 echo "stopping ${#panes[@]} slk session(s): ${panes[*]}" >&2
-exec_ids=()
-containers=()
-for i in "${!panes[@]}"; do
-  case "${kinds[$i]}" in
-    exec) exec_ids+=("${targets[$i]}") ;;
-    run) containers+=("${targets[$i]}") ;;
-  esac
-done
-if [ "${#exec_ids[@]}" -gt 0 ]; then
-  docker exec "$backend" sh "$repo/tools/stop-exec.sh" "${exec_ids[@]}"
-fi
-if [ "${#containers[@]}" -gt 0 ]; then
-  docker stop "${containers[@]}" >/dev/null
-fi
+docker exec "$backend" sh "$repo/tools/stop-exec.sh" "${exec_ids[@]}"
 
 # Wait for each pane's shell to be back in the foreground: pane run types
 # into whatever is frontmost, so running it before run-docker.sh's cleanup

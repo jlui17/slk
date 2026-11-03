@@ -79,7 +79,7 @@ For the agent sandbox, the same with `slk-agent-backend` and
 
 ### The shared backend
 
-Every launch of a role runs by `docker exec` in one long-lived container,
+Every launch of a role runs as an exec in one long-lived container,
 `slk-<role>-backend`. The first launch creates it: the main checkout
 mounted at its host path (so every worktree under it runs there too), the
 role's state volume, the go caches, and `~/.cache/slk-sandbox/<backend>/`
@@ -87,17 +87,28 @@ for per-launch files. It
 sleeps between launches and comes back after a docker restart. Launches
 that start together race to create it; the losers wait for the winner.
 
+A pane holds two processes: the launcher shell and
+`tools/host-bridge.py`, which runs the exec over the Docker Engine API (on
+the unix socket of the docker context the CLI uses, or `DOCKER_HOST`),
+relays the terminal to it in raw mode, and exits with slk's exit code. No
+docker CLI process stays in the pane.
+
 Each launch carries `SLK_EXEC_ID=<launcher pid>-<random>` in its
 environment, and every process it starts inherits it. That id is how a
 launch is found and stopped:
 
-- **An exec'd process outlives its `docker exec` client** when a pane
-  closes or its launcher dies, so the launch's `tools/host-bridge.py`
-  waits on the launcher and then runs `tools/stop-exec.sh <id>` inside the
-  backend: SIGINT to the launch's root process (slk's shutdown path),
-  SIGKILL to anything left after 5s.
-- `tools/refresh-sessions.sh` reads the id from each pane's `docker exec`
-  argv and stops its sessions the same way.
+- **An exec'd process outlives its client** when a pane closes or its
+  launcher dies, so the bridge leaves the pane's session (the launcher
+  forwards SIGWINCH to it), waits on the launcher, and then runs
+  `tools/stop-exec.sh <id>` inside the backend: SIGINT to the launch's
+  root process (slk's shutdown path), SIGKILL to anything left after 5s.
+- `tools/refresh-sessions.sh` finds each pane's launch by its launcher's
+  pid, the start of its launch directory's name (the exec id), and stops
+  its sessions the same way.
+
+When the backend stops, restarts or is removed mid-session, or docker
+stops answering, the bridge restores the terminal, prints one line saying
+what happened and how to relaunch, and exits 1.
 
 Check it by hand:
 
@@ -114,8 +125,8 @@ change takes effect.
 
 ### Headless use
 
-Without a host tty (agent shells, CI) the script drops to `docker exec -t`:
-the app still gets a pty, stdin stays detached, so `--version`,
+Without a host tty (agent shells, CI) slk still gets a pty, with its
+stdin detached, so `--version`,
 `--list-workspaces`, `--dump-sections` and bounded TUI runs work
 non-interactively. `SLK_LOG_DIR=<host dir>` collects `slk-debug.log` there
 instead of in the checkout (slk writes it in its launch directory, and the
@@ -154,16 +165,20 @@ drops the URL into the launch's directory, which `tools/host-bridge.py`
 watches and opens on the host with `open`.
 
 Ctrl+V image paste works through a second bridge: the container can't see
-the macOS clipboard, so the script starts `tools/host-bridge.py`, whose
-clipboard bridge is a host-side HTTP server that dumps the clipboard through
+the macOS clipboard, so `tools/host-bridge.py` serves a clipboard bridge,
+a host-side HTTP server that dumps the clipboard through
 `osascript` (Apple-signed, so Santa allows it), and passes its address in as
 `SLK_CLIPBOARD_ADDR`. The same process relays the herdr socket over TCP
 (`SLK_HERDR_ADDR`), so a launch pays Python's startup once. slk then reads the clipboard from that address
 instead of the native library. Each paste costs one `osascript` launch
 (~0.25s), which runs off the UI goroutine while the status bar shows
-`Pasting from clipboard…`. Check it by hand: `python3 tools/host-bridge.py $$ clipboard` prints
-`clipboard=<port>`; `curl http://127.0.0.1:<port>/image > x.png` returns the
-clipboard image (204 when there is none).
+`Pasting from clipboard…`. Check it by hand while a launch runs: this
+prints 200 when the clipboard holds an image, 204 when it holds none (`/text`
+returns its text).
+
+```sh
+docker exec slk-user-backend sh -c 'addr=$(cat /proc/[0-9]*/environ | tr "\0" "\n" | sed -n "s/^SLK_CLIPBOARD_ADDR=//p" | head -1); curl -s -o /dev/null -w "%{http_code}\n" "http://$addr/image"'
+```
 
 **Caveat:** the docker pty reports no pixel dimensions, so the TIOCGWINSZ
 path for cell metrics always fails. slk recovers by querying the terminal

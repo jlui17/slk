@@ -144,9 +144,9 @@ def launch(window, sampler=None):
     r = {"rc": p.returncode, "first_frame": frame,
          "stamp_check": at(r"\+ ensure_backend$"),
          "rebuilt": any("go build" in l for _, l in trace)}
-    binl, tz, hb, hb_end, run = (at(r"\++ bin="), at(r"\++ readlink /etc/localtime"), at(r"\+ bridges=\("),
-                                 at(r"\+ tty_args="), at(r"\+ docker exec -i?t "))
-    if None in (r["stamp_check"], binl, tz, hb, hb_end, run):
+    binl, tz, run = (at(r"\++ bin="), at(r"\++ readlink /etc/localtime"),
+                     at(r"\+ python3 \S+/host-bridge\.py "))
+    if None in (r["stamp_check"], binl, tz, run):
         print("bench: launcher trace incomplete (rc=%s), tail:" % p.returncode, file=sys.stderr)
         for _, line in trace[-10:]:
             if "API_KEY" not in line:
@@ -154,8 +154,7 @@ def launch(window, sampler=None):
         return r
     r["backend"] = binl - r["stamp_check"]
     r["staleness_find"] = tz - binl
-    r["host_bridge"] = hb_end - hb
-    r["shell_other"] = run - binl - r["staleness_find"] - r["host_bridge"]
+    r["shell_other"] = run - binl - r["staleness_find"]
     r["shell_total"] = run
 
     hellos, probes, teams = [], 0.0, 0
@@ -181,7 +180,7 @@ def launch(window, sampler=None):
         pass
     r.setdefault("ratelimited", 0)
     if started is not None:
-        r["docker_run_to_main"] = started - run
+        r["bridge_to_main"] = started - run
     if protocol is not None:
         r["init_and_probes"] = protocol - started
         r["probes"] = probes
@@ -205,10 +204,9 @@ ROWS = [
     ("stamp check (docker volume inspect)", "stamp_check"),
     ("backend check (docker inspect)", "backend"),
     ("binary staleness find", "staleness_find"),
-    ("host bridge start", "host_bridge"),
     ("other launcher shell", "shell_other"),
-    ("= launcher before docker exec", "shell_total"),
-    ("docker exec -> slk main()", "docker_run_to_main"),
+    ("= launcher before host-bridge.py", "shell_total"),
+    ("host-bridge.py start -> slk main()", "bridge_to_main"),
     ("slk init incl. terminal probes", "init_and_probes"),
     ("  of which probe timeouts", "probes"),
     ("probes done -> first frame", "probes_to_frame"),
