@@ -122,7 +122,9 @@ A pane holds two processes: the launcher shell and
 `tools/host-bridge.py`, which runs the exec over the Docker Engine API (on
 the unix socket of the docker context the CLI uses, or `DOCKER_HOST`),
 relays the terminal to it in raw mode, and exits with slk's exit code. No
-docker CLI process stays in the pane.
+docker CLI process stays in the pane. Docker's detach sequence moves off
+its default ctrl+p ctrl+q to ctrl+^ ctrl+\ ctrl+@ ctrl+_, keys slk binds
+to nothing, so slk's ctrl+p reaches it at once.
 
 Each launch carries `SLK_EXEC_ID=<launcher pid>-<random>` in its
 environment, and every process it starts inherits it. That id is how a

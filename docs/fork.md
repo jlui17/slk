@@ -502,6 +502,11 @@ Invariants:
   a failed try repeats every 3s through a paused or hung docker, and at
   120s the bridge gives up and leaves the launch directory to a later
   launch's sweep.
+- **No key slk uses is docker's.** Docker holds back each key that could
+  begin an attached exec's detach sequence until the next one arrives,
+  and the default sequence begins with ctrl+p, slk's channel switcher.
+  Detaching can't be turned off, so the bridge moves it to four control
+  keys slk binds to nothing (`DETACH_KEYS`).
 
 ## Model calls: a key, else the host's ant login
 

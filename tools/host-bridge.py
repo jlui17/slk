@@ -548,6 +548,15 @@ def write_all(fd, data):
         view = view[os.write(fd, view):]
 
 
+# Docker watches an attached tty exec's input for a detach sequence, ctrl-p
+# ctrl-q unless told otherwise, and holds back each key that could begin it
+# until the next one arrives, so slk's ctrl+p would reach it a key late.
+# Detaching can't be turned off, only moved, so it moves to control keys
+# slk binds to nothing and no paste carries: one of them held back costs
+# nothing, and nobody types all four in a row.
+DETACH_KEYS = "ctrl-^,ctrl-\\,ctrl-@,ctrl-_"
+
+
 def attach(sock_path, container, spec, launcher, stop):
     """Runs the exec spec in container over the Engine API, with this
     process's stdin/stdout as its terminal, until the exec's stream ends;
@@ -562,7 +571,7 @@ def attach(sock_path, container, spec, launcher, stop):
     tty_in = os.isatty(0)
     size = winsize(1) if os.isatty(1) else None
     instance = exec_create(sock_path, container, dict(
-        spec, AttachStdin=tty_in, AttachStdout=True, AttachStderr=True, Tty=True))
+        spec, AttachStdin=tty_in, AttachStdout=True, AttachStderr=True, Tty=True, DetachKeys=DETACH_KEYS))
 
     wake_r, wake_w = os.pipe()
     signal.signal(signal.SIGWINCH, lambda *_: os.write(wake_w, b"w"))
