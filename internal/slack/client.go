@@ -492,6 +492,7 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	messages := make(chan []byte)
 	go func() {
 		defer close(messages)
+		defer conn.Close() // fork: an ended read loop closes its socket, docs/fork.md "One socket per workspace"
 		for {
 			_, message, err := conn.ReadMessage()
 			if err != nil {

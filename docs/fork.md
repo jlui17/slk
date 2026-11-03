@@ -189,7 +189,8 @@ there and resolve them knowing what the fork wants:
   (ratelimit_fork.go); plus WebSocket conn-pointer locking under
   `wsMu`, the test-injectable `wsDialer` field, and `GetUserInfoContext`
   on `SlackAPI` for the profile card's bounded users.info
-  (`client_fork.go`).
+  (`client_fork.go`); and `StartWebSocket`'s read loop closes its socket
+  when it ends ("One socket per workspace").
 - `internal/slack/client.go` (+ `client_test.go`) — `GetStarredChannels`
   keeps every conversation star (`starredConversationID` in
   `client_fork.go`: channel and im under `channel`, group under the
@@ -836,6 +837,21 @@ None is built: on these numbers the fleet is affordable. Revisit:
   fleet up, decides it.
 - **A**, if cross-process bugs keep coming despite the idempotency rule,
   or the pane count grows until memory matters.
+
+## One socket per workspace
+
+Each slk keeps one Slack websocket per workspace, and Slack counts every
+socket it still holds open against the user. When `StartWebSocket`'s read
+loop ends on an error (Slack's close, a read deadline, a bad frame),
+the loop closes its socket. Upstream's loop just returned, and the next
+connect dropped the old `*websocket.Conn` for the garbage collector: Slack
+still held the socket open, sometimes for minutes, and kept writing to it.
+Measured on 21 slks (2026-11-02): up to 15 such sockets per slk.
+
+`ConnectionManager.Run` dials again only after `WsDone`, which closes
+after the read loop has ended, so closing in the loop is enough: when the
+socket pointer is replaced, the old socket is already closed.
+`TestReadLoopExitClosesSocket` holds the server end open and counts it.
 
 ## Changes offered upstream
 
