@@ -190,8 +190,11 @@ there and resolve them knowing what the fork wants:
   `wsMu`, the test-injectable `wsDialer` field, and `GetUserInfoContext`
   on `SlackAPI` for the profile card's bounded users.info
   (`client_fork.go`); and `StartWebSocket`'s read loop closes its socket
-  when it ends, and records the socket's hello and `retry_after` in
-  `wsOutcome` (`websocket_fork.go`; "One socket per workspace").
+  when it ends, and records the socket's hello, `retry_after` and read
+  error in `wsOutcome` (`websocket_fork.go`); the read deadline comes from
+  `wsReadTimeout`, the read loop runs `keepAlive`, and the event owner
+  drops Slack's pongs before dispatch (`keepalive_fork.go`; "One socket
+  per workspace").
 - `internal/slack/client.go` (+ `client_test.go`) — `GetStarredChannels`
   keeps every conversation star (`starredConversationID` in
   `client_fork.go`: channel and im under `channel`, group under the
@@ -878,6 +881,24 @@ Reconnect catch-up (`syncOnReconnect`) runs from `OnConnect`, which only
 `hello` triggers, so a rejected socket never started one and nothing there
 changed.
 
+A quiet socket stays up because slk pings it. Slack's gateway sends
+nothing on a quiet workspace, not even a websocket ping, and the read loop
+gives a socket up after `wsReadTimeout` (60 s) without a frame. Measured
+2026-11-02: a Scorecard socket got `hello` and three frames, then nothing
+for 60 s, and ended on the deadline. Every slk gets the same last frame,
+so all their sockets for a workspace reached the deadline in the same
+instant and redialed together, and Slack answered that wave with
+Ratelimited (`retry_after` 10). Now each socket runs `keepAlive`
+(`keepalive_fork.go`): Slack's RTM ping, `{"type":"ping","id":N}`, every
+15-25 s, a fresh random wait each time so slks whose sockets opened
+together drift apart. Slack answers `{"type":"pong","reply_to":N}` within
+about 30 ms; the pong extends the deadline like any frame, and the event
+owner drops it before dispatch. The deadline is still the dead-socket
+check: two pings fit in one window, so a socket ends only after 60 s with
+no pong and no frame. With `SLK_DEBUG`, each ping logs the pongs so far,
+and each socket's end logs its uptime, read error, and ping and pong
+counts.
+
 Rejected:
 
 - **Close the previous socket when `StartWebSocket` replaces it.** `Run`
@@ -888,6 +909,15 @@ Rejected:
 - **Wait the full cap after any Ratelimited frame.** Exponential backoff
   reaches the cap within five rejections, and a slk whose rejection was a
   one-off reconnects sooner.
+- **RFC 6455 control pings.** Slack's gateway answers them too (measured),
+  but the official client runs in a browser or Electron, whose WebSocket
+  API cannot send a control frame, and Slack's RTM docs give the JSON ping
+  for keeping a socket alive. slk sends what the official client can send.
+- **Ping only after a quiet spell.** A fixed schedule costs a busy socket
+  about three small frames a minute, and keeps one code path.
+- **A longer read deadline.** Quiet stretches on a small workspace run for
+  minutes, and a longer deadline also leaves a dead socket unnoticed
+  longer.
 
 Backoff makes a rejected slk cheap; it doesn't get it connected. Each
 slk still asks for one socket per workspace, and if Slack's limit sits

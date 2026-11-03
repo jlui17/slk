@@ -3,6 +3,7 @@ package slackclient
 import (
 	"bytes"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,11 +17,17 @@ const healthySocketAge = 60 * time.Second
 // wsOutcome is what one socket proved before it ended: when Slack said
 // hello on it, and the error frame it got, with the retry_after that
 // frame asked for. The event owner writes it; Run reads it after
-// WsDone, which orders the two.
+// WsDone, which orders the two. The read loop's error, and the
+// keepalive's ping and pong counts, are there for the debug log.
 type wsOutcome struct {
 	helloAt    time.Time
 	errorMsg   string
 	retryAfter time.Duration
+
+	openedAt time.Time
+	readErr  error
+	pings    atomic.Int32
+	pongs    atomic.Int32
 }
 
 // observe records the hello and error frames Run's backoff depends on.

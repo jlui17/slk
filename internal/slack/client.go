@@ -469,14 +469,13 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	c.wsMu.Lock()
 	c.wsConn = conn
 	c.wsDone = make(chan struct{})
-	c.wsOutcome = &wsOutcome{} // fork: websocket_fork.go
+	c.wsOutcome = &wsOutcome{openedAt: time.Now()} // fork: websocket_fork.go
 	c.wsMu.Unlock()
 
 	// Detect dead connections: set a read deadline that resets on every
-	// incoming message or pong. Slack sends pings ~every 30s, so a 60s
-	// deadline gives plenty of margin. Without this, ReadMessage blocks
+	// incoming message or pong. Without this, ReadMessage blocks
 	// forever on a silently-dropped TCP connection (e.g., wifi disconnect).
-	const wsTimeout = 60 * time.Second
+	wsTimeout := wsReadTimeout // fork: keepalive_fork.go
 	conn.SetReadDeadline(time.Now().Add(wsTimeout))
 	conn.SetPongHandler(func(string) error {
 		conn.SetReadDeadline(time.Now().Add(wsTimeout))
@@ -495,10 +494,13 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	messages := make(chan []byte)
 	go func() {
 		defer close(messages)
+		// fork: keepalive_fork.go. Stops after the Close below, which unblocks a ping mid-write.
+		defer c.keepAlive(conn, wsTimeout)()
 		defer conn.Close() // fork: an ended read loop closes its socket, docs/fork.md "One socket per workspace"
 		for {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
+				c.wsOutcome.readErr = err // fork: websocket_fork.go
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 					return
 				}
@@ -529,6 +531,9 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 					return
 				}
 				if c.unfurls.deliver(message) {
+					continue
+				}
+				if c.wsOutcome.pong(message) { // fork: keepalive_fork.go
 					continue
 				}
 				c.wsOutcome.observe(message) // fork: websocket_fork.go

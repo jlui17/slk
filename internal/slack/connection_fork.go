@@ -25,9 +25,11 @@ func adjustBackoff(kicked bool, current, max time.Duration) time.Duration {
 // Slack accepts and then rejects counts as a failed attempt.
 func (cm *ConnectionManager) settleBackoff(backoff time.Duration, attempt int) (time.Duration, int) {
 	o := cm.client.wsOutcome
-	healthy := o.provedHealthy(time.Now())
-	debuglog.WS("team=%s socket ended: hello=%v healthy=%v error=%q retry_after=%v",
-		cm.client.teamID, !o.helloAt.IsZero(), healthy, o.errorMsg, o.retryAfter)
+	now := time.Now()
+	healthy := o.provedHealthy(now)
+	debuglog.WS("team=%s socket ended: hello=%v healthy=%v error=%q retry_after=%v up=%v read_err=%v pings=%d pongs=%d",
+		cm.client.teamID, !o.helloAt.IsZero(), healthy, o.errorMsg, o.retryAfter,
+		now.Sub(o.openedAt).Round(time.Millisecond), o.readErr, o.pings.Load(), o.pongs.Load())
 	if healthy {
 		return 1 * time.Second, 0
 	}
