@@ -89,14 +89,33 @@ ensure_backend() {
   fi
 }
 
+build_flags=(-ldflags="-s -w" -trimpath)
+
+# The build's inputs as one hash: its flags, then every file the build can
+# read (test files and testdata aside, embedded assets included) with a
+# hash of its content, so a deleted or renamed file, or one whose mtime
+# went back, changes it as an edit does. About 50ms on this repo.
+source_fingerprint() {
+  local files
+  files=$(cd "$repo" && find cmd internal go.mod go.sum -type f \
+    ! -name '*_test.go' ! -name '.*' ! -path '*/testdata/*' | LC_ALL=C sort)
+  { printf '%s\n' "${build_flags[*]}" "$files"
+    (cd "$repo" && printf '%s\n' "$files" | git hash-object --no-filters --stdin-paths)
+  } | git hash-object --stdin
+}
+
 # Builds this checkout's slk for the role in the backend when the binary is
-# missing or older than any Go source. Every launch runs it, and so does
-# tools/refresh-sessions.sh, once, while none of its sessions runs.
+# missing or was built from other sources than the tree holds now:
+# bin/<bin>.src records the fingerprint of the sources it was built from.
+# Every launch runs it, and so does tools/refresh-sessions.sh, once, while
+# none of its sessions runs.
 ensure_binary() {
-  local bin="$repo/bin/$bin_name"
-  if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" "$repo/go.mod" "$repo/go.sum" \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print -quit 2>/dev/null)" ]; then
-    echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
+  local bin="$repo/bin/$bin_name" fingerprint
+  fingerprint=$(source_fingerprint)
+  if [ ! -x "$bin" ] || [ "$(cat "$bin.src" 2>/dev/null)" != "$fingerprint" ]; then
+    echo "slk: $bin_name missing or built from other sources, rebuilding in docker (10-60s)..." >&2
     docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" \
-      go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
+      go build "${build_flags[@]}" -o "bin/$bin_name" ./cmd/slk
+    printf '%s\n' "$fingerprint" >"$bin.src"
   fi
 }
