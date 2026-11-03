@@ -1,9 +1,7 @@
 package thread
 
 import (
-	"bytes"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -11,7 +9,6 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 
 	"github.com/gammons/slk/internal/bubbles/entrylist"
-	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/peerstatus"
@@ -73,14 +70,6 @@ type Model struct {
 	// by every invalidation, by SetFocused, SetLastReadTS and ClickAt
 	// (the events that cleared the old view cache).
 	layoutValid bool
-
-	// flushKey is the layout the reply flushes were last written for;
-	// kitty uploads are re-emitted only when it changes, as when the old
-	// view cache was rebuilt.
-	flushKey struct {
-		selected, width, height int
-		hasSelection            bool
-	}
 
 	// chromeCache holds the rendered "header + separator" prefix that
 	// View() prepends to the reply area. Rebuilt only when its inputs
@@ -1127,7 +1116,9 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			Foreground(styles.TextMuted).
 			Render("No replies yet")
 		m.list.SetEntries([]entrylist.Entry{parent, {Ref: -1, Lines: strings.Split(empty, "\n")}}, width, false)
-		rows := m.list.Compose(m.list.Static(), "", "", false)
+		frame := m.list.Static()
+		m.flushVisible(frame) // fork: kittyflush_fork.go
+		rows := m.list.Compose(frame, "", "", false)
 		return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)
 	}
 
@@ -1183,7 +1174,6 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		}
 		m.cacheWidth = width
 		m.cacheReplyLen = len(m.replies)
-		m.flushKey.selected = math.MinInt // re-emit the kitty uploads
 		if debuglog.Enabled() {
 			debuglog.Perf("thread.buildCache N=%d width=%d took=%s reason=%s",
 				len(m.replies), width, time.Since(perfStart), perfReason)
@@ -1192,31 +1182,11 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 
 	m.setReplyList(width, keepPosition, parent) // fork: viewmemo_fork.go
 
-	// Kitty uploads for every reply (the thread cache is small, so no
-	// visibility scoping), written straight to the terminal output: APC
-	// sequences embedded in line content get mangled by the renderer.
-	// Re-emitted only when the layout changes, as before.
-	key := m.flushKey
-	key.selected, key.width, key.height, key.hasSelection = m.selected, width, replyAreaHeight, m.list.HasSelection()
-	if key != m.flushKey || !m.layoutValid {
-		var kittyFlushBuf bytes.Buffer
-		for _, p := range m.cache {
-			for _, fl := range p.Flushes {
-				if fl != nil {
-					_ = fl(&kittyFlushBuf)
-				}
-			}
-		}
-		if kittyFlushBuf.Len() > 0 {
-			_, _ = imgpkg.KittyOutput.Write(kittyFlushBuf.Bytes())
-		}
-		m.flushKey = key
-	}
-
 	// Snap to the cursor if it moved, slice the window, translate the
 	// reply hits (content-relative), overlay the selection, draw the
 	// scrollbar.
 	frame := m.list.Layout(m.selected, m.selectedLines)
+	m.flushVisible(frame) // fork: kittyflush_fork.go
 	rows := m.list.Compose(frame, "", "", applySelection)
 	m.layoutValid = true
 	return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)

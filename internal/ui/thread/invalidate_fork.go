@@ -1,7 +1,6 @@
 package thread
 
 import (
-	"math"
 	"reflect"
 	"slices"
 
@@ -207,7 +206,6 @@ func (m *Model) refreshStaleReplies(width int) {
 	}
 	marks.stale, marks.relayout = nil, false
 	m.memo.listOK = false
-	m.flushKey.selected = math.MinInt // re-emit the kitty uploads
 }
 
 // renderReplyEntry renders reply i: its list entry and its payload.

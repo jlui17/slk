@@ -349,6 +349,11 @@ there and resolve them knowing what the fork wants:
   (`registry_fork.go`), where upstream sends each image once per process.
   herdr keeps 64 MiB of a pane's images and drops the oldest past that,
   so an emoji sent early in a long session drew blank.
+- `internal/ui/thread/model.go` — the thread pane sends the kitty uploads
+  of the parent and replies on screen each frame (`flushVisible`,
+  `kittyflush_fork.go`), where upstream sends every reply's on each
+  layout change; the `flushKey` that gated it is gone. See "Kitty
+  uploads follow the screen" below.
 - `internal/image/fetcher.go`, `preview.go`, `internal/ui/imgrender/imgrender.go`,
   `internal/ui/messages/blockkit/image.go` — a prerendered image keeps no
   decoded raster: the fetcher stores a decoded entry only when it did not
@@ -703,6 +708,49 @@ No cap on the payloads: an evicted payload means a fetch and an encode
 again when the image is next drawn, a placeholder for about 100ms, and
 since this change a pane sits well under its memory limit. Revisit if
 an image-heavy pane nears `GOMEMLIMIT`.
+
+## Kitty uploads follow the screen
+
+A kitty image is drawn as placeholder cells naming an image id, and the
+terminal must hold that id's pixels. herdr keeps 64 MiB of a pane's
+images and drops the oldest upload past that, even one on screen, so
+the registry sends an image again once 48 MiB of uploads went out after
+it (`registry_fork.go`). **That rule holds only while what slk uploads
+at a time fits the terminal's store.** So both panes send only the
+uploads of the entries a frame shows, every frame: the channel pane
+always did (`messages.Model.View`), and the thread pane does through
+`flushVisible` (`thread/kittyflush_fork.go`), the parent included. A
+flush sends nothing when the registry thinks the terminal still holds
+its image, so an unchanged frame writes nothing, and an image that
+scrolls back into view after the terminal dropped it goes out once.
+
+Why: upstream's thread pane sent every reply's images on each cursor
+move or resize. On the 105-image #eng thread (200 MiB decoded) the
+first pass overflowed herdr's store, the registry then counted every
+image as dropped, and every key press sent the whole thread again:
+45,707 uploads, 9.4 GiB in one run, ~400 ms per redraw, and the images
+sent first drawn blank. `TestKitty_ThreadUploadsOnlyTheImagesOnScreen`
+drives 65 images of 1.6 MiB through `kittytest.Terminal`, a stand-in
+with herdr's store, down with `j` and back up with the wheel: 4,291
+uploads (6.7 GiB) and 261 frames with a blank image before, 104 uploads
+and none blank after. `TestKitty_ChannelUploadsOnlyTheImagesOnScreen`
+holds the channel pane to the same bounds. Live under herdr on that
+thread (2026-11-02), j to the bottom and k back, 370 presses each way:
+63,636 uploads and 12.7 GiB written, redraws at p90 512 ms, before;
+170 uploads and 35 MiB, p90 5.4 ms, after.
+
+Rejected:
+
+- **Dropping the re-send rule** (upstream's send-once). The thread
+  stops looping but an image the store dropped stays blank, which is
+  what the rule fixed.
+- **Sending the whole thread less often**, or a larger budget. A thread
+  bigger than the terminal's store cannot be held at once however often
+  it is sent; whatever went first is dropped.
+- **Gating on the image's own rows** rather than its entry's. The
+  payload carries one flush list per entry, not per row, and the
+  entry-level scope costs at most the images of the two entries the
+  window's edges cut through, the same as the channel pane.
 
 ## Caches that must stay
 

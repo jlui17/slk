@@ -8,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/slk/internal/bubbles/entrylist"
-	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 )
@@ -52,7 +51,7 @@ type listKey struct {
 
 // parentRow returns the parent's entry for this frame, rendering it only
 // when its key changed or the cache was dropped. Its image uploads go
-// out every frame, as when it was rendered every frame.
+// out while it is on screen (flushVisible).
 func (m *Model) parentRow(width int) entrylist.Entry {
 	parentIsSelected := m.selected == parentSelected
 	key := parentKey{
@@ -67,18 +66,13 @@ func (m *Model) parentRow(width int) entrylist.Entry {
 		m.memo.parentAt, m.memo.parentOK = key, true
 		m.memo.parentGen++
 	}
-	for _, fl := range m.memo.flushes {
-		if fl != nil {
-			_ = fl(imgpkg.KittyOutput)
-		}
-	}
 	return m.memo.parent
 }
 
 // renderParentRow renders the parent as entry 0 of the list: its rows,
 // then the rule under it. The rule is not selectable text (Plain stops
-// before it). The parent's image uploads go out with it rather than
-// with the replies'; they are returned for parentRow to send. We
+// before it). The parent's image uploads are returned for the memo to
+// keep; flushVisible sends them while the parent is on screen. We
 // discard the parent's reaction hits in v1, as before; its image hits
 // are kept so a click on its image opens the preview.
 func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Entry, []func(io.Writer) error) {
