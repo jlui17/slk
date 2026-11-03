@@ -557,11 +557,22 @@ def write_all(fd, data):
 DETACH_KEYS = "ctrl-^,ctrl-\\,ctrl-@,ctrl-_"
 
 
+ALT_ON, ALT_OFF = b"\x1b[?1049h", b"\x1b[?1049l"
+
+
+def alt_screen_after(was, data):
+    """Whether the terminal is on the alternate screen once data is written
+    to it: was, unless data switches it; None while nothing has switched."""
+    on, off = data.rfind(ALT_ON), data.rfind(ALT_OFF)
+    return was if on == off else on > off
+
+
 def attach(sock_path, container, spec, launcher, stop):
     """Runs the exec spec in container over the Engine API, with this
     process's stdin/stdout as its terminal, until the exec's stream ends;
-    returns the exec instance's id. A docker error before the stream
-    starts is raised.
+    returns the exec instance's id, and whether slk left the alternate
+    screen it had entered, which it does only on its own way out. A docker
+    error before the stream starts is raised.
 
     The terminal is in raw mode, so a Ctrl+C reaches slk as a byte, never as
     a signal here. Without a terminal on stdin (an agent shell), slk still
@@ -627,6 +638,8 @@ def attach(sock_path, container, spec, launcher, stop):
             threading.Thread(target=send_resizes, daemon=True).start()
         out_ok = True
         reading = tty_in
+        # The last bytes seen, for a switch split across two reads.
+        alt, tail = alt_screen_after(None, early), early[-(len(ALT_ON) - 1):]
         if early:
             write_all(1, early)
         with s:
@@ -639,6 +652,8 @@ def attach(sock_path, container, spec, launcher, stop):
                         data = b""
                     if not data:
                         break
+                    alt = alt_screen_after(alt, tail + data)
+                    tail = (tail + data)[-(len(ALT_ON) - 1):]
                     if out_ok:
                         try:
                             write_all(1, data)
@@ -672,32 +687,41 @@ def attach(sock_path, container, spec, launcher, stop):
                             stop()
     finally:
         restore()
-    return instance
+    return instance, alt is False
 
 
-def exit_code(sock_path, instance):
+def exit_code(sock_path, instance, timeout=CALL_SECS):
     """The exec instance's exit code once docker has it (the stream can end
     a moment before), or None while it still runs a second on."""
     for _ in range(10):
-        info = engine(sock_path, "GET", "/exec/%s/json" % instance)
+        info = engine(sock_path, "GET", "/exec/%s/json" % instance, timeout=timeout)
         if not info["Running"]:
             return info["ExitCode"]
         time.sleep(0.1)
     return None
 
 
-def how_it_ended(sock_path, where, container, started, instance):
+# How long docker gets to say how slk exited once slk quit on its own.
+QUIT_CALL_SECS = 3
+
+
+def how_it_ended(sock_path, where, container, started, instance, quit_itself):
     """slk's exit code once the exec's stream ended without a stop from
-    here, or why the session was lost instead."""
+    here, or why the session was lost instead. When slk quit on its own
+    (quit_itself: it left the alternate screen), docker gets
+    QUIT_CALL_SECS per call, and when it doesn't answer, that quit is
+    trusted as a clean one, exit code 0: docker going quiet after slk has
+    gone loses nothing."""
+    timeout = QUIT_CALL_SECS if quit_itself else CALL_SECS
     try:
-        code = exit_code(sock_path, instance)
+        code = exit_code(sock_path, instance, timeout)
         # A backend going down kills slk with it, and docker reports the
         # backend down a moment later (a restart, back up a moment after
         # that), so a killed or still running slk gets a second's watch.
         down = None
         checks = 10 if code is None or code > 128 else 1
         for i in range(checks):
-            state = engine(sock_path, "GET", "/containers/%s/json" % quote(container))["State"]
+            state = engine(sock_path, "GET", "/containers/%s/json" % quote(container), timeout=timeout)["State"]
             if state["StartedAt"] != started:
                 down = "restarted"
                 break
@@ -715,6 +739,8 @@ def how_it_ended(sock_path, where, container, started, instance):
             return None, "%s was removed" % container
         return None, "docker failed: %s" % e
     except DOCKER_ERRORS as e:
+        if quit_itself:
+            return 0, None
         return None, "docker stopped answering at %s: %s" % (where, getattr(e, "strerror", None) or e)
 
 
@@ -779,7 +805,7 @@ def main():
 
     try:
         started = engine(sock_path, "GET", "/containers/%s/json" % quote(container))["State"]["StartedAt"]
-        instance = attach(sock_path, container, {"Cmd": cmd, "Env": env, "WorkingDir": workdir}, launcher, stop)
+        instance, quit_itself = attach(sock_path, container, {"Cmd": cmd, "Env": env, "WorkingDir": workdir}, launcher, stop)
     except EngineError as e:
         sys.exit("slk: docker can't start slk in %s: %s" % (container, e))
     except DOCKER_ERRORS as e:
@@ -794,7 +820,7 @@ def main():
         except DOCKER_ERRORS:
             code = None
     else:
-        code, lost = how_it_ended(sock_path, where, container, started, instance)
+        code, lost = how_it_ended(sock_path, where, container, started, instance, quit_itself)
         if lost:
             try:
                 if os.isatty(1):
@@ -804,7 +830,7 @@ def main():
                 pass
         # Whatever the launch left running goes too: slk itself when only
         # its stream dropped, else nothing, which returns at once.
-        ok = stop_once(sock_path, container, exec_id, STOP_CALL_SECS)
+        ok = stop_once(sock_path, container, exec_id, QUIT_CALL_SECS if quit_itself else STOP_CALL_SECS)
         if not ok:
             # Docker may be back in seconds with slk still running in it:
             # the pane gets its prompt back now, and a child keeps trying.

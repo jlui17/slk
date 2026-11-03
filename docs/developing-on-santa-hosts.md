@@ -141,7 +141,10 @@ launch is found and stopped:
 
 When the backend stops, restarts or is removed mid-session, or docker
 stops answering, the bridge restores the terminal, prints one line saying
-what happened and how to relaunch, and exits 1.
+what happened and how to relaunch, and exits 1. A slk that quit on its
+own (it left its alternate screen) is never reported that way: docker
+gets 3s to give its exit code, and a docker that stays silent counts as
+a clean exit, 0.
 
 Check it by hand:
 
