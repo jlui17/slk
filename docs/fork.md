@@ -3,7 +3,10 @@
 This repo is a fork of [gammons/slk](https://github.com/gammons/slk) that
 tracks `upstream/main`. The fork adds herdr integration, thread-unread
 handling, link opening/downloading, reconnect UX, and concurrency hardening.
-Everything here exists to keep `git merge upstream/main` cheap.
+Most of this doc exists to keep `git merge upstream/main` cheap. The
+design sections ("Many slks, one cache" through "One slk per pane,
+measured and kept") record how the fork works: what each design does,
+why, and the alternatives that were measured and rejected.
 
 ## Layout rule: fork code lives in fork-only files
 
@@ -318,6 +321,22 @@ there and resolve them knowing what the fork wants:
   builds the cursor entry's rows on first use, byte for byte the ones
   `WrapRows` builds (`lazyselected_fork.go`). Upstream's tests that read
   `Entry.Selected` read the rows through the payload instead.
+- `internal/ui/messages/model.go` — each `EntryPayload` records the focus
+  its rows were built with, and `selectedLines` first calls
+  `refocusEntry` (`focus_fork.go`), which renders the entry again when it
+  is drawn selected under the other focus; upstream re-renders only the
+  entry selected when the focus changes.
+- `internal/ui/messages/render_message.go` — the body is styled by
+  `renderBodyText` (`bodytext_fork.go`), which measures each line once and
+  writes the bytes `styles.MessageText.Render` writes, where upstream
+  calls lipgloss (`TestRenderBodyTextMatchesLipgloss` pins the bytes).
+- `internal/ui/messages/render.go` — `substituteBgSGR` writes each
+  escape's parameters through `writeSubstitutedSGRParams`
+  (`sgr_fork.go`), which walks them in place; upstream's tokenizer
+  (`splitSGRParams`, `sgrParam`) is deleted.
+- `internal/bubbles/entrylist/plain.go` — `buildPlainLine` maps runs of
+  ASCII through `plainASCIIRun` (`plain_fork.go`) and asks uniseg only
+  from the byte before a non-ASCII one.
 - `internal/cache/db.go` — one-line hooks into fork helpers
   (`migrateFork`, `removeThreadSweepLocks`).
 - `internal/ui/reducer_threads.go` — a fetched thread is marked through
@@ -330,6 +349,17 @@ there and resolve them knowing what the fork wants:
   (`registry_fork.go`), where upstream sends each image once per process.
   herdr keeps 64 MiB of a pane's images and drops the oldest past that,
   so an emoji sent early in a long session drew blank.
+- `internal/image/fetcher.go`, `preview.go`, `internal/ui/imgrender/imgrender.go`,
+  `internal/ui/messages/blockkit/image.go` — a prerendered image keeps no
+  decoded raster: the fetcher stores a decoded entry only when it did not
+  prerender, both readers try `Prerendered` before `Cached`, and the
+  kitty paths that own their key render through `RenderSource`
+  (`kitty_fork.go`). See "Images keep no decoded raster" below.
+- `internal/image/sixelframe.go`, `sixelpaint.go` — `SixelFrame` carries
+  the frame's `Screen` text and `SixelPlan` the placements it erases
+  (`gone`), so the erase rewrites the cells it cleared from the frame
+  (`appendFrameCells`, `sixelframe_fork.go`); upstream blanks them to
+  the theme background, which Bubble Tea's diff then never repaints.
 - `internal/bootstrap/*` — `Run`'s post-userBoot chain routed through the
   `overlapPhases` hook (`bootstrap_fork.go`); the `revalidate` entry point
   deleted, its nil-guards moved into the hook; the two serial-order tests
@@ -375,10 +405,20 @@ there and resolve them knowing what the fork wants:
 Several slks often run at once on one machine, sharing one `cache.db`,
 and every one of them gets every Slack event. So a cache write driven by
 a Slack event must leave the same result however many slks apply it: set
-what the event carries, or count once per thing the event identifies
-(`CountChannelMention`, `cacheReaction`), never add to what is there. Its
-test applies the event through several handlers on one cache file
-(`TestOnMessage_MentionCountsEachMessageOnce`).
+what the event carries, or count once per thing the event identifies,
+never add to what is there.
+
+- `cacheReaction` keeps one entry per user per emoji.
+- `CountChannelMention` adds a message to its channel's mention badge
+  only when its `(channel_id, ts)` row in `counted_mentions` is new, in
+  one transaction. The row outlives a read of the channel, so a slk that
+  applies the message after the read doesn't badge it again. Rows a day
+  older than the newest counted message in the channel are pruned as
+  it is counted.
+
+Their test applies the event through several handlers on one cache file
+(`TestOnMessage_MentionCountsEachMessageOnce`; with upstream's
+increment, 17 handlers badged one DM as 17).
 
 ## Overlapped boot, unchanged call pattern
 
@@ -401,6 +441,292 @@ overlap squash-merged to main as a single feature commit (`git log -S
 overlapPhases` finds it), and reverting it restores the fully serial
 chain — nothing else depends on the timing.
 
+## One backend per role, one bridge per pane
+
+Santa kills locally built binaries, so on a Santa host slk runs in
+docker; the commands and checks are in
+`docs/developing-on-santa-hosts.md`. Each role (user, agent) has one
+long-lived container, `slk-<role>-backend` (`tools/backend.sh`), and
+every slk of that role runs in it as an exec. A pane holds two host
+processes: its launcher shell (`tools/run-docker.sh`) and
+`tools/host-bridge.py`. The bridge runs the exec over the Docker Engine
+API on docker's unix socket and relays the pane's terminal to it in raw
+mode. It also serves what the container can't reach: the herdr socket,
+the macOS clipboard for Ctrl+V, and the link spool that `o` writes to.
+When the pane or its launcher goes away, the bridge stops the pane's
+slk.
+
+Why:
+
+- **An exec reaches slk's `main()` in 0.04s, where a `docker run` took
+  0.18s.** `tools/go.sh` runs in the same backend: 0.15s per command
+  instead of 0.35s.
+- **A pane costs 21.4 MiB of host memory, down from 64.9 MiB** with a
+  docker CLI process per pane, about 0.9 GiB less across 20 panes. One
+  backend held 20 slks in 787 MiB, where 17 per-pane containers took
+  about 900 MiB.
+- **Docker is in one place.** Every launch, stop, refresh and check of a
+  role goes to one container known by name, and the bridge is the only
+  process in a pane that talks to docker.
+
+Rejected:
+
+- **A container per pane** (the path before this one): the slower
+  `docker run` above, and a container plus a docker CLI process per pane.
+- **A host daemon owning every pane** (prototyped): a crash of the one
+  process ends every pane, it needs a reaper of its own, and
+  `refresh-sessions.sh` and the slk-herdr skill would have to be
+  rewritten. A bridge per pane fails one pane at a time.
+- **The docker CLI per pane in front of the shared backend** (shipped
+  first, replaced the same day): 46 MiB of host memory per pane for a
+  process that only relays bytes.
+
+Invariants:
+
+- **Never stop, restart or remove a backend while it runs anything.** It
+  holds every pane of its role, and `slk-agent-backend` holds every
+  agent's sessions. `backend.sh` recreates a stale backend only while
+  nothing runs in it; otherwise it warns and uses it as it is.
+- **A run gets one SIGINT.** Bubble Tea stops listening after the first,
+  so a second kills slk mid-shutdown. `tools/stop-exec.sh` claims a run
+  with a marker directory before it signals, so racing stoppers (the
+  launcher and the bridge) send one between them, and whatever is left
+  5s later gets SIGKILL. A run is found by the `SLK_EXEC_ID` in its
+  processes' environment, never by name or pattern.
+- **A pane's slk is stopped within two minutes of its pane closing**, as
+  long as docker answers by then. Closing a herdr tab sends HUP, TERM,
+  then KILL within half a second, faster than slk shuts down, and an
+  exec'd process outlives its client. So the bridge leaves the pane's
+  session and ignores those signals, then stops slk: each try gets 20s,
+  a failed try repeats every 3s through a paused or hung docker, and at
+  120s the bridge gives up and leaves the launch directory to a later
+  launch's sweep.
+
+## Threads load on demand
+
+The Threads view loads the way it does in the Slack app, and boot makes
+no `subscriptions.thread.getView` call.
+
+- **The Threads badge and the rail's thread dot come from Slack.** Boot
+  and reconnect ask `client.counts` with `thread_counts_by_channel`, as
+  the web client does, and the `update_global_thread_state` event keeps
+  them current (`threadsBadge`, `cmd/slk/thread_subscriptions.go`). The
+  badge counts unread followed threads: the sum of
+  `unread_count_by_channel` (`ThreadsAggregate`).
+- **Opening Threads fetches one getView page** (`limit=8`,
+  `_x_reason=fetch-threads-view-via-refresh`), and moving near the end of
+  the loaded rows fetches the next (`fetch-threads-view-via-load-more`).
+  While the view is open, a change Slack reports refetches the first
+  page, at most once a second.
+- **`thread_subscriptions` is only a cache of per-thread read cursors**,
+  for the thread panel's `── new ──` line. `thread_marked` events,
+  getView pages and the root of each replies fetch feed it.
+
+Upstream sweeps every followed thread with getView at boot and on
+reconnect, to count the badge and the rail from that table. **The sweep
+was about 70% of a boot's requests**: 88–116 of 126–160 on a large
+workspace, and 18–21s of paging. Without it, boot on that workspace
+makes 40 requests warm and 41–43 cold, where it made 51–56 and 86–133
+with the fork's cross-pane sweep claim.
+
+Upstream loaded on demand once and went back to the sweep (`2693c094`):
+the view and badge read the table, the socket replays nothing after an
+offline gap, and the one getView ran once per session, so after a gap
+the table stayed stale for the rest of the session. **Here nothing reads
+the table for the list or the badge**: the list comes from Slack on
+every open, and the badge from Slack at boot, on every reconnect and on
+every event. A stale cursor in the table can only misplace a `── new ──`
+line.
+
+**A page load never opens a thread.** Slack lists unread threads first.
+When a page load opened the selected thread, slk marked it read, the
+next first-page refresh no longer held it, the selection fell to the
+next unread thread, and the page load opened that one too: a cascade
+that marked real threads read in testing. Now only the user opens a
+thread, a refresh keeps every loaded row the new page doesn't hold, and
+the end-of-list guard accepts the cursor's forward jump where a page
+crosses from unread to read threads. `TestThreadsPageLoad_OpensNoThread`,
+`TestThreadsRefresh_ReadThreadLeavingFirstPageOpensNothing` and
+`TestGetThreadsView_CursorJumpingForwardContinues` pin it.
+
+Rejected: keeping the sweep behind its cross-pane claim (every pane
+restart outside its 30-minute window still paid about 100 calls), and
+fetching several pages on open (Slack loads on scroll). Not yet done:
+dropping `thread_subscriptions` and taking every cursor from the root's
+`last_read`, which would also change `OnThreadMarked` and
+`markThreadRead`.
+
+The same change, cut from `upstream/main`, is on
+`threads/on-demand-upstream` and not yet offered (see "Changes offered
+upstream").
+
+## Render caches: an update equals a full build
+
+The channel and thread panes keep each message's rendered rows and
+re-render only what an event changes. The rule that keeps this correct:
+**an incrementally updated cache equals a fresh full build, byte for
+byte.** Tests hold every path to it by applying the event and comparing
+each entry with a pane rebuilt from scratch:
+
+- `internal/ui/messages/invalidate_oracle_fork_test.go` and
+  `internal/ui/thread/invalidate_oracle_fork_test.go`: every targeted
+  invalidation, each entry's selected rows included. A new one gets a
+  case there.
+- `messages/widthcache_fork_test.go`: the restored width, and after each
+  kind of list change, a pane that never opened a thread.
+- `messages/lazyselected_fork_test.go`: lazily built selected rows
+  against `WrapRows`.
+- `thread/viewmemo_fork_test.go` and `messages/focus_fork_test.go`.
+
+The pieces:
+
+- **Row-level invalidation** (`invalidate_fork.go` in each pane). A name
+  resolving, a status change, a mark from another client or slk, a
+  reaction-nav key, a reload, an older page and a sent message's ts (and
+  in the thread a new reply, an edit or a reaction) render only the
+  entries they change. Width, theme, emoji, channel names and user
+  groups still drop the whole cache.
+- **Two widths** (`widthcache_fork.go`). The channel pane keeps the
+  cache of the width it was drawn at before, so opening and closing a
+  thread restores rows instead of rendering them again. **Any change to
+  the message list drops the other width**: a restore carries the scroll
+  position and cursor over entry for entry, so its entries must be the
+  messages on screen, one for one. A version that kept it across a list
+  change moved the cursor to the wrong message.
+- **Lazy selected rows** (`lazyselected_fork.go`). A build renders no
+  selected variant; the cursor's entry builds its own when first drawn.
+- **Thread parent memo** (`viewmemo_fork.go`). The parent's entry and the
+  list are kept until the cache, the width, the cursor on the parent,
+  the focus, a text selection, the unread boundary or the day changes.
+- **Focus recorded per row** (`focus_fork.go`). Each channel entry
+  records the focus its selected rows were built with and renders again
+  the first time it is drawn selected under the other focus. The thread
+  pane rebuilds its replies when the focus changes.
+
+Why: before, each of these events re-rendered the whole pane. Median of
+6, 200 messages in a 477×130 window, one View per event:
+
+| Event | Before | After |
+|---|---|---|
+| Name of someone not on screen resolves | 10.4ms | 0.23ms |
+| Mark from another client | 10.3ms | 1.26ms |
+| Reaction-nav key | 10.3ms | 0.42ms |
+| Channel fetch lands unchanged | 10.2ms | 1.35ms |
+| Older page of 50 | 12.4ms | 4.1ms |
+| Thread open plus close | 22.9ms | 5.5ms |
+| Full build (`BenchmarkBuildCache`) | 8.8ms | 6.1ms |
+| Idle thread frame, 200 replies | 300µs | 17µs |
+
+A name change by the author of every message still renders them all.
+
+## Images keep no decoded raster
+
+Upstream keeps every drawn inline image's decoded RGBA at full
+cell-pixel size for the rest of the session: in the fetcher's decoded
+memo and, for kitty, again as the kitty renderer's source. A 69×20-cell
+image at a 17×37 cell is 3.5 MB, against the 400 MiB `GOMEMLIMIT`
+`run-docker.sh` sets. The fork keeps neither once the image is
+prerendered: the fetch worker stores a decoded entry only when it did
+not prerender, both readers (`imgrender.RenderBlock`, blockkit's
+`fetchOrPlaceholder`) try `Prerendered` first, and the kitty paths that
+own their key render through `KittyRenderer.RenderSource`, which lets
+the source go once the render is built.
+
+Heap kept per image, 20 photos of 1280×800 at 69×20 cells: kitty 5.54 →
+2.07 MB, halfblock 3.54 → 0.07 MB. The same steps through a thread of
+105 images left a pane at 254 MiB, against 408 MiB before.
+`TestFetcher_PrerenderedFetchKeepsNoDecodedRaster` and
+`TestRenderBlock_PrerenderedImageRendersWithoutDecodedCopy` pin it.
+
+**What stays is the kitty PNG payload**, about 2 MB per image (`payloads`
+in `kitty.go`). The registry sends an image again once 48 MiB of uploads
+went out after it (`registry_fork.go`), and that re-send uploads the
+kept payload. Avatars still set their source with `SetSource`, since
+another goroutine may set the same key.
+
+No cap on the payloads: an evicted payload means a fetch and an encode
+again when the image is next drawn, a placeholder for about 100ms, and
+since this change a pane sits well under its memory limit. Revisit if
+an image-heavy pane nears `GOMEMLIMIT`.
+
+## Caches that must stay
+
+A study (2026-11-02, headless boots warm against cold, one slk at a
+time) asked whether slk could drop its caches and be fast without them.
+Its conclusions, so no cache goes without these numbers:
+
+- **The render memos are the performance.** `App.View` from its memo
+  takes about 30µs, and `messages.buildCache` for 50 real messages
+  13–23ms. Without the entry caches every frame pays that: 4–12% of a
+  core per idle pane and about 20ms on every key. The same holds for
+  `panelcache.go`, the scrollbar cache, and the avatar and image memos.
+- **`cache.db` buys paint, not rate limits.** A cold boot made 155–160
+  requests against 126–128 warm, with no 429 either way. What it buys is
+  the sidebar at 0.41s instead of 1.08–1.20s (the fork's cache-first
+  boot, `cachefirst_fork.go`), and every channel switch or thread open
+  painted from SQLite in 7–19ms instead of waiting 120–190ms on the
+  network.
+- **Smaller caches each save something measured.** `channel_members`
+  saves a `conversations.members` call per channel open, the on-disk
+  image cache a CDN download (about 365ms) per image per restart, and
+  the edge version stores keep payloads small in the official client's
+  call shape.
+- **Some tables are state, not caches**: `marks`, `frecent`,
+  `panestate`, `herdrpane`, `channelvisits`, `agentthreadmarks`. A cold
+  boot without them opened the wrong channel.
+
+The one cache that cost more than it saved was `thread_subscriptions`
+as the source of the Threads list; see "Threads load on demand". Dead
+weight upstream owns (the `files` table, the `channels.latest_synced_ts`
+write on every message, `bootstrap.Result.EmojiCacheTS`) is left in
+place, since removing it would grow the footprint; it's an upstream PR.
+
+## One slk per pane, measured and kept
+
+The shared backend shares a container, not a process: each pane still
+runs its own slk, with its own Slack websockets and its own writes to
+the shared `cache.db`. Measured with 17 panes (2026-11-02):
+
+- 34 websockets, one per workspace per slk, and about 50,000 duplicate
+  WebSocket frames an hour.
+- About 60,000 SQLite writes an hour, 16 of every 17 rewriting a row
+  another slk just wrote.
+- About 900 MiB and 3–13% of one core across the fleet (since then, 787
+  MiB for 20 slks in one backend).
+- About 470 lines of fork code that exist only because many slks share
+  one state volume: `internal/filelock`, the notification leader
+  (`internal/notify/leader.go`), `config_lock.go`, the cache watermark,
+  `cacheReaction`, `CountChannelMention`, and atomic image-cache and
+  token writes.
+
+Options:
+
+- **A. One slk per role, each pane attaching to it**, as the Slack
+  desktop app runs. It saves 32 of 34 sockets, the duplicate events and
+  writes, an estimated 500–650 MiB, and the whole cross-process bug
+  class.
+  - The active workspace is process-global (`router.Active()` at 51
+    sites, 40 in `main.go`), and every `p.Send` (57 sites) would fan out
+    to N programs, in the upstream files that change most (74 upstream
+    commits in 30 days). Weeks of work and permanent merge pain.
+  - One crash would take every pane down.
+- **B. One websocket relay per role.** About 200–300 fork-only lines and
+  one dial hook buy 2 Slack sockets instead of 34. Events, writes and
+  memory stay per pane.
+- **C. A writer lease per workspace.** It saves only the duplicate
+  writes, and loses events while the leader's socket reconnects and the
+  followers' are live. Idempotent writes ("Many slks, one cache") do
+  better.
+
+None is built: on these numbers the fleet is affordable. Revisit:
+
+- **B**, if Slack's `Ratelimited` socket drops grow with the number of
+  sockets. One instance saw 2 in 10 minutes. Measuring one slk's
+  reconnect rate with the user panes closed, against the rate with the
+  fleet up, decides it.
+- **A**, if cross-process bugs keep coming despite the idempotency rule,
+  or the pane count grows until memory matters.
+
 ## Changes offered upstream
 
 Upstream-file changes the fork carries ahead of upstream, each also on
@@ -411,7 +737,9 @@ upstream's and drop the fork's.
 - `internal/bubbles/scrollbar/cache.go`, `scrollbar.go`,
   `internal/bubbles/entrylist/entrylist.go`, `window.go` — `scrollbar.Cache`
   cuts each pane row once instead of on every frame (branch
-  `perf-scrollbar-fullwidth`).
+  `perf-scrollbar-fullwidth`). Since then `SetEntries` calls
+  `Cache.Trim(total)` where the branch calls `Reset`, so an appended
+  message keeps the rows above it cut; the branch doesn't have it yet.
 - `internal/ui/panelcache.go`, `view_messages.go`, `view_thread.go` —
   the channel and thread panes' compose region (typing or status row,
   compose box, bottom edge) is cached on its rendered strings instead of
@@ -440,4 +768,12 @@ upstream's and drop the fork's.
   opens, and the Threads badge and rail come from Slack's own thread
   counts, where upstream sweeps every followed thread with getView at
   boot and on reconnect (branch `threads/on-demand-upstream`; not yet
-  offered).
+  offered, so the fork carries it as an in-place divergence until then).
+  The neighbours: `cmd/slk/bootstrap_adapters.go`, `workspace.go`,
+  `markread.go`, `main.go`, `internal/bootstrap/bootstrap.go`,
+  `internal/cache/thread_subscriptions.go`, `internal/core/ports.go`,
+  `adapters.go`, `internal/demo/*`, `internal/slack/activity.go`, and in
+  `internal/ui` `app.go`, `msgs.go`, `reducer_send.go`,
+  `reducer_workspace.go`, `reducer_mouse.go`. Upstream's
+  `cmd/slk/rail_threads_cache.go` and `internal/cache/threads.go` (and
+  their tests) are deleted. See "Threads load on demand".
