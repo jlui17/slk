@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Restart every live user-role slk session in the current herdr session so
-# they pick up the current source: stop all of them first, rebuild
-# bin/slk-linux once, then relaunch each pane.
+# they pick up the current source: rebuild bin/slk-linux once while they
+# run, then stop all of them and relaunch each pane.
 # Judgment, gotchas, and when not to use this:
 # plugins/slk-herdr/skills/slk-herdr/SKILL.md
 #
@@ -84,6 +84,14 @@ if [ "${#blocked[@]}" -gt 0 ]; then
   exit 1
 fi
 
+# Build before stopping anything: a rebuild is safe under running sessions,
+# so they are down only for the relaunch, and a failed build leaves every
+# one running on its old build.
+if ! ensure_binary; then
+  echo "aborting, the build failed; every session is still running its old build" >&2
+  exit 1
+fi
+
 # Stop them all: SIGINT to each launch inside the backend (slk's shutdown
 # path; tools/stop-exec.sh returns once they are gone).
 echo "stopping ${#panes[@]} slk session(s): ${panes[*]}" >&2
@@ -112,8 +120,8 @@ relaunch=$repo/tools/run-docker.sh
 [ -z "${SLK_STATE_VOL:-}" ] || relaunch="SLK_STATE_VOL=$SLK_STATE_VOL $relaunch"
 
 # With every session stopped, recreate the backend if run-docker.sh changed
-# how it is made (only possible with nothing running in it), and build the
-# binary once if the sources changed, before any relaunch executes it.
+# how it is made (only possible with nothing running in it). ensure_binary
+# again only checks, unless the sources changed since the build above.
 ensure_backend
 ensure_binary
 

@@ -161,9 +161,8 @@ docker exec slk-user-backend sh -c 'grep -lz SLK_EXEC_ID= /proc/[0-9]*/environ' 
 A label (`slk.config`) and the image ID record how the backend was made.
 **When `run-docker.sh` or the image changes, a launch recreates the backend
 only while nothing runs in it**; otherwise it warns and uses it as it is.
-A refresh stops every session first, then recreates the backend and
-rebuilds the binary once, before it relaunches any session, so that is
-when the change takes effect.
+A refresh stops every session, then recreates the backend before it
+relaunches any session, so that is when the change takes effect.
 
 ### Rebuilds
 
@@ -179,7 +178,9 @@ ever holds a whole binary, and a rebuild is safe while sessions run:
 each keeps the build it started with, and the next launch gets the new
 one. That holds on OrbStack's bind mount, where a process that maps a
 file keeps reading its old contents after the file is renamed over or
-deleted; only an overwrite in place would change them.
+deleted; only an overwrite in place would change them. So a refresh
+builds before it stops anything: a failed build leaves every session
+running, and each is down only for its relaunch.
 
 ### Headless use
 
