@@ -19,11 +19,12 @@ Every command here runs a file from the slk checkout:
 where it is.
 
 The sessions run whatever the checkout's working tree holds. Every
-user-role launch rebuilds `bin/slk-linux` from the tree when any `.go`
-file is newer than the binary. So a refresh while a feature branch is
-checked out puts the live sessions on that branch's build. Before a
-refresh, check `git -C ~/src/personal/slk branch --show-current`, and tell
-Justin when it is not `main`.
+user-role launch rebuilds `bin/slk-linux` from the tree when its Go
+sources differ from the ones the binary was built from. So a refresh
+while a feature branch is checked out puts the live sessions on that
+branch's build. Before a refresh, check
+`git -C ~/src/personal/slk branch --show-current`, and tell Justin when
+it is not `main`.
 
 ## What may be stopped or killed
 
@@ -62,19 +63,11 @@ and report the wrong panes.
 A command that `herdr pane run` types into one of Justin's panes runs in
 his shell, which has no `CLAUDECODE`, so it gets the user role on its own.
 
-A user-role call rebuilds `bin/slk-linux` when the sources are newer, and
-every live user session executes that bind-mounted file, so a rebuild
-under a running session can crash it. While user sessions are live, gate
-every bare `SLK_ROLE=user … run-docker.sh` call on nothing being newer
-than the binary, so the call runs only when it will not rebuild:
-
-```bash
-cd ~/src/personal/slk && [ -z "$(find cmd internal -name '*.go' -newer bin/slk-linux -print -quit)" ] \
-  && SLK_ROLE=user tools/run-docker.sh herdr pane states
-```
-
-When the gate fails, run the refresh first, which stops every session
-before it builds.
+A user-role call first rebuilds `bin/slk-linux` when the sources
+changed, which takes 10-60s. That is safe while user sessions run: the
+new build is renamed into place, so each live session keeps the build it
+started with, and calls made at the same moment wait for one build. Live
+sessions move to the new build only when they restart, as in a refresh.
 
 ## Finding the sessions and what each one shows
 
@@ -87,9 +80,8 @@ before it builds.
   for the restart.
 - **What each pane has open:**
   `SLK_ROLE=user ~/src/personal/slk/tools/run-docker.sh herdr pane states`
-  (behind the rebuild gate above) prints one tab-separated line per saved
-  pane state: pane id, team, channel, thread ts (empty when no thread is
-  open), last update. It also lists panes that no longer exist; join it
+  prints one tab-separated line per saved pane state: pane id, team,
+  channel, thread ts (empty when no thread is open), last update. It also lists panes that no longer exist; join it
   with the snapshot's live pane ids.
 - **A moved pane** has no line under its current id: its state stays
   under the id the pane had when slk started (see moving, below). The
@@ -130,20 +122,19 @@ Why it is shaped this way:
   inside the backend (`tools/stop-exec.sh`), which slk handles: it exits
   cleanly and releases its herdr sidebar entry. Scripting "press Q,
   confirm" against a pane whose screen may be a stale frame is fragile.
-- **Every session stops before the rebuild,** so it never replaces the
-  binary under a running session, and it runs once, before any relaunch,
-  so no two launches build at the same time. That moment is also when a
-  changed `run-docker.sh` reaches the backend: `slk-user-backend` is
-  recreated when out of date only while nothing runs in it; otherwise a
-  launch warns and uses it as it is.
+- **The rebuild runs once, after every session stops and before any
+  relaunch,** so each pane starts on the new build without waiting on
+  it. That moment is also when a changed `run-docker.sh` reaches the
+  backend: `slk-user-backend` is recreated when out of date only while
+  nothing runs in it; otherwise a launch warns and uses it as it is.
 - **A restart keeps each session's place.** slk saves each pane's channel
   and thread (its pane state) and restores it when slk starts again in
   the same pane, so the refresh relaunches in place, not in new tabs.
 - **A draft stops the whole refresh.** When a pane's composer does not
   show its empty placeholder, the script exits before stopping anything
-  and names the pane. Skipping only that pane would leave it running the
-  binary the refresh rebuilds. Ask Justin to send or clear the
-  draft; never clear it yourself. Then rerun.
+  and names the pane. Skipping only that pane would leave it on the old
+  build. Ask Justin to send or clear the draft; never clear it yourself.
+  Then rerun.
 
 When the build fails, the script prints the compile error and exits 1
 before relaunching anything, leaving every pane at its shell prompt. Fix
@@ -161,9 +152,8 @@ SLK_ROLE=user ~/src/personal/slk/tools/run-docker.sh herdr reboot --dry-run
 SLK_ROLE=user ~/src/personal/slk/tools/run-docker.sh herdr reboot
 ```
 
-Run the dry run first, and run both behind the rebuild gate above,
-because reboot launches every pane at once. The dry run prints `launch`, `live`
-or `stale` per saved pane state; `stale` is a pane that no longer exists.
+Run the dry run first. It prints `launch`, `live` or `stale` per saved
+pane state; `stale` is a pane that no longer exists.
 
 ## Moving a session to another space
 

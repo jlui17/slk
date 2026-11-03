@@ -5,10 +5,10 @@
 #
 # Agent sessions (CLAUDECODE set, or SLK_ROLE=agent) run fully isolated from
 # interactive use: their own state volume, their own binary, and containers
-# named/labeled by role. The separate binary is load-bearing, not tidiness:
-# a rebuild writes the file a live session is executing over the bind
-# mount, which can crash it — so an agent build must never touch the file a
-# user session runs. Cleanup must only ever match label slk.role=agent.
+# named/labeled by role. A rebuild is safe under running sessions of
+# either role (ensure_binary); the separate binary keeps an agent's builds
+# from changing, or holding up, what a user launch runs. Cleanup must only
+# ever match label slk.role=agent.
 
 image=slk-go:1.26
 

@@ -512,6 +512,13 @@ Invariants:
   and the default sequence begins with ctrl+p, slk's channel switcher.
   Detaching can't be turned off, so the bridge moves it to four control
   keys slk binds to nothing (`DETACH_KEYS`).
+- **A rebuild never writes the file a session runs.** `ensure_binary`
+  builds `bin/<bin>.new` and renames it over the binary, so the panes of
+  a role keep running while a launch rebuilds, and no launch runs a
+  half-written binary (`go build -o` writes its output in place). Builds
+  queue on a flock on `bin/<bin>.lock`, so panes launched together build
+  once. Staleness is a fingerprint of the sources' contents
+  (`bin/<bin>.src`), not mtimes, which miss a deleted or renamed file.
 
 ## Model calls: a key, else the host's ant login
 

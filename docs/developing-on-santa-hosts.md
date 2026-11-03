@@ -165,6 +165,22 @@ A refresh stops every session first, then recreates the backend and
 rebuilds the binary once, before it relaunches any session, so that is
 when the change takes effect.
 
+### Rebuilds
+
+A launch rebuilds `bin/<bin>` (`slk-linux`, or `slk-linux-agent` for an
+agent) when the sources differ from the ones it was built from.
+`bin/<bin>.src` holds a fingerprint of the build flags and of every
+non-test file under `cmd/` and `internal/` plus `go.mod` and `go.sum`, by
+content, so deleting or renaming a file counts as a change and touching
+one does not. Launches that find the binary stale at the same time queue
+on a flock on `bin/<bin>.lock`, and only the first builds. The build is
+written to `bin/<bin>.new` and renamed over the binary, so the path only
+ever holds a whole binary, and a rebuild is safe while sessions run:
+each keeps the build it started with, and the next launch gets the new
+one. That holds on OrbStack's bind mount, where a process that maps a
+file keeps reading its old contents after the file is renamed over or
+deleted; only an overwrite in place would change them.
+
 ### Headless use
 
 Without a host tty (agent shells, CI) slk still gets a pty, with its
@@ -192,11 +208,10 @@ their own state volume (`slk-agent-state`, reset as above, seeded from the
 user sandbox's config
 and tokens when `slk-test-state` exists so agent runs see the state the
 user's working session has), their own binary
-(`bin/slk-linux-agent`), and their own backend, `slk-agent-backend`. The
-separate binary matters: a rebuild writes the file a running session
-executes over the bind mount, which can crash it, so agent builds never
-touch `bin/slk-linux`. Both scripts also label their containers
-`slk.role=agent` or `slk.role=user` — agent-side cleanup stops only what it
+(`bin/slk-linux-agent`), and their own backend, `slk-agent-backend`.
+Agent builds never touch `bin/slk-linux`, so nothing an agent runs changes
+or holds up what a user launch runs. Both scripts also label their
+containers `slk.role=agent` or `slk.role=user` — agent-side cleanup stops only what it
 started (a launch by its exec id, a container by recorded name), and must
 never touch anything not labeled `slk.role=agent`. `slk-agent-backend` is
 shared by every agent session, so leave it running.

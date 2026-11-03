@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Restart every live user-role slk session in the current herdr session so
 # they pick up the current source: stop all of them first, rebuild
-# bin/slk-linux once while nothing executes it, then relaunch each pane.
+# bin/slk-linux once, then relaunch each pane.
 # Judgment, gotchas, and when not to use this:
 # plugins/slk-herdr/skills/slk-herdr/SKILL.md
 #
@@ -113,7 +113,7 @@ relaunch=$repo/tools/run-docker.sh
 
 # With every session stopped, recreate the backend if run-docker.sh changed
 # how it is made (only possible with nothing running in it), and build the
-# binary once if sources are newer, before any relaunch executes it.
+# binary once if the sources changed, before any relaunch executes it.
 ensure_backend
 ensure_binary
 
