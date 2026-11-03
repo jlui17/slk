@@ -135,6 +135,12 @@ def clipboard_text():
     return result.stdout.removesuffix(b"\n")
 
 
+def serve_forever(server):
+    """server.serve_forever, without the wakeup twice a second it spends
+    checking for a shutdown() that nothing here calls."""
+    server.serve_forever(poll_interval=None)
+
+
 class ClipboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/image":
@@ -245,23 +251,42 @@ class AnthropicTokenHandler(BaseHTTPRequestHandler):
         pass
 
 
-def watch_spool(spool):
-    while True:
+def open_spooled(spool):
+    """Opens each URL waiting in spool; False once spool is gone."""
+    try:
+        names = os.listdir(spool)
+    except OSError:
+        return False
+    for name in names:
+        if not name.startswith("url-"):
+            continue
+        path = os.path.join(spool, name)
         try:
-            names = os.listdir(spool)
+            with open(path) as f:
+                url = f.read().strip()
+            os.unlink(path)
+        except OSError:
+            continue
+        subprocess.run(["open", url], stdin=subprocess.DEVNULL, capture_output=True)
+    return True
+
+
+def watch_spool(spool):
+    """Opens each URL tools/spool-open drops into spool until spool is gone:
+    as it lands through kqueue on macOS, within 0.3s elsewhere."""
+    if hasattr(select, "kqueue"):
+        try:
+            fd = os.open(spool, os.O_RDONLY)
         except OSError:
             return
-        for name in names:
-            if not name.startswith("url-"):
-                continue
-            path = os.path.join(spool, name)
-            try:
-                with open(path) as f:
-                    url = f.read().strip()
-                os.unlink(path)
-            except OSError:
-                continue
-            subprocess.run(["open", url], stdin=subprocess.DEVNULL, capture_output=True)
+        kq = select.kqueue()
+        # NOTE_WRITE on a directory: an entry was added, removed or renamed.
+        kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                  select.KQ_NOTE_WRITE | select.KQ_NOTE_DELETE)], 0)
+        while open_spooled(spool):
+            kq.control(None, 1)
+        return
+    while open_spooled(spool):
         time.sleep(0.3)
 
 
@@ -785,14 +810,14 @@ def main():
                     if os.environ.get(k)]
         elif arg == "clipboard":
             server = HTTPServer(("127.0.0.1", 0), ClipboardHandler)
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+            threading.Thread(target=serve_forever, args=(server,), daemon=True).start()
             env.append("SLK_CLIPBOARD_ADDR=host.docker.internal:%d" % server.server_port)
         elif arg == "anthropic-token":
             server = HTTPServer(("127.0.0.1", 0), AnthropicTokenHandler)
             server.tokens = AnthropicToken()
             # Fetched now, while slk starts, so slk's first ask finds it ready.
             threading.Thread(target=server.tokens.warm, daemon=True).start()
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+            threading.Thread(target=serve_forever, args=(server,), daemon=True).start()
             env.append("SLK_ANTHROPIC_TOKEN_ADDR=host.docker.internal:%d" % server.server_port)
         elif arg == "spool":
             threading.Thread(target=watch_spool, args=(launch_dir,), daemon=True).start()

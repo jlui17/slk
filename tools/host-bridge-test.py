@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # Tests host-bridge.py's anthropic-token endpoint against a fake `ant` on
-# PATH. Run by hand: python3 tools/host-bridge-test.py
+# PATH, and its link-open spool against a fake `open`. Run by hand:
+# python3 tools/host-bridge-test.py
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -116,6 +119,51 @@ class AnthropicTokenEndpoint(unittest.TestCase):
 
     def test_other_paths_404(self):
         self.assertEqual(self.get("/")[0], 404)
+
+
+class SpoolWatch(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.spool = os.path.join(self.dir, "spool")
+        os.mkdir(self.spool)
+        self.log = os.path.join(self.dir, "opened")
+        fake_open = os.path.join(self.dir, "open")
+        with open(fake_open, "w") as f:
+            f.write('#!/bin/sh\necho "$1" >>"%s"\n' % self.log)
+        os.chmod(fake_open, 0o755)
+        self.saved_path = os.environ["PATH"]
+        os.environ["PATH"] = self.dir + ":" + self.saved_path
+        self.watcher = threading.Thread(target=bridge.watch_spool, args=(self.spool,), daemon=True)
+        self.watcher.start()
+
+    def tearDown(self):
+        os.environ["PATH"] = self.saved_path
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def opened(self, url, within):
+        """Whether url reached `open` within that many seconds."""
+        deadline = time.monotonic() + within
+        while time.monotonic() < deadline:
+            try:
+                with open(self.log) as f:
+                    if url in f.read().splitlines():
+                        return True
+            except FileNotFoundError:
+                pass
+            time.sleep(0.005)
+        return False
+
+    def test_opens_each_url_spool_open_drops(self):
+        for url in ("https://example.com/a", "https://example.com/b"):
+            subprocess.run([os.path.join(here, "spool-open"), url], check=True,
+                           env=dict(os.environ, SLK_SPOOL_DIR=self.spool))
+            self.assertTrue(self.opened(url, within=2), url + " was never opened")
+        self.assertEqual(os.listdir(self.spool), [])
+
+    def test_ends_once_the_spool_is_gone(self):
+        os.rmdir(self.spool)
+        self.watcher.join(1)
+        self.assertFalse(self.watcher.is_alive())
 
 
 if __name__ == "__main__":
