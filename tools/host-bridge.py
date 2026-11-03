@@ -681,8 +681,14 @@ def attach(sock_path, container, spec, launcher, stop):
                             resized.set()
                         elif event == ord("p"):
                             # The launcher is gone and its shell owns the
-                            # terminal again.
+                            # terminal again. slk's own restore will never
+                            # reach it, so its screen and modes go here.
                             restore()
+                            if out_ok and alt and os.isatty(1):
+                                try:
+                                    os.write(1, TERMINAL_RESET)
+                                except OSError:
+                                    pass
                             out_ok = reading = False
                             stop()
     finally:

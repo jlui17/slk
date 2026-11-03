@@ -218,4 +218,9 @@ while kill -0 "$bridge_pid" 2>/dev/null; do
 done
 rc=0
 wait "$bridge_pid" || rc=$?
+# A signal killed the bridge (or slk, with nothing left to restore the
+# terminal): undo slk's screen and modes, host-bridge.py's TERMINAL_RESET.
+if [ "$rc" -gt 128 ] && [ -t 1 ]; then
+  printf '\033[?1049l\033[?1002l\033[?1003l\033[?1006l\033[?1004l\033[?2004l\033[<u\033[>4;0m\033[0m\033[?25h'
+fi
 exit "$rc"

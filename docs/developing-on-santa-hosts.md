@@ -146,6 +146,11 @@ own (it left its alternate screen) is never reported that way: docker
 gets 3s to give its exit code, and a docker that stays silent counts as
 a clean exit, 0.
 
+A launch cut off before slk could restore the terminal still leaves it
+clean: when the launcher dies, the bridge undoes slk's alternate screen,
+mouse and paste modes and hidden cursor before it stops slk, and when a
+signal kills the bridge, the launcher does the same.
+
 Check it by hand:
 
 ```sh
