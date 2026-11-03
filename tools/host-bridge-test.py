@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # Tests host-bridge.py's anthropic-token endpoint against a fake `ant` on
-# PATH, and its link-open spool against a fake `open`. Run by hand:
+# PATH, its link-open spool against a fake `open`, and its herdr relay
+# against a fake herdr socket. Run by hand:
 # python3 tools/host-bridge-test.py
 import importlib.util
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -164,6 +166,106 @@ class SpoolWatch(unittest.TestCase):
         os.rmdir(self.spool)
         self.watcher.join(1)
         self.assertFalse(self.watcher.is_alive())
+
+
+class FakeHerdr:
+    """A unix-socket server that answers like herdr: at once when the request
+    line is already waiting as it accepts the connection, 250ms later when it
+    lands after. With stream set it keeps answering, one line every 0.1s."""
+
+    def __init__(self, path, stream=False):
+        self.accepted = 0
+        self.stream = stream
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(path)
+        self.listener.listen()
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            try:
+                conn, _ = self.listener.accept()
+            except OSError:
+                return
+            self.accepted += 1
+            threading.Thread(target=self.answer, args=(conn,), daemon=True).start()
+
+    def answer(self, conn):
+        conn.setblocking(False)
+        try:
+            waiting = conn.recv(65536)
+        except BlockingIOError:
+            waiting = b""
+        conn.setblocking(True)
+        if not waiting.endswith(b"\n"):
+            time.sleep(0.25)
+            waiting += conn.recv(65536)
+        try:
+            conn.sendall(b'{"id":"1","result":{"type":"ok"}}\n')
+            while self.stream:
+                time.sleep(0.1)
+                conn.sendall(b'{"event":"tab_focused"}\n')
+        except OSError:
+            pass
+        conn.close()
+
+    def close(self):
+        self.listener.close()
+
+
+class HerdrRelay(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.sock = os.path.join(self.dir, "h.sock")
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen()
+        threading.Thread(target=bridge.serve_herdr, args=(self.server, self.sock), daemon=True).start()
+
+    def tearDown(self):
+        self.herdr.close()
+        self.server.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def connect(self):
+        return socket.create_connection(self.server.getsockname(), timeout=2)
+
+    def test_request_reaches_herdr_before_it_accepts(self):
+        self.herdr = FakeHerdr(self.sock)
+        for _ in range(3):
+            c = self.connect()
+            start = time.monotonic()
+            c.sendall(b'{"id":"1","method":"pane.get","params":{}}\n')
+            c.shutdown(socket.SHUT_WR)
+            reply = c.makefile("rb").readline()
+            took = time.monotonic() - start
+            c.close()
+            self.assertEqual(reply, b'{"id":"1","result":{"type":"ok"}}\n')
+            self.assertLess(took, 0.15, "herdr saw the request only after it accepted")
+
+    def test_drops_a_client_that_sends_nothing(self):
+        self.herdr = FakeHerdr(self.sock)
+        saved = bridge.HERDR_FIRST_BYTES_TIMEOUT
+        bridge.HERDR_FIRST_BYTES_TIMEOUT = 0.2
+        self.addCleanup(setattr, bridge, "HERDR_FIRST_BYTES_TIMEOUT", saved)
+        c = self.connect()
+        self.assertEqual(c.recv(1), b"", "the relay kept a silent client")
+        c.close()
+        self.assertEqual(self.herdr.accepted, 0)
+
+    def test_event_stream_outlives_the_first_bytes_timeout(self):
+        self.herdr = FakeHerdr(self.sock, stream=True)
+        saved = bridge.HERDR_FIRST_BYTES_TIMEOUT
+        bridge.HERDR_FIRST_BYTES_TIMEOUT = 0.2
+        self.addCleanup(setattr, bridge, "HERDR_FIRST_BYTES_TIMEOUT", saved)
+        c = self.connect()
+        c.sendall(b'{"id":"1","method":"events.subscribe","params":{}}\n')
+        lines = c.makefile("rb")
+        self.assertEqual(lines.readline(), b'{"id":"1","result":{"type":"ok"}}\n')
+        deadline = time.monotonic() + 0.6
+        while time.monotonic() < deadline:
+            self.assertEqual(lines.readline(), b'{"event":"tab_focused"}\n')
+        c.close()
 
 
 if __name__ == "__main__":

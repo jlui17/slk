@@ -81,11 +81,30 @@ def pump(src, dst):
             pass
 
 
+# How long a herdr relay waits for the client's first bytes. slk writes its
+# request right after it connects; a client that sends nothing is dropped.
+HERDR_FIRST_BYTES_TIMEOUT = 5
+
+
 def relay(tcp_conn, unix_path):
+    # herdr answers a request that is already waiting when it accepts the
+    # connection at once, and one that lands even 1ms later about 250ms
+    # late, so the relay connects only once slk's request is here.
+    tcp_conn.settimeout(HERDR_FIRST_BYTES_TIMEOUT)
     try:
-        unix_conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        unix_conn.connect(unix_path)
+        first = tcp_conn.recv(65536)
+        tcp_conn.settimeout(None)
     except OSError:
+        first = b""
+    if not first:
+        tcp_conn.close()
+        return
+    unix_conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        unix_conn.connect(unix_path)
+        unix_conn.sendall(first)
+    except OSError:
+        unix_conn.close()
         tcp_conn.close()
         return
     t = threading.Thread(target=pump, args=(tcp_conn, unix_conn), daemon=True)
