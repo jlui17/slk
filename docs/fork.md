@@ -190,7 +190,8 @@ there and resolve them knowing what the fork wants:
   `wsMu`, the test-injectable `wsDialer` field, and `GetUserInfoContext`
   on `SlackAPI` for the profile card's bounded users.info
   (`client_fork.go`); and `StartWebSocket`'s read loop closes its socket
-  when it ends ("One socket per workspace").
+  when it ends, and records the socket's hello and `retry_after` in
+  `wsOutcome` (`websocket_fork.go`; "One socket per workspace").
 - `internal/slack/client.go` (+ `client_test.go`) — `GetStarredChannels`
   keeps every conversation star (`starredConversationID` in
   `client_fork.go`: channel and im under `channel`, group under the
@@ -198,7 +199,10 @@ there and resolve them knowing what the fork wants:
   channel or group DM sits in Starred as in Slack; upstream keeps channel
   stars only, and its parse test now expects the DM.
 - `internal/slack/auth.go` — atomic token save.
-- `internal/slack/connection.go` — reconnect/backoff rework in `Run`.
+- `internal/slack/connection.go` — reconnect/backoff rework in `Run`:
+  the backoff resets only after a socket that proved healthy, and waits
+  are jittered and floored at Slack's `retry_after` ("One socket per
+  workspace").
 - `internal/avatar/avatar.go` — `preloadInner` fetches at the fork's
   `decodeTarget` (`avatar_fork.go`), which bounds the kitty decode where
   upstream decodes the source at full size.
@@ -852,6 +856,43 @@ Measured on 21 slks (2026-11-02): up to 15 such sockets per slk.
 after the read loop has ended, so closing in the loop is enough: when the
 socket pointer is replaced, the old socket is already closed.
 `TestReadLoopExitClosesSocket` holds the server end open and counts it.
+
+When the user holds too many sockets, Slack accepts a new one, sends
+`{"type":"error","error":{"msg":"Ratelimited","code":17}}` before any
+`hello`, and closes it about 5 s later. Upstream's `Run` reset its backoff
+to 1 s on every successful upgrade, so a rejected socket was redialed
+every few seconds forever: 375 sockets in 212 s across 21 slks, and their
+second workspace never stayed connected. Now:
+
+- The backoff resets only after a socket that got `hello` and then
+  stayed up for `healthySocketAge` (60 s, one read-deadline window).
+  Anything shorter doubles the wait toward the 30 s cap, like a failed
+  dial. A healthy socket that drops still redials within a second.
+- Each wait is a random point in the upper half of the backoff, so slks
+  that lost their sockets together don't redial together.
+- A `retry_after` (seconds) on an error frame, top level or inside
+  `error`, sets the shortest wait. The Ratelimited frames seen so far
+  carry none.
+
+Reconnect catch-up (`syncOnReconnect`) runs from `OnConnect`, which only
+`hello` triggers, so a rejected socket never started one and nothing there
+changed.
+
+Rejected:
+
+- **Close the previous socket when `StartWebSocket` replaces it.** `Run`
+  only redials after `WsDone`, so the old socket is always closed by then;
+  the close would guard a path no caller takes.
+- **Reset the backoff on `hello` alone.** Slack can say hello and close
+  seconds later; the uptime requirement keeps that from looping at 1 s.
+- **Wait the full cap after any Ratelimited frame.** Exponential backoff
+  reaches the cap within five rejections, and a slk whose rejection was a
+  one-off reconnects sooner.
+
+Backoff makes a rejected slk cheap; it doesn't get it connected. Each
+slk still asks for one socket per workspace, and if Slack's limit sits
+below the pane count, option B in "One slk per pane, measured and kept"
+(one relay per role) is the fix.
 
 ## Changes offered upstream
 

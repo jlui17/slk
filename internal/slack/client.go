@@ -154,6 +154,8 @@ type Client struct {
 
 	// unfurls routes unfurl_preview_updated frames to those lookups.
 	unfurls unfurlWaiters
+
+	wsOutcome *wsOutcome // fork: the current socket's hello and retry_after, websocket_fork.go
 }
 
 // NewClient creates a new Slack client using browser cookie auth.
@@ -467,6 +469,7 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	c.wsMu.Lock()
 	c.wsConn = conn
 	c.wsDone = make(chan struct{})
+	c.wsOutcome = &wsOutcome{} // fork: websocket_fork.go
 	c.wsMu.Unlock()
 
 	// Detect dead connections: set a read deadline that resets on every
@@ -528,6 +531,7 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 				if c.unfurls.deliver(message) {
 					continue
 				}
+				c.wsOutcome.observe(message) // fork: websocket_fork.go
 				dispatchWebSocketEvent(message, handler)
 			case <-pending:
 				pendingHandler.OnPendingEvents()

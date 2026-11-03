@@ -15,7 +15,7 @@ type ConnectionManager struct {
 
 	// OnReconnectWait, when non-nil, is called at the start of each
 	// backoff wait with the redial deadline and the attempt number
-	// (1-based, reset on every successful connect). Set before Run;
+	// (1-based, reset after every socket that proved healthy). Set before Run;
 	// it is invoked from Run's goroutine and must not block.
 	OnReconnectWait func(retryAt time.Time, attempt int)
 }
@@ -49,7 +49,7 @@ func (cm *ConnectionManager) Run(ctx context.Context) {
 		if err != nil {
 			cm.handler.OnDisconnect()
 			attempt++
-			kicked, ok := cm.waitBackoff(ctx, backoff, attempt)
+			kicked, ok := cm.waitBackoff(ctx, reconnectWait(backoff, 0), attempt)
 			if !ok {
 				return
 			}
@@ -57,17 +57,15 @@ func (cm *ConnectionManager) Run(ctx context.Context) {
 			continue
 		}
 
-		// Connected — reset backoff. A kick left pending from the dial
-		// window is deliberately NOT drained: Reconnect() pairs the kick
-		// with a socket close, so discarding it here would swallow a
-		// manual reload that landed between connect and this line (the
-		// close still tears the socket down, and the loop would then
-		// sleep out a backoff the user asked to skip). The cost of
-		// keeping a genuinely stale kick is one skipped wait plus a
-		// backoff reset after an explicit user gesture — the same
-		// "reconnect now" the gesture meant.
-		backoff = 1 * time.Second
-		attempt = 0
+		// Connected. A kick left pending from the dial window is
+		// deliberately NOT drained: Reconnect() pairs the kick with a
+		// socket close, so discarding it here would swallow a manual
+		// reload that landed between connect and this line (the close
+		// still tears the socket down, and the loop would then sleep
+		// out a backoff the user asked to skip). The cost of keeping a
+		// genuinely stale kick is one skipped wait plus a backoff reset
+		// after an explicit user gesture — the same "reconnect now" the
+		// gesture meant.
 
 		// Wait for disconnect
 		select {
@@ -78,8 +76,9 @@ func (cm *ConnectionManager) Run(ctx context.Context) {
 			// Disconnected — will reconnect after backoff
 		}
 
+		backoff, attempt = cm.settleBackoff(backoff, attempt) // fork: connection_fork.go
 		attempt++
-		kicked, ok := cm.waitBackoff(ctx, backoff, attempt)
+		kicked, ok := cm.waitBackoff(ctx, reconnectWait(backoff, cm.client.wsOutcome.retryAfter), attempt)
 		if !ok {
 			return
 		}
