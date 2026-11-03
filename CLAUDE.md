@@ -34,6 +34,11 @@ an inline block. `tools/fork-footprint.sh` shows the current churn on
 upstream-owned files; don't grow it where a fork-only file would do. Merge
 runbook and the list of intentionally diverged files: `docs/fork.md`.
 
+A fork design that shapes how slk works (how it runs, how data flows, a
+cache and the rule that keeps it correct) gets its own section in
+`docs/fork.md` in the same change that lands it: what it does, why, and
+the alternatives that were measured and rejected.
+
 ## Branch workflow
 
 Squash-merge every feature branch into main (`git merge --squash <branch>`,
