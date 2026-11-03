@@ -348,9 +348,10 @@ func TestWatchFocusSeedsFromLiveLocation(t *testing.T) {
 func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
 	sock := testSocketPath(t)
 	s := startFocusServer(t, sock)
-	// herdr 0.9.0 sends no focus event when the user switches tabs in
-	// its TUI: the only trace is workspace.get's answer changing. The
-	// pane starts in a background tab, and no event ever arrives.
+	// A focus change herdr makes without any event (as herdr 0.9.0 did
+	// for TUI tab switches): the only trace is workspace.get's answer
+	// changing. The pane starts in a background tab, and no event ever
+	// arrives.
 	s.setLocation("w1:t1", "w1:t7", true)
 	r := newClient("unix", sock, "w1:p1", "")
 	r.pollInterval = 20 * time.Millisecond
@@ -363,6 +364,32 @@ func TestWatchFocusPollsLocationWithoutEvents(t *testing.T) {
 
 	s.setLocation("w1:t1", "w1:t7", true)
 	view(false, "tab left in the TUI")
+}
+
+func TestWatchFocusRelocatesOnSilentFocusMoves(t *testing.T) {
+	// herdr 0.9.5 moves focus with no focus event when a close or a
+	// create does it; the watcher re-reads the location on the event it
+	// does send. The poll is left at its default, far longer than the
+	// checker waits, so only the event can explain each report.
+	for _, kind := range []string{"tab_closed", "pane_closed", "pane_exited", "workspace_closed", "workspace_created"} {
+		t.Run(kind, func(t *testing.T) {
+			sock := testSocketPath(t)
+			s := startFocusServer(t, sock)
+			s.setLocation("w1:t1", "w1:t7", true)
+			view, quiet := focusWatcher(t, newClient("unix", sock, "w1:p1", ""))
+			s.waitSubscribed()
+			view(false, "seeded in a background tab")
+
+			s.setLocation("w1:t1", "w1:t1", true)
+			quiet("focus moved, no event yet")
+			s.send(focusEvent(kind, "w1:t7", "w1"))
+			view(true, "focus landed on the pane's tab")
+
+			s.setLocation("w1:t1", "w1:t1", false)
+			s.send(focusEvent(kind, "w9:t1", "w9"))
+			view(false, "focus left the pane's workspace")
+		})
+	}
 }
 
 func TestWatchFocusTracksPaneMove(t *testing.T) {

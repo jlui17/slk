@@ -16,8 +16,12 @@ import (
 const watchRetryDelay = 5 * time.Second
 
 // watchPollInterval paces the location polls that back up the event
-// stream (see WatchFocus).
-const watchPollInterval = 2 * time.Second
+// stream (see WatchFocus). Each poll costs two fresh connections in every
+// slk pane, each through the host bridge's relay when slk runs in docker,
+// so the poll is slow: events carry every focus change herdr 0.9.5 was
+// seen to make, and the poll only bounds how long one made with no event
+// goes unseen.
+const watchPollInterval = 30 * time.Second
 
 type subscribeParams struct {
 	Subscriptions []subscription `json:"subscriptions"`
@@ -61,14 +65,17 @@ func (l paneLocation) viewed() bool { return l.wsFocused && l.tabFocused }
 // seen-wipe caused purely by the user returning to the terminal window
 // passes unnoticed until the next tab or workspace focus change.
 //
-// Viewedness is read two ways. An events.subscribe stream is kept
-// because an event lands the instant herdr sends one; but herdr 0.9.0
-// sends tab.focused / workspace.focused only for API-driven focus
-// (`herdr tab focus`), not for the user navigating its TUI, while
-// workspace.get does reflect that navigation. So the watcher also
-// re-reads the pane's location every pollInterval. Without the poll, a
-// pane whose tab is in the background when it starts is seeded unviewed
-// and never hears otherwise.
+// Viewedness is read from an events.subscribe stream, so a change lands
+// the instant herdr sends its event. herdr 0.9.5 sends tab_focused /
+// workspace_focused for the user navigating its TUI and for API-driven
+// focus, but not when a close or a create moves focus: closing the
+// active tab (`herdr tab close`, `herdr pane close` of its last pane, or
+// its shell exiting) or the focused workspace, or creating a focused
+// workspace, sends only tab_closed, pane_closed, pane_exited,
+// workspace_closed or workspace_created. The watcher re-reads the pane's
+// location on each of those. It also re-reads it every pollInterval, a
+// backstop for any focus change herdr makes with no event at all (herdr
+// 0.9.0 sent none for TUI navigation).
 //
 // Runs a persistent connection with reconnects until Close, and is
 // nil-safe.
@@ -76,13 +83,17 @@ func (r *Client) WatchFocus(onViewChange func(viewed bool), onConnected func()) 
 	if r == nil {
 		return
 	}
+	report := func(viewed bool) {
+		debuglog.Notify("herdr: viewed=%v", viewed)
+		onViewChange(viewed)
+	}
 	// In r.wg so Close waits for the watcher: it writes to the pane-id
 	// cache, whose DB the caller closes after Close returns.
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
 		for {
-			r.watchFocusOnce(onViewChange, onConnected)
+			r.watchFocusOnce(report, onConnected)
 			select {
 			case <-r.stop:
 				return
@@ -210,8 +221,9 @@ type watchEvent struct {
 
 // fold applies one event to where the pane sits and whether it is
 // viewed, returning loc unchanged for events about other panes or
-// workspaces. Only a pane_moved for this pane can fail: it re-resolves
-// the location.
+// workspaces. Only the events that re-resolve the location can fail: a
+// pane_moved for this pane, and the closes and creates that move focus
+// without a focus event.
 func (r *Client) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
 	switch d.Type {
 	case "tab_focused":
@@ -223,6 +235,11 @@ func (r *Client) fold(loc paneLocation, d watchEvent) (paneLocation, error) {
 		loc.tabFocused = d.TabID == loc.tabID
 	case "workspace_focused":
 		loc.wsFocused = d.WorkspaceID == loc.workspaceID
+	case "tab_closed", "pane_exited", "pane_closed", "workspace_closed", "workspace_created":
+		// Focus may have moved with no focus event, to anywhere: a
+		// closed tab hands it to a sibling, a closed workspace to
+		// another workspace, and a created one can take it.
+		return r.locate()
 	case "pane_moved":
 		// Matched by the terminal id first (stable within a server
 		// run, which is as long as an event stream lives): a cross-workspace
@@ -355,6 +372,11 @@ func (r *Client) subscribeFocus(conn net.Conn, scanner *bufio.Scanner) error {
 			{Type: "tab.focused"},
 			{Type: "workspace.focused"},
 			{Type: "pane.moved"},
+			{Type: "tab.closed"},
+			{Type: "pane.exited"},
+			{Type: "pane.closed"},
+			{Type: "workspace.closed"},
+			{Type: "workspace.created"},
 		}},
 	})
 	if err != nil {
