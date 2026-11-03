@@ -581,6 +581,29 @@ def attach(sock_path, container, spec, launcher, stop):
         os.write(wake_w, b"p")
     threading.Thread(target=watch_launcher, daemon=True).start()
 
+    # A resize is an Engine API call, which a busy docker can hold for
+    # seconds, so it goes out from a thread of its own, never from the
+    # relay. Each call sends the size the terminal has by then, so resizes
+    # that pile up while one is in flight go out as one, the latest. A call
+    # docker never answered is sent again a second later.
+    resized = threading.Event()
+
+    def send_resizes():
+        while True:
+            resized.wait()
+            resized.clear()
+            try:
+                rows, cols = winsize(1)
+            except OSError:
+                continue
+            try:
+                engine(sock_path, "POST", "/exec/%s/resize?h=%d&w=%d" % (instance, rows, cols))
+            except EngineError:
+                pass
+            except DOCKER_ERRORS:
+                time.sleep(1)
+                resized.set()
+
     saved = termios.tcgetattr(0) if tty_in else None
 
     def restore():
@@ -600,6 +623,8 @@ def attach(sock_path, container, spec, launcher, stop):
             start["ConsoleSize"] = list(size)
         s, early = exec_start(sock_path, instance, start)
         s.settimeout(None)
+        if size:
+            threading.Thread(target=send_resizes, daemon=True).start()
         out_ok = True
         reading = tty_in
         if early:
@@ -638,11 +663,7 @@ def attach(sock_path, container, spec, launcher, stop):
                 if wake_r in ready:
                     for event in os.read(wake_r, 64):
                         if event == ord("w") and out_ok and size:
-                            try:
-                                rows, cols = winsize(1)
-                                engine(sock_path, "POST", "/exec/%s/resize?h=%d&w=%d" % (instance, rows, cols))
-                            except DOCKER_ERRORS:
-                                pass
+                            resized.set()
                         elif event == ord("p"):
                             # The launcher is gone and its shell owns the
                             # terminal again.
