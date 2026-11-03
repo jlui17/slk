@@ -66,13 +66,7 @@ if [ "$(cat "$stamp" 2>/dev/null)" != "$vol_created" ]; then
 fi
 
 ensure_backend
-
-bin="$repo/bin/$bin_name"
-if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" "$repo/go.mod" "$repo/go.sum" \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print -quit 2>/dev/null)" ]; then
-  echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
-  docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" \
-    go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
-fi
+ensure_binary
 
 # The container has no host timezone, so timestamps render as UTC unless the
 # host zone rides in; the image's Debian tzdata resolves the name.

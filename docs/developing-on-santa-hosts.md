@@ -161,8 +161,9 @@ docker exec slk-user-backend sh -c 'grep -lz SLK_EXEC_ID= /proc/[0-9]*/environ' 
 A label (`slk.config`) and the image ID record how the backend was made.
 **When `run-docker.sh` or the image changes, a launch recreates the backend
 only while nothing runs in it**; otherwise it warns and uses it as it is.
-A refresh stops every session first, so its first relaunch is when the
-change takes effect.
+A refresh stops every session first, then recreates the backend and
+rebuilds the binary once, before it relaunches any session, so that is
+when the change takes effect.
 
 ### Headless use
 

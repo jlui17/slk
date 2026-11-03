@@ -119,10 +119,10 @@ and the screen for connected or not.
 ## Refreshing every live session
 
 Run `~/src/personal/slk/tools/refresh-sessions.sh`. It is the whole
-runbook: it finds the user-role slk panes, stops all of them, relaunches
-the first pane alone (which rebuilds the binary when the
-sources changed), waits for it to draw, then relaunches the rest. Check
-afterwards that each pane's last line reads `● Connected`.
+runbook: it finds the user-role slk panes, stops all of them, rebuilds
+the binary once when the sources changed, then relaunches every pane and
+waits for each to draw. Check afterwards that each pane's last line reads
+`● Connected`.
 
 Why it is shaped this way:
 
@@ -130,23 +130,24 @@ Why it is shaped this way:
   inside the backend (`tools/stop-exec.sh`), which slk handles: it exits
   cleanly and releases its herdr sidebar entry. Scripting "press Q,
   confirm" against a pane whose screen may be a stale frame is fragile.
-- **Every session stops before the first relaunch,** so the rebuild never
-  replaces the binary under a running session. That first relaunch is
-  also when a changed `run-docker.sh` reaches the backend: a launch
-  recreates an out-of-date `slk-user-backend` only while nothing runs in
-  it, and otherwise warns and uses it as it is.
+- **Every session stops before the rebuild,** so it never replaces the
+  binary under a running session, and it runs once, before any relaunch,
+  so no two launches build at the same time. That moment is also when a
+  changed `run-docker.sh` reaches the backend: `slk-user-backend` is
+  recreated when out of date only while nothing runs in it; otherwise a
+  launch warns and uses it as it is.
 - **A restart keeps each session's place.** slk saves each pane's channel
   and thread (its pane state) and restores it when slk starts again in
   the same pane, so the refresh relaunches in place, not in new tabs.
 - **A draft stops the whole refresh.** When a pane's composer does not
   show its empty placeholder, the script exits before stopping anything
   and names the pane. Skipping only that pane would leave it running the
-  binary the next relaunch rebuilds. Ask Justin to send or clear the
+  binary the refresh rebuilds. Ask Justin to send or clear the
   draft; never clear it yourself. Then rerun.
 
-When the first pane never draws (the script's wait times out), the build
-is failing: `herdr pane read <pane_id> --source visible` shows the compile
-error. Fix the build before rerunning.
+When the build fails, the script prints the compile error and exits 1
+before relaunching anything, leaving every pane at its shell prompt. Fix
+the build, then bring them back with `herdr reboot` (below).
 
 ## Relaunching slk in idle panes
 

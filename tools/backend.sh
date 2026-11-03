@@ -1,4 +1,5 @@
-# Sourced by tools/run-docker.sh and tools/go.sh (bash, set -euo pipefail),
+# Sourced by tools/run-docker.sh, tools/refresh-sessions.sh and tools/go.sh
+# (bash, set -euo pipefail),
 # with $repo set to the checkout's physical path: the role a run belongs
 # to, and that role's shared backend container, slk-<role>-backend.
 #
@@ -85,5 +86,17 @@ ensure_backend() {
     done
     echo "$backend did not start" >&2
     exit 1
+  fi
+}
+
+# Builds this checkout's slk for the role in the backend when the binary is
+# missing or older than any Go source. Every launch runs it, and so does
+# tools/refresh-sessions.sh, once, while none of its sessions runs.
+ensure_binary() {
+  local bin="$repo/bin/$bin_name"
+  if [ ! -x "$bin" ] || [ -n "$(find "$repo/cmd" "$repo/internal" "$repo/go.mod" "$repo/go.sum" \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print -quit 2>/dev/null)" ]; then
+    echo "slk: $bin_name missing or older than source, rebuilding in docker (10-60s)..." >&2
+    docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" \
+      go build -ldflags="-s -w" -trimpath -o "bin/$bin_name" ./cmd/slk
   fi
 }

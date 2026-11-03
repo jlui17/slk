@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Restart every live user-role slk session in the current herdr session so
-# they pick up the current source: stop all of them first, then relaunch
-# each pane, letting the first relaunch rebuild bin/slk-linux while nothing
-# executes it. Judgment, gotchas, and when not to use this:
+# they pick up the current source: stop all of them first, rebuild
+# bin/slk-linux once while nothing executes it, then relaunch each pane.
+# Judgment, gotchas, and when not to use this:
 # plugins/slk-herdr/skills/slk-herdr/SKILL.md
 #
 # SLK_ROLE=agent (with SLK_STATE_VOL, as run-docker.sh takes them) points it
@@ -111,20 +111,16 @@ relaunch=$repo/tools/run-docker.sh
 [ "$role" = user ] || relaunch="SLK_ROLE=$role $relaunch"
 [ -z "${SLK_STATE_VOL:-}" ] || relaunch="SLK_STATE_VOL=$SLK_STATE_VOL $relaunch"
 
-# First relaunch alone: it rebuilds the binary when sources are newer, and
-# the build must finish before any other launch executes the file. It also
-# recreates the backend if run-docker.sh changed how it is made, which it
-# can only do with nothing running in it.
-first=${panes[0]}
-rest=("${panes[@]:1}")
-echo "relaunching $first (rebuilds the binary if sources changed)..." >&2
-herdr pane run "$first" "$relaunch"
-herdr pane wait-output "$first" --match "NORMAL" --timeout 180000 >/dev/null
+# With every session stopped, recreate the backend if run-docker.sh changed
+# how it is made (only possible with nothing running in it), and build the
+# binary once if sources are newer, before any relaunch executes it.
+ensure_backend
+ensure_binary
 
-for pane in ${rest[@]+"${rest[@]}"}; do
+for pane in "${panes[@]}"; do
   herdr pane run "$pane" "$relaunch"
 done
-for pane in ${rest[@]+"${rest[@]}"}; do
+for pane in "${panes[@]}"; do
   herdr pane wait-output "$pane" --match "NORMAL" --timeout 60000 >/dev/null
 done
 
