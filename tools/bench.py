@@ -144,7 +144,7 @@ def launch(window, sampler=None):
     r = {"rc": p.returncode, "first_frame": frame,
          "stamp_check": at(r"\+ ensure_backend$"),
          "rebuilt": any("go build" in l for _, l in trace)}
-    binl, tz, run = (at(r"\++ bin="), at(r"\++ readlink /etc/localtime"),
+    binl, tz, run = (at(r"\+ ensure_binary$"), at(r"\++ readlink /etc/localtime"),
                      at(r"\+ python3 \S+/host-bridge\.py "))
     if None in (r["stamp_check"], binl, tz, run):
         print("bench: launcher trace incomplete (rc=%s), tail:" % p.returncode, file=sys.stderr)
@@ -153,8 +153,8 @@ def launch(window, sampler=None):
                 print("  " + line[:200], file=sys.stderr)
         return r
     r["backend"] = binl - r["stamp_check"]
-    r["staleness_find"] = tz - binl
-    r["shell_other"] = run - binl - r["staleness_find"]
+    r["staleness_check"] = tz - binl
+    r["shell_other"] = run - binl - r["staleness_check"]
     r["shell_total"] = run
 
     hellos, probes, teams = [], 0.0, 0
@@ -203,7 +203,7 @@ def launch(window, sampler=None):
 ROWS = [
     ("stamp check (docker volume inspect)", "stamp_check"),
     ("backend check (docker inspect)", "backend"),
-    ("binary staleness find", "staleness_find"),
+    ("binary staleness check", "staleness_check"),
     ("other launcher shell", "shell_other"),
     ("= launcher before host-bridge.py", "shell_total"),
     ("host-bridge.py start -> slk main()", "bridge_to_main"),
