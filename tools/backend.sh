@@ -114,8 +114,12 @@ ensure_binary() {
   fingerprint=$(source_fingerprint)
   if [ ! -x "$bin" ] || [ "$(cat "$bin.src" 2>/dev/null)" != "$fingerprint" ]; then
     echo "slk: $bin_name missing or built from other sources, rebuilding in docker (10-60s)..." >&2
-    docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" \
-      go build "${build_flags[@]}" -o "bin/$bin_name" ./cmd/slk
+    # Built beside the binary and renamed over it, so the path only ever
+    # holds a whole binary: a launch never runs one half-written.
+    docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" sh -c '
+      out=$1 tmp=$1.new.$2; shift 2
+      go build "$@" -o "$tmp" ./cmd/slk && mv -f "$tmp" "$out" || { rm -f "$tmp"; exit 1; }
+    ' sh "bin/$bin_name" "$$" "${build_flags[@]}"
     printf '%s\n' "$fingerprint" >"$bin.src"
   fi
 }
