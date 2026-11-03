@@ -109,17 +109,25 @@ source_fingerprint() {
 # bin/<bin>.src records the fingerprint of the sources it was built from.
 # Every launch runs it, and so does tools/refresh-sessions.sh, once, while
 # none of its sessions runs.
+#
+# One build of a binary at a time: launches that find it stale together
+# queue on bin/<bin>.lock, a flock held in the backend (so a build that
+# dies frees it, and backends of one role share it), and each checks the
+# record again once it holds the lock, so only the first builds. The
+# build is written beside the binary and renamed over it, so the path
+# only ever holds a whole binary.
 ensure_binary() {
   local bin="$repo/bin/$bin_name" fingerprint
   fingerprint=$(source_fingerprint)
-  if [ ! -x "$bin" ] || [ "$(cat "$bin.src" 2>/dev/null)" != "$fingerprint" ]; then
-    echo "slk: $bin_name missing or built from other sources, rebuilding in docker (10-60s)..." >&2
-    # Built beside the binary and renamed over it, so the path only ever
-    # holds a whole binary: a launch never runs one half-written.
-    docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" sh -c '
-      out=$1 tmp=$1.new.$2; shift 2
-      go build "$@" -o "$tmp" ./cmd/slk && mv -f "$tmp" "$out" || { rm -f "$tmp"; exit 1; }
-    ' sh "bin/$bin_name" "$$" "${build_flags[@]}"
-    printf '%s\n' "$fingerprint" >"$bin.src"
-  fi
+  [ -x "$bin" ] && [ "$(cat "$bin.src" 2>/dev/null)" = "$fingerprint" ] && return
+  docker exec -w "$repo" -e GOFLAGS=-buildvcs=false "$backend" sh -c '
+    out=$1 fingerprint=$2; shift 2
+    mkdir -p "$(dirname "$out")"
+    exec 9>"$out.lock"
+    flock -n 9 || { echo "slk: waiting for another launch to build $(basename "$out")..." >&2; flock 9; }
+    [ -x "$out" ] && [ "$(cat "$out.src" 2>/dev/null)" = "$fingerprint" ] && exit 0
+    echo "slk: $(basename "$out") missing or built from other sources, rebuilding in docker (10-60s)..." >&2
+    go build "$@" -o "$out.new" ./cmd/slk && mv -f "$out.new" "$out" || { rm -f "$out.new"; exit 1; }
+    echo "$fingerprint" >"$out.src"
+  ' sh "bin/$bin_name" "$fingerprint" "${build_flags[@]}"
 }
