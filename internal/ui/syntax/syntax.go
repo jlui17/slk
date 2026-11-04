@@ -40,7 +40,7 @@ type Span struct {
 func Highlight(code string, lexer chroma.Lexer) []Span {
 	tokens, err := chroma.Coalesce(lexer).Tokenise(nil, code)
 	if err != nil {
-		return []Span{{Text: code, Color: styles.TextPrimary}}
+		return []Span{{Text: code, Color: styles.TextBody}}
 	}
 	var spans []Span
 	n := 0
@@ -59,7 +59,9 @@ func Highlight(code string, lexer chroma.Lexer) []Span {
 	return spans
 }
 
-// Pointers, because styles.Apply reassigns the theme variables.
+// Pointers, because styles.Apply reassigns the theme variables. A diff's
+// added lines take Primary so they read blue against Error, never green
+// against red.
 var palette = map[chroma.TokenType]*color.Color{
 	chroma.Keyword:           &styles.Primary,
 	chroma.NameBuiltin:       &styles.Primary,
@@ -71,9 +73,9 @@ var palette = map[chroma.TokenType]*color.Color{
 	chroma.NameAttribute:     &styles.Warning,
 	chroma.Comment:           &styles.TextMuted,
 	chroma.GenericDeleted:    &styles.Error,
-	chroma.GenericInserted:   &styles.Accent,
-	chroma.GenericHeading:    &styles.Primary,
-	chroma.GenericSubheading: &styles.Primary,
+	chroma.GenericInserted:   &styles.Primary,
+	chroma.GenericHeading:    &styles.TextMuted,
+	chroma.GenericSubheading: &styles.TextMuted,
 }
 
 func tokenColor(t chroma.TokenType) color.Color {
@@ -82,5 +84,5 @@ func tokenColor(t chroma.TokenType) color.Color {
 			return *c
 		}
 	}
-	return styles.TextPrimary
+	return styles.TextBody
 }

@@ -39,7 +39,7 @@ func TestHighlight_PaintsFromThemeAndKeepsTextIntact(t *testing.T) {
 	if text.String() != code {
 		t.Fatalf("text changed: %q", text.String())
 	}
-	for tok, want := range map[string]color.Color{"func": styles.Primary, "\"x\"": styles.Accent, "// hi": styles.TextMuted, "main": styles.TextPrimary} {
+	for tok, want := range map[string]color.Color{"func": styles.Primary, "\"x\"": styles.Accent, "// hi": styles.TextMuted, "main": styles.TextBody} {
 		if got[tok] != want {
 			t.Errorf("%q colored %v, want %v", tok, got[tok], want)
 		}
@@ -64,5 +64,31 @@ func TestHighlight_DropsTheNewlineEnsureNLLexersAppend(t *testing.T) {
 		if text.String() != code {
 			t.Errorf("%s: text %q, want %q", lang, text.String(), code)
 		}
+	}
+}
+
+// Color that carries meaning is blue against orange or yellow, never red
+// against green, so a diff's added lines take the theme's Primary.
+func TestHighlight_DiffLinesDifferInEveryTheme(t *testing.T) {
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+	for _, name := range styles.ThemeNames() {
+		styles.Apply(name, config.Theme{})
+		got := map[string]color.Color{}
+		for _, s := range Highlight("@@ -1 +1 @@\n-old\n+new\n", Lexer("diff")) {
+			got[strings.TrimSpace(s.Text)] = s.Color
+		}
+		if got["+new"] != styles.Primary || got["-old"] != styles.Error {
+			t.Errorf("%s: added %v, deleted %v; want Primary %v, Error %v", name, got["+new"], got["-old"], styles.Primary, styles.Error)
+		}
+		if got["@@ -1 +1 @@"] == got["+new"] {
+			t.Errorf("%s: the hunk header shares the added lines' color", name)
+		}
+	}
+}
+
+func TestHighlight_PlainTokensUseTheBodyTextColor(t *testing.T) {
+	withTheme(t, "coffee")
+	if got := Highlight("main", Lexer("go"))[0].Color; got != styles.TextBody || got == styles.TextPrimary {
+		t.Errorf("plain token %v, want coffee's body text %v", got, styles.TextBody)
 	}
 }
