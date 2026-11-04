@@ -2,7 +2,6 @@ package styles
 
 import (
 	"image/color"
-	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,26 +110,6 @@ time = "#333333"
 	if cfg.Theme.Online != "#58AAF1" || cfg.Theme.Primary != "#000001" {
 		t.Errorf("config [theme] = %+v", cfg.Theme)
 	}
-}
-
-func luminance(c color.Color) float64 {
-	r, g, b, _ := c.RGBA()
-	lin := func(v uint32) float64 {
-		x := float64(v>>8) / 255
-		if x <= 0.03928 {
-			return x / 12.92
-		}
-		return math.Pow((x+0.055)/1.055, 2.4)
-	}
-	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
-}
-
-func contrast(a, b color.Color) float64 {
-	la, lb := luminance(a), luminance(b)
-	if la < lb {
-		la, lb = lb, la
-	}
-	return (la + 0.05) / (lb + 0.05)
 }
 
 // Every text color coffee draws is at least 4.5:1 on what it sits on.

@@ -452,7 +452,7 @@ func buildStyles() {
 	UnfocusedBorder = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).BorderForeground(Border).BorderBackground(Background).Background(Background)
 	WorkspaceActive = lipgloss.NewStyle().
-		Background(Primary).Foreground(lipgloss.Color("#FFFFFF")).
+		Background(Primary).Foreground(textOn(Primary)). // fork: contrast_fork.go
 		Bold(true).Padding(0, 1).Align(lipgloss.Center)
 	WorkspaceInactive = lipgloss.NewStyle().
 		Background(RailBackground).Foreground(SidebarText).
@@ -466,7 +466,7 @@ func buildStyles() {
 	ChannelMuted = lipgloss.NewStyle().
 		Background(SidebarBackground).Foreground(SidebarTextMuted).Padding(0, 1)
 	UnreadBadge = lipgloss.NewStyle().
-		Background(Error).Foreground(lipgloss.Color("#FFFFFF")).Padding(0, 1)
+		Background(Error).Foreground(textOn(Error)).Padding(0, 1) // fork: contrast_fork.go
 	SectionHeader = lipgloss.NewStyle().
 		Background(SidebarBackground).Foreground(SidebarTextMuted).Bold(true).Padding(0, 1)
 	Timestamp = lipgloss.NewStyle().
@@ -478,9 +478,9 @@ func buildStyles() {
 	StatusBar = lipgloss.NewStyle().
 		Background(SurfaceDark).Foreground(TextPrimary).Padding(0, 1)
 	StatusMode = lipgloss.NewStyle().
-		Background(Primary).Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Padding(0, 1)
+		Background(Primary).Foreground(textOn(Primary)).Bold(true).Padding(0, 1) // fork: contrast_fork.go
 	StatusModeInsert = lipgloss.NewStyle().
-		Background(Accent).Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Padding(0, 1)
+		Background(Accent).Foreground(textOn(Accent)).Bold(true).Padding(0, 1) // fork: contrast_fork.go
 	StatusModeCommand = lipgloss.NewStyle().
 		Background(Warning).Foreground(lipgloss.Color("#000000")).Bold(true).Padding(0, 1)
 	StatusbarSyncing = lipgloss.NewStyle().
@@ -533,8 +533,8 @@ func SelectionStyle() lipgloss.Style {
 // while it is still nil, since that var has no initializer. SelectionStyle
 // and SearchHighlightStyle are functions for the same reason.
 //
-// Deliberately not UnreadBadge: that style hardcodes white over Error and
-// belongs to the status bar. See
+// Deliberately not UnreadBadge: that style draws over Error and belongs
+// to the status bar. See
 // docs/superpowers/specs/2026-09-09-mention-badges-design.md.
 func MentionBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().

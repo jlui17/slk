@@ -417,8 +417,11 @@ there and resolve them knowing what the fork wants:
   `internal/ui/testdata/golden/*.ansi` re-blessed: the deploy card draws
   in the fork's round box (which also shifts the dialogs' backdrops), the
   help overlay lists the fork's keys, the selection tint is reasserted,
-  and `window_split.ansi` gains the new-messages line from
-  `applyCachedLastRead`. Re-bless with `tools/go.sh test ./internal/ui
+  `window_split.ansi` gains the new-messages line from
+  `applyCachedLastRead`, and the mode, workspace and unread pills draw
+  their text in white or the theme's Background, whichever contrasts more
+  with the pill (`textOn` in `styles/contrast_fork.go`, one hook line per
+  pill in `buildStyles`). Re-bless with `tools/go.sh test ./internal/ui
   -run TestGolden -update` and check the diff against upstream's goldens
   is only those.
 - The reading layout (see "Reading layout") — one-line hooks in
