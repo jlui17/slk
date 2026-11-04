@@ -274,11 +274,11 @@ func setupLegacyImageMessageModel(t *testing.T) *Model {
 func TestRenderMessage_WithoutSixelRows_LegacyImageGraftsOverStripe(t *testing.T) {
 	m := setupLegacyImageMessageModel(t)
 	rc := m.renderContext()
-	r := RenderMessage(m.messages[0], 80, rc, RenderOptions{ImageHits: true})
+	r := RenderMessage(m.messages[0], 80+GutterCols, rc, RenderOptions{ImageHits: true})
 
 	var fallbackRows int
 	for _, line := range strings.Split(r.Content, "\n") {
-		plain := ansi.Strip(line)
+		plain := strings.TrimPrefix(ansi.Strip(line), strings.Repeat(" ", GutterCols))
 		if !strings.Contains(plain, "▀") && !strings.Contains(plain, "▄") {
 			continue
 		}

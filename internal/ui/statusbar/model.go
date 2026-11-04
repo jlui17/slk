@@ -331,7 +331,7 @@ func (m Model) View(width int) string {
 	} else if m.presence == "active" {
 		rightParts = append(rightParts,
 			lipgloss.NewStyle().
-				Foreground(styles.Accent).
+				Foreground(styles.Online).
 				Background(styles.SurfaceDark).
 				Render("● Active"))
 	} else if m.presence == "away" {
@@ -345,7 +345,7 @@ func (m Model) View(width int) string {
 	switch m.connState {
 	case StateConnected:
 		rightParts = append(rightParts,
-			lipgloss.NewStyle().Foreground(styles.Accent).Background(styles.SurfaceDark).Render("● Connected"))
+			lipgloss.NewStyle().Foreground(styles.Online).Background(styles.SurfaceDark).Render("● Connected"))
 	case StateConnecting:
 		rightParts = append(rightParts,
 			lipgloss.NewStyle().Foreground(styles.Warning).Background(styles.SurfaceDark).Render("● Connecting"))

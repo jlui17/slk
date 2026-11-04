@@ -148,7 +148,7 @@ func TestModel_PartialRebuildMatchesFullRebuild(t *testing.T) {
 		{
 			name:     "remove from the middle",
 			event:    func(m *Model) { m.RemoveMessageByTS(msgs[3].TS) },
-			rendered: nil,
+			rendered: []string{msgs[2].TS}, // its spacer: a day divider follows now, not bob
 		},
 		{
 			name:     "remove the first of a day",

@@ -83,23 +83,23 @@ var (
 // messages like "has joined the channel".
 // Code styles use styles.Surface (a different bg) so they keep their own.
 func boldStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Bold(true).Foreground(styles.TextPrimary)
+	return lipgloss.NewStyle().Bold(true).Foreground(styles.TextBody)
 }
 func italicStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Italic(true).Foreground(styles.TextPrimary)
+	return lipgloss.NewStyle().Italic(true).Foreground(styles.TextBody)
 }
 func strikethroughStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Strikethrough(true).Foreground(styles.TextPrimary)
+	return lipgloss.NewStyle().Strikethrough(true).Foreground(styles.TextBody)
 }
 func codeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(styles.Warning).
-		Background(styles.Surface)
+		Foreground(styles.CodeText).
+		Background(styles.CodeBackground)
 }
 func codeBlockStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(styles.Warning).
-		Background(styles.Surface).
+		Foreground(styles.CodeText).
+		Background(styles.CodeBackground).
 		Padding(0, 1)
 }
 func linkStyle() lipgloss.Style {
@@ -560,6 +560,7 @@ type RenderSlackMarkdownOpts struct {
 	PermalinkChips      PermalinkChips        // a permalink to a message this one carries a card for shows as a short label (permalinkchip_fork.go)
 	WorkspaceDomain     string                // non-empty: a user mention links to the user's profile in this workspace (profilelink_fork.go)
 	TextColor           color.Color           // plain text's color, put back after each styled span; nil is styles.TextPrimary (textcolor_fork.go)
+	CodeWidth           int                   // above Width: a code block grows to this when its code needs it, and prose wraps at Width here (layout_fork.go)
 }
 
 // RenderSlackMarkdown converts Slack-flavored markdown and emoji shortcodes
@@ -620,7 +621,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 		result = append(result, line)
 	}
 
-	output := held.restore(strings.Join(result, "\n"), opts)
+	output := held.restore(wrapProse(strings.Join(result, "\n"), opts), opts) // fork: layout_fork.go
 
 	// Post-process: re-apply theme background AND foreground after every
 	// ANSI reset so that inline styled text (bold, link, mention) doesn't

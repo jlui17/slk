@@ -306,4 +306,6 @@ type Theme struct {
 	Text        string `toml:"text"`
 	TextMuted   string `toml:"text_muted"`
 	Border      string `toml:"border"`
+
+	ThemeRoles // fork: theme_roles_fork.go
 }

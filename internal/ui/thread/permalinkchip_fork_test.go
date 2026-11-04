@@ -26,7 +26,7 @@ func TestPermalinkChip_ParentAndReply(t *testing.T) {
 	if got := strings.Count(plain, "see ↳ Claude in #dev"); got != 2 {
 		t.Errorf("want the chip in the parent and in the carded reply, got %d:\n%s", got, plain)
 	}
-	if !strings.Contains(plain, "▌https://example.slack.com/archives/C0000000001/p1736092920000200") {
+	if !strings.Contains(plain, "▌"+strings.Repeat(" ", messages.GutterCols)+"https://example.slack.com/archives/C0000000001/p1736092920000200") {
 		t.Errorf("a permalink with no card must stay a full URL:\n%s", plain)
 	}
 }

@@ -662,7 +662,7 @@ func channelPrefix(item core.ChannelFinderItem, st peerstatus.Status) string {
 			return lipgloss.NewStyle().Foreground(styles.Warning).Render(peerstatus.DNDGlyph)
 		}
 		if item.Presence == "active" {
-			return lipgloss.NewStyle().Foreground(styles.Accent).Render("●")
+			return lipgloss.NewStyle().Foreground(styles.Online).Render("●")
 		}
 		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("○")
 	case "group_dm":

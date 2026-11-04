@@ -65,12 +65,10 @@ func (a *App) renderSidebar(sidebarWidth, sidebarBorder, contentHeight int, them
 		Background(styles.SidebarBackground).
 		Width(sidebarWidth)
 	if sbFocused {
-		borderStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(styles.Primary).
-			BorderBackground(styles.SidebarBackground).
-			Background(styles.SidebarBackground).
-			Width(sidebarWidth)
+		borderStyle = styles.FocusedBorder. // fork: the focus_border role, as the other panes
+							BorderBackground(styles.SidebarBackground).
+							Background(styles.SidebarBackground).
+							Width(sidebarWidth)
 	}
 	out := exactSizeBg(borderStyle.Render(sidebarView), sidebarWidth+sidebarBorder, contentHeight, styles.SidebarBackground)
 	c.store(out, a.sidebar.Version(), sidebarWidth, contentHeight, sbLayoutKey)

@@ -48,6 +48,14 @@ type RenderOptions struct {
 	ImageHits       bool   // record image and file hit rects (both panes)
 	SixelRows       bool   // record sixel rows (channel pane)
 	stats           *entryPerfStats
+
+	// Fork: grouping and the time margin (layout_fork.go). Continuation
+	// draws no header and no avatar; TimeMargin puts the time in the
+	// gutter (a pane without avatars); HeaderDate follows the name in
+	// place of a time (the thread parent).
+	Continuation bool
+	TimeMargin   bool
+	HeaderDate   string
 }
 
 // RenderedMessage is one message, rendered, before the pane's border and fill.
@@ -65,6 +73,12 @@ type RenderedMessage struct {
 	// attachmentfold_fork.go).
 	CodeBlockCopyLabels []CodeBlockCopyLabel
 	AttachmentFoldRows  []int
+
+	// Fork: the header row as the cursor draws it, when the pane shows
+	// the time in the margin, and the width of a continuation's first
+	// body row, where the cursor shows its long time (SelectedContent).
+	HeaderSelected string
+	firstRowWidth  int
 }
 
 // BlockkitContext bundles the blockkit-package dependencies sourced
@@ -134,18 +148,9 @@ func BlockkitContext(msg MessageItem, rc *RenderContext) blockkit.Context {
 // columns.
 func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOptions) RenderedMessage {
 	var out RenderedMessage
-	avatarStr := opt.Avatar
 	stats := opt.stats
-	line := styles.Username(msg.UserID, rc.ColoredUsernames).Render(msg.UserName) + AuthorStatusSuffix(rc.UserStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
-
-	// If we have an avatar, reserve space on the left for it
-	contentWidth := width - 4
-	if avatarStr != "" {
-		contentWidth = width - 7 // 4 cols avatar + 1 space + 2 padding
-	}
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
+	contentWidth := TextWidth(width)                                                  // fork: layout_fork.go
+	line, lineSelected := headerLines(msg, rc, opt, min(contentWidth, width-TextCol)) // fork: layout_fork.go
 
 	var bodyT0 time.Time
 	if stats != nil {
@@ -165,6 +170,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		EmojiFlushes: &out.BodyFlushes,
 		Width:        contentWidth,
 		SearchTerms:  rc.SearchTerms,
+		CodeWidth:    CodeWidth(width), // fork: layout_fork.go
 
 		CodeBlockCopyLabels: &out.CodeBlockCopyLabels,
 		PermalinkChips:      PermalinkChipsOf(msg, rc.ChannelNames),
@@ -180,7 +186,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// Search terms are highlighted inside the renderer (fork:
 	// bodyOpts.SearchTerms), across styled spans.
 	rendered := RenderSlackMarkdownWith(bodySrc, bodyOpts)
-	text := renderBodyText(msg.Subtype == "me_message", WordWrap(rendered, contentWidth)) // fork: bodytext_fork.go
+	text := bodyText(msg, rendered, opt, contentWidth, bodyOpts.CodeWidth, &out) // fork: layout_fork.go
 	if stats != nil {
 		stats.bodyTotal += time.Since(bodyT0)
 	}
@@ -347,6 +353,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	if opt.EditedMark && msg.IsEdited {
 		editedMark = " " + styles.Timestamp.Render("(edited)")
 	}
+	line, editedMark = groupHeader(line, editedMark, hasBody, opt) // fork: layout_fork.go
 
 	// Pre-attachment row count, so attachment rows can compute their
 	// absolute row index (used as the sixelRows key).
@@ -367,8 +374,8 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		labelRows += styles.Timestamp.Render("\u21b3 replied to a thread") + "\n"
 		preAttachmentRows++ // the broadcast label occupies its own row
 	}
-	preAttachmentRows++               // username + ts row
-	copyLabelRow := preAttachmentRows // fork: codeblocks_fork.go
+	preAttachmentRows += headerRows(line, editedMark) // username + ts row; fork: layout_fork.go
+	copyLabelRow := preAttachmentRows                 // fork: codeblocks_fork.go
 	if hasBody {
 		preAttachmentRows += lipgloss.Height(text) // wrapped body text
 	}
@@ -387,10 +394,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// pass it down so the per-image hit rects come back in absolute
 	// linesNormal columns, ready for direct viewport translation in
 	// View() without any further offset arithmetic.
-	contentColBase := 1
-	if avatarStr != "" {
-		contentColBase += 5
-	}
+	contentColBase := TextCol                                                                                  // fork: layout_fork.go
 	out.CodeBlockCopyLabels = OffsetCodeBlockCopyLabels(out.CodeBlockCopyLabels, copyLabelRow, contentColBase) // fork
 
 	var attachLineSlices [][]string
@@ -620,7 +624,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	if hasBody {
 		bodyRow = "\n" + text
 	}
-	msgContent := labelRows + line + editedMark + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
+	msgContent := labelRows + joinHeader(line+editedMark, bodyRow+bkBlock+attachmentLines+threadLine+reactionLine) // fork: layout_fork.go
 
 	// Translate per-pill specs into entry-relative reaction hit rects.
 	// reactionRowBase is the row index (within linesNormal) where the
@@ -650,9 +654,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 
 	// Place avatar next to message content (avatar is side-by-side, no
 	// extra rows; row indices for sixelRows remain valid).
-	if avatarStr != "" {
-		msgContent = placeAvatarBeside(avatarStr, msgContent)
-	}
+	msgContent = placeGutter(msgContent, msg, opt, strings.Count(labelRows, "\n")) // fork: layout_fork.go
 
 	if len(allSixel) == 0 {
 		allSixel = nil
@@ -677,6 +679,9 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// exceeds width-1 (the fill) minus the avatar gutter.
 	out.Content = msgContent
 	out.Header = line + editedMark
+	if lineSelected != "" {
+		out.HeaderSelected = lineSelected + editedMark // fork: layout_fork.go
+	}
 	out.HeaderBudget = min(contentWidth, width-1-(contentColBase-1))
 	out.SixelRows = allSixel
 	return out

@@ -460,7 +460,7 @@ func TestSlackBrandedThemesHaveRequiredColors(t *testing.T) {
 }
 
 func TestBuiltinThemeCount(t *testing.T) {
-	const want = 59
+	const want = 60
 	if got := len(builtinThemes); got != want {
 		t.Errorf("builtinThemes count = %d, want %d (update docs in README.md and wiki/Features.md if this changed intentionally)", got, want)
 	}

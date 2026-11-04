@@ -708,12 +708,13 @@ func goldenReadState() map[string]cache.ReadState {
 // scenario AND of goldenFixtureOpts, which is why they are a constant
 // rather than two independent literals.
 //
-// The height is 36, not buildTestApp's 120x30 default. At 30 rows the
-// fixture's content is one row taller than the messages viewport and
-// the "── Yesterday ──" divider scrolls off the top — which base is
-// specifically required to show, and which several assertions here
-// (TestNewGoldenApp_PinsDateSeparatorClock) depend on. 36 leaves 7
-// spare content rows, so the next fixture row is an edit rather than a
+// The height is 44, not buildTestApp's 120x30 default. Below that the
+// fixture's content (with the fork's spacing between speakers) is
+// taller than the messages viewport and the "── Yesterday ──" divider
+// scrolls off the top — which base is specifically required to show,
+// and which several assertions here
+// (TestNewGoldenApp_PinsDateSeparatorClock) depend on. 44 leaves spare
+// content rows, so the next fixture row is an edit rather than a
 // negotiation.
 //
 // Both must move together: goldenFixtureOpts is what the determinism
@@ -721,7 +722,7 @@ func goldenReadState() map[string]cache.ReadState {
 // those assertions would be checking a frame no golden records.
 const (
 	goldenBaseW = 120
-	goldenBaseH = 36
+	goldenBaseH = 44
 )
 
 // goldenFixtureOpts is the standard scenario the determinism tests
@@ -1311,7 +1312,7 @@ func TestGolden_BaseHasVerticalHeadroom(t *testing.T) {
 	lines := strings.Split(pane, "\n")
 	last := -1
 	for i, l := range lines {
-		if strings.Contains(l, "wrapping behaviour") {
+		if strings.Contains(l, "behaviour") { // the fixture's last word
 			last = i
 		}
 	}
@@ -1620,7 +1621,7 @@ func goldenFinderItems() []core.ChannelFinderItem {
 }
 
 // goldenDragPressX / goldenDragPressY / goldenDragDX / goldenDragDY
-// are the drag drag_selection performs: press on TERMINAL row 7, 11
+// are the drag drag_selection performs: press on TERMINAL row 9, 17
 // columns into the messages band, then drag 25 columns right and 2
 // rows down.
 //
@@ -1654,9 +1655,9 @@ func goldenFinderItems() []core.ChannelFinderItem {
 // A single-row drag reaches only the both-ends-partial case, and a
 // press at the pane's left edge makes the first row whole too — which
 // is why goldenDragPressX is 11 and not the "2 columns in" the task
-// brief used. 11 = 1 border column + 1 gutter column + 9 content
-// columns, which lands the start anchor inside the author line's text
-// rather than before it. Measured against the blessed golden: the
+// brief used. 17 = 1 border column + the entry's selection column and
+// 6-column gutter + 9 content columns, which lands the start anchor
+// inside the author line's text rather than before it. Measured against the blessed golden: the
 // first highlighted row begins mid-timestamp.
 //
 // The last row is the reaction-pill line, so the 25-column cut also
@@ -1667,8 +1668,8 @@ func goldenFinderItems() []core.ChannelFinderItem {
 // consequence (exactly goldenDragDY+1 highlighted rows, none of them
 // blank) rather than trusting this comment.
 const (
-	goldenDragPressX = 11
-	goldenDragPressY = 7
+	goldenDragPressX = 17
+	goldenDragPressY = 9
 	goldenDragDX     = 25
 	goldenDragDY     = 2
 )
@@ -2191,7 +2192,7 @@ func TestGolden_WindowSplitRendersTwoDistinctPanes(t *testing.T) {
 	}
 	// goldenMessages()[:2] stops before carol's row, so this string
 	// can only have come from the six-message (unfocused) pane.
-	if !strings.Contains(plain, "wrapping behaviour") {
+	if !strings.Contains(plain, "behaviour") {
 		t.Errorf("the unfocused window is not rendering its own longer history; "+
 			"view was:\n%s", plain)
 	}

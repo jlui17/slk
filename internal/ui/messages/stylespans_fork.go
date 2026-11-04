@@ -6,8 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/gammons/slk/internal/ui/styles"
 )
 
 // A bold, italic or struck span is found on the raw text, where Slack's
@@ -140,7 +138,7 @@ func spanOnSGR(on [spanAttrs]int) string {
 			params = append(params, spanSGR[a])
 		}
 	}
-	return "\x1b[" + strings.Join(params, ";") + "m" + fgANSIFor(styles.TextPrimary)
+	return "\x1b[" + strings.Join(params, ";") + "m" + BodyFgANSI()
 }
 
 func anySpanOn(on [spanAttrs]int) bool {

@@ -14,7 +14,7 @@ import (
 func copyLabelCells(view string) [][2]int {
 	var cells [][2]int
 	for y, row := range strings.Split(ansi.Strip(view), "\n") {
-		if before, _, found := strings.Cut(row, " copy ─╮"); found {
+		if before, _, found := strings.Cut(row, " copy "); found {
 			cells = append(cells, [2]int{y, ansi.StringWidth(before)})
 		}
 	}

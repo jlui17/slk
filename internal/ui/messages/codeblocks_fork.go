@@ -65,25 +65,32 @@ func wearsCopyLabel(opts RenderSlackMarkdownOpts) bool {
 	return opts.CodeBlockCopyLabels != nil && !opts.Preview
 }
 
-// The label sits one border cell in from the top right corner; a block
-// too narrow to keep "╭─" in front of it goes without.
+// The click target is " copy " at the right end of the block's top
+// row: the label and the cells either side of it, the right one the
+// block's padding. A block too narrow to hold it goes without.
 func copyLabelCols(blockWidth int) (start, end int, ok bool) {
-	end = blockWidth - 2
+	end = blockWidth
 	start = end - len(copyLabelText)
-	return start, end, start >= 2
+	return start, end, start >= 1
 }
 
-func withCopyLabel(block string) string {
-	top, rest, _ := strings.Cut(block, "\n")
-	width := lipgloss.Width(top)
-	start, end, ok := copyLabelCols(width)
-	if !ok {
-		return block
+// codeBlockTop is a code block's top row inside its padding, width
+// cells: the language on the left in the body text color, and "copy"
+// on the right when the block wears the label.
+func codeBlockTop(language string, width int, copyLabel bool) string {
+	bg := lipgloss.NewStyle().Background(styles.CodeBackground)
+	label := strings.TrimSpace(copyLabelText)
+	if !copyLabel || width < len(label)+1 {
+		label = ""
 	}
-	// A filled chip like the reaction pills' "+": the app's look for
-	// something a click acts on.
-	label := lipgloss.NewStyle().Background(styles.Surface).Foreground(styles.Primary).Bold(true).Render(copyLabelText)
-	return ansi.Cut(top, 0, start) + label + ansi.Cut(top, end, width) + "\n" + rest
+	room := max(width-len(label)-1, 0)
+	if label == "" {
+		room = max(width, 0)
+	}
+	language = ansi.Truncate(language, room, "…")
+	gap := max(width-ansi.StringWidth(language)-len(label), 0)
+	return bg.Foreground(styles.TextBody).Render(language) + bg.Render(strings.Repeat(" ", gap)) +
+		bg.Foreground(styles.TimeColor).Render(label)
 }
 
 // OffsetCodeBlockCopyLabels moves labels from body cells to the cells of

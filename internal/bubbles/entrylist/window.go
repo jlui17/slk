@@ -146,7 +146,7 @@ func (m *Model) followCursor(cursor int) int {
 			continue
 		}
 		start := m.offsets[i]
-		if start+len(e.Lines) <= top || start >= bottom {
+		if start+len(e.Lines)-e.Trail <= top || start >= bottom {
 			continue
 		}
 		next, found = e.Ref, true

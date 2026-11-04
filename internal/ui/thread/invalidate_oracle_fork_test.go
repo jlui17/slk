@@ -193,7 +193,9 @@ func TestThread_TargetedInvalidationMatchesFullRebuild(t *testing.T) {
 			},
 			rendered: []string{"1700000010.000100"},
 		},
-		{name: "a reply deleted", event: func(m *Model) { m.RemoveMessageByTS(ts[2]) }},
+		// carol's replies either side of bob's now stand together, so
+		// the later one continues the earlier and draws again.
+		{name: "a reply deleted", event: func(m *Model) { m.RemoveMessageByTS(ts[2]) }, rendered: []string{ts[3]}},
 		{
 			name: "a sent reply gets its ts",
 			setup: func(m *Model) {

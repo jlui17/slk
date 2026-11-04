@@ -3,9 +3,11 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
-// The "── new ──" line stays where it was while the channel is on screen,
+// The new-messages line stays where it was while the channel is on screen,
 // as in Slack, when a websocket reconnect refreshes the channel. By then
 // opening the channel has marked it read to its newest message, so the
 // refresh reports that as the last read; taking it would drop the line.
@@ -14,7 +16,7 @@ func TestReconnectRefreshKeepsNewDivider(t *testing.T) {
 	_, _ = a.Update(ChannelSelectedMsg{ID: "C1", Name: "eng", Type: "channel"})
 	// Opening the channel: read up to 1.0, so 2.0 and 3.0 are new.
 	_, _ = a.Update(MessagesLoadedMsg{ChannelID: "C1", Messages: testMessageItems(3), LastReadTS: "1.0", MarkedTS: "3.0"})
-	if !strings.Contains(a.messagepane.View(40, 80), "── new ──") {
+	if !strings.Contains(ansi.Strip(a.messagepane.View(40, 80)), "─ new") {
 		t.Fatal("precondition: the open channel draws the new line")
 	}
 
@@ -25,7 +27,7 @@ func TestReconnectRefreshKeepsNewDivider(t *testing.T) {
 	if got := a.messagepane.LastReadTS(); got != "1.0" {
 		t.Errorf("LastReadTS = %q after the reconnect refresh, want 1.0 kept", got)
 	}
-	if !strings.Contains(a.messagepane.View(40, 80), "── new ──") {
+	if !strings.Contains(ansi.Strip(a.messagepane.View(40, 80)), "─ new") {
 		t.Error("the new line is gone after the reconnect refresh")
 	}
 }

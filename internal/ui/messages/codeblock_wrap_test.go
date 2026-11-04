@@ -27,10 +27,10 @@ func TestCodeBlock_EveryLineFillsTheFullWidth(t *testing.T) {
 			body = append(body, l)
 		}
 	}
-	// Fork: the block is a bordered, padded box (renderCodeBlock), so
-	// the two code lines sit inside border and padding rows.
-	if len(body) != 6 {
-		t.Fatalf("got %d content lines, want 6:\n%q", len(body), lines)
+	// Fork: the block is a filled rectangle (renderCodeBlock), so the
+	// two code lines sit between its top row and its padding row.
+	if len(body) != 4 {
+		t.Fatalf("got %d content lines, want 4:\n%q", len(body), lines)
 	}
 	for i, l := range body {
 		if w := ansi.StringWidth(l); w != width {
@@ -47,9 +47,9 @@ func TestCodeBlock_PreservesIndentation(t *testing.T) {
 	for _, l := range lines {
 		if strings.Contains(ansi.Strip(l), "four spaces") {
 			found = true
-			// Fork: the box border, one column of style padding, then
-			// the source's own four.
-			if !strings.HasPrefix(ansi.Strip(l), "│     four spaces") {
+			// Fork: one column of style padding, then the source's
+			// own four.
+			if !strings.HasPrefix(ansi.Strip(l), "     four spaces") {
 				t.Errorf("indentation collapsed: %q", ansi.Strip(l))
 			}
 		}

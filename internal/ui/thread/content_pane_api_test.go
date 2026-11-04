@@ -80,19 +80,20 @@ func TestClickAt_ReportsFalseOffSelectableRows(t *testing.T) {
 	m := apiThread(t, apiParentTS)
 	entries := m.list.Entries()
 	parent := apiEntry(t, m, "parent", func(i int) bool { return entries[i].Ref == parentSelected })
-	// Decorations are Ref -1 single rows: the first follows the parent
-	// (the day divider before reply 1); a rule sits between the replies.
-	divider := apiEntry(t, m, "day divider", func(i int) bool { return i == parent+1 && entries[i].Ref == -1 })
-	rule := apiEntry(t, m, "rule", func(i int) bool {
+	// Fork: decorations are Ref -1 entries: the replies line under the
+	// parent, then before each reply its blank rows and day divider.
+	repliesLine := apiEntry(t, m, "replies line", func(i int) bool { return i == parent+1 && entries[i].Ref == -1 })
+	divider := apiEntry(t, m, "day divider", func(i int) bool {
+		return entries[i].Ref == -1 && strings.Contains(ansi.Strip(entries[i].Lines[0]), "── ")
+	})
+	gap := apiEntry(t, m, "gap between replies", func(i int) bool {
 		return i > 0 && entries[i].Ref == -1 && entries[i-1].Ref == 0
 	})
-	parentRule := len(entries[parent].Lines) - 1
-	isRule := func(row string) bool { return strings.Trim(ansi.Strip(row), "─ ") == "" }
-	if isRule(entries[divider].Lines[0]) {
-		t.Fatalf("test setup: entry %d is a rule, not a day divider", divider)
+	if !strings.Contains(ansi.Strip(entries[repliesLine].Lines[1]), "2 replies ─") {
+		t.Fatalf("test setup: entry %d is not the replies line", repliesLine)
 	}
-	if !isRule(entries[rule].Lines[0]) || !isRule(entries[parent].Lines[parentRule]) {
-		t.Fatal("test setup: the rule rows are not rules")
+	if strings.TrimSpace(ansi.Strip(entries[gap].Lines[0])) != "" {
+		t.Fatal("test setup: the gap row is not blank")
 	}
 
 	before := m.selected
@@ -101,9 +102,9 @@ func TestClickAt_ReportsFalseOffSelectableRows(t *testing.T) {
 		y    int
 	}{
 		{"chrome row", 0},
+		{"replies line", apiRow(m, repliesLine, 1)},
 		{"day divider", apiRow(m, divider, 0)},
-		{"rule between replies", apiRow(m, rule, 0)},
-		{"the parent's rule row", apiRow(m, parent, parentRule)},
+		{"blank row between replies", apiRow(m, gap, 0)},
 	}
 	for _, c := range cases {
 		if m.ClickAt(c.y) {

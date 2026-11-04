@@ -143,64 +143,44 @@ func (h heldCodeBlocks) tighten(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// renderCodeBlock draws a fenced block as a filled rectangle the text
+// width wide, with no border and no line numbers: a top row with the
+// language on the left and the copy label on the right, the code in
+// the Code role, then a padding row.
 func renderCodeBlock(inner string, opts RenderSlackMarkdownOpts, hl searchHighlighter) string {
 	language, code := splitFenceLanguage(inner)
 	code = expandTabs(slackEntityDecoder.Replace(code))
 	if opts.Preview {
 		return codeBlockStyle().Render(hl.highlight(code))
 	}
-	style := codeBlockStyle().Inherit(styles.UnfocusedBorder).Padding(1, 1)
-	lexer := syntax.Lexer(language)
-	if lexer != nil {
+	style := codeBlockStyle()
+	blockWidth := codeBlockWidth(code, opts)
+	label := "" // the language as the highlighter names it; none without a lexer
+	if lexer := syntax.Lexer(language); lexer != nil {
 		code = highlightCode(code, lexer)
+		label = lexer.Config().Name
 	}
-	lines := strings.Split(code, "\n")
-	digits := 0
-	if lexer != nil {
-		digits = len(fmt.Sprint(len(lines)))
+	limit := blockWidth - style.GetHorizontalFrameSize()
+	var rows []string
+	for _, line := range strings.Split(code, "\n") {
+		rows = append(rows, strings.Split(ansi.Hardwrap(line, limit, true), "\n")...)
 	}
-	limit := opts.Width - style.GetHorizontalFrameSize()
-	if digits > 0 {
-		limit -= digits + 2
-	}
-	var rows, gutters []string
-	for n, line := range lines {
-		for j, row := range strings.Split(ansi.Hardwrap(line, limit, true), "\n") {
-			rows = append(rows, row)
-			gutters = append(gutters, gutter(digits, n+1, j == 0))
+	rowWidth := limit
+	if limit > 0 {
+		style = style.Width(blockWidth)
+	} else {
+		// No width to wrap to: the block is as wide as its widest row.
+		rowWidth = ansi.StringWidth(label)
+		for _, row := range rows {
+			rowWidth = max(rowWidth, ansi.StringWidth(row))
 		}
 	}
-	surface := bgANSIFor(styles.Surface)
+	surface := bgANSIFor(styles.CodeBackground)
 	for i, row := range ReopenSGRAcrossRows(rows) {
-		rows[i] = gutters[i] + ReapplyBgAfterResets(hl.highlight(row), surface)
+		rows[i] = ReapplyBgAfterResets(hl.highlight(row), surface)
 	}
-	body := strings.Join(rows, "\n")
-	if lexer != nil {
-		style = style.PaddingTop(0)
-		body = fgANSIFor(styles.TextMuted) + lexer.Config().Name + "\n\n" + body
-	}
-	if limit > 0 {
-		style = style.Width(opts.Width)
-	}
-	rendered := style.Render(body)
-	if wearsCopyLabel(opts) {
-		rendered = withCopyLabel(rendered)
-	}
-	return rendered
-}
-
-// The gutter is two cells wider than its digits and restores the text
-// color after them, so the row's own color run resumes untouched; a
-// wrapped continuation row gets a blank gutter.
-func gutter(digits, n int, lineStart bool) string {
-	switch {
-	case digits == 0:
-		return ""
-	case lineStart:
-		return fmt.Sprintf("%s%*d  %s", fgANSIFor(styles.TextMuted), digits, n, fgANSIFor(styles.TextPrimary))
-	default:
-		return strings.Repeat(" ", digits+2)
-	}
+	body := codeBlockTop(label, rowWidth, wearsCopyLabel(opts)) + "\n" + strings.Join(rows, "\n") + "\n"
+	return style.Render(body)
 }
 
 var paintedCode = struct {

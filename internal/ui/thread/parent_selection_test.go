@@ -139,8 +139,8 @@ func TestBeginSelectionAtParentAnchorsParent(t *testing.T) {
 func TestSelectionTextIncludesParent(t *testing.T) {
 	m := newThreadWithReplies(1)
 	m.View(20, 80)
-	m.BeginSelectionAt(m.chromeHeight+1, 1)
-	m.ExtendSelectionAt(m.chromeHeight+1, 2)
+	m.BeginSelectionAt(m.chromeHeight+1, messages.TextCol) // past the time margin
+	m.ExtendSelectionAt(m.chromeHeight+1, messages.TextCol+1)
 
 	if got := m.SelectionText(); got == "" {
 		t.Fatal("SelectionText() = empty, want parent text")

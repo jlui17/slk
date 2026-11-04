@@ -28,7 +28,7 @@ func TestUnreadLandmark_RendersBetweenReadAndUnread(t *testing.T) {
 
 	var landmarks []int
 	for i, r := range rows {
-		if strings.Contains(r, "── new ──") {
+		if strings.Contains(r, "─ new") {
 			landmarks = append(landmarks, i)
 		}
 	}

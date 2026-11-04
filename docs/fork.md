@@ -394,15 +394,46 @@ there and resolve them knowing what the fork wants:
   OpenLinkTab here, image preview is `v` only); `modekeys_test.go` (the pinned
   mode list includes `ModeAppShortcuts` and `ModeProfileCard`); `mode_insert_keys_test.go`
   (no Ctrl+U intercept); `messages/codeblock_wrap_test.go` (the fork's
-  bordered code box); `golden_test.go` (extra argument on
+  filled code block); `golden_test.go` (extra argument on
   `layout.Compute`); most
   `internal/ui/testdata/golden/*.ansi` re-blessed: the deploy card draws
   in the fork's round box (which also shifts the dialogs' backdrops), the
   help overlay lists the fork's keys, the selection tint is reasserted,
-  and `window_split.ansi` gains the "── new ──" line from
+  and `window_split.ansi` gains the new-messages line from
   `applyCachedLastRead`. Re-bless with `tools/go.sh test ./internal/ui
   -run TestGolden -update` and check the diff against upstream's goldens
   is only those.
+- The reading layout (see "Reading layout") — one-line hooks in
+  `messages/render_message.go`, `model.go`, `wrap_rows.go`,
+  `thread/model.go` and `view_thread.go`; the theme roles in
+  `styles/styles.go` (`FocusedBorder` in `FocusBorderColor`,
+  `MessageText` in `TextBody`, `PresenceOnline` and `Username` read
+  their roles, `applyRoles` hooked into `Apply`), `messages/render.go`
+  (bold, italic, strike and code styles), `statusbar/model.go` and
+  `channelfinder/model.go` (online in `Online`), `view_sidebar.go`
+  (the focused sidebar draws `FocusedBorder` on its own background);
+  `ThemeRoles` embedded
+  in `core.Theme` and `styles.ThemeColors`; `MessageWidth` in
+  `config.Appearance`. Upstream tests adjusted to the layout: column
+  and row positions past the gutter and the blank rows
+  (`messages/model_test.go`, `phase3_char_test.go`, `selection_test.go`,
+  `sixel_block_integration_test.go`, `partial_rebuild_test.go`,
+  `unread_landmark_test.go` and their thread twins,
+  `thread/content_pane_api_test.go`, `parent_selection_test.go`), the
+  thread header and margin times (`thread/breadcrumb_test.go`,
+  `selected_timestamp_test.go`, `internal/ui/thread_breadcrumb_test.go`),
+  the theme count (`styles/themes_test.go`), and `golden_test.go`
+  (base height 44, the drag at row 9 column 17); every golden
+  re-blessed. Two upstream functions the layout no longer calls are
+  kept on purpose, so an upstream merge into them stays clean:
+  `placeAvatarBeside` (`messages/model.go`; `placeGutter` draws the
+  gutter now) and `renderBreadcrumb` (`thread/breadcrumb.go`;
+  `renderThreadHeader` draws the header). Their upstream tests still
+  run against them.
+- `internal/bubbles/entrylist/window.go` — a scroll that leaves only an
+  entry's trailing spacer rows on screen moves the cursor past it
+  (`followCursor` subtracts `Trail`). The fork's two-row spacers made
+  the old behaviour easy to hit.
 - `go.mod` / `go.sum` — `github.com/slack-go/slack` bumped past upstream's
   pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
   decoded every cell as rich_text and dropped raw_text content). On an
@@ -923,6 +954,73 @@ Backoff makes a rejected slk cheap; it doesn't get it connected. Each
 slk still asks for one socket per workspace, and if Slack's limit sits
 below the pane count, option B in "One slk per pane, measured and kept"
 (one relay per role) is the fix.
+
+## Reading layout
+
+Both content panes lay messages out for reading, in every theme:
+
+- **A line cap.** Message text wraps at `min(message_width, what the
+  pane leaves)` (`messages.TextWidth`; `message_width` defaults to 80,
+  0 turns it off). The new-messages line, the thread's replies line
+  and its reply box share that width. A code block is at least that
+  wide and grows, up to all the pane leaves, to fit its longest line
+  (`CodeWidth`): code wraps only where the pane is too narrow, since a
+  split identifier or path is worse than a long block. To leave blocks
+  whole, prose is wrapped while the blocks are still held out
+  (`wrapProse`).
+- **A gutter** of 6 columns left of the text (`GutterCols`): the avatar
+  in the channel pane (blank with `show_avatars = false`), the time
+  right-aligned in the thread pane, which has no avatars.
+- **Grouping as Slack groups.** A message from the same author (user ID
+  and display name, so a bot posting under two task names is two
+  speakers) on the same day, under 5 minutes after the one above, with
+  no divider between, continues it: no name row, no avatar, its time in
+  the gutter on its first row (`Continues`). Slack documents no gap; 5
+  minutes is an assumption.
+- **Spacing instead of rules**: one blank row between one person's
+  messages, two when the speaker changes, one above and below each day
+  divider and the new-messages line.
+
+Why: slk was tiring to read. Text ran to 113 characters a line, every
+reply carried a rule and a full name row, and one colour sat on names,
+links and borders alike.
+
+The cache rule ("Render caches") still holds with entries that depend
+on their neighbours: a channel entry records whether it was drawn as a
+continuation (`EntryPayload.Continuation`) and its spacer rows
+(`Entry.Trail`), and a rebuild keeps an entry only while its neighbours
+give the same answers (`groupingChanged`). The thread pane's replies
+carry the same mark, and `setReplyList` redraws any reply whose mark no
+longer matches (`regroupReplies`); its blank rows and dividers are
+decorations built fresh. `layout_fork_test.go` and
+`thread/grouping_fork_test.go` hold each grouping change to a full
+rebuild.
+
+**Focus is a shape and a colour.** A focused pane keeps the thick
+border (`┏━┓`), in the `focus_border` role; unfocused panes stay rounded
+in `border`. The colour alone would not do: coffee's focus border is
+1.33:1 against its unfocused one, and meaning never rides on colour
+alone (CLAUDE.md, "Status colors"). The sidebar draws the same
+focused style as the other panes.
+
+**Theme roles.** Colours come only from theme roles. Eight optional
+roles (`core.ThemeRoles`: name, text_body, code, code_background,
+focus_border, new_messages, online, time) each fall back to the colour
+slk used for that job before (`styles.applyRoles`), so a theme that
+sets none renders the same colours; `TestRolesFallBackToTodaysColors`
+checks every built-in theme. A config override beats the theme's role,
+which beats the fallback. The built-in `coffee` theme sets them all.
+
+Rejected:
+
+- **A cap as a share of the pane.** Reading comfort depends on
+  characters per line, not on how much of the window the text fills; a
+  percentage gives 50 characters in a narrow pane and 150 in a wide one.
+- **Layout per theme.** Other people use this fork; the layout applies
+  to every theme, and only colours vary.
+- **New roles that replace existing keys.** Every role is optional with
+  today's colour as its fallback, so no existing theme or override
+  changes.
 
 ## Changes offered upstream
 

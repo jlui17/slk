@@ -299,7 +299,7 @@ func selectionVisible(m *Model) bool {
 func TestCursorFollowsScrollUp(t *testing.T) {
 	msgs := make([]MessageItem, 60)
 	for i := range msgs {
-		msgs[i] = MessageItem{TS: "1.0", UserName: "alice", Text: "msg body", Timestamp: "10:00 AM"}
+		msgs[i] = MessageItem{TS: "1.0", UserName: []string{"alice", "bob"}[i%2], Text: "msg body", Timestamp: "10:00 AM"}
 	}
 	m := New(msgs, "general")
 	_ = m.View(20, 80)
@@ -326,7 +326,7 @@ func TestCursorFollowsScrollUp(t *testing.T) {
 func TestCursorFollowsScrollDown(t *testing.T) {
 	msgs := make([]MessageItem, 60)
 	for i := range msgs {
-		msgs[i] = MessageItem{TS: "1.0", UserName: "alice", Text: "msg body", Timestamp: "10:00 AM"}
+		msgs[i] = MessageItem{TS: "1.0", UserName: []string{"alice", "bob"}[i%2], Text: "msg body", Timestamp: "10:00 AM"}
 	}
 	m := New(msgs, "general")
 	m.GoToTop()
@@ -353,7 +353,7 @@ func TestCursorFollowsScrollDown(t *testing.T) {
 func TestCursorUnchangedWhenScrollKeepsSelectionVisible(t *testing.T) {
 	msgs := make([]MessageItem, 60)
 	for i := range msgs {
-		msgs[i] = MessageItem{TS: "1.0", UserName: "alice", Text: "msg body", Timestamp: "10:00 AM"}
+		msgs[i] = MessageItem{TS: "1.0", UserName: []string{"alice", "bob"}[i%2], Text: "msg body", Timestamp: "10:00 AM"}
 	}
 	m := New(msgs, "general")
 	_ = m.View(20, 80)
@@ -692,13 +692,13 @@ func TestView_SixelPlacementColumnMatchesContentColBase(t *testing.T) {
 	if len(placements) != 1 {
 		t.Fatalf("SixelPlacements() = %d, want 1", len(placements))
 	}
-	if placements[0].Col != 1 {
-		t.Fatalf("placement Col = %d, want 1 (contentColBase without avatar)", placements[0].Col)
+	if placements[0].Col != TextCol {
+		t.Fatalf("placement Col = %d, want %d (contentColBase without avatar)", placements[0].Col, TextCol)
 	}
 }
 
-// With an avatar the message content moves 5 columns right, so the
-// placement column must shift with it.
+// With an avatar the message content sits in the same column, past the
+// avatar in the gutter.
 func TestView_SixelPlacementColumnWithAvatar(t *testing.T) {
 	m := setupImageMessageModel(t, imgpkg.ProtoSixel)
 	m.SetAvatarFunc(func(string) string { return "▀▀▀▀\n▄▄▄▄" })
@@ -707,8 +707,8 @@ func TestView_SixelPlacementColumnWithAvatar(t *testing.T) {
 	if len(placements) != 1 {
 		t.Fatalf("SixelPlacements() = %d, want 1", len(placements))
 	}
-	if placements[0].Col != 6 {
-		t.Fatalf("placement Col = %d, want 6 (contentColBase with avatar)", placements[0].Col)
+	if placements[0].Col != TextCol {
+		t.Fatalf("placement Col = %d, want %d (contentColBase with avatar)", placements[0].Col, TextCol)
 	}
 }
 

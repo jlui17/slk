@@ -19,6 +19,11 @@ show_avatars = true      # false hides the avatars beside messages
 image_protocol = "auto"   # auto | kitty | sixel | halfblock | off
 max_image_rows = 20       # cap inline image height in terminal rows
 colored_usernames = false # color each user's name by ID hash (Slack-style)
+message_width = 80        # wrap message text at this many cells, or the pane's
+                          # width when narrower; 0 = no cap. The new-messages
+                          # line and the thread reply box follow it; a code
+                          # block is at least this wide and grows to the pane
+                          # to fit its longest line.
 
 [animations]
 enabled = true
@@ -363,7 +368,26 @@ sidebar_background = "#19171D"
 sidebar_text       = "#D1D2D3"
 sidebar_text_muted = "#9A9B9E"
 rail_background    = "#19171D"
+
+# Optional role colors, one job each. Each falls back to the color slk
+# uses for that job when the role is unset (in parentheses), so a theme
+# without them looks as it always has.
+name            = "#F8F8F2"  # author names (primary)
+text_body       = "#E2E2DC"  # message body text (text)
+code            = "#FFB86C"  # inline and block code text (warning)
+code_background = "#343746"  # inline code and code block fill (surface)
+focus_border    = "#BD93F9"  # the focused pane's border (primary)
+new_messages    = "#FF5555"  # the new-messages line (error)
+online          = "#8BE9FD"  # online presence and "Connected" (accent)
+time            = "#8B95BF"  # the time beside each message (text_muted)
 ```
+
+The role keys also work in the `[theme]` overrides of `config.toml`. The
+built-in `coffee` theme sets all of them.
+
+A color that carries meaning (presence, connection state, the
+new-messages line) should be blue against yellow or orange, never red
+against green, and always sits beside a label or shape.
 
 Every built-in theme now sets a channels-panel (sidebar) background that is
 perceptibly distinct from the message pane. When writing a custom theme,

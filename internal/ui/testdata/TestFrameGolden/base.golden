@@ -1,22 +1,22 @@
       ╭────────────────────────────╮  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  
       │  ⚑ Threads                 │  ┃ # general                                                ┃  
       │  ◉ Activity                │  ┃  ⠋ Loading older messages...                             ┃  
-      │                            │  ┃▌alice  10:00 AM                                          ┃  
-      │  ▾ Direct Messages         │  ┃▌deploy went out clean                                    ┃  
-      │  ○ alice                   │  ┃                                                          ┃  
-      │                            │  ┃▌bob  11:00 AM                                            ┃  
-      │  ▾ Channels                │  ┃▌confirming, dashboards look flat                         ┃  
-      │ ▌# general                 │  ┃                                                          ┃  
-      │  # incidents               │  ┃                       ── Today ──                        ┃  
-      │                            │  ┃▌alice  9:00 AM                                           ┃  
-      │                            │  ┃▌retry queue is draining again                            ┃  
       │                            │  ┃                                                          ┃  
-      │                            │  ┃▌bob  Fri Aug 28, 11:00 AM                                ┃  
-      │                            │  ┃▌nice — closing the incident                              ┃  
+      │  ▾ Direct Messages         │  ┃▌      alice  10:00 AM                                    ┃  
+      │  ○ alice                   │  ┃▌      deploy went out clean                              ┃  
       │                            │  ┃                                                          ┃  
+      │  ▾ Channels                │  ┃                                                          ┃  
+      │ ▌# general                 │  ┃▌      bob  11:00 AM                                      ┃  
+      │  # incidents               │  ┃▌      confirming, dashboards look flat                   ┃  
       │                            │  ┃                                                          ┃  
+      │                            │  ┃                       ── Today ──                        ┃  
+      │                            │  ┃                                                          ┃  
+      │                            │  ┃▌      alice  9:00 AM                                     ┃  
+      │                            │  ┃▌      retry queue is draining again                      ┃  
       │                            │  ┃                                                          ┃  
       │                            │  ┃                                                          ┃  
+      │                            │  ┃▌      bob  Fri Aug 28, 11:00 AM                          ┃  
+      │                            │  ┃▌      nice — closing the incident                        ┃  
       │                            │  ┃                                                          ┃  
       │                            │  ┃                                                          ┃  
       │                            │  ┃                                                          ┃  

@@ -66,7 +66,7 @@ func TestPermalinkChip_LinksAndCopyKeepTheFullURL(t *testing.T) {
 func TestPermalinkChip_InTheMessagesPane(t *testing.T) {
 	m := newCardModel(chipMessage())
 	plain := viewPlain(m, 30, 100)
-	if !strings.Contains(plain, "note (↳ Claude in #dev) and https://example.slack.com/archives/C0000000002/") {
+	if !strings.Contains(plain, "note (↳ Claude in #dev) and") || !strings.Contains(plain, "https://example.slack.com/archives/C0000000002/") {
 		t.Errorf("pane body lacks the chip or lost the uncarded permalink:\n%s", plain)
 	}
 }

@@ -1074,7 +1074,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		m.chromeCrumbChannel != m.crumbChannel ||
 		m.chromeCrumbType != m.crumbType ||
 		m.chromeAuthor != author {
-		header, channelCols := renderBreadcrumb(width, m.crumbChannel, m.crumbType, author, chromeReplyCount)
+		header, channelCols := renderThreadHeader(width, m.crumbChannel, m.crumbType) // fork: breadcrumb_fork.go
 		separator := lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
@@ -1291,5 +1291,5 @@ func (m *Model) renderContext() *messages.RenderContext {
 // affordance and no sixel rows (plan decision P3). Image hits are
 // recorded so a click opens the preview, as in the channel pane.
 func (m *Model) renderMessage(msg messages.MessageItem, width int, isSelected bool) messages.RenderedMessage {
-	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected, ImageHits: true})
+	return messages.RenderMessage(msg, width, m.renderContext(), threadOptions(isSelected)) // fork: grouping_fork.go
 }

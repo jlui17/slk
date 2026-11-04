@@ -44,9 +44,10 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 	a.threadPanel.SetFocused(threadFocused)
 	threadComposeFocused := a.mode == ModeInsert && a.focusedPanel == PanelThread
 	threadLayoutKey := themeVer<<2 | boolToInt(threadFocused)<<1 | boolToInt(threadComposeFocused)
-	a.threadCompose.SetWidth(threadWidth - 2)
+	boxWidth, boxIndent := threadReplyBox(threadWidth - 2) // fork: view_thread_fork.go
+	a.threadCompose.SetWidth(boxWidth)
 
-	threadComposeView := a.threadCompose.View(threadWidth-2, threadComposeFocused)
+	threadComposeView := indentRows(a.threadCompose.View(boxWidth, threadComposeFocused), boxIndent, threadWidth-2)
 	if pickerView := a.threadCompose.EmojiPickerView(threadWidth - 2); pickerView != "" {
 		threadComposeView = pickerView + "\n" + threadComposeView
 	} else if mentionView := a.threadCompose.MentionPickerView(threadWidth - 2); mentionView != "" {

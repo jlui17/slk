@@ -136,19 +136,19 @@ func TestChar_ThreadDragBumpsVersion(t *testing.T) {
 	}
 }
 
-// 8(c) off: a press on a separator rule anchors nothing.
+// 8(c) off: a press on the blank rows between replies anchors nothing.
 func TestChar_ThreadSelectionSkipsSeparators(t *testing.T) {
 	m := p3Thread(t, 3)
 	rows := p3Rows(m.View(40, 80))
 	rule := -1
-	for i := m.chromeHeight; i < len(rows); i++ {
-		if r := strings.TrimSpace(rows[i]); r != "" && strings.Trim(r, "─") == "" {
+	for i := p3RowWith(t, rows, "mark000"); i < len(rows); i++ {
+		if strings.TrimSpace(rows[i]) == "" {
 			rule = i
 			break
 		}
 	}
 	if rule < 0 {
-		t.Fatalf("test setup: no separator rule found:\n%s", strings.Join(rows, "\n"))
+		t.Fatalf("test setup: no blank row between replies:\n%s", strings.Join(rows, "\n"))
 	}
 	m.BeginSelectionAt(rule, 3)
 	if m.HasSelection() {
@@ -162,7 +162,7 @@ func TestChar_ThreadCopyExcludesSeparators(t *testing.T) {
 	rows := p3Rows(m.View(40, 80))
 	from := p3RowWith(t, rows, "mark000")
 	to := p3RowWith(t, rows, "mark001")
-	m.BeginSelectionAt(from, 3)
+	m.BeginSelectionAt(from, messages.TextCol+2)
 	m.ExtendSelectionAt(to, 8)
 	text, ok := m.EndSelection()
 	if !ok || !strings.HasPrefix(text, "rk000") {
@@ -190,7 +190,7 @@ func TestChar_ThreadNewReplySnapsToBottom(t *testing.T) {
 func TestChar_ThreadSelectionSurvivesResize(t *testing.T) {
 	m := p3Thread(t, 3)
 	rows := p3Rows(m.View(40, 80))
-	m.BeginSelectionAt(p3RowWith(t, rows, "mark000"), 3)
+	m.BeginSelectionAt(p3RowWith(t, rows, "mark000"), messages.TextCol+2)
 	m.ExtendSelectionAt(p3RowWith(t, rows, "mark001"), 8)
 	_ = m.View(40, 60)
 	if !m.HasSelection() {
@@ -210,8 +210,8 @@ func TestChar_ThreadZeroRepliesParentSelectable(t *testing.T) {
 		nil, "C1", "100.0")
 	rows := p3Rows(m.View(20, 60))
 	r := p3RowWith(t, rows, "zero-reply")
-	m.BeginSelectionAt(r, 3)
-	m.ExtendSelectionAt(r, 12)
+	m.BeginSelectionAt(r, messages.TextCol+2)
+	m.ExtendSelectionAt(r, messages.TextCol+11)
 	if text, ok := m.EndSelection(); !ok || text != "ro-reply" {
 		t.Errorf("copy from a zero-reply parent = %q, ok=%v; want %q", text, ok, "ro-reply")
 	}

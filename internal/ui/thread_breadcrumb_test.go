@@ -24,7 +24,7 @@ func TestThreadBreadcrumb_EnterNamesTheSidebarChannel(t *testing.T) {
 	updateAndRender(t, a, keyCode(tea.KeyEnter))
 
 	screen := ansi.Strip(a.View().Content)
-	if !strings.Contains(screen, "# general › Thread from alice") {
+	if !strings.Contains(screen, "# general › Thread ") || !strings.Contains(screen, "alice") {
 		t.Errorf("thread header does not name the channel and author:\n%s", screen)
 	}
 }

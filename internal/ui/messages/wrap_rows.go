@@ -96,7 +96,7 @@ type WrappedRows struct {
 // demand.
 func WrapRows(msg MessageItem, r RenderedMessage, width int, s WrapStyles) WrappedRows {
 	rendered := r.Content
-	renderedSel := SelectedHeader(rendered, r.Header, msg.TS, msg.Timestamp, r.HeaderBudget)
+	renderedSel := SelectedContent(msg, r) // fork: layout_fork.go
 
 	// Two filled variants: the theme background for the unselected row
 	// and the selection tint for the selected one. Without per-variant

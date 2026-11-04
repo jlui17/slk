@@ -82,12 +82,12 @@ func renderBodyWithCopyLabels(src string, width int) ([]string, []CodeBlockCopyL
 	return strings.Split(ansi.Strip(WordWrap(out, width)), "\n"), labels
 }
 
-func TestCodeBlockCopyLabel_SitsOnTheTopBorder(t *testing.T) {
+func TestCodeBlockCopyLabel_SitsAtTheRightOfTheTopRow(t *testing.T) {
 	const width = 40
 	rows, labels := renderBodyWithCopyLabels("```\nx := 1\n```", width)
-	want := "╭" + strings.Repeat("─", width-9) + " copy ─╮"
+	want := strings.Repeat(" ", width-5) + "copy "
 	if rows[0] != want {
-		t.Errorf("top border = %q, want %q", rows[0], want)
+		t.Errorf("top row = %q, want %q", rows[0], want)
 	}
 	if len(labels) != 1 || labels[0].Block != 0 || labels[0].Row != 0 {
 		t.Fatalf("labels = %#v, want one for block 0 on row 0", labels)
@@ -109,7 +109,7 @@ func TestCodeBlockCopyLabel_ReportsRowsOfTheWrappedBody(t *testing.T) {
 		if l.Block != i {
 			t.Errorf("label %d is for block %d", i, l.Block)
 		}
-		if got := ansi.Cut(rows[l.Row], l.ColStart, l.ColEnd); got != " copy " || !strings.HasPrefix(rows[l.Row], "╭") {
+		if got := ansi.Cut(rows[l.Row], l.ColStart, l.ColEnd); got != " copy " || !strings.HasSuffix(rows[l.Row], "copy ") {
 			t.Errorf("label %d points at %q in row %d %q", i, got, l.Row, rows[l.Row])
 		}
 	}
@@ -134,8 +134,8 @@ func TestCodeBlockCopyLabel_OnlyWhenTheCallerCollectsThem(t *testing.T) {
 // keeps its own index.
 func TestCodeBlockCopyLabel_OmittedWhenTheBlockIsTooNarrow(t *testing.T) {
 	rows, labels := renderBodyWithCopyLabels("```x```\n```wide enough for it```", 0)
-	if rows[0] != "╭───╮" {
-		t.Errorf("narrow block's top border = %q, want it bare", rows[0])
+	if rows[0] != "   " {
+		t.Errorf("narrow block's top row = %q, want it bare", rows[0])
 	}
 	if len(labels) != 1 || labels[0].Block != 1 {
 		t.Fatalf("labels = %#v, want only block 1", labels)
@@ -150,7 +150,7 @@ func TestCodeBlockCopyLabel_OmittedWhenTheBlockIsTooNarrow(t *testing.T) {
 func copyLabelCells(view string) [][2]int {
 	var cells [][2]int
 	for y, row := range strings.Split(ansi.Strip(view), "\n") {
-		if before, _, found := strings.Cut(row, copyLabelText+"─╮"); found {
+		if before, _, found := strings.Cut(row, copyLabelText); found {
 			cells = append(cells, [2]int{y, ansi.StringWidth(before)})
 		}
 	}

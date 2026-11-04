@@ -44,6 +44,7 @@ type parentKey struct {
 // cache, which dropCache invalidates.
 type listKey struct {
 	width, replies int
+	counted        int // the count on the replies line
 	parentGen      uint64
 	boundary       string
 	today          string
@@ -69,34 +70,33 @@ func (m *Model) parentRow(width int) entrylist.Entry {
 	return m.memo.parent
 }
 
-// renderParentRow renders the parent as entry 0 of the list: its rows,
-// then the rule under it. The rule is not selectable text (Plain stops
-// before it). The parent's image uploads are returned for the memo to
-// keep; flushVisible sends them while the parent is on screen. We
+// renderParentRow renders the parent as entry 0 of the list. The
+// parent's image uploads are returned for the memo to keep;
+// flushVisible sends them while the parent is on screen. We
 // discard the parent's reaction hits in v1, as before; its image hits
 // are kept so a click on its image opens the preview.
 func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Entry, []func(io.Writer) error) {
-	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
+	// Replies only get a day divider when their day differs from the
+	// parent's, so the parent header carries its own date; otherwise a
+	// thread whose first replies share the parent's day shows no date.
+	// Not for a summary-built parent that has no time yet.
+	opt := threadOptions(parentIsSelected)
+	if date := messages.DateFromTS(m.parent.TS); date != "" && m.parent.Timestamp != "" {
+		opt.HeaderDate = messages.FormatShortDate(date)
+	}
+	// The header names the author: a parent built without a name (from
+	// a summary) takes the one the breadcrumb used to show.
+	named := m.parent
+	named.UserName = m.breadcrumbAuthor()
+	parentRendered := messages.RenderMessage(named, width, m.renderContext(), opt)
 	if parentIsSelected && m.nav.Active {
 		m.marks.navDrawn = append(m.marks.navDrawn, m.parent.TS)
 	}
-	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
+	parentContent := parentRendered.Content
 	flushes := slices.Concat(parentRendered.BodyFlushes, parentRendered.BlockFlushes, parentRendered.ReactionFlushes, parentRendered.AttachmentFlushes)
 	m.parentEntry = messages.EntryPayload{
 		CodeBlockCopyLabels: parentRendered.CodeBlockCopyLabels,
 		AttachmentFoldRows:  parentRendered.AttachmentFoldRows,
-	}
-	// Replies only get a day divider when their day differs from the
-	// parent's, so the parent header carries its own date; otherwise a
-	// thread whose first replies share the parent's day shows no date.
-	// Before the plain mirror, so copy and drag highlight match what is
-	// drawn. Skipped when the header would not fit, and for a
-	// summary-built parent that has no time yet.
-	if !parentIsSelected && m.parent.Timestamp != "" {
-		if date := messages.DateFromTS(m.parent.TS); date != "" {
-			dated := messages.FormatShortDate(date) + ", " + m.parent.Timestamp
-			parentContent = messages.ReplaceHeaderTimestamp(parentContent, parentHeader, m.parent.Timestamp, dated, parentHeaderBudget)
-		}
 	}
 	parentPlain := messages.PlainLines(parentContent)
 	// Selection border for the parent row mirrors the per-reply
@@ -107,7 +107,7 @@ func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Ent
 		// After the plain mirror, so it keeps the short form. Skipped
 		// while a text selection exists; see selectedLines.
 		if !m.list.HasSelection() {
-			parentContent = messages.SelectedHeader(parentContent, parentHeader, m.parent.TS, m.parent.Timestamp, parentHeaderBudget)
+			parentContent = messages.SelectedContent(named, parentRendered)
 		}
 		parentContent = lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
 			BorderForeground(styles.SelectionBorderColor(m.focused)).
@@ -124,16 +124,11 @@ func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Ent
 	// not width-filled when rendered); this is the same per-row padding,
 	// applied where it is needed.
 	parentContent = lipgloss.NewStyle().Width(width).Background(styles.Background).Render(parentContent)
-	parentSeparator := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.Border).
-		Render(strings.Repeat("─", width))
 	parent := entrylist.Entry{
 		ID:         m.parent.TS,
 		Ref:        parentSelected,
 		Selectable: true,
-		Lines:      append(strings.Split(parentContent, "\n"), parentSeparator),
+		Lines:      strings.Split(parentContent, "\n"),
 		ColOffset:  1,
 	}
 	if m.parent.TS != "" {
@@ -148,17 +143,22 @@ func (m *Model) renderParentRow(width int, parentIsSelected bool) (entrylist.Ent
 	return parent, flushes
 }
 
-// setReplyList hands the list its entries: the parent, then for each
-// reply its day divider (when its local day differs from the previous
-// one, seeded with the parent's), the "── new ──" landmark before the
-// first reply past the unread boundary, the reply, and a full-width
-// rule between replies. Dividers, landmark and rules are decorations:
-// not selectable, not text-selectable. When nothing they are built from
-// changed, the list keeps the entries it has.
+// setReplyList hands the list its entries: the parent, a blank row and
+// the replies line under it ("N replies ───", as Slack's thread view
+// has it; none while no reply counts), then for each reply the blank
+// rows above it, its day divider (when its local day
+// differs from the previous one, seeded with the parent's), the
+// new-messages line before the first reply past the unread boundary,
+// and the reply. One blank row separates replies from the same person,
+// two a change of speaker; a divider has one above and one below.
+// Dividers and blank rows are decorations: not selectable, not
+// text-selectable. When nothing they are built from changed, the list
+// keeps the entries it has.
 func (m *Model) setReplyList(width int, keepPosition bool, parent entrylist.Entry) {
 	key := listKey{
 		width:     width,
 		replies:   len(m.replyEntries),
+		counted:   m.visibleReplyCount(),
 		parentGen: m.memo.parentGen,
 		boundary:  m.unreadBoundaryTS,
 		today:     messages.Today(),
@@ -167,46 +167,33 @@ func (m *Model) setReplyList(width int, keepPosition bool, parent entrylist.Entr
 		return
 	}
 	m.memo.listAt, m.memo.listOK = key, true
+	m.regroupReplies(width) // fork: grouping_fork.go
 
-	ruleStyle := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.Border)
-	replySeparator := ruleStyle.Render(strings.Repeat("─", width))
-	var newLandmark string
-	if m.unreadBoundaryTS != "" {
-		newLandmark = lipgloss.NewStyle().
-			Width(width).
-			Background(styles.Background).
-			Foreground(styles.Error).
-			Bold(true).
-			Align(lipgloss.Center).
-			Render("── new ──")
-	}
-	dateSeparatorStyle := lipgloss.NewStyle().
-		Width(width).
-		Background(styles.Background).
-		Foreground(styles.TextMuted).
-		Bold(true).
-		Align(lipgloss.Center)
-	decoration := func(row string) entrylist.Entry { return entrylist.Entry{Ref: -1, Lines: []string{row}} }
+	decoration := func(rows ...string) entrylist.Entry { return entrylist.Entry{Ref: -1, Lines: rows} }
 	entries := make([]entrylist.Entry, 0, 2*len(m.replyEntries)+2)
 	entries = append(entries, parent)
+	if key.counted > 0 {
+		entries = append(entries, decoration(messages.BlankRows(width, 1)[0], messages.RepliesLine(width, key.counted)))
+	}
 	lastDate := messages.DateFromTS(m.parent.TS)
-	landmarkInserted := false
 	for i, e := range m.replyEntries {
-		if replyDate := messages.DateFromTS(m.replies[i].TS); replyDate != "" && replyDate != lastDate {
-			entries = append(entries, decoration(dateSeparatorStyle.Render("── "+messages.FormatDateSeparator(replyDate)+" ──")))
+		reply := m.replies[i]
+		replyDate := messages.DateFromTS(reply.TS)
+		newDay := replyDate != "" && replyDate != lastDate
+		newLine := m.newLineBefore(i)
+		gap := 1
+		if i > 0 && !newDay && !newLine {
+			gap = messages.SpacerRows(m.replies[i-1], reply)
+		}
+		entries = append(entries, decoration(messages.BlankRows(width, gap)...))
+		if newDay {
+			entries = append(entries, decoration(strings.Split(messages.DayDivider(width, messages.FormatDateSeparator(replyDate)), "\n")...))
 			lastDate = replyDate
 		}
-		if !landmarkInserted && newLandmark != "" && m.replies[i].TS > m.unreadBoundaryTS {
-			entries = append(entries, decoration(newLandmark))
-			landmarkInserted = true
+		if newLine {
+			entries = append(entries, decoration(strings.Split(messages.NewMessagesDivider(width), "\n")...))
 		}
 		entries = append(entries, e)
-		if i < len(m.replyEntries)-1 {
-			entries = append(entries, decoration(replySeparator))
-		}
 	}
 	m.list.SetEntries(entries, width, keepPosition)
 }

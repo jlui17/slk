@@ -212,7 +212,9 @@ func (m *Model) refreshStaleReplies(width int) {
 func (m *Model) renderReplyEntry(i int, reply messages.MessageItem, width int, wrap messages.WrapStyles) (entrylist.Entry, messages.EntryPayload) {
 	// renderMessage's last arg ("isSelected") drives reaction-
 	// nav pill highlighting, so it MUST be i == m.selected.
-	r := m.renderMessage(reply, width, i == m.selected)
+	opt := threadOptions(i == m.selected)
+	opt.Continuation = m.continues(i)
+	r := messages.RenderMessage(reply, width, m.renderContext(), opt)
 	if i == m.selected && m.nav.Active {
 		m.marks.navDrawn = append(m.marks.navDrawn, reply.TS)
 	}
@@ -233,5 +235,6 @@ func (m *Model) renderReplyEntry(i int, reply messages.MessageItem, width int, w
 			CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 			AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 			Lazy:                w.Lazy,
+			Continuation:        opt.Continuation,
 		}
 }

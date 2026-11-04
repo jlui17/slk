@@ -75,7 +75,7 @@ func assertPaneGeometry(t *testing.T, rows []string, width, height int) {
 func TestThreadSelectedTimestamp_SelectedReplyShowsLong(t *testing.T) {
 	m, rows := threadLongTS(t, "priya", "lee", 80, 30)
 	view := strings.Join(rows, "\n")
-	for _, want := range []string{"lee  Tue Sep 29, 3:42 PM", "priya  Today, 3:40 PM", "sam  3:41 PM"} {
+	for _, want := range []string{"3:42 lee  Tue Sep 29, 3:42 PM", "3:40 priya  Today", "3:41 sam"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}
@@ -90,7 +90,7 @@ func TestThreadSelectedTimestamp_MovesWithSelection(t *testing.T) {
 	m, _ := threadLongTS(t, "priya", "lee", 80, 30)
 	m.MoveUp()
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	for _, want := range []string{"sam  Tue Sep 29, 3:41 PM", "lee  3:42 PM"} {
+	for _, want := range []string{"3:41 sam  Tue Sep 29, 3:41 PM", "3:42 lee"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("after MoveUp, view missing %q:\n%s", want, view)
 		}
@@ -103,17 +103,17 @@ func TestThreadSelectedTimestamp_ParentSelectedShowsLong(t *testing.T) {
 	m.MoveDown() // fork: GoToTop selects the parent; the first reply leaves it unselected
 	m.MoveUp()   // parent
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "priya  Tue Sep 29, 3:40 PM") {
+	if !strings.Contains(view, "3:40 priya  Tue Sep 29, 3:40 PM") {
 		t.Fatalf("selected parent missing long timestamp:\n%s", view)
 	}
-	if !strings.Contains(view, "lee  3:42 PM") {
-		t.Fatalf("unselected reply should be short:\n%s", view)
+	if !strings.Contains(view, "3:42 lee") || strings.Contains(view, "lee  3:42") {
+		t.Fatalf("unselected reply should carry only the margin time:\n%s", view)
 	}
 	var plain []string
 	for _, pl := range m.list.Entries()[0].Plain {
 		plain = append(plain, pl.Text)
 	}
-	if got := strings.Join(plain, "\n"); strings.Contains(got, "Sep 29") || !strings.Contains(got, "3:40 PM") {
+	if got := strings.Join(plain, "\n"); strings.Contains(got, "Sep 29") || !strings.Contains(got, "3:40 priya") {
 		t.Fatalf("parent linesPlain must keep the short form; got %q", got)
 	}
 }
@@ -121,7 +121,7 @@ func TestThreadSelectedTimestamp_ParentSelectedShowsLong(t *testing.T) {
 func TestThreadSelectedTimestamp_UnselectedParentShort(t *testing.T) {
 	_, rows := threadLongTS(t, "priya", "lee", 80, 30)
 	view := strings.Join(rows, "\n")
-	if !strings.Contains(view, "priya  Today, 3:40 PM") || strings.Contains(view, "priya  Tue") {
+	if !strings.Contains(view, "3:40 priya  Today") || strings.Contains(view, "priya  Tue") {
 		t.Fatalf("unselected parent should show the short date timestamp:\n%s", view)
 	}
 }
@@ -177,12 +177,12 @@ func TestThreadSelectedTimestamp_DragOverReplyHeaderKeepsTextIntact(t *testing.T
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "lee  3:42 PM") || strings.Contains(view, "Sep 29") {
+	if !strings.Contains(view, "3:42 lee") || strings.Contains(view, "Sep 29") {
 		t.Fatalf("drag over selected reply header garbled it or kept the long form:\n%s", view)
 	}
 	m.ClearSelection()
 	view = strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "lee  Tue Sep 29, 3:42 PM") {
+	if !strings.Contains(view, "3:42 lee  Tue Sep 29, 3:42 PM") {
 		t.Fatalf("long form did not return after ClearSelection:\n%s", view)
 	}
 }
@@ -197,12 +197,12 @@ func TestThreadSelectedTimestamp_DragOverParentHeaderKeepsTextIntact(t *testing.
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 8)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "priya  3:40 PM") || strings.Contains(view, "Tue") {
+	if !strings.Contains(view, "3:40 priya  Today") || strings.Contains(view, "Tue") {
 		t.Fatalf("drag over selected parent header garbled it or kept the long form:\n%s", view)
 	}
 	m.ClearSelection()
 	view = strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "priya  Tue Sep 29, 3:40 PM") {
+	if !strings.Contains(view, "3:40 priya  Tue Sep 29, 3:40 PM") {
 		t.Fatalf("long form did not return on the parent after ClearSelection:\n%s", view)
 	}
 }
@@ -221,7 +221,7 @@ func TestThreadSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 	_ = m.View(30, 80)
 	m.MoveUp() // selection stays pinned; the cursor lands on sam
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "sam  3:41 PM") || strings.Contains(view, "sam  Tue") {
+	if !strings.Contains(view, "3:41 sam") || strings.Contains(view, "sam  Tue") {
 		t.Fatalf("j/k under a pinned selection should show the short form:\n%s", view)
 	}
 	assertThreadHeightsMatch(t, m)
@@ -235,7 +235,7 @@ func TestThreadSelectedTimestamp_CopyUsesShortForm(t *testing.T) {
 	if !ok {
 		t.Fatal("EndSelection ok=false")
 	}
-	if !strings.Contains(text, "lee  3:42 PM") || strings.Contains(text, "Sep 29") {
+	if !strings.Contains(text, "3:42 lee") || strings.Contains(text, "Sep 29") {
 		t.Fatalf("copied text should carry the short form only; got %q", text)
 	}
 }
@@ -251,22 +251,22 @@ func TestThreadParentDate_CopyAndDragMatchDisplay(t *testing.T) {
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 79)
 	view := strings.Join(stripRows(m.View(30, 80)), "\n")
-	if !strings.Contains(view, "priya  Today, 3:40 PM") {
+	if !strings.Contains(view, "3:40 priya  Today") {
 		t.Fatalf("drag over the unselected parent header garbled it:\n%s", view)
 	}
 	text, ok := m.EndSelection()
-	if !ok || !strings.Contains(text, "priya  Today, 3:40 PM") {
+	if !ok || !strings.Contains(text, "3:40 priya  Today") {
 		t.Fatalf("copied parent header = %q (ok=%v), want it to carry the displayed date", text, ok)
 	}
 }
 
-func TestThreadParentDate_NarrowFallsBackToTime(t *testing.T) {
-	// 24-col name: "Today, 3:40 PM" header 40 overflows contentWidth 36;
-	// the time-only header 33 fits.
+func TestThreadParentDate_NarrowDropsTheDate(t *testing.T) {
+	// 24-col name: "name  Today" is 31 cells, past the 30 the text has
+	// at width 40; the name alone fits, its time in the margin.
 	m, rows := threadLongTS(t, "a-quite-long-displayname", "lee", 40, 30)
 	view := strings.Join(rows, "\n")
-	if !strings.Contains(view, "a-quite-long-displayname  3:40 PM") || strings.Contains(view, "Today, 3:40") {
-		t.Fatalf("narrow unselected parent should keep the full time-only header:\n%s", view)
+	if !strings.Contains(view, "3:40 a-quite-long-displayname") || strings.Contains(view, "Today") {
+		t.Fatalf("narrow unselected parent should keep the name and drop the date:\n%s", view)
 	}
 	assertThreadHeightsMatch(t, m)
 	assertPaneGeometry(t, rows, 40, 30)

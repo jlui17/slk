@@ -42,6 +42,8 @@ type ThemeColors struct {
 	ComposeInsertBG      string `toml:"compose_insert_bg"`
 	SelectionBgFocused   string `toml:"selection_bg_focused"`
 	SelectionBgUnfocused string `toml:"selection_bg_unfocused"`
+
+	ThemeRoles // fork: roles_fork.go
 }
 
 // builtinThemes maps lowercase theme names to their display name and colors.

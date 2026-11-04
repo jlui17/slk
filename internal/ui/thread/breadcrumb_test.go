@@ -83,7 +83,7 @@ func TestView_HeaderIsTheBreadcrumb(t *testing.T) {
 	m := breadcrumbTestModel()
 	m.SetBreadcrumb("general", "channel")
 	got := ansi.Strip(firstLine(m.View(20, 60)))
-	if want := hinted("# general › Thread from alice · 2 replies", 60); got != want {
+	if want := hinted("# general › Thread", 60); got != want { // fork: renderThreadHeader
 		t.Errorf("header =\n%q\nwant\n%q", got, want)
 	}
 	if m.chromeHeight != 2 {
@@ -110,12 +110,17 @@ func TestView_BreadcrumbChangeInvalidatesChrome(t *testing.T) {
 	}
 }
 
+// Fork: the author moved from the header to the parent's own row.
 func TestView_BreadcrumbAuthorFallsBackToUserNames(t *testing.T) {
 	m := New()
 	m.SetThread(messages.MessageItem{TS: "1.0", UserID: "U9", Text: "parent"}, nil, "C1", "1.0")
 	m.SetUserNames(usernames.FromMap(map[string]string{"U9": "zed"}))
-	if got := ansi.Strip(firstLine(m.View(20, 60))); !strings.HasPrefix(got, "Thread from zed · 0 replies") {
-		t.Errorf("header = %q, want the author resolved from userNames", got)
+	view := ansi.Strip(m.View(20, 60))
+	if got := firstLine(view); got != hinted("Thread", 60) {
+		t.Errorf("header = %q, want just Thread", got)
+	}
+	if !strings.Contains(view, "zed") {
+		t.Errorf("parent row lacks the author resolved from userNames:\n%s", view)
 	}
 }
 
@@ -127,9 +132,10 @@ func TestView_BreadcrumbIgnoresEphemeralReplies(t *testing.T) {
 		"C1", "1.0",
 	)
 	m.AddReply(messages.MessageItem{TS: "3.0", UserName: "slackbot", Text: "only you", Ephemeral: true})
-	got := ansi.Strip(firstLine(m.View(20, 60)))
-	if !strings.HasPrefix(got, "Thread from zed · 1 reply") || strings.Contains(got, "2 replies") {
-		t.Errorf("header = %q, want \"1 reply\": an ephemeral is not a reply", got)
+	// Fork: the count is on the replies line under the parent.
+	got := ansi.Strip(m.View(20, 60))
+	if !strings.Contains(got, "1 reply ─") || strings.Contains(got, "2 replies") {
+		t.Errorf("view = %q, want \"1 reply\": an ephemeral is not a reply", got)
 	}
 }
 func TestRenderBreadcrumb_ChannelCols(t *testing.T) {

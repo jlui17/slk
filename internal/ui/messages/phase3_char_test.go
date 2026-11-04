@@ -150,7 +150,7 @@ func TestChar_MessagesCopyIncludesDividerText(t *testing.T) {
 func TestChar_MessagesSelectionSurvivesResize(t *testing.T) {
 	m := p3Messages(t, 3, 0)
 	rows := p3MsgRows(m.View(40, 80))
-	m.BeginSelectionAt(p3MsgRowWith(t, rows, "mark000"), 3)
+	m.BeginSelectionAt(p3MsgRowWith(t, rows, "mark000"), TextCol+2)
 	m.ExtendSelectionAt(p3MsgRowWith(t, rows, "mark001"), 8)
 	_ = m.View(40, 60)
 	if !m.HasSelection() {

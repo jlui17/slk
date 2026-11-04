@@ -120,6 +120,8 @@ type Appearance struct {
 	// by hashing their user ID — mirroring how Slack clients assign stable
 	// per-user colors. Default off.
 	ColoredUsernames bool `toml:"colored_usernames"`
+	// MessageWidth caps the cells message text wraps at (0 = no cap).
+	MessageWidth int `toml:"message_width"`
 }
 
 type Animations struct {
@@ -238,6 +240,7 @@ func Default() Config {
 			MouseWheelLines: 3,
 			EmojiImages:     "on",
 			EmojiCells:      2,
+			MessageWidth:    80,
 		},
 		Animations: Animations{
 			Enabled:          true,

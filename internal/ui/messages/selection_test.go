@@ -416,7 +416,7 @@ func TestSelection_MutationsDoNotBumpVersion(t *testing.T) {
 	// Drag character-by-character — each Extend resolves to a
 	// distinct end anchor (Col advances by 1 every call).
 	for col := 1; col <= 8; col++ {
-		m.ExtendSelectionAt(firstContentY(m)+1, col)
+		m.ExtendSelectionAt(firstContentY(m)+2, col) // past the day divider and the blank row under it
 		if m.Version() != v1 {
 			t.Errorf("ExtendSelectionAt(col=%d) bumped version: before=%d after=%d", col, v1, m.Version())
 		}

@@ -75,6 +75,10 @@ type EntryPayload struct {
 	coldEmoji bool
 
 	focused bool // fork: focus_fork.go
+
+	// Continuation records that the entry was drawn as the continuation
+	// of the message above it (grouping_fork.go).
+	Continuation bool
 }
 
 // SelectedLines returns the rows to draw for a cursor entry e: its
@@ -1547,8 +1551,9 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		ImageHits:       true,
 		SixelRows:       true,
 		stats:           stats,
+		Continuation:    m.continues(i), // fork: grouping_fork.go
 	}
-	if m.avatarFn != nil {
+	if m.avatarFn != nil && !opt.Continuation {
 		opt.Avatar = m.avatarFn(msg.UserID)
 	}
 	m.noteNavDrawn(msg.TS, opt.IsSelected) // fork: invalidate_fork.go
@@ -1568,17 +1573,12 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	if stats != nil {
 		stats.count++
 	}
-	// Append a trailing spacer line after every message except the last.
+	// Append the trailing spacer rows after every message except the last.
 	// Both variants share the same spacer (it has no border styling).
 	// The plain mirror of the spacer is the empty string -- selection
 	// extraction trims trailing whitespace, and no real content lives
 	// in the spacer row.
-	trail := 0
-	if i < len(m.messages)-1 {
-		linesN = append(linesN, cs.spacerLines...)
-		linesP = append(linesP, plainLine{Text: "", Bytes: []int{0}})
-		trail = len(cs.spacerLines)
-	}
+	linesN, linesP, trail := m.appendTrail(i, linesN, linesP, cs) // fork: grouping_fork.go
 	entry := entrylist.Entry{
 		ID:         msg.TS,
 		Ref:        i,
@@ -1595,7 +1595,8 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		CodeBlockCopyLabels: r.CodeBlockCopyLabels, // fork: codeblocks_fork.go
 		AttachmentFoldRows:  r.AttachmentFoldRows,  // fork: attachmentfold_fork.go
 		coldEmoji:           probe != nil && probe.cold,
-		Lazy:                w.Lazy, // fork: lazyselected_fork.go
+		Lazy:                w.Lazy,           // fork: lazyselected_fork.go
+		Continuation:        opt.Continuation, // fork: grouping_fork.go
 	}
 }
 
@@ -1681,22 +1682,13 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 	for i, msg := range m.messages {
 		msgDate := DateFromTS(msg.TS)
 		if msgDate != "" && msgDate != lastDate {
-			label := FormatDateSeparator(msgDate)
-			sepStr := "── " + label + " ──"
-			sep := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.TextMuted).Bold(true).
-				Width(width).Align(lipgloss.Center).
-				Render(sepStr)
-			appendSeparator(sep)
+			appendSeparator(DayDivider(width, FormatDateSeparator(msgDate))) // fork: grouping_fork.go
 			lastDate = msgDate
 		}
 
 		// New message landmark: insert before the first unread message
 		if m.lastReadTS != "" && !newMsgLandmarkInserted && msg.TS > m.lastReadTS {
-			newStr := "── new ──"
-			label := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.Error).Bold(true).
-				Width(width).Align(lipgloss.Center).
-				Render(newStr)
-			appendSeparator(label)
+			appendSeparator(NewMessagesDivider(width)) // fork: grouping_fork.go
 			newMsgLandmarkInserted = true
 		}
 
@@ -1743,7 +1735,7 @@ func (m *Model) reusedEntry(i int, reuse bool, old []entrylist.Entry, oldCache [
 		return entrylist.Entry{}, EntryPayload{}, false
 	}
 	idx, ok := m.list.IndexOf(ts)
-	if !ok || (old[idx].Trail > 0) != (i < len(m.messages)-1) {
+	if !ok || m.groupingChanged(i, old[idx], oldCache[idx]) { // fork: grouping_fork.go
 		return entrylist.Entry{}, EntryPayload{}, false
 	}
 	e := old[idx]

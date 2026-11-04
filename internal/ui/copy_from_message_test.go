@@ -360,7 +360,7 @@ func TestDefaultKeyMap_CopyFromMessage(t *testing.T) {
 func copyLabelCells(a *App) [][2]int {
 	var cells [][2]int
 	for y, row := range strings.Split(ansi.Strip(a.View().Content), "\n") {
-		if before, _, found := strings.Cut(row, " copy ─╮"); found {
+		if before, _, found := strings.Cut(row, " copy "); found {
 			cells = append(cells, [2]int{ansi.StringWidth(before), y})
 		}
 	}

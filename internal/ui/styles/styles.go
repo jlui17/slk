@@ -45,7 +45,7 @@ var (
 	// Panel styles
 	FocusedBorder = lipgloss.NewStyle().
 			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(Primary).
+			BorderForeground(FocusBorderColor).
 			BorderBackground(Background).
 			Background(Background)
 
@@ -142,7 +142,7 @@ var (
 
 	MessageText = lipgloss.NewStyle().
 			Background(Background).
-			Foreground(TextPrimary)
+			Foreground(TextBody)
 
 	ThreadIndicator = lipgloss.NewStyle().
 			Background(Background).
@@ -218,7 +218,7 @@ var (
 	// the same style works on both the sidebar (SidebarBackground) and the
 	// workspace rail (RailBackground) without painting a contrasting square
 	// around the dot when those colors differ from the message-pane bg.
-	PresenceOnline = lipgloss.NewStyle().Foreground(Accent)
+	PresenceOnline = lipgloss.NewStyle().Foreground(Online)
 	PresenceAway   = lipgloss.NewStyle().Foreground(TextMuted)
 
 	// Reaction pill styles
@@ -402,6 +402,7 @@ func Apply(themeName string, overrides core.Theme) {
 		selectionBgUnfocused = lipgloss.Color(colors.SelectionBgUnfocused)
 	}
 
+	applyRoles(colors.ThemeRoles, overrides.ThemeRoles) // fork: roles_fork.go
 	buildStyles()
 }
 
@@ -432,10 +433,10 @@ func UserColor(userID string) color.Color {
 
 // Username returns a lipgloss style for rendering a username. When colored
 // is true and userID is non-empty, the foreground color is deterministically
-// derived from userID via UserColor. Otherwise the theme default (Primary)
+// derived from userID via UserColor. Otherwise the theme's name color (NameColor)
 // is used.
 func Username(userID string, colored bool) lipgloss.Style {
-	fg := Primary
+	fg := NameColor
 	if colored && userID != "" {
 		fg = UserColor(userID)
 	}
@@ -447,7 +448,7 @@ func Username(userID string, colored bool) lipgloss.Style {
 
 func buildStyles() {
 	FocusedBorder = lipgloss.NewStyle().
-		BorderStyle(lipgloss.ThickBorder()).BorderForeground(Primary).BorderBackground(Background).Background(Background)
+		BorderStyle(lipgloss.ThickBorder()).BorderForeground(FocusBorderColor).BorderBackground(Background).Background(Background)
 	UnfocusedBorder = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).BorderForeground(Border).BorderBackground(Background).Background(Background)
 	WorkspaceActive = lipgloss.NewStyle().
@@ -471,7 +472,7 @@ func buildStyles() {
 	Timestamp = lipgloss.NewStyle().
 		Background(Background).Foreground(TextMuted).Italic(true)
 	MessageText = lipgloss.NewStyle().
-		Background(Background).Foreground(TextPrimary)
+		Background(Background).Foreground(TextBody)
 	ThreadIndicator = lipgloss.NewStyle().
 		Background(Background).Foreground(Primary).Italic(true)
 	StatusBar = lipgloss.NewStyle().
@@ -493,7 +494,7 @@ func buildStyles() {
 	ComposeInsert = lipgloss.NewStyle().
 		BorderStyle(thickLeftBorder).BorderLeft(true).BorderForeground(Accent).BorderBackground(ComposeInsertBG).
 		Background(ComposeInsertBG).Foreground(TextPrimary).Padding(1, 1, 1, 1)
-	PresenceOnline = lipgloss.NewStyle().Foreground(Accent)
+	PresenceOnline = lipgloss.NewStyle().Foreground(Online)
 	PresenceAway = lipgloss.NewStyle().Foreground(TextMuted)
 	ReactionPillOwn = lipgloss.NewStyle().
 		Background(Surface).Foreground(Accent).Padding(0, 1)

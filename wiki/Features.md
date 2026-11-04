@@ -184,7 +184,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 
 ![Switching between themes with the theme switcher](https://github.com/gammons/slk/raw/main/docs/assets/demo/themes.gif)
 
-- 59 built-in themes (including `ANSI Dark` / `ANSI Light` that inherit your terminal palette)
+- 60 built-in themes (including `ANSI Dark` / `ANSI Light` that inherit your terminal palette)
 - Drop-in custom themes (`~/.config/slk/themes/*.toml`)
 - Live theme switcher (`Ctrl+y`); `Alt+y` / `Alt+Shift+y` cycle to the next / previous theme
 - TOML config for appearance, animations, notifications, and channel sections
