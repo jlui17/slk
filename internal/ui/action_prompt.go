@@ -186,7 +186,7 @@ func (a *App) actionBody(msg messages.MessageItem) string {
 			}
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return messages.DropZeroWidthSpaces(strings.Join(parts, "\n\n")) // fork: emphasis_fork.go
 }
 
 // pressAction is a button's action: press it through the interaction

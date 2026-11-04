@@ -192,3 +192,19 @@ func TestRichTextToMrkdwn_StyledPhraseWithLinkIsOneRun(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Slack's editor keeps the space typed after a bold phrase inside the
+// bold element; the markers go around the text, the space outside them,
+// so they hug text as the renderer requires.
+func TestRichTextToMrkdwn_EdgeSpacesSitOutsideMarkers(t *testing.T) {
+	bold := &slack.RichTextSectionTextStyle{Bold: true}
+	rt := rtSection(
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "Rollout report. ", Style: bold},
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "Step 1 and"},
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: " step 2", Style: &slack.RichTextSectionTextStyle{Italic: true, Strike: true}},
+	)
+	want := "*Rollout report.* Step 1 and _~step 2~_"
+	if got := RichTextToMrkdwn(rt); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

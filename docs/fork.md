@@ -166,6 +166,24 @@ there and resolve them knowing what the fork wants:
   upstream styles on the spot, so lipgloss's strike cuts a `<@U1>` apart
   and prints it as text, the text after an inner span loses bold or
   italic, and `*_x_*` draws its underscores.
+  Bold (`replaceBolds`) and strike share one scanner,
+  `replaceDelimitedRuns` (`emphasis_fork.go`), so a `*` pairs only on a
+  word boundary and against text, and `renderItalics` takes the same
+  against-text check (`runHugsText`); upstream's bold regex pairs any two
+  asterisks on a line, so "37 10 * * *" drew a bold space. Inline code is
+  held out of the bold, italic and strike passes (`heldInlineCode`), where
+  upstream draws it first and lets them style what's inside it. Rich text
+  that styles part of a word reaches the scanner with a zero-width space
+  between marker and letter (`runsToMrkdwn`, `richtext_runs_fork.go`), so
+  "*un*" of "unbelievable" still draws bold; `DropZeroWidthSpaces` removes
+  the space once the markers are paired, and `y` (`app.go`) and the export
+  (`export/markdown.go`, `export/channel.go`) call it so a paste carries
+  none. Edit source reads `RichTextToMarkdown` and never has it. A styled
+  run whose own text holds its marker (a bold "5 * 3 = 15", an italic
+  "snake_case") gets the same space before each inner marker
+  (`guardInnerMarkers`), and the scanners never close on a guarded marker
+  (`isGuardedMarker`, also hooked into `renderItalics`); typed mrkdwn has no
+  guard, so a typed "*5 * 3 = 15*" stays literal.
   After each reset the text color put back is `RenderSlackMarkdownOpts.TextColor`
   (`textcolor_fork.go`), where upstream always puts back the primary
   color, and blockkit's `appendContext` renders through

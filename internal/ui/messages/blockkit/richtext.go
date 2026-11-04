@@ -49,11 +49,7 @@ func RichTextToMrkdwn(rt RichTextBlock) string {
 // and emits a single mrkdwn string preserving every standalone "\n"
 // text element as a literal newline.
 func sectionToMrkdwn(elements []slack.RichTextSectionElement) string {
-	var b strings.Builder
-	for _, run := range styleRuns(elements) { // fork: richtext_runs_fork.go
-		b.WriteString(runToMrkdwn(run))
-	}
-	return b.String()
+	return runsToMrkdwn(elements) // fork: richtext_runs_fork.go
 }
 
 // inlineToMrkdwn renders one rich_text_section element. Returns "" for

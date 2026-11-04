@@ -1512,7 +1512,7 @@ func (a *App) copyMessageOfSelected() tea.Cmd {
 		return nil
 	}
 
-	text := messages.MessageTextSource(msg)
+	text := messages.DropZeroWidthSpaces(messages.MessageTextSource(msg)) // fork: emphasis_fork.go
 	if text == "" {
 		return func() tea.Msg { return ToastMsg{Text: "Message has no text"} }
 	}

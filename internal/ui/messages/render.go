@@ -21,7 +21,6 @@ var (
 	// RE2 doesn't support lookahead/lookbehind, and the correct
 	// "intra-word `_` is literal" rule needs to know what's on either
 	// side of the delimiter. See renderItalics below.
-	boldRe       = regexp.MustCompile(`\*([^*\n]+)\*`)
 	inlineCodeRe = regexp.MustCompile("`([^`\n]+)`")
 	codeBlockRe  = regexp.MustCompile("(?s)```(.+?)```")
 
@@ -638,16 +637,14 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	userNames := opts.UserNames
 	channelNames := opts.ChannelNames
 	// Inline code (before bold/italic to avoid conflicts inside code)
+	var code heldInlineCode // fork: emphasis_fork.go
 	text = inlineCodeRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := inlineCodeRe.FindStringSubmatch(match)[1]
-		return codeStyle().Render(inner)
+		return code.hold(codeStyle().Render(inner))
 	})
 
 	// Bold
-	text = boldRe.ReplaceAllStringFunc(text, func(match string) string {
-		inner := boldRe.FindStringSubmatch(match)[1]
-		return markSpan(spanBold, inner)
-	})
+	text = replaceBolds(text, markBold) // fork: emphasis_fork.go
 
 	// Italic — manual scan so intra-word underscores (e.g.,
 	// `is_unpaid_yes`, `hello_world_foo`) stay literal, per
@@ -660,6 +657,7 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// Strikethrough — boundary-aware scan (strike_fork.go) so prose
 	// tildes ("~45%") don't pair up into crossed-out runs.
 	text = replaceStrikethroughs(text, markStrike)
+	text = code.restore(DropZeroWidthSpaces(text))
 
 	// Links with labels: <url|label> -> just the label, wrapped in an OSC 8
 	// hyperlink escape so it's clickable in modern terminals. We don't
@@ -877,7 +875,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 // slackMrkdwnToCommonMarkInline converts inline Slack formatting tokens
 // to their CommonMark equivalents without any ANSI styling.
 func slackMrkdwnToCommonMarkInline(text string, userNames map[string]string, channelNames map[string]string, userGroups map[string]string) string {
-	text = boldRe.ReplaceAllString(text, "**$1**")
+	text = replaceBolds(text, func(inner string) string { return "**" + inner + "**" })
 
 	text = replaceStrikethroughs(text, func(inner string) string { return "~~" + inner + "~~" })
 
@@ -980,10 +978,10 @@ func renderItalics(text string) string {
 		}
 		// Find a candidate closing `_` within the same logical line.
 		j := i + 1
-		for j < len(runes) && runes[j] != '_' && runes[j] != '\n' {
+		for j < len(runes) && (runes[j] != '_' || isGuardedMarker(runes, j)) && runes[j] != '\n' { // fork: emphasis_fork.go
 			j++
 		}
-		if j >= len(runes) || runes[j] != '_' || j == i+1 {
+		if j >= len(runes) || runes[j] != '_' || j == i+1 || !runHugsText(runes, i, j) { // fork: emphasis_fork.go
 			// No close, or empty body (`__`): not italic, emit `_` literally.
 			b.WriteRune(runes[i])
 			i++

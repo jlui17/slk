@@ -33,7 +33,7 @@ func formatMessage(msg messages.MessageItem, userNames, channelNames map[string]
 	b.WriteString(msg.DateStr + " " + msg.Timestamp)
 	b.WriteByte('\n')
 
-	body := messages.SlackMrkdwnToCommonMark(messages.MessageTextSource(msg), userNames, channelNames)
+	body := messages.DropZeroWidthSpaces(messages.SlackMrkdwnToCommonMark(messages.MessageTextSource(msg), userNames, channelNames)) // fork: emphasis_fork.go
 	b.WriteString(body)
 	b.WriteByte('\n')
 
