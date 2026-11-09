@@ -182,6 +182,8 @@ exec_args=(-w "$workdir" \
   -e SLK_EXEC_ID="$exec_id" \
   -e SLK_SPOOL_DIR="$spool" \
   -e BROWSER="$repo/tools/spool-open" \
+  -e SLK_HOST_LAUNCHER="$repo/tools/run-docker.sh" \
+  -e SLK_ROLE="$role" \
   ${tz:+-e TZ="$tz"} \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \

@@ -1043,6 +1043,57 @@ Rejected:
   today's colour as its fallback, so no existing theme or override
   changes.
 
+## herdr brings slk back after a restart
+
+A herdr server restart kills every pane's process and restores the
+layout as bare shells. herdr runs a resume command in a pane its
+reporter left one for, so slk leaves one: the host command that launched
+it plus a permalink to the open thread. After a restart each slk pane
+comes back on its thread, with no `slk herdr reboot`.
+
+- **The command.** `env SLK_ROLE=<role> <checkout>/tools/run-docker.sh
+  '<thread permalink>'`, sent as `resume_argv` on `pane.report_agent`
+  (`internal/herdr/resume.go`). herdr rejects a first word that is a path
+  (`invalid_resume_argv`), hence `env`. `run-docker.sh` passes its own
+  path and role into the container (`SLK_HOST_LAUNCHER`, `SLK_ROLE`), so
+  a worktree's agent-role pane comes back as that worktree's agent role:
+  a fresh herdr shell has no `CLAUDECODE`, and without the role it would
+  come back on the user's volume and binary. slk run outside docker
+  comes back through `herdr.open_command`, as `O` launches it.
+- **With no thread open** the command carries no link, and the
+  relaunched slk restores the pane's saved channel (keyed by
+  `HERDR_PANE_ID`, which herdr keeps across restarts). slk's command line
+  takes only message links, not channel links. A pane moved with `herdr
+  pane move` and left on a channel comes back on the default channel.
+- **Holding the pane.** herdr keeps a resume command only from a reporter
+  that holds the pane through `pane.report_agent`, and only while the
+  same `source` and `agent` hold it: a report naming another agent drops
+  it. So every agent report carries the command, a change of thread
+  while an agent thread holds the pane goes out as
+  `pane.report_agent_session` (the row stays as it is), and with no
+  agent thread slk holds the pane as an idle `slk` row titled with the
+  open channel. That row is new: before this, a pane with no agent thread
+  had no sidebar row. `holdPaneAtStartup` turns it off.
+- **Quit.** A clean quit releases the pane, which clears the command, so
+  a pane the user quit is not resumed. A pane killed by the restart
+  never releases, so its last command survives in `session.json`.
+
+Rejected:
+
+- **`slk herdr reboot` by hand after each restart.** It works and stays as
+  the fallback, but someone has to remember to run it, and it relaunches
+  through `open_command`, which loses an agent-role pane's role.
+- **A resume command without the permalink**, relying on the pane-state
+  restore alone. That restore is keyed by the pane id slk launched with,
+  which a moved pane no longer has, so a moved pane would come back on
+  the default channel instead of its thread.
+- **Attaching the command only while an agent thread holds the pane.** No
+  sidebar change, but panes that never opened an agent thread would come
+  back as shells.
+- **`slk` as the first word.** On this machine `slk` is a shell function
+  in `~/.zshrc.local`, not a program on `PATH`, and it always runs the
+  main checkout's user role.
+
 ## Changes offered upstream
 
 Upstream-file changes the fork carries ahead of upstream, each also on

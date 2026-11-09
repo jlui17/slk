@@ -42,6 +42,9 @@ type appFork struct {
 	// reload of the same thread.
 	paneStateRecorder PaneStateRecorder
 	lastPaneReport    paneReport
+	// paneResumeReporter hands the same open state to herdr as the
+	// command that resumes this pane; nil outside herdr.
+	paneResumeReporter PaneResumeReporter
 
 	// asyncPaste routes paste off the UI goroutine for a slow (bridged)
 	// clipboard reader; see paste_async_fork.go.

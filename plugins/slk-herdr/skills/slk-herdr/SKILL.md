@@ -143,9 +143,13 @@ Fix the build, then rerun the refresh.
 
 ## Relaunching slk in idle panes
 
-After a herdr restart, or when panes that ran slk now sit at a shell
-prompt, `herdr reboot` relaunches slk in each pane that has a saved pane
-state and nothing in the foreground. It skips panes that already run slk
+After a herdr restart, herdr relaunches slk by itself in each pane that
+ran it, on the thread it had open: slk reports its resume command to
+herdr (`docs/fork.md`, "herdr brings slk back after a restart"). Panes
+that still sit at a shell prompt (a session started on a build without
+that, or a pane herdr did not resume) need `herdr reboot`, which
+relaunches slk in each pane that has a saved pane state and nothing in
+the foreground. It skips panes that already run slk
 or something else.
 
 ```bash

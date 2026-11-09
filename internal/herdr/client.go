@@ -105,6 +105,10 @@ type Client struct {
 	// agent is the id from the last report, carried into release because
 	// pane.release_agent requires it. Empty means no entry to release.
 	agent string
+	// resumeArgv is the command herdr runs in this pane after its server
+	// restarts (see ReportResume). It rides every pane.report_agent:
+	// herdr drops it whenever a report names a different agent.
+	resumeArgv []string
 	// watchConn is the focus watcher's live subscription connection,
 	// closed by Close to unblock its read.
 	watchConn net.Conn
@@ -254,6 +258,8 @@ type reportAgentParams struct {
 	State   string `json:"state"`
 	Message string `json:"message,omitempty"`
 	Seq     int64  `json:"seq"`
+	// ResumeArgv omitted leaves herdr's stored command as it is.
+	ResumeArgv []string `json:"resume_argv,omitempty"`
 }
 
 type reportMetadataParams struct {
@@ -283,6 +289,7 @@ func (r *Client) Report(agent, displayName, title, state, statusMessage string) 
 	r.mu.Lock()
 	r.agent = agent
 	paneID := r.paneID
+	resumeArgv := r.resumeArgv
 	r.mu.Unlock()
 	seq := nextSeq()
 	// The metadata draws its own seq: herdr's per-pane seq counter is
@@ -294,12 +301,13 @@ func (r *Client) Report(agent, displayName, title, state, statusMessage string) 
 			ID:     fmt.Sprintf("slk:%d", seq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID:  paneID,
-				Source:  source,
-				Agent:   agent,
-				State:   state,
-				Message: statusMessage,
-				Seq:     seq,
+				PaneID:     paneID,
+				Source:     source,
+				Agent:      agent,
+				State:      state,
+				Message:    statusMessage,
+				Seq:        seq,
+				ResumeArgv: resumeArgv,
 			},
 		},
 		request{
@@ -332,6 +340,7 @@ func (r *Client) ReportUnread(agent, displayName, title, statusMessage string) {
 	r.mu.Lock()
 	r.agent = agent
 	paneID := r.paneID
+	resumeArgv := r.resumeArgv
 	r.mu.Unlock()
 	workingSeq := nextSeq()
 	idleSeq := nextSeq()
@@ -341,23 +350,25 @@ func (r *Client) ReportUnread(agent, displayName, title, statusMessage string) {
 			ID:     fmt.Sprintf("slk:%d", workingSeq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID: paneID,
-				Source: source,
-				Agent:  agent,
-				State:  "working",
-				Seq:    workingSeq,
+				PaneID:     paneID,
+				Source:     source,
+				Agent:      agent,
+				State:      "working",
+				Seq:        workingSeq,
+				ResumeArgv: resumeArgv,
 			},
 		},
 		request{
 			ID:     fmt.Sprintf("slk:%d", idleSeq),
 			Method: "pane.report_agent",
 			Params: reportAgentParams{
-				PaneID:  paneID,
-				Source:  source,
-				Agent:   agent,
-				State:   "idle",
-				Message: statusMessage,
-				Seq:     idleSeq,
+				PaneID:     paneID,
+				Source:     source,
+				Agent:      agent,
+				State:      "idle",
+				Message:    statusMessage,
+				Seq:        idleSeq,
+				ResumeArgv: resumeArgv,
 			},
 		},
 		request{

@@ -2,22 +2,27 @@ package main
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/herdr"
+	slackclient "github.com/gammons/slk/internal/slack"
+	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui"
 )
 
 // wireHerdr connects app's agent-thread reporting, the O keybinding's
-// tab opener and alt+o's pane opener to the herdr pane slk is running
-// in, when there is one. The returned client is for wiring that must
-// wait for the tea program (the focus watcher's Send); the close func
-// releases the pane's sidebar entry and must be deferred by the caller.
-// Both are nil when herdr is absent or disabled.
-func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Client, func()) {
+// tab opener, alt+o's pane opener and the pane's resume command to the
+// herdr pane slk is running in, when there is one; tokens name the
+// workspaces whose threads the resume command links to. The returned
+// client is for wiring that must wait for the tea program (the focus
+// watcher's Send); the close func releases the pane's sidebar entry and
+// resume command and must be deferred by the caller. Both are nil when
+// herdr is absent or disabled.
+func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr, tokens []slackclient.Token) (*herdr.Client, func()) {
 	hr := herdr.NewClientFromEnv()
 	if hr == nil || cfg.Disabled {
 		return nil, nil
@@ -49,6 +54,15 @@ func wireHerdr(app *ui.App, db *cache.DB, cfg config.Herdr) (*herdr.Client, func
 	app.SetHerdrPaneOpener(func(url, splitPaneID string, focus bool) (string, error) {
 		return hr.OpenPane(splitPaneID, openCommand, url, focus)
 	})
+	domains := map[string]string{}
+	for _, t := range tokens {
+		domains[t.TeamID] = t.Domain
+	}
+	launcher := resumeLauncher(openCommand, os.Getenv)
+	app.SetPaneResumeReporter(func(teamID, channelID, threadTS, title string) {
+		link := slackurl.ThreadPermalink(domains[teamID], channelID, threadTS)
+		hr.ReportResume(herdr.ResumeArgv(launcher, link), title)
+	})
 	// A crash skips this, leaving a stale sidebar entry until herdr's
 	// own pane detection reclaims the pane; only clean exits release.
 	return hr, func() { hr.Close(time.Second) }
@@ -75,4 +89,16 @@ func herdrPaneCache(paneKey, what string, get func(paneKey string) (string, bool
 		return put(paneKey, v)
 	}
 	return load, save
+}
+
+// resumeLauncher is the host command that starts this slk again, for the
+// resume command herdr runs after a restart. tools/run-docker.sh names
+// itself and its role (SLK_HOST_LAUNCHER, SLK_ROLE), so a pane comes back
+// on the checkout and role it ran; slk run any other way comes back
+// through openCommand, the launcher O uses.
+func resumeLauncher(openCommand string, getenv func(string) string) []string {
+	if launcher := getenv("SLK_HOST_LAUNCHER"); launcher != "" {
+		return []string{"env", "SLK_ROLE=" + getenv("SLK_ROLE"), launcher}
+	}
+	return strings.Fields(openCommand)
 }

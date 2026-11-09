@@ -389,7 +389,7 @@ func run(startupLink *slackurl.Permalink) error {
 		// out-of-order subprocess.
 		desktop.ReportStatus = sr.Enqueue
 	}
-	herdrClient, closeHerdr := wireHerdr(app, db, cfg.Herdr)
+	herdrClient, closeHerdr := wireHerdr(app, db, cfg.Herdr, tokens)
 	if closeHerdr != nil {
 		defer closeHerdr()
 	}

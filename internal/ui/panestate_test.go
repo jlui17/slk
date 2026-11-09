@@ -88,3 +88,37 @@ func TestPaneStateReportingSkipsEmptyChannel(t *testing.T) {
 		t.Error("recorder called with no channel open")
 	}
 }
+
+// TestPaneResumeReporting: the resume reporter sees the same open-state
+// changes as the recorder, once each, with the open channel as the
+// title, and runs without a recorder installed.
+func TestPaneResumeReporting(t *testing.T) {
+	type resumeReport struct {
+		pane  paneReport
+		title string
+	}
+	var got []resumeReport
+	a := newHarnessApp(t,
+		withHarnessSize(200, 60),
+		withApp(func(a *App) {
+			a.SetPaneResumeReporter(func(teamID, channelID, threadTS, title string) {
+				got = append(got, resumeReport{paneReport{teamID, channelID, threadTS}, title})
+			})
+		}),
+		withWorkspace("T1", sidebar.ChannelItem{ID: "C1", Name: "general", Type: "channel"}),
+	)
+
+	_, _ = a.Update(ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"})
+	_ = a.openThreadPanel(messages.MessageItem{TS: "111.222"}, "C1", "111.222")
+	a.setThreadPanel(messages.MessageItem{TS: "111.222"}, nil, "C1", "111.222")
+	a.CloseThread()
+
+	want := []resumeReport{
+		{paneReport{"T1", "C1", ""}, "#general"},
+		{paneReport{"T1", "C1", "111.222"}, "#general"},
+		{paneReport{"T1", "C1", ""}, "#general"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reports = %v, want %v", got, want)
+	}
+}
