@@ -569,8 +569,7 @@ func agentSidebarDisplayName(displayName string) string {
 var reduceAgentThread reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case AssistantStatusMsg:
-		t := a.agentSidebar.thread
-		if !a.tracksThread(m.TeamID, m.ChannelID, m.ThreadTS) || m.BotUserID != t.botUserID {
+		if !a.tracksThread(m.TeamID, m.ChannelID, m.ThreadTS) || !a.isThreadAgent(m.BotUserID) {
 			return nil, true
 		}
 		a.agentSidebar.working = m.Status != ""

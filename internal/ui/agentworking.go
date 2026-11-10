@@ -3,6 +3,7 @@ package ui
 import (
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -25,15 +26,33 @@ func isAgentTodoText(text string) bool {
 	return todoStampRe.MatchString(text) || todoPendingRe.MatchString(text)
 }
 
-// reactionsBy is the emoji userID reacted to the message with.
-func reactionsBy(reactions []messages.ReactionItem, userID string) []string {
+// reactionsBy is the emoji any user that by matches reacted to the message
+// with.
+func reactionsBy(reactions []messages.ReactionItem, by func(userID string) bool) []string {
 	var emoji []string
 	for _, r := range reactions {
-		if slices.Contains(r.UserIDs, userID) {
+		if slices.ContainsFunc(r.UserIDs, by) {
 			emoji = append(emoji, r.Emoji)
 		}
 	}
 	return emoji
+}
+
+// isThreadAgent reports whether userID is the tracked thread's agent. A
+// thread rooted by the agent's bot_message tracks it by its bot_id (B…),
+// but its reactions and assistant statuses carry its bot user's id, and
+// slk keeps no map between the two: there any bot user counts, as any bot
+// author already counts as the agent's side (agentAuthorIsHuman).
+func (a *App) isThreadAgent(userID string) bool {
+	botID := a.agentSidebar.thread.botUserID
+	if userID == botID {
+		return true
+	}
+	if !strings.HasPrefix(botID, "B") || a.agentSidebar.userInfo == nil {
+		return false
+	}
+	_, isBot, ok := a.agentSidebar.userInfo(userID)
+	return ok && isBot
 }
 
 // agentLastMsg is what the derived working state knows about the tracked
@@ -195,15 +214,14 @@ func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 		human:      a.agentAuthorIsHuman(msg.UserID),
 		todo:       isAgentTodoText(msg.Text),
 		text:       msg.Text,
-		agentEmoji: reactionsBy(msg.Reactions, a.agentSidebar.thread.botUserID),
+		agentEmoji: reactionsBy(msg.Reactions, a.isThreadAgent),
 	}
 }
 
 // noteAgentThreadReaction applies a reaction change to the derived state:
 // the agent reacting to the newest message — any emoji — is its ack.
 func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID, emoji string, removed bool) {
-	t := a.agentSidebar.thread
-	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
+	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts || !a.isThreadAgent(userID) {
 		return
 	}
 	prev := a.agentSidebar.effectiveState()

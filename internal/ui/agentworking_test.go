@@ -180,6 +180,59 @@ func TestRemovingOneOfTwoFetchedAgentReactionsKeepsAck(t *testing.T) {
 	}
 }
 
+// A root the agent posted as a bot_message carries only its bot_id, while
+// its reactions and assistant statuses carry its bot user's id (Tag's
+// "CI morning report" threads: B0AJJ4EGEMC and U0AJPPX8SE8).
+func TestBotRootedThreadSeesAgentUsersAckAndTurn(t *testing.T) {
+	a, calls, _ := newAgentTestApp(t)
+	userInfo := a.agentSidebar.userInfo
+	a.agentSidebar.userInfo = func(id string) (string, bool, bool) {
+		if id == "BBOT" {
+			return "Claude", true, true
+		}
+		return userInfo(id)
+	}
+	parent := messages.MessageItem{TS: "100.0", Text: "*CI morning report.* Every open PR is green.", UserID: "BBOT"}
+	a.setThreadPanel(parent, []messages.MessageItem{
+		{TS: "101.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks"},
+	}, "C1", "100.0")
+	a.threadVisible = true
+	if got := lastReport(t, calls); !got.working {
+		t.Fatalf("expected working on the user's unanswered reply, got %+v", got)
+	}
+	a.Update(ReactionAddedMsg{TeamID: "T1", ChannelID: "C1", MessageTS: "101.0", UserID: "UHUMAN", Emoji: "+1"})
+	if got := lastReport(t, calls); !got.working {
+		t.Errorf("expected a human's reaction to be no ack, got %+v", got)
+	}
+	a.Update(ReactionAddedMsg{TeamID: "T1", ChannelID: "C1", MessageTS: "101.0", UserID: "UBOT", Emoji: "+1"})
+	if got := lastReport(t, calls); got.working {
+		t.Errorf("expected idle after the agent user's 👍, got %+v", got)
+	}
+	a.Update(AssistantStatusMsg{TeamID: "T1", ChannelID: "C1", ThreadTS: "100.0", BotUserID: "UBOT", Status: "is thinking…"})
+	if got := lastReport(t, calls); !got.working || got.status != "is thinking…" {
+		t.Errorf("expected the agent user's turn to read working, got %+v", got)
+	}
+}
+
+func TestBotRootedThreadSeesFetchedAgentUserAck(t *testing.T) {
+	a, calls, _ := newAgentTestApp(t)
+	userInfo := a.agentSidebar.userInfo
+	a.agentSidebar.userInfo = func(id string) (string, bool, bool) {
+		if id == "BBOT" {
+			return "Claude", true, true
+		}
+		return userInfo(id)
+	}
+	parent := messages.MessageItem{TS: "100.0", Text: "*CI morning report.* Every open PR is green.", UserID: "BBOT"}
+	a.setThreadPanel(parent, []messages.MessageItem{{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks",
+		Reactions: []messages.ReactionItem{{Emoji: "+1", Count: 1, UserIDs: []string{"UBOT"}}},
+	}}, "C1", "100.0")
+	if got := lastReport(t, calls); got.working {
+		t.Errorf("expected idle when the fetched reply carries the agent user's 👍, got %+v", got)
+	}
+}
+
 func TestOtherHumansReactionIsNoAck(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	openWorkingAgentThread(a, nil)
