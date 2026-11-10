@@ -1,0 +1,171 @@
+[
+  {
+    "name": "new agent message reads working until its verdict lands",
+    "source": "37d8e837",
+    "note": "Guards 37d8e837 (the #2231 relay that read done): a new agent message read idle until its verdict landed 1 to 2 s later, and herdr shows every working→idle edge as done. A message the judge reads holds working while its call is in flight, so the idle verdict is the only idle published.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working", "why": "The agent has not answered or reacted: it owes a reply."},
+      {"by": "agent", "message": "On it, checking now.", "want": "working", "why": "The judge reads it, and it reads working until the verdict lands."},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "Found the cause, writing the fix.", "want": "working", "why": "Before 37d8e837 this read idle while in flight, which herdr showed as done."},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working", "why": "Still in flight: the idle verdict is what publishes the done."},
+      {"judge": "idle", "want": "idle"},
+      {"by": "agent", "message": "One more note: the flaky test is unrelated.", "want": "working", "why": "On an idle thread too, a judged reply reads working while in flight."},
+      {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "todo post that asks for a merge word reads blocked",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1790908723838439?thread_ts=1790897111.581609&cid=C0BCG30UGEP",
+    "note": "Guards b8ff8cdc (the #2382 merge ask read working for the 10 minutes it was newest): every agent post with a todo list read working and never went to the judge. A todo post goes to the judge, and a blocked verdict wins over the todo rule.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> drive WS1", "want": "working"},
+      {"by": "agent", "message": "On it.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "#2382 is ready for a merge. *Type \"merge 2382\" and I merge it.* ✓ Review clean. ○ Your merge word for #2382. _todos as of 02:38 UTC_", "want": "working", "why": "A todo post reads working while its verdict is in flight."},
+      {"judge": "blocked", "want": "blocked", "why": "It waits on the user's merge word. Before b8ff8cdc the judge was never asked."}
+    ]
+  },
+  {
+    "name": "user message with no bot reaction reads working",
+    "source": "2a41a054",
+    "note": "A user message the agent has not reacted to reads working without asking the judge: the agent owes a reply. A verdict for a message that is no longer the newest is dropped.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, the workflows are fine.", "want": "working"},
+      {"by": "user", "message": "also look at the release job", "want": "working", "why": "Unacked user message: working, no judge call."},
+      {"judge": "idle", "want": "working", "why": "The verdict answers the agent's message, which is no longer the newest, so it is dropped."},
+      {"by": "agent", "message": "Both checked: the release job pins an old runner, fixing it now.", "want": "working"},
+      {"judge": "working", "want": "working"}
+    ]
+  },
+  {
+    "name": "user message the bot acks takes the verdict",
+    "source": "b489677e",
+    "note": "Any emoji from the bot on the newest user message is an ack, and an acked user message goes to the judge alone. The user-side judge answers only whether the agent has work, so a user message never reads blocked.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "thanks!", "want": "working", "why": "Unacked: the agent owes a reply."},
+      {"by": "agent", "react": "+1", "want": "working", "why": "Acked, so it goes to the judge, and reads working while in flight."},
+      {"judge": "idle", "want": "idle", "why": "A thanks gives the agent no work."},
+      {"by": "agent", "unreact": "+1", "want": "working", "why": "Its only bot reaction is gone: unacked again."},
+      {"by": "agent", "react": "+1", "want": "idle", "why": "The same question was already answered: the verdict stands, with no new call."},
+      {"by": "user", "message": "can you also bump the version?", "want": "working"},
+      {"by": "agent", "react": "eyes", "want": "working"},
+      {"judge": "working", "want": "working", "why": "The message gives the agent work."}
+    ]
+  },
+  {
+    "name": "agent reply takes each verdict",
+    "source": "b489677e",
+    "note": "A plain agent reply reads what its verdict says: blocked, working or idle.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Two options here, A or B. Which do you want?", "want": "working"},
+      {"judge": "blocked", "want": "blocked"},
+      {"by": "user", "message": "A", "want": "working", "why": "The user's answer is unacked: the agent owes a reply."},
+      {"by": "agent", "message": "On it, doing A.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "Done, A is merged.", "want": "working"},
+      {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "todo post reads working on any verdict but blocked",
+    "source": "b8ff8cdc",
+    "note": "The todo rule: an agent post with a todo list reads working, and only a blocked verdict moves it (the blocked case is the merge-word sequence). Whether a todo post should take every verdict is open (review decision 4); that change would want idle after the idle verdict here.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> fix the flaky CI job", "want": "working"},
+      {"by": "agent", "message": "✱ Reading the CI logs. ○ Write the fix.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "✓ #12 merged. ○ The flaky test, filed as #13 for another day.", "want": "working"},
+      {"judge": "idle", "want": "working", "why": "An idle verdict leaves a todo post working."},
+      {"by": "agent", "message": "✱ Running the tests. ○ Open the PR.", "want": "working"},
+      {"judge": "failed", "want": "working", "why": "A failed call leaves a todo post working."}
+    ]
+  },
+  {
+    "name": "edit of a judged message",
+    "source": "37d8e837",
+    "note": "New text is a new question for the judge; the same text (a link unfurl) is not. While the new question is in flight the message holds what it read before: an edit is not news, so it publishes no edge of its own.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, see https://example.com/pr/1", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"edit": "Done, see https://example.com/pr/1", "want": "idle", "why": "Same text: no new call, the verdict stands."},
+      {"edit": "Done, see https://example.com/pr/1. Actually, one more fix, on it.", "want": "idle", "why": "New text: asked again, and it holds idle until the answer lands."},
+      {"judge": "working", "want": "working"}
+    ]
+  },
+  {
+    "name": "failed judge call falls back to idle",
+    "source": "37d8e837",
+    "note": "A failed call reads as if no judge were installed: a plain agent reply reads idle, which herdr shows as done. Review finding 6 proposes one retry before that fallback.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "On it, checking now.", "want": "working"},
+      {"judge": "failed", "want": "idle"},
+      {"by": "agent", "message": "Found it, fixing now.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"edit": "Found it, fixing now. CI is running.", "want": "working", "why": "The edit is asked again, and holds working while in flight."},
+      {"judge": "failed", "want": "idle", "why": "A failed re-ask drops the verdict it held, which answered the old text."}
+    ]
+  },
+  {
+    "name": "finished report with a ✓ checklist reads idle",
+    "source": "https://colony-pyo1658.slack.com/archives/C0CD70UR7FF/p1794300224638899?thread_ts=1794227138.064469&cid=C0CD70UR7FF",
+    "note": "A done report written as a numbered ✓ checklist is finished work, not a todo list.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> remove dbmate", "want": "working"},
+      {"by": "agent", "message": "On it.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "dbmate is gone. 1. ✓ … 5. ✓ … This thread is done on my side, and nothing more will post here unless someone asks.", "want": "working"},
+      {"judge": "idle", "want": "idle", "why": "Finished, and it says so."}
+    ]
+  },
+  {
+    "name": "finished report that names ✓/○ in prose reads idle",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BS6HBB3R6/p1793848925663419?thread_ts=1793809060.151099&cid=C0BS6HBB3R6",
+    "note": "A ○ inside prose (\"a ✓/○ status\") is no todo item.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> check the dream sessions", "want": "working"},
+      {"by": "agent", "message": "On it.", "want": "working"},
+      {"judge": "working", "want": "working"},
+      {"by": "agent", "message": "That's all the work from this thread. … each post a ✓/○ status … Nothing more will post here from me unless someone asks.", "want": "working"},
+      {"judge": "idle", "want": "idle", "why": "Finished, and it says so."}
+    ]
+  },
+  {
+    "name": "removing one of two bot reactions keeps the ack",
+    "source": "agent status review of 2026-11-10, finding 9",
+    "note": "The message is acked while any bot reaction stays on it.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "thanks!", "want": "working"},
+      {"by": "agent", "react": "eyes", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "agent", "react": "white_check_mark", "want": "idle"},
+      {"by": "agent", "unreact": "eyes", "want": "idle", "why": "The ✅ is still on it: still acked, and the verdict stands."}
+    ]
+  },
+  {
+    "name": "bot-rooted thread: the bot's user id acks",
+    "source": "https://colony-pyo1658.slack.com/archives/C0BCG30UGEP/p1790207694108909?thread_ts=1790204442.023449&cid=C0BCG30UGEP",
+    "note": "Tag's bot_message posts carry its bot id B0AJJ4EGEMC, and its reactions carry its user id U0AJPPX8SE8. A thread rooted by such a post, with no mention, tracks the B id, so a reaction from the U id must still ack.",
+    "events": [
+      {"by": "B0AJJ4EGEMC", "message": "Sim env issue 36: the model's processes run on into grading.", "want": "idle", "why": "Opening a thread is not news: the root's verdict is in flight and the thread holds what it read before."},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "option A seems like the most sane.", "want": "working"},
+      {"by": "U0AJPPX8SE8", "react": "+1", "want": "working", "why": "Acked by Tag: asked, in flight."},
+      {"judge": "working", "want": "working", "why": "The choice gives the agent work."},
+      {"by": "user", "message": "thanks!", "want": "working"},
+      {"by": "U0AJPPX8SE8", "react": "+1", "want": "working"},
+      {"judge": "idle", "want": "idle"}
+    ]
+  }
+]

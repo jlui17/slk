@@ -51,6 +51,18 @@ the state volume's config once and syncs only the key line after that, so a
 session can judge at another effort than the tests read. Set
 `SLK_AGENT_STATUS_EVAL_EFFORT` (and `_MODEL`) to test what sessions run.
 
+The agent status replay eval covers the layer above the judge, with no API
+call, so it runs with the unit tests. It replays each thread of
+`internal/ui/testdata/agent_status_replay.json` (messages, reactions, edits,
+verdicts) through slk with a judge that gives the dataset's verdict, and
+fails on any event after which herdr would show another state than the
+dataset wants. A sequence marked `known_open` must miss; once it passes, the
+test fails until the mark is removed. `-v` prints the table:
+
+```sh
+tools/go.sh test ./internal/ui/ -run '^TestAgentStatusReplay$' -v
+```
+
 ## `tools/run-docker.sh` — the slk TUI itself
 
 ```sh
