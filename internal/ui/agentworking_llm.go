@@ -97,7 +97,7 @@ func (a *App) judgeMessage(l agentLastMsg) string {
 	if g.requestVerdict == nil || !g.thread.active || l.ts == "" {
 		return ""
 	}
-	if l.human && !l.acked {
+	if l.human && !l.acked() {
 		return ""
 	}
 	return a.flattenMrkdwn(l.text)

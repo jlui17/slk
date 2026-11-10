@@ -150,6 +150,36 @@ func TestAgentAckReactionIdles(t *testing.T) {
 	}
 }
 
+func TestRemovingOneOfTwoAgentReactionsKeepsAck(t *testing.T) {
+	a, calls, _ := newAgentTestApp(t)
+	openWorkingAgentThread(a, nil)
+	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "eyes"})
+	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "+1"})
+	a.Update(ReactionRemovedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "eyes"})
+	if got := lastReport(t, calls); got.working {
+		t.Errorf("expected idle while the agent's 👍 stays, got %+v", got)
+	}
+	a.Update(ReactionRemovedMsg{ChannelID: "C1", MessageTS: "100.0", UserID: "UBOT", Emoji: "+1"})
+	if got := lastReport(t, calls); !got.working {
+		t.Errorf("expected working once the agent's last reaction is gone, got %+v", got)
+	}
+}
+
+func TestRemovingOneOfTwoFetchedAgentReactionsKeepsAck(t *testing.T) {
+	a, calls, _ := newAgentTestApp(t)
+	openWorkingAgentThread(a, []messages.MessageItem{{
+		TS: "101.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "ship it",
+		Reactions: []messages.ReactionItem{
+			{Emoji: "eyes", Count: 1, UserIDs: []string{"UBOT"}},
+			{Emoji: "+1", Count: 1, UserIDs: []string{"UBOT"}},
+		},
+	}})
+	a.Update(ReactionRemovedMsg{ChannelID: "C1", MessageTS: "101.0", UserID: "UBOT", Emoji: "eyes"})
+	if got := lastReport(t, calls); got.working {
+		t.Errorf("expected idle while the fetched 👍 stays, got %+v", got)
+	}
+}
+
 func TestOtherHumansReactionIsNoAck(t *testing.T) {
 	a, calls, _ := newAgentTestApp(t)
 	openWorkingAgentThread(a, nil)

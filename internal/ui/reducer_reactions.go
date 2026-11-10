@@ -35,7 +35,7 @@ var reduceReactions reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// Ahead of the background skip, like the tracked agent thread's
 		// hooks in reduceSend: the agent's ack follows the thread's own
 		// workspace, not the active one.
-		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, false)
+		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, m.Emoji, false)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			// Background workspace — see NewMessageMsg.TeamID.
 			return nil, true
@@ -50,7 +50,7 @@ var reduceReactions reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case ReactionRemovedMsg:
-		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, true)
+		a.noteAgentThreadReaction(m.TeamID, m.ChannelID, m.MessageTS, m.UserID, m.Emoji, true)
 		if m.TeamID != "" && m.TeamID != a.activeTeamID {
 			return nil, true
 		}

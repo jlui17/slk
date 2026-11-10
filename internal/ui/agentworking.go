@@ -2,6 +2,7 @@ package ui
 
 import (
 	"regexp"
+	"slices"
 
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -24,18 +25,15 @@ func isAgentTodoText(text string) bool {
 	return todoStampRe.MatchString(text) || todoPendingRe.MatchString(text)
 }
 
-// reactionBy reports whether userID reacted to the message with any emoji.
-// The emoji itself is deliberately ignored: the agent acks with whatever
-// fits (👍, 🚀, …), so only the reactor identifies an ack.
-func reactionBy(reactions []messages.ReactionItem, userID string) bool {
+// reactionsBy is the emoji userID reacted to the message with.
+func reactionsBy(reactions []messages.ReactionItem, userID string) []string {
+	var emoji []string
 	for _, r := range reactions {
-		for _, id := range r.UserIDs {
-			if id == userID {
-				return true
-			}
+		if slices.Contains(r.UserIDs, userID) {
+			emoji = append(emoji, r.Emoji)
 		}
 	}
-	return false
+	return emoji
 }
 
 // agentLastMsg is what the derived working state knows about the tracked
@@ -48,10 +46,18 @@ type agentLastMsg struct {
 	authorID string
 	human    bool
 	todo     bool
-	acked    bool
+	// agentEmoji is the emoji the agent has on the message.
+	agentEmoji []string
 	// text is the raw mrkdwn body, kept for the model working judge
 	// (agentworking_llm.go), which reads the ambiguous shapes.
 	text string
+}
+
+// acked reports whether the agent has any reaction on the message. The
+// emoji itself is deliberately ignored: the agent acks with whatever fits
+// (👍, 🚀, …), so only the reactor identifies an ack.
+func (l agentLastMsg) acked() bool {
+	return len(l.agentEmoji) > 0
 }
 
 // derivedState is the content-derived lifecycle state: a human message
@@ -72,7 +78,7 @@ func (g *agentSidebar) derivedState() AgentState {
 	if l.ts == "" {
 		return AgentIdle
 	}
-	if l.human && !l.acked {
+	if l.human && !l.acked() {
 		return AgentWorking
 	}
 	state := AgentIdle
@@ -184,24 +190,28 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 // agentLastMsgFrom is msg as the tracked thread's newest message.
 func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 	return agentLastMsg{
-		ts:       msg.TS,
-		authorID: msg.UserID,
-		human:    a.agentAuthorIsHuman(msg.UserID),
-		todo:     isAgentTodoText(msg.Text),
-		acked:    reactionBy(msg.Reactions, a.agentSidebar.thread.botUserID),
-		text:     msg.Text,
+		ts:         msg.TS,
+		authorID:   msg.UserID,
+		human:      a.agentAuthorIsHuman(msg.UserID),
+		todo:       isAgentTodoText(msg.Text),
+		text:       msg.Text,
+		agentEmoji: reactionsBy(msg.Reactions, a.agentSidebar.thread.botUserID),
 	}
 }
 
 // noteAgentThreadReaction applies a reaction change to the derived state:
 // the agent reacting to the newest message — any emoji — is its ack.
-func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID string, removed bool) {
+func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID, emoji string, removed bool) {
 	t := a.agentSidebar.thread
 	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts || userID != t.botUserID {
 		return
 	}
 	prev := a.agentSidebar.effectiveState()
-	a.agentSidebar.lastMsg.acked = !removed
+	last := &a.agentSidebar.lastMsg
+	last.agentEmoji = slices.DeleteFunc(last.agentEmoji, func(e string) bool { return e == emoji })
+	if !removed {
+		last.agentEmoji = append(last.agentEmoji, emoji)
+	}
 	a.maybeJudgeAgentWorking(AgentWorking)
 	a.publishAgentThreadDerived(prev)
 }
