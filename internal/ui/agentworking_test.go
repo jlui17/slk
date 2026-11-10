@@ -27,15 +27,58 @@ func TestIsAgentTodoText(t *testing.T) {
 		},
 		{
 			// Observed live in the e2e: not every todo post carries the
-			// stamp.
-			name: "stampless all-done todo post",
+			// stamp. With every item done and no stamp, nothing says work
+			// goes on.
+			name: "stampless all-done list is not a todo post",
 			text: "✓ Look up this channel's info ✓ Check the member list ✓ Post three facts",
-			todo: true,
+			todo: false,
 		},
 		{
 			name: "stampless in-progress marker",
 			text: "✱ Filing the Kaneo task and moving it in-progress. ○ Open the PR.",
 			todo: true,
+		},
+		{
+			// C0BCG30UGEP 1794256160.311769, stamp as Slack sends it.
+			name: "in-progress todo post with a date-token stamp",
+			text: "Finding why the daily run times out\n✱ Reading the slack hydrator's import wait.\n○ Find what makes the import run past 30 minutes.\n○ Open the fix as a WIP PR.\n_todos as of <!date^1794256160^{time} ({ago})|20:29 UTC>_",
+			todo: true,
+		},
+		{
+			// C0AJAL5UV34, a review's opening todo post.
+			name: "review todo post, all pending",
+			text: "Reviewing the QA un-flag stack.\n○ Check Justin's words in the hub thread.\n○ Review #4083.\n○ Post the verdict here and on both PRs.",
+			todo: true,
+		},
+		{
+			// C0AJAL5UV34, a review's todo post mid-way.
+			name: "review todo post, in progress",
+			text: "Reviewing #4031, the dashboard history prune\n✱ Re-running the author's check on the live store.\n○ Post the review on the PR.",
+			todo: true,
+		},
+		{
+			// C0CD70UR7FF 1794300224.638899.
+			name: "finished report with a numbered done checklist",
+			text: "dbmate is gone.\n\n*Goal:* dbmate is no longer downloaded or run anywhere.\n1. ✓ Runner written.\n2. ✓ Prod data-api start.\n3. ✓ CI schema step is green.\n4. ✓ An independent review found nothing left.\n5. ✓ #4237 closed unmerged.\nThis thread is done on my side, and nothing more will post here unless someone asks.",
+			todo: false,
+		},
+		{
+			// C0BS88WB9C0 1794255367.502889.
+			name: "finished report, four done items",
+			text: "Finding 13 is done.\n\nGoal: every answer key uses the same person placeholder.\n1. ✓ The cause.\n2. ✓ #4184 lets a bot root pass.\n3. ✓ c3 A, c3 B are rebuilt.\n4. ✓ One needed no rebuild.\nI need nothing from anyone. This thread waits on nothing and won't post again.",
+			todo: false,
+		},
+		{
+			// C0AJAL5UV34 1793839575.446109.
+			name: "finished review, unnumbered done items",
+			text: "Nothing left at `e8968200` for #4002.\n✓ The composed SQL is byte-identical to base.\n✓ Gate g passes.\n✓ The mutant turns a test red.\n✓ merge-tree is clean.\nThis thread is done. Nothing more will post here unless the head moves.",
+			todo: false,
+		},
+		{
+			// C0BS6HBB3R6 1793848925.663419.
+			name: "pending mark in prose is not a todo post",
+			text: "That's all the work from this thread. What's left:\n• *Anyone, after the upload:* check that one live Tag session each post a ✓/○ status after a subagent finishes.\nNothing more will post here from me unless someone asks.",
+			todo: false,
 		},
 		{
 			name: "plain reply",

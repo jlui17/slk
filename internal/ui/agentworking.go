@@ -12,21 +12,16 @@ import (
 // a line.
 var todoStampRe = regexp.MustCompile(`_todos as of \d{1,2}:\d{2} UTC_\s*$`)
 
-// todoPendingRe and todoDoneRe match the todo-item markers: ✱/✳/○/◐/☐
-// mark pending or in-progress items and appear only in todo renderings,
-// while ✓/✔ also show up as ad-hoc bullets in prose, so done markers only
-// count as a todo list when at least two appear. Not every todo post
-// carries the stamp (observed live: an all-done list posted without one),
-// so markers are a first-class signal, not a fallback.
-var (
-	todoPendingRe = regexp.MustCompile(`[✱✳○◐☐]`)
-	todoDoneRe    = regexp.MustCompile(`[✓✔]`)
-)
+// todoPendingRe matches a pending or in-progress todo item: ✱/✳/○/◐/☐
+// starting an item, so a mark named in prose ("a ✓/○ status") is no item.
+// Not every todo post carries the stamp, so the marker is a first-class
+// signal, not a fallback. Done marks (✓/✔) alone never make a todo post:
+// a list with every item done is a finished report, and Claude writes its
+// done reports as ✓ checklists.
+var todoPendingRe = regexp.MustCompile(`(?:^|\s)[✱✳○◐☐] `)
 
 func isAgentTodoText(text string) bool {
-	return todoStampRe.MatchString(text) ||
-		todoPendingRe.MatchString(text) ||
-		len(todoDoneRe.FindAllString(text, 2)) >= 2
+	return todoStampRe.MatchString(text) || todoPendingRe.MatchString(text)
 }
 
 // reactionBy reports whether userID reacted to the message with any emoji.
