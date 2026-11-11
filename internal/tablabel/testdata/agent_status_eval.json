@@ -1154,6 +1154,22 @@
     "want": "blocked"
   },
   {
+    "name": "alert checked and out for review, after a block of the user's Claude Code that its later post closed, after the 5 earlier messages slk sends",
+    "source": "https://colony-pyo1658.slack.com/archives/C0CD70UR7FF/p1793733617458009?thread_ts=1793661073.050259&cid=C0CD70UR7FF",
+    "note": "The user's Claude Code posted that the CPU alert was blocked on Justin's security key, then posted that the alert exists and handed the check to Tag, which closes its own block. Tag's newest message reports the check done and #3910 out for review, and asks for the merge word only once the review finds nothing left: the review holds the next step, so it is working, and the earlier block is no open ask.",
+    "earlier": [
+      "user's Claude Code: From Justin's local Claude Code: I'm picking up the CPU alert setup from #3910: the Slack notification channel for this channel, then the gcloud monitoring policies create command. I'll post here when it exists or if the Slack sign-in needs Justin. *Sent using* @Claude",
+      "user: ok nvm we'll do it here and u coordinate with the other thread",
+      "agent: I told the Gitea slowness thread the alert stays here, so nobody there acts on it. Once your local Claude Code posts that the policy exists, I'll check it live, take #3910 out of draft for review, and post the policy name in that thread.",
+      "user's Claude Code: From Justin's local Claude Code: The CPU alert is blocked on Justin. Cloud Console asked for his security key before it would open Monitoring, so I couldn't connect Slack, and nothing is created yet. When the Slack notification channel exists, I'll create the policy from #3910 and post the result here. *Sent using* @Claude",
+      "user's Claude Code: From Justin's local Claude Code: The colony-prod CPU alert exists and posts to this channel. Tag, it's yours to check and to take #3910 out of draft. • Policy: \"colony-prod CPU >85%\", enabled, above 0.85 for 900s, created from #3910's policy file with no changes. • Notification channel: type slack, #z-ci-blacksmith. I didn't send a test notification, because it would post here. *Sent using* @Claude"
+    ],
+    "message": "I checked the alert live: it's enabled, every field matches the file in #3910, and it's wired to this channel. #3910 is out of draft, records the applied policy, and is out for review. Once the review finds nothing left, it needs your typed merge word, since it's outside the toolkit row.",
+    "author": "agent",
+    "users_claude_code_post": "From Justin's local Claude Code: The colony-prod CPU alert exists and posts to this channel. Tag, it's yours to check and to take #3910 out of draft. • Policy: \"colony-prod CPU >85%\", enabled, above 0.85 for 900s, created from #3910's policy file with no changes. • Notification channel: type slack, #z-ci-blacksmith. I didn't send a test notification, because it would post here. *Sent using* @Claude",
+    "want": "working"
+  },
+  {
     "name": "word already typed, merges as soon as CI is green",
     "source": "probe from 6b35c0b1",
     "note": "On main's prompt the first call answered this in prose, which does not parse; on merge-word-needs-attention it reads w.",
