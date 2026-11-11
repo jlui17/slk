@@ -986,14 +986,15 @@ func (m *Model) ViewportAtTop() bool {
 // PageDown is the keyboard half-page/page scroll (ctrl+d, PgDn) with vim
 // semantics: the viewport and the cursor both move down n rows, so the
 // cursor keeps its screen position and lands on whichever row now sits
-// there. When the viewport is already at the bottom and cannot move, the
-// cursor jumps to the last navigable row instead. Contrast ScrollDown,
+// there. When the viewport cannot move that far, the cursor still moves n
+// rows, and stops early only at the last navigable row. Contrast ScrollDown,
 // the mouse-wheel scroll, which leaves the cursor alone until it would
 // leave the window.
 func (m *Model) PageDown(n int) { m.pageBy(n) }
 
 // PageUp is PageDown's mirror (ctrl+u, PgUp): viewport and cursor move up
-// together; at the top, the cursor jumps to the first navigable row.
+// together; at the top, the cursor still moves n rows, and stops early
+// only at the first navigable row.
 func (m *Model) PageUp(n int) { m.pageBy(-n) }
 
 func (m *Model) pageBy(delta int) {
@@ -1031,29 +1032,21 @@ func (m *Model) pageBy(delta int) {
 		newOffset = maxOffset
 	}
 
-	var targetLine int
-	if newOffset == m.yOffset {
-		// Nothing left to scroll: jump the cursor to the end.
-		if dir > 0 {
-			targetLine = len(m.cacheRows) - 1
-		} else {
-			targetLine = 0
+	// The cursor moves delta rows whether or not the viewport can move
+	// that far, as tmux's half-page keys do: it keeps its screen row
+	// while the viewport scrolls with it, and moves down or up the
+	// window once the viewport reaches the end of the list.
+	line := -1
+	for i, r := range m.cacheRows {
+		if r.navIdx == m.cursor {
+			line = i
+			break
 		}
-	} else {
-		// Keep the cursor's screen row: shift it by exactly what the
-		// viewport moved.
-		line := -1
-		for i, r := range m.cacheRows {
-			if r.navIdx == m.cursor {
-				line = i
-				break
-			}
-		}
-		if line < 0 {
-			return
-		}
-		targetLine = line + (newOffset - m.yOffset)
 	}
+	if line < 0 {
+		return
+	}
+	targetLine := min(max(line+delta, 0), len(m.cacheRows)-1)
 
 	// Land on a navigable row: continue in the scroll direction past
 	// blank separators, and fall back to the other direction at the

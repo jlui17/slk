@@ -455,6 +455,16 @@ there and resolve them knowing what the fork wants:
   entry's trailing spacer rows on screen moves the cursor past it
   (`followCursor` subtracts `Trail`). The fork's two-row spacers made
   the old behaviour easy to hit.
+- `internal/ui/sidebar/model.go` — `pageBy` (ctrl+u, ctrl+d, PgUp, PgDn
+  in the channel list) moves the cursor n rows on every press, as tmux's
+  half-page keys do. Upstream moves the cursor only as far as the
+  viewport scrolls and jumps it to the first or last row when the
+  viewport cannot scroll, so a list that fits the window went end to end
+  on one press. Upstream's `TestPageDownAtBottomJumpsToLastRow`,
+  `TestPageUpAtTopJumpsToFirstRow` and
+  `TestPageUpPartialScrollMovesCursorByTheSameAmount` state upstream's
+  rule and still pass, only because the n each one pages by reaches the
+  end of the list; `page_fork_test.go` holds the fork's rule.
 - `go.mod` / `go.sum` — `github.com/slack-go/slack` bumped past upstream's
   pin to v0.29.0 for typed table cells (`TableRawTextCell` etc.; v0.23.0
   decoded every cell as rich_text and dropped raw_text content). On an
