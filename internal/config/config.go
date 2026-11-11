@@ -240,7 +240,7 @@ func Default() Config {
 			MouseWheelLines: 3,
 			EmojiImages:     "on",
 			EmojiCells:      2,
-			MessageWidth:    80,
+			MessageWidth:    120,
 		},
 		Animations: Animations{
 			Enabled:          true,

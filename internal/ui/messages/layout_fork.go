@@ -35,7 +35,7 @@ const GroupGap = 5 * time.Minute
 // messageWidth is the most cells a message's text wraps at; 0 is no
 // cap. Set once at startup from the message_width setting, before
 // anything renders (the same contract as nowFunc).
-var messageWidth = 80
+var messageWidth = 120
 
 // SetMessageWidth sets the cap TextWidth applies; n <= 0 turns it off.
 func SetMessageWidth(n int) { messageWidth = n }

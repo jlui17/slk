@@ -48,7 +48,7 @@ func TestContinues(t *testing.T) {
 }
 
 func TestTextWidth(t *testing.T) {
-	t.Cleanup(func() { SetMessageWidth(80) })
+	t.Cleanup(func() { SetMessageWidth(120) })
 	for _, c := range []struct{ cap, pane, want int }{
 		{80, 200, 80},  // the cap
 		{80, 60, 50},   // the pane is narrower: what it leaves right of the gutter
@@ -66,7 +66,7 @@ func TestTextWidth(t *testing.T) {
 // Body text wraps at the cap in a wide pane, and at the pane with the
 // cap off.
 func TestMessageWidthWrapsTheBody(t *testing.T) {
-	t.Cleanup(func() { SetMessageWidth(80) })
+	t.Cleanup(func() { SetMessageWidth(120) })
 	msg := MessageItem{TS: tsAt(15, 0, 0), UserID: "U1", UserName: "alice", Timestamp: "3:00 PM", Text: strings.Repeat("word ", 60)}
 	widest := func() int {
 		m := New([]MessageItem{msg}, "general")
@@ -78,11 +78,11 @@ func TestMessageWidthWrapsTheBody(t *testing.T) {
 		}
 		return w
 	}
-	if got := widest(); got > 80 || got < 70 {
-		t.Errorf("capped body is %d cells wide, want at most 80", got)
+	if got := widest(); got > 120 || got < 110 {
+		t.Errorf("capped body is %d cells wide, want at most 120", got)
 	}
 	SetMessageWidth(0)
-	if got := widest(); got <= 80 {
+	if got := widest(); got <= 120 {
 		t.Errorf("uncapped body is %d cells wide, want it to use the pane", got)
 	}
 }

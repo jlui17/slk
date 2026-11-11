@@ -992,7 +992,7 @@ below the pane count, option B in "One slk per pane, measured and kept"
 Both content panes lay messages out for reading, in every theme:
 
 - **A line cap.** Message text wraps at `min(message_width, what the
-  pane leaves)` (`messages.TextWidth`; `message_width` defaults to 80,
+  pane leaves)` (`messages.TextWidth`; `message_width` defaults to 120,
   0 turns it off). The new-messages line, the thread's replies line
   and its reply box share that width. A code block is at least that
   wide and grows, up to all the pane leaves, to fit its longest line

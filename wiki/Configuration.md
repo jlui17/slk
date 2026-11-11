@@ -19,7 +19,7 @@ show_avatars = true      # false hides the avatars beside messages
 image_protocol = "auto"   # auto | kitty | sixel | halfblock | off
 max_image_rows = 20       # cap inline image height in terminal rows
 colored_usernames = false # color each user's name by ID hash (Slack-style)
-message_width = 80        # wrap message text at this many cells, or the pane's
+message_width = 120       # wrap message text at this many cells, or the pane's
                           # width when narrower; 0 = no cap. The new-messages
                           # line and the thread reply box follow it; a code
                           # block is at least this wide and grows to the pane
