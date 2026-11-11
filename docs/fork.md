@@ -1112,9 +1112,11 @@ order:
    message the agent reacted to. Until the verdict lands, a new message
    reads working, so the idle verdict is the one done herdr shows, and an
    edit or a reload holds what the thread read before. A todo post (a
-   pending mark that starts an item, or the `_todos as of_` stamp) reads
-   working while its verdict is in flight or after the call failed; any
-   verdict that lands decides it (Justin, 2026-11-10). A failed call (a
+   pending mark that starts an item, or the `_todos as of_` stamp) that
+   arrives reads working while its verdict is in flight, and after the
+   call failed; on open or reload it holds what the thread read before
+   while the verdict is in flight, like any other message. Any verdict
+   that lands decides it (Justin, 2026-11-10). A failed call (a
    timeout, an API error the SDK's own retries did not clear, or a reply
    the parser cannot read) is asked once more for the same message, which
    holds what the request held while the second call is in flight; only

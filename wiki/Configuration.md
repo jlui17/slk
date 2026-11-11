@@ -98,23 +98,31 @@ max_image_cache_mb = 200
 #
 # The working state combines two signals: the assistant's live composing
 # status ("is thinking…"), and the thread's content — the row reads as
-# working while the newest message is a human's the bot hasn't reacted to
-# (any emoji counts as its ack), or a bot todo-list post (the ones ending
-# with a "todos as of HH:MM UTC" stamp). A newest message the bot has 👀 on
-# reads as working too, whatever else the bot reacted with: 👀 means the
-# bot is working on it, so it is never judged. With tab_name_model set, the
-# shapes content can't decide — a plain bot reply, a human message the bot
-# only acked — are judged by a model: agent_status_judge_model, or
-# tab_name_model when that is empty. A bot reply reads as working
-# when the bot is doing something next on its own, blocked (herdr's
-# needs-input state) when it is waiting on you to answer in the thread (a
-# question, a plan for approval) or to start a step only you can start (a
-# run or a steps file it hands your own Claude Code), and idle when it is
-# finished. An acked human message reads as working when it asks the bot
-# for anything (a request, a question, a go-ahead) or brings it a result
-# from your own Claude Code, idle when it just closes the exchange.
-# A bot todo-list post is judged too, and reads what its verdict says: it
-# reads working until the verdict lands, or when the model can't be asked.
+# working while the newest message is one a person typed that the bot
+# hasn't reacted to (any emoji counts as its ack). A newest message the bot
+# has 👀 on reads as working too, whatever else the bot reacted with: 👀
+# means the bot is working on it, so it is never judged. A message from a
+# person's account whose text ends with Slack's "Sent using @Claude" footer
+# is a post from that person's Claude Code, an agent session relaying into
+# the thread, not a message they typed. With tab_name_model set, the shapes
+# content can't decide — a bot reply, a post from your Claude Code (reacted
+# to or not), a typed message the bot only acked — are judged by a model:
+# agent_status_judge_model, or tab_name_model when that is empty. A bot
+# reply or a post from your Claude Code reads as working when an agent does
+# something next on its own (a result your Claude Code posts reads working
+# until the bot answers it), blocked (herdr's needs-input state) when it is
+# waiting on you to answer in the thread (a question, a plan for approval)
+# or to start a step only you can start (a run or a steps file handed to
+# your own Claude Code before it has posted in the thread), and idle when
+# it is finished. An acked typed message reads as working when it asks the
+# bot for anything (a request, a question, a go-ahead), idle when it just
+# closes the exchange. A bot todo-list post (one with a pending item, such
+# as ○ or ✱, or a "todos as of HH:MM UTC" stamp) is judged too, and reads
+# what its verdict says; until the verdict lands it reads working when it
+# arrives, and what the thread read before when you open the thread. A
+# failed model call is asked once more; when that fails too, a todo post
+# reads working and anything else idle. Without a model, a todo post reads
+# working, and a post from your Claude Code reads like a message you typed.
 #
 # While Slack considers the thread unread, the row shows the unread reply
 # count and herdr's unseen "done" indicator, the same blue dot it shows for

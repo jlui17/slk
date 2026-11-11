@@ -75,10 +75,10 @@ type workingJudgeState struct {
 // because an edit changes it: a request that read the old text must not
 // answer for the new one, while an edit that leaves the text alone (a link
 // unfurl) asks nothing new. The key is logged, so it carries a hash and
-// never the text. The hash is of
-// the raw text, not the flattened form the judge reads: that form is the
-// raw text plus name caches that fill in late, and a key that moved when a
-// name resolved would drop a standing verdict. The earlier messages the
+// never the text. The hash is of the raw text, not the flattened form the
+// judge reads: that form is the raw text plus name caches that fill in
+// late, and a key that moved when a name resolved would drop a standing
+// verdict. The earlier messages the
 // judge also reads stay out of the key, so a panel reload that re-seeds
 // them asks nothing new.
 func workingJudgeKey(l agentLastMsg) string {
