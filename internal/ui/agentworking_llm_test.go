@@ -1109,3 +1109,30 @@ func TestFailedJudgeCallIsAskedOnceMore(t *testing.T) {
 		})
 	}
 }
+
+// An edit of a message under a newer one replaces its text in the earlier
+// messages the judge reads, and a deletion of one removes it.
+func TestEarlierMessagesFollowEditsAndDeletions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change any
+		want   []string
+	}{
+		{"edited", editedAgentReply("101.0", "Fixing #12 and #13 now."), []string{"user: @Claude take a look at the CI workflows", "agent: Fixing #12 and #13 now.", "agent: #12 is merged."}},
+		{"deleted", WSMessageDeletedMsg{ChannelID: "C1", TS: "101.0"}, []string{"user: @Claude take a look at the CI workflows", "agent: #12 is merged."}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _, _ := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			a.Update(agentReply("101.0", "Fixing #12 now."))
+			a.Update(agentReply("102.0", "#12 is merged."))
+			a.Update(tc.change)
+			a.Update(agentReply("103.0", "CI is green on main."))
+			call := (*judged)[len(*judged)-1]
+			if !strings.HasPrefix(call.key, "103.0|") || !slices.Equal(call.earlier, tc.want) {
+				t.Errorf("judge call = %+v, want earlier %q", call, tc.want)
+			}
+		})
+	}
+}

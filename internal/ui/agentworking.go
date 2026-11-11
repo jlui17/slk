@@ -234,6 +234,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		// the text alone (a link unfurl) keeps the key: the standing
 		// verdict or the request in flight still answers it.
 		a.noteUsersClaudeCodePostEdited(msg)
+		a.noteEarlierMsgEdited(msg)
 		if msg.TS != last.ts {
 			return
 		}
@@ -295,6 +296,16 @@ func (a *App) noteUsersClaudeCodePostEdited(msg messages.MessageItem) {
 	post.text = msg.Text
 }
 
+// noteEarlierMsgEdited keeps the judge's context in step with an edit of a
+// message before the newest one: the judge reads its new text.
+func (a *App) noteEarlierMsgEdited(msg messages.MessageItem) {
+	for i := range a.agentSidebar.earlierMsgs {
+		if a.agentSidebar.earlierMsgs[i].ts == msg.TS {
+			a.agentSidebar.earlierMsgs[i].text = msg.Text
+		}
+	}
+}
+
 // noteAgentThreadReaction applies a reaction change to the derived state:
 // the agent reacting to the newest message — any emoji — is its ack, and
 // a 👀 among its emoji reads working (decidedWorking).
@@ -331,12 +342,14 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 // noteAgentThreadDeleted forgets the newest message when it is retracted.
 // The message before it is kept only as judge context (earlierMsgs), so the
 // state reads idle until the next reply or panel snapshot re-establishes it.
-// A retracted post of the user's Claude Code is forgotten too, newest message
-// or not; the next panel snapshot finds an earlier post of it, if any.
+// A retracted earlier message leaves the judge's context, and a retracted
+// post of the user's Claude Code is forgotten too, newest message or not;
+// the next panel snapshot finds an earlier post of it, if any.
 func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
 	if !a.trackedThreadIn(teamID, channelID) {
 		return
 	}
+	a.agentSidebar.earlierMsgs = slices.DeleteFunc(a.agentSidebar.earlierMsgs, func(m agentLastMsg) bool { return m.ts == ts })
 	if ts == a.agentSidebar.usersClaudeCodePost.ts {
 		a.agentSidebar.usersClaudeCodePost = agentLastMsg{}
 	}
