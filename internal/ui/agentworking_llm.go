@@ -13,7 +13,9 @@
 // herdr shows every working→idle edge as done, so the idle verdict has to
 // be the only idle published for a judged message. With no judge
 // installed, or once a request fails, the ambiguous states read idle,
-// exactly as they did before this existed.
+// as they did before this existed; a post from the user's Claude Code
+// with no judge installed reads as it did then too, as a person's message,
+// working until the agent reacts to it.
 package ui
 
 import (

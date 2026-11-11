@@ -138,12 +138,16 @@ func (l agentLastMsg) decidedWorking() bool {
 // The todo rule yields to any verdict, idle included: a todo post can ask
 // the user for a word ("○ Your merge word") or report finished work, and
 // the judge reads which (Justin's decision of 2026-11-10).
+//
+// With no judge installed, a post from the user's Claude Code reads as the
+// person's message it was read as before it went to the judge: working
+// while the agent has not reacted to it.
 func (g *agentSidebar) derivedState() AgentState {
 	l := g.lastMsg
 	if l.ts == "" {
 		return AgentIdle
 	}
-	if l.decidedWorking() {
+	if l.decidedWorking() || g.requestVerdict == nil && l.author() == tablabel.AuthorUsersClaudeCode && !l.acked() {
 		return AgentWorking
 	}
 	switch workingJudgeKey(l) {

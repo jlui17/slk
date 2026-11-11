@@ -1039,3 +1039,20 @@ func TestUsersClaudeCodePostEditedWithTheFooterKeepsItsNewText(t *testing.T) {
 		t.Errorf("judge call = %+v, want the post %q", call, want)
 	}
 }
+
+// With no judge installed, a post from the user's Claude Code reads by the
+// rule it read by before it went to the judge, a person's message: working
+// with no reaction from the agent, idle once the agent reacts other than 👀.
+func TestUsersClaudeCodePostWithoutJudgeReadsAsAPersonsMessage(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	openWorkingAgentThread(a, nil)
+	a.Update(agentReply("101.0", "Done, all green."))
+	a.Update(usersClaudeCodePost("102.0", "From Justin's local Claude Code: I merged #3623 at e66155e60."))
+	if got := lastReport(t, reports); got.state != AgentWorking {
+		t.Errorf("unreacted post with no judge: got %+v, want working", got)
+	}
+	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "102.0", UserID: "UBOT", Emoji: "white_check_mark"})
+	if got := lastReport(t, reports); got.state != AgentIdle {
+		t.Errorf("post the agent reacted to, with no judge: got %+v, want idle", got)
+	}
+}
