@@ -57,13 +57,15 @@ type AgentWorkingVerdictMsg struct {
 
 // workingJudgeState tracks the model verdict machinery: the key already
 // sent (so echoes and panel reloads can't refire the same question), what
-// the thread reads while that request is in flight, and the key the
-// standing verdict answers. Zero value means nothing asked, nothing judged.
+// the thread reads while that request is in flight, the key the standing
+// verdict answers, and the key whose failed request was already asked once
+// more. Zero value means nothing asked, nothing judged.
 type workingJudgeState struct {
 	requestedKey  string
 	inFlightState AgentState
 	judgedKey     string
 	state         AgentState
+	retriedKey    string
 }
 
 // workingJudgeKey names the judged question: the message, which side wrote
@@ -170,7 +172,10 @@ func (a *App) maybeJudgeAgentWorking(inFlight AgentState) {
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,
 // unless the thread — or its newest message — moved on while the request
-// was in flight. A failed request falls back to idle and forgets the ask,
+// was in flight. A failed request (a timeout, an API error the SDK's
+// retries did not clear, a reply the parser cannot read) is asked once
+// more, holding what the request held, since herdr shows the idle it falls
+// back to as done. A second failure falls back to idle and forgets the ask,
 // so a later event for the same message asks again; a stale failure is
 // dropped like a stale verdict, which leaves the newer request alone.
 var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -184,11 +189,15 @@ var reduceAgentWorkingVerdict reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, 
 		return nil, true
 	}
 	prev := a.agentSidebar.effectiveState()
-	if m.Failed {
-		a.agentSidebar.workingJudge = workingJudgeState{}
-	} else {
-		a.agentSidebar.workingJudge.judgedKey = m.Key
-		a.agentSidebar.workingJudge.state = m.State
+	j := &a.agentSidebar.workingJudge
+	switch {
+	case m.Failed && j.retriedKey != m.Key:
+		j.retriedKey, j.requestedKey = m.Key, ""
+		a.maybeJudgeAgentWorking(j.inFlightState)
+	case m.Failed:
+		*j = workingJudgeState{}
+	default:
+		j.judgedKey, j.state = m.Key, m.State
 	}
 	a.publishAgentThreadDerived(prev)
 	return nil, true

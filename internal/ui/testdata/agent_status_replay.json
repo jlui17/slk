@@ -84,7 +84,8 @@
       {"by": "agent", "message": "✓ #12 merged. ○ The flaky test, filed as #13 for another day.", "want": "working", "why": "The todo rule holds while the verdict is in flight."},
       {"judge": "idle", "want": "idle", "why": "The idle verdict decides the todo post."},
       {"by": "agent", "message": "✱ Running the tests. ○ Open the PR.", "want": "working"},
-      {"judge": "failed", "want": "working", "why": "A failed call leaves a todo post to the todo rule: working."}
+      {"judge": "failed", "want": "working", "why": "A failed call is asked once more, and the todo post holds working while it is in flight."},
+      {"judge": "failed", "want": "working", "why": "A second failure leaves a todo post to the todo rule: working."}
     ]
   },
   {
@@ -101,17 +102,22 @@
     ]
   },
   {
-    "name": "failed judge call falls back to idle",
-    "source": "37d8e837",
-    "note": "A failed call reads as if no judge were installed: a plain agent reply reads idle, which herdr shows as done. Review finding 6 proposes one retry before that fallback.",
+    "name": "failed judge call is asked once more, then falls back to idle",
+    "source": "37d8e837; agent status review of 2026-11-10, finding 6",
+    "note": "A failed call is asked once more for the same message, which holds what the request held until the second answer lands. Only when the second call fails too does the thread read as if no judge were installed: a plain agent reply reads idle, which herdr shows as done.",
     "events": [
       {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
       {"by": "agent", "message": "On it, checking now.", "want": "working"},
-      {"judge": "failed", "want": "idle"},
+      {"judge": "failed", "want": "working", "why": "Asked once more, holding working while in flight."},
+      {"judge": "working", "want": "working", "why": "The second call's verdict decides, with no idle published between."},
       {"by": "agent", "message": "Found it, fixing now.", "want": "working"},
+      {"judge": "failed", "want": "working", "why": "Asked once more, holding working while in flight."},
+      {"judge": "failed", "want": "idle", "why": "Two failures in a row read idle."},
+      {"by": "agent", "message": "Fixed, CI is running.", "want": "working"},
       {"judge": "working", "want": "working"},
-      {"edit": "Found it, fixing now. CI is running.", "want": "working", "why": "The edit is asked again, and holds working while in flight."},
-      {"judge": "failed", "want": "idle", "why": "A failed re-ask drops the verdict it held, which answered the old text."}
+      {"edit": "Fixed, CI is running. Checking the result now.", "want": "working", "why": "The edit is asked again, and holds working while in flight."},
+      {"judge": "failed", "want": "working", "why": "The failed re-ask is asked once more, still holding."},
+      {"judge": "failed", "want": "idle", "why": "A second failure drops the verdict it held, which answered the old text."}
     ]
   },
   {

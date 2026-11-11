@@ -1114,10 +1114,15 @@ order:
    edit or a reload holds what the thread read before. A todo post (a
    pending mark that starts an item, or the `_todos as of_` stamp) reads
    working while its verdict is in flight or after the call failed; any
-   verdict that lands decides it (Justin, 2026-11-10).
-5. **No judge, or a failed call**, reads idle. With no judge installed, a
-   post from the user's Claude Code reads as a message the user typed
-   (rule 3): working until the agent reacts to it.
+   verdict that lands decides it (Justin, 2026-11-10). A failed call (a
+   timeout, an API error the SDK's own retries did not clear, or a reply
+   the parser cannot read) is asked once more for the same message, which
+   holds what the request held while the second call is in flight; only
+   a second failure counts as the call failing.
+5. **No judge, or a call that failed twice**, reads idle, which herdr
+   shows as done. With no judge installed, a post from the user's Claude
+   Code reads as a message the user typed (rule 3): working until the
+   agent reacts to it.
 
 Who counts as the agent's side: the thread's bot, any user the cache
 marks as a bot (in a thread rooted by the agent's `bot_message`, any bot

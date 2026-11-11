@@ -516,10 +516,15 @@ func TestEditOfTodoPostReasksAndHoldsItsState(t *testing.T) {
 				t.Errorf("state while the re-ask is in flight = %q, want %q", got, held)
 			}
 
-			// A failed re-ask drops the held verdict: back to the default.
+			// A failed re-ask is asked once more, still holding; a second
+			// failure drops the held verdict: back to the default.
 			a.Update(failureFor(t, judged, 1))
+			if got := a.agentSidebar.effectiveState(); len(*judged) != 3 || got != held {
+				t.Fatalf("after one failure: state %q, judge calls %+v; want %q and a second ask", got, *judged, held)
+			}
+			a.Update(failureFor(t, judged, 2))
 			if got := a.agentSidebar.effectiveState(); got != AgentWorking {
-				t.Errorf("state after the failed re-ask = %q, want working", got)
+				t.Errorf("state after the re-ask failed twice = %q, want working", got)
 			}
 		})
 	}
@@ -744,18 +749,20 @@ func TestJudgeFailureFallsBackToIdleAndCanBeAskedAgain(t *testing.T) {
 	a.Update(reply)
 	assertHerdrSequence(t, seq)
 
-	// An API error or the timeout: the reply reads idle, as it does with
-	// no judge at all.
+	// An API error or the timeout, twice: the first is asked once more,
+	// and after the second the reply reads idle, as it does with no judge
+	// at all.
 	a.Update(failureFor(t, judged, 0))
+	a.Update(failureFor(t, judged, 1))
 	assertHerdrSequence(t, seq, AgentIdle)
 
 	// The failed ask is forgotten, so a later event for the same message
 	// (here a panel reload) asks again.
 	openWorkingAgentThread(a, []messages.MessageItem{reply.Message})
-	if len(*judged) != 2 || (*judged)[1].key != (*judged)[0].key {
-		t.Fatalf("expected a re-ask after the failure, got %+v", *judged)
+	if len(*judged) != 3 || (*judged)[2].key != (*judged)[0].key {
+		t.Fatalf("expected a re-ask after the failures, got %+v", *judged)
 	}
-	a.Update(verdictFor(t, judged, 1, AgentWorking))
+	a.Update(verdictFor(t, judged, 2, AgentWorking))
 	if got := lastReport(t, reports); !got.working {
 		t.Errorf("expected working once the re-ask answered working, got %+v", got)
 	}
@@ -773,6 +780,8 @@ func TestFailedReaskDropsTheHeldVerdict(t *testing.T) {
 	// The held verdict answered the old text; with no answer for the new
 	// text it can't stand until the next message.
 	a.Update(failureFor(t, judged, 1))
+	assertHerdrSequence(t, seq)
+	a.Update(failureFor(t, judged, 2))
 	assertHerdrSequence(t, seq, AgentIdle)
 }
 
@@ -1054,5 +1063,49 @@ func TestUsersClaudeCodePostWithoutJudgeReadsAsAPersonsMessage(t *testing.T) {
 	a.Update(ReactionAddedMsg{ChannelID: "C1", MessageTS: "102.0", UserID: "UBOT", Emoji: "white_check_mark"})
 	if got := lastReport(t, reports); got.state != AgentIdle {
 		t.Errorf("post the agent reacted to, with no judge: got %+v, want idle", got)
+	}
+}
+
+// A failed call is asked once more for the same message, which reads what
+// the request held while the second call is in flight, and the second
+// call's verdict lands with nothing published between: a failure is no
+// done. A new message during the second call wins, and the second call's
+// answer, verdict or failure, is then stale and ignored.
+func TestFailedJudgeCallIsAskedOnceMore(t *testing.T) {
+	t.Run("then a verdict", func(t *testing.T) {
+		a, reports, unreads := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		seq := withHerdrSequence(a, reports, unreads)
+		a.Update(agentReply("101.0", "Found it, fixing now."))
+		a.Update(failureFor(t, judged, 0))
+		if len(*judged) != 2 || (*judged)[1].key != (*judged)[0].key {
+			t.Fatalf("judge calls = %+v, want the same question asked twice", *judged)
+		}
+		assertHerdrSequence(t, seq)
+		a.Update(verdictFor(t, judged, 1, AgentBlocked))
+		assertHerdrSequence(t, seq, AgentBlocked)
+	})
+	for _, answer := range []string{"verdict", "failure"} {
+		t.Run("a new message during the second call, then its "+answer, func(t *testing.T) {
+			a, reports, unreads := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			seq := withHerdrSequence(a, reports, unreads)
+			a.Update(agentReply("101.0", "Found it, fixing now."))
+			a.Update(failureFor(t, judged, 0))
+			a.Update(agentReply("102.0", "Fixed, CI is running."))
+			stale := verdictFor(t, judged, 1, AgentIdle)
+			if answer == "failure" {
+				stale = failureFor(t, judged, 1)
+			}
+			a.Update(stale)
+			if len(*judged) != 3 || !strings.HasPrefix((*judged)[2].key, "102.0|") {
+				t.Fatalf("judge calls = %+v, want the second call for 101.0 and one for 102.0", *judged)
+			}
+			assertHerdrSequence(t, seq)
+			a.Update(verdictFor(t, judged, 2, AgentIdle))
+			assertHerdrSequence(t, seq, AgentIdle)
+		})
 	}
 }
