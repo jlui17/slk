@@ -74,17 +74,17 @@
     ]
   },
   {
-    "name": "todo post reads working on any verdict but blocked",
+    "name": "todo post takes any landed verdict",
     "source": "b8ff8cdc",
-    "note": "The todo rule: an agent post with a todo list reads working, and only a blocked verdict moves it (the blocked case is the merge-word sequence). Whether a todo post should take every verdict is open (review decision 4); that change would want idle after the idle verdict here.",
+    "note": "2026-11-10: any landed verdict decides a todo post (Justin's decision; review decision 4). The todo rule, that an agent post with a todo list reads working, holds only while the verdict is in flight or after the call failed. Before, only a blocked verdict moved a todo post (b8ff8cdc), so a finished one read working until the next post.",
     "events": [
       {"by": "user", "message": "<@UBOT> fix the flaky CI job", "want": "working"},
       {"by": "agent", "message": "✱ Reading the CI logs. ○ Write the fix.", "want": "working"},
       {"judge": "working", "want": "working"},
-      {"by": "agent", "message": "✓ #12 merged. ○ The flaky test, filed as #13 for another day.", "want": "working"},
-      {"judge": "idle", "want": "working", "why": "An idle verdict leaves a todo post working."},
+      {"by": "agent", "message": "✓ #12 merged. ○ The flaky test, filed as #13 for another day.", "want": "working", "why": "The todo rule holds while the verdict is in flight."},
+      {"judge": "idle", "want": "idle", "why": "The idle verdict decides the todo post."},
       {"by": "agent", "message": "✱ Running the tests. ○ Open the PR.", "want": "working"},
-      {"judge": "failed", "want": "working", "why": "A failed call leaves a todo post working."}
+      {"judge": "failed", "want": "working", "why": "A failed call leaves a todo post to the todo rule: working."}
     ]
   },
   {

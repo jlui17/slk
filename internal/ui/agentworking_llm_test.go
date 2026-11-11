@@ -267,7 +267,9 @@ func TestTodoPostAsksJudge(t *testing.T) {
 	}
 }
 
-func TestTodoPostReadsBlockedOnlyOnABlockedVerdict(t *testing.T) {
+// A landed verdict decides a todo post, idle included; only a failed
+// request leaves it to the todo rule.
+func TestTodoPostTakesItsVerdict(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		answer func(*testing.T, *[]judgeCall) AgentWorkingVerdictMsg
@@ -275,7 +277,7 @@ func TestTodoPostReadsBlockedOnlyOnABlockedVerdict(t *testing.T) {
 	}{
 		{"blocked verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentBlocked) }, AgentBlocked},
 		{"working verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentWorking) }, AgentWorking},
-		{"idle verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentIdle) }, AgentWorking},
+		{"idle verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 0, AgentIdle) }, AgentIdle},
 		{"failed request", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return failureFor(t, c, 0) }, AgentWorking},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,20 +302,29 @@ func TestTodoPostReadsBlockedOnlyOnABlockedVerdict(t *testing.T) {
 				assertHerdrSequence(t, seq)
 				return
 			}
-			assertHerdrSequence(t, seq, AgentBlocked)
+			assertHerdrSequence(t, seq, tc.want)
 			if got := lastReport(t, reports); got.status != "1 unread reply" {
-				t.Errorf("expected the blocked report to carry the unread count, got %+v", got)
+				t.Errorf("expected the %s report to carry the unread count, got %+v", tc.want, got)
 			}
 		})
 	}
 }
 
-// A todo post's verdict is no completion: only blocked can come of it. So
-// the reply keeps the synthetic completion it had on an idle thread before
-// todo posts went to the judge, and no verdict adds a second one.
+// A todo post goes to the judge and its idle verdict is a completion, so on
+// an idle thread it completes once, on that verdict, like a plain reply:
+// no synthetic completion when it arrives.
 func TestTodoPostOnIdleThreadCompletesOnce(t *testing.T) {
-	for _, verdict := range []AgentState{AgentBlocked, AgentWorking, AgentIdle} {
-		t.Run(string(verdict), func(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(*testing.T, *[]judgeCall) AgentWorkingVerdictMsg
+		want   []AgentState
+	}{
+		{"blocked verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 1, AgentBlocked) }, []AgentState{AgentWorking, AgentBlocked}},
+		{"working verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 1, AgentWorking) }, []AgentState{AgentWorking}},
+		{"idle verdict", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return verdictFor(t, c, 1, AgentIdle) }, []AgentState{AgentWorking, AgentIdle}},
+		{"failed request", func(t *testing.T, c *[]judgeCall) AgentWorkingVerdictMsg { return failureFor(t, c, 1) }, []AgentState{AgentWorking}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			a, reports, unreads := newAgentTestApp(t)
 			judged := withWorkingJudge(a)
 			openWorkingAgentThread(a, nil)
@@ -322,13 +333,12 @@ func TestTodoPostOnIdleThreadCompletesOnce(t *testing.T) {
 			seq := withHerdrSequence(a, reports, unreads)
 
 			a.Update(agentReply("102.0", todoPostWithAsk))
-			assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking)
-			a.Update(verdictFor(t, judged, 1, verdict))
-			if verdict == AgentBlocked {
-				assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking, AgentBlocked)
-				return
+			assertHerdrSequence(t, seq, AgentWorking)
+			a.Update(tc.answer(t, judged))
+			assertHerdrSequence(t, seq, tc.want...)
+			if len(*unreads) != 0 {
+				t.Errorf("expected no synthetic completion, got %+v", *unreads)
 			}
-			assertHerdrSequence(t, seq, AgentWorking, AgentIdle, AgentWorking)
 		})
 	}
 }
@@ -336,7 +346,7 @@ func TestTodoPostOnIdleThreadCompletesOnce(t *testing.T) {
 // An edit of a todo post (a refreshed stamp) is a new question. Until its
 // answer lands the post holds what it read before, like any other edit.
 func TestEditOfTodoPostReasksAndHoldsItsState(t *testing.T) {
-	for _, held := range []AgentState{AgentBlocked, AgentWorking} {
+	for _, held := range []AgentState{AgentBlocked, AgentWorking, AgentIdle} {
 		t.Run(string(held), func(t *testing.T) {
 			a, reports, unreads := newAgentTestApp(t)
 			judged := withWorkingJudge(a)

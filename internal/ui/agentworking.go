@@ -80,18 +80,17 @@ func (l agentLastMsg) acked() bool {
 }
 
 // derivedState is the content-derived lifecycle state: a human message
-// the agent hasn't reacted to means the agent owes a response, and an
-// agent-authored todo post means it is mid-task. The two shapes content
-// can't decide — a plain agent reply, an agent-acked human message — take
-// the model verdict when one has landed for exactly this state. While that
-// verdict is in flight they read what the request set (working for a new
-// message, see maybeJudgeAgentWorking), and with nothing asked they read
-// idle.
+// the agent hasn't reacted to means the agent owes a response. Every other
+// message — a plain agent reply, an agent todo post, an agent-acked human
+// message — takes the model verdict when one has landed for exactly this
+// state. While that verdict is in flight it reads what the request set
+// (working for a new message, see maybeJudgeAgentWorking). With nothing
+// asked, or once the request failed, an agent todo post reads working (a
+// todo list means work goes on) and anything else reads idle.
 //
-// The todo rule is an assumption: a todo list means work goes on. It fails
-// for a post that asks the user for a word above a list that still has open
-// items ("○ Your merge word"), so a todo post goes to the judge too, and a
-// blocked verdict wins. Any other verdict, or none, leaves it working.
+// The todo rule yields to any verdict, idle included: a todo post can ask
+// the user for a word ("○ Your merge word") or report finished work, and
+// the judge reads which (Justin's decision of 2026-11-10).
 func (g *agentSidebar) derivedState() AgentState {
 	l := g.lastMsg
 	if l.ts == "" {
@@ -100,17 +99,16 @@ func (g *agentSidebar) derivedState() AgentState {
 	if l.human && !l.acked() {
 		return AgentWorking
 	}
-	state := AgentIdle
 	switch workingJudgeKey(l) {
 	case g.workingJudge.judgedKey:
-		state = g.workingJudge.state
+		return g.workingJudge.state
 	case g.workingJudge.requestedKey:
-		state = g.workingJudge.inFlightState
+		return g.workingJudge.inFlightState
 	}
-	if !l.human && l.todo && state != AgentBlocked {
+	if !l.human && l.todo {
 		return AgentWorking
 	}
-	return state
+	return AgentIdle
 }
 
 // effectiveState combines the assistant's live turn state
