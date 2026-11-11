@@ -1150,7 +1150,9 @@ The judge (`tablabel.Client.Judge`) makes up to three calls:
   (Justin, 2026-10-09). Once it has posted, a step handed to it is one a
   running session holds, unless that post says it stopped following the
   thread. A result it posts reads working until the thread's agent
-  answers it (8012876c). A user's message gets its own y/n question
+  answers it (8012876c), unless it says it cannot go on until the user
+  does something (a sign-in, their machine, a decision): that reads
+  blocked, by a sentence in the line, which only its own posts get. A user's message gets its own y/n question
   instead (does it give the agent work?), which never answers blocked.
 - **Open-ask call**, only after a done: the 5 earlier messages, each
   marked `agent:`, `user:` or `user's Claude Code:`, and whether an ask
@@ -1199,6 +1201,13 @@ Rejected:
   thread" read working 5 of 5 at both efforts. The bare line "has not
   posted in this thread" read a steps file handed to it as working 5 of
   5 at medium, so the line says what follows from it.
+- **Saying in the system prompt that a stuck post of the user's Claude
+  Code is blocked**: nine wordings (beside the result rule, inside it,
+  in the blocked definition, beside the steps-file rule) each cost
+  another row: an agent's steps file handed to that session read working
+  (up to 10 of 10 at medium), the steps file after its result read
+  blocked, or a result it posted read idle. The sentence went into the
+  line that only its own posts get.
 - **Describing the `user's Claude Code:` label in the open-ask prompt**:
   the call then missed an agent's open merge ask 2 to 3 of 5, and the
   label alone already makes it count that session's ask.

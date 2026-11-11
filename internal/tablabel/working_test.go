@@ -261,7 +261,7 @@ func TestWorkingTellsTheFirstCallAboutTheUsersClaudeCode(t *testing.T) {
 		{"agent, it has not posted", AuthorAgent, "", workingAgentSystemPrompt,
 			"The user's Claude Code has not posted in this thread, so no session of it runs here yet: a step handed to it waits for the user to start it.\n\nNewest message:\ndone"},
 		{"it wrote the newest message", AuthorUsersClaudeCode, post, workingAgentSystemPrompt,
-			"The user's Claude Code wrote the newest message, and the thread's agent has not read it yet.\n\nNewest message:\ndone"},
+			"The user's Claude Code wrote the newest message, and the thread's agent has not read it yet. If it says there that it cannot go on until the user does something (signs in, fixes their own machine, decides for it), the thread waits on the user: u.\n\nNewest message:\ndone"},
 		{"user", AuthorUser, post, workingUserSystemPrompt, "Newest message:\ndone"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

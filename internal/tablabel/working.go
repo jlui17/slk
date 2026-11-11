@@ -169,10 +169,17 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, au
 // say there that it stopped following the thread. When it has not posted,
 // the line spells out what follows: "has not posted" alone read a steps
 // file handed to it as a step a running session holds, 5 of 5 at medium.
+// When it wrote the newest message, the line says that a post in which it
+// is stuck until the user acts is u: the system prompt's "a result it wrote
+// is w" rule read its post blocked on Docker working 4 of 10 at medium.
+// The sentence sits here, where only its own posts reach it: each of nine
+// wordings tried in the system prompt cost another row, most often the
+// agent's steps file handed to it, alone, read working (up to 10 of 10 at
+// medium).
 func usersClaudeCodeLine(author Author, usersClaudeCodePost string) string {
 	switch {
 	case author == AuthorUsersClaudeCode:
-		return "The user's Claude Code wrote the newest message, and the thread's agent has not read it yet."
+		return "The user's Claude Code wrote the newest message, and the thread's agent has not read it yet. If it says there that it cannot go on until the user does something (signs in, fixes their own machine, decides for it), the thread waits on the user: u."
 	case usersClaudeCodePost == "":
 		return "The user's Claude Code has not posted in this thread, so no session of it runs here yet: a step handed to it waits for the user to start it."
 	}
