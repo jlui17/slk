@@ -85,7 +85,7 @@
     "earlier": [],
     "message": "The loki reader-filter nit is fixed and pushed as 0d69b1cc on #1398: the filter matches -loki.json again, exactly as before the PR. Review thread asked to re-check. Merge word is yours.",
     "from_agent": true,
-    "want": "idle"
+    "want": "blocked"
   },
   {
     "name": "after ask and ack: nit fixed, merge word yours",
@@ -97,7 +97,7 @@
     ],
     "message": "The loki reader-filter nit is fixed and pushed as 0d69b1cc on #1398: the filter matches -loki.json again, exactly as before the PR. Review thread asked to re-check. Merge word is yours.",
     "from_agent": true,
-    "want": "idle"
+    "want": "blocked"
   },
   {
     "name": "answer to a question",
