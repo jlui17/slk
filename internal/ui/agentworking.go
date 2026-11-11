@@ -79,10 +79,23 @@ func (l agentLastMsg) acked() bool {
 	return len(l.agentEmoji) > 0
 }
 
-// derivedState is the content-derived lifecycle state: a human message
-// the agent hasn't reacted to means the agent owes a response. Every other
-// message — a plain agent reply, an agent todo post, an agent-acked human
-// message — takes the model verdict when one has landed for exactly this
+// agentWorkingEmoji is the reaction the agent puts on a message while it
+// works on it (👀), as Slack names it.
+const agentWorkingEmoji = "eyes"
+
+// decidedWorking reports whether content alone reads l as working, so the
+// judge is never asked about it: a human message the agent hasn't reacted
+// to means the agent owes a response, and any message the agent has 👀 on
+// means it is working on that message, whatever else it reacted with
+// (Justin, 2026-09-30: "an 👀 reaction means claude tag is working").
+func (l agentLastMsg) decidedWorking() bool {
+	return l.human && !l.acked() || slices.Contains(l.agentEmoji, agentWorkingEmoji)
+}
+
+// derivedState is the content-derived lifecycle state: working where
+// content decides (decidedWorking). Every other message — a plain agent
+// reply, an agent todo post, a human message the agent acked without 👀 —
+// takes the model verdict when one has landed for exactly this
 // state. While that verdict is in flight it reads what the request set
 // (working for a new message, see maybeJudgeAgentWorking). With nothing
 // asked, or once the request failed, an agent todo post reads working (a
@@ -96,7 +109,7 @@ func (g *agentSidebar) derivedState() AgentState {
 	if l.ts == "" {
 		return AgentIdle
 	}
-	if l.human && !l.acked() {
+	if l.decidedWorking() {
 		return AgentWorking
 	}
 	switch workingJudgeKey(l) {
@@ -217,7 +230,8 @@ func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 }
 
 // noteAgentThreadReaction applies a reaction change to the derived state:
-// the agent reacting to the newest message — any emoji — is its ack.
+// the agent reacting to the newest message — any emoji — is its ack, and
+// a 👀 among its emoji reads working (decidedWorking).
 func (a *App) noteAgentThreadReaction(teamID, channelID, ts, userID, emoji string, removed bool) {
 	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts || !a.isThreadAgent(userID) {
 		return

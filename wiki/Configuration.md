@@ -100,7 +100,9 @@ max_image_cache_mb = 200
 # status ("is thinking…"), and the thread's content — the row reads as
 # working while the newest message is a human's the bot hasn't reacted to
 # (any emoji counts as its ack), or a bot todo-list post (the ones ending
-# with a "todos as of HH:MM UTC" stamp). With tab_name_model set, the two
+# with a "todos as of HH:MM UTC" stamp). A newest message the bot has 👀 on
+# reads as working too, whatever else the bot reacted with: 👀 means the
+# bot is working on it, so it is never judged. With tab_name_model set, the
 # shapes content can't decide — a plain bot reply, a human message the bot
 # only acked — are judged by a model: agent_status_judge_model, or
 # tab_name_model when that is empty. A bot reply reads as working

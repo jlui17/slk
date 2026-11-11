@@ -54,7 +54,7 @@
       {"by": "agent", "unreact": "+1", "want": "working", "why": "Its only bot reaction is gone: unacked again."},
       {"by": "agent", "react": "+1", "want": "idle", "why": "The same question was already answered: the verdict stands, with no new call."},
       {"by": "user", "message": "can you also bump the version?", "want": "working"},
-      {"by": "agent", "react": "eyes", "want": "working"},
+      {"by": "agent", "react": "rocket", "want": "working"},
       {"judge": "working", "want": "working", "why": "The message gives the agent work."}
     ]
   },
@@ -147,10 +147,10 @@
       {"by": "agent", "message": "Done, all green.", "want": "working"},
       {"judge": "idle", "want": "idle"},
       {"by": "user", "message": "thanks!", "want": "working"},
-      {"by": "agent", "react": "eyes", "want": "working"},
+      {"by": "agent", "react": "+1", "want": "working"},
       {"judge": "idle", "want": "idle"},
       {"by": "agent", "react": "white_check_mark", "want": "idle"},
-      {"by": "agent", "unreact": "eyes", "want": "idle", "why": "The ✅ is still on it: still acked, and the verdict stands."}
+      {"by": "agent", "unreact": "+1", "want": "idle", "why": "The ✅ is still on it: still acked, and the verdict stands."}
     ]
   },
   {
@@ -166,6 +166,74 @@
       {"by": "user", "message": "thanks!", "want": "working"},
       {"by": "U0AJPPX8SE8", "react": "+1", "want": "working"},
       {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "👀 on a user message reads working without the judge",
+    "source": "e818ab6c",
+    "note": "Justin, 2026-09-30: \"an 👀 reaction means claude tag is working, mark in-progress\". An 👀 from the agent on the newest message reads working, and that message is never judged.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "can you also bump the version?", "want": "working"},
+      {"by": "agent", "react": "eyes", "want": "working", "why": "The agent is on it: no judge call."},
+      {"by": "agent", "message": "Bumped to 1.4.2 and pushed.", "want": "working"},
+      {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "👀 replaced by another emoji goes to the judge",
+    "source": "e818ab6c",
+    "note": "While the 👀 stays it wins over any other emoji the agent adds. Once it comes off, the emoji left is an ack, and the acked message goes to the judge.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "thanks!", "want": "working"},
+      {"by": "agent", "react": "eyes", "want": "working"},
+      {"by": "agent", "react": "white_check_mark", "want": "working", "why": "The 👀 is still on it."},
+      {"by": "agent", "unreact": "eyes", "want": "working", "why": "The ✅ acks it: asked, in flight."},
+      {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "👀 removed with no other emoji reads unacked",
+    "source": "e818ab6c",
+    "note": "Without the 👀 and with no other emoji from the agent, a user message is unacked again: the agent owes a reply.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "react": "eyes", "want": "working"},
+      {"by": "agent", "unreact": "eyes", "want": "working", "why": "Unacked: working, no judge call."},
+      {"by": "agent", "message": "The workflows are fine, nothing to change.", "want": "working"},
+      {"judge": "idle", "want": "idle"}
+    ]
+  },
+  {
+    "name": "👀 beside 👍 reads working over the verdict",
+    "source": "e818ab6c",
+    "note": "An 👀 added beside an ack the judge already answered reads working; when it comes off, the verdict that answered the ack stands, with no new call.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "user", "message": "thanks!", "want": "working"},
+      {"by": "agent", "react": "+1", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "agent", "react": "eyes", "want": "working", "why": "The 👀 wins over the 👍 and its verdict."},
+      {"by": "agent", "unreact": "eyes", "want": "idle", "why": "The 👍's verdict stands."}
+    ]
+  },
+  {
+    "name": "👀 on the agent's own message reads working",
+    "source": "e818ab6c",
+    "note": "e818ab6c counted the 👀 on a user's message only, while its message said the newest message. This follows Justin's sentence: an 👀 from the agent on any newest message reads working, the agent's own posts and other bots' posts included.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> take a look at the CI workflows", "want": "working"},
+      {"by": "agent", "message": "Done, all green.", "want": "working"},
+      {"judge": "idle", "want": "idle"},
+      {"by": "agent", "react": "eyes", "want": "working"},
+      {"by": "agent", "unreact": "eyes", "want": "idle", "why": "The idle verdict stands."}
     ]
   }
 ]

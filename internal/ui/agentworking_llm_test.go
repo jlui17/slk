@@ -230,6 +230,156 @@ func TestAckReactionAsksJudgeAboutAckedMessage(t *testing.T) {
 	}
 }
 
+func agentReacts(ts, emoji string) ReactionAddedMsg {
+	return ReactionAddedMsg{ChannelID: "C1", MessageTS: ts, UserID: "UBOT", Emoji: emoji}
+}
+
+func agentUnreacts(ts, emoji string) ReactionRemovedMsg {
+	return ReactionRemovedMsg{ChannelID: "C1", MessageTS: ts, UserID: "UBOT", Emoji: emoji}
+}
+
+// userReplyWith is a user's reply carrying reactions, the way a replies
+// fetch delivers one the agent reacted to while slk wasn't looking.
+func userReplyWith(reactions ...messages.ReactionItem) messages.MessageItem {
+	return messages.MessageItem{TS: "101.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks!", Reactions: reactions}
+}
+
+func reactionBy(emoji, userID string) messages.ReactionItem {
+	return messages.ReactionItem{Emoji: emoji, Count: 1, UserIDs: []string{userID}}
+}
+
+// 👀 from the agent says it is working on the message: nothing to ask.
+func TestEyesReactionReadsWorkingWithoutJudge(t *testing.T) {
+	t.Run("live reaction", func(t *testing.T) {
+		a, reports, unreads := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		seq := withHerdrSequence(a, reports, unreads)
+		a.Update(agentReacts("100.0", "eyes"))
+		// 👀 wins over any other emoji next to it.
+		a.Update(agentReacts("100.0", "+1"))
+		// The unanswered root already read working: nothing new for herdr.
+		assertHerdrSequence(t, seq)
+		if len(*judged) != 0 {
+			t.Errorf("judge asked about a message the agent has 👀 on: %+v", *judged)
+		}
+	})
+
+	for name, reactions := range map[string][]messages.ReactionItem{
+		"fetched reaction":              {reactionBy("eyes", "UBOT")},
+		"fetched next to another emoji": {reactionBy("+1", "UBOT"), reactionBy("eyes", "UBOT")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, reports, _ := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, []messages.MessageItem{userReplyWith(reactions...)})
+			if got := lastReport(t, reports); !got.working {
+				t.Errorf("expected working, got %+v", got)
+			}
+			if len(*judged) != 0 {
+				t.Errorf("judge asked about a message the agent has 👀 on: %+v", *judged)
+			}
+		})
+	}
+}
+
+// Only the agent's own 👀 counts: a user's 👀 next to the agent's ack leaves
+// the message with the judge.
+func TestUsersEyesReactionIsNotTheAgents(t *testing.T) {
+	a, _, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, []messages.MessageItem{userReplyWith(reactionBy("eyes", "UHUMAN"), reactionBy("+1", "UBOT"))})
+	if len(*judged) != 1 || !strings.HasPrefix((*judged)[0].key, "101.0|h|") {
+		t.Errorf("judge calls = %+v, want one about the acked message", *judged)
+	}
+}
+
+// 👀 added over a standing verdict reads working; taken off, the message is
+// the judge's again, and the verdict that stands for it still answers.
+func TestEyesReactionOverAVerdict(t *testing.T) {
+	for name, open := range map[string]func(*App) string{
+		"user message": func(a *App) string {
+			openWorkingAgentThread(a, nil)
+			a.Update(agentReacts("100.0", "+1"))
+			return "100.0"
+		},
+		"agent message": func(a *App) string {
+			openWorkingAgentThread(a, nil)
+			a.Update(agentReply("101.0", "Done, all green."))
+			return "101.0"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, reports, unreads := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			ts := open(a)
+			a.Update(verdictFor(t, judged, 0, AgentIdle))
+			seq := withHerdrSequence(a, reports, unreads)
+
+			a.Update(agentReacts(ts, "eyes"))
+			assertHerdrSequence(t, seq, AgentWorking)
+			a.Update(agentUnreacts(ts, "eyes"))
+			assertHerdrSequence(t, seq, AgentWorking, AgentIdle)
+			if len(*judged) != 1 {
+				t.Errorf("expected only the first judge call, got %+v", *judged)
+			}
+		})
+	}
+}
+
+// A verdict that lands while the agent has 👀 on the message does not move
+// it; it answers once the 👀 comes off.
+func TestEyesReactionHoldsWorkingOverALandingVerdict(t *testing.T) {
+	a, reports, unreads := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+	a.Update(agentReply("101.0", "Done, all green."))
+	a.Update(agentReacts("101.0", "eyes"))
+	seq := withHerdrSequence(a, reports, unreads)
+
+	a.Update(verdictFor(t, judged, 0, AgentIdle))
+	assertHerdrSequence(t, seq)
+	a.Update(agentUnreacts("101.0", "eyes"))
+	assertHerdrSequence(t, seq, AgentIdle)
+}
+
+func TestEyesReactionRemoved(t *testing.T) {
+	t.Run("another agent emoji remains", func(t *testing.T) {
+		a, reports, unreads := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		seq := withHerdrSequence(a, reports, unreads)
+		a.Update(agentReacts("100.0", "eyes"))
+		a.Update(agentReacts("100.0", "+1"))
+
+		a.Update(agentUnreacts("100.0", "eyes"))
+		if len(*judged) != 1 || !strings.HasPrefix((*judged)[0].key, "100.0|h|") {
+			t.Fatalf("judge calls = %+v, want one about the acked message", *judged)
+		}
+		// Asked as news, so it reads working until the one idle lands.
+		assertHerdrSequence(t, seq)
+		a.Update(verdictFor(t, judged, 0, AgentIdle))
+		assertHerdrSequence(t, seq, AgentIdle)
+	})
+
+	t.Run("no agent emoji remains", func(t *testing.T) {
+		a, reports, unreads := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		seq := withHerdrSequence(a, reports, unreads)
+		a.Update(agentReacts("100.0", "eyes"))
+		a.Update(agentReacts("100.0", "+1"))
+
+		// Taking the other emoji off leaves the 👀: still nothing to ask.
+		a.Update(agentUnreacts("100.0", "+1"))
+		a.Update(agentUnreacts("100.0", "eyes"))
+		assertHerdrSequence(t, seq)
+		if len(*judged) != 0 {
+			t.Errorf("judge asked about a message the agent has no reaction on: %+v", *judged)
+		}
+	})
+}
+
 func TestStaleVerdictIsDropped(t *testing.T) {
 	a, reports, _ := newAgentTestApp(t)
 	judged := withWorkingJudge(a)
