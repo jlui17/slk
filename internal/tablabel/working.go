@@ -216,11 +216,16 @@ func parseOpenAsk(reply string, earlier []string) (bool, error) {
 
 // parseVerdict reads the one-letter contract leniently: any completion
 // leading with a known letter counts, so "yes" or "d — looks finished"
-// still parse.
+// still parse, and so does one that reasons first and puts the letter
+// alone at the start of its last line ("…a step handed to it is w.\n\nw"),
+// which the agent-side call does now and then at medium.
 func parseVerdict(reply string, letters map[byte]Verdict) (Verdict, error) {
 	s := strings.ToLower(strings.TrimSpace(reply))
-	if s != "" {
-		if v, ok := letters[s[0]]; ok {
+	for _, line := range []string{s, strings.TrimSpace(s[strings.LastIndex(s, "\n")+1:])} {
+		if line == "" {
+			continue
+		}
+		if v, ok := letters[line[0]]; ok {
 			return v, nil
 		}
 	}

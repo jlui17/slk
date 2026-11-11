@@ -222,6 +222,13 @@ func TestParseVerdict(t *testing.T) {
 		{reply: "No — just a thanks.", letters: userVerdictLetters, want: VerdictIdle},
 		{reply: "u", letters: userVerdictLetters, wantErr: true},
 		{reply: "", letters: userVerdictLetters, wantErr: true},
+		// Two first-call replies at medium that reason before the letter
+		// (2 of 545 case-runs of the agent status eval): the last line holds it.
+		{reply: "The newest message hands a step to the user's Claude Code, which has already posted in this thread and said it's picking up the live check. Since it is running there, a step handed to it is w.\n\nw", letters: agentVerdictLetters, want: VerdictWorking},
+		{reply: "The newest message was not written by the user's Claude Code; it comes from the thread's agent. It hands the last step to the user's local Claude Code, which has already posted in this thread and said it's picking up the live check. Since it is running there, the step the message hands it is w.\n\nw", letters: agentVerdictLetters, want: VerdictWorking},
+		{reply: "The message asks the agent to open the PR.\n\ny\n", letters: userVerdictLetters, want: VerdictWorking},
+		{reply: "The message asks for nothing.\nn", letters: earlierStepVerdictLetters, want: VerdictIdle},
+		{reply: "The message asks for nothing.\nThat is all.", letters: userVerdictLetters, wantErr: true},
 	}
 	for _, tc := range cases {
 		got, err := parseVerdict(tc.reply, tc.letters)
