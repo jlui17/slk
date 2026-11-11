@@ -47,8 +47,10 @@ SLK_AGENT_STATUS_EVAL_RUNS=3 SLK_AGENT_STATUS_EVAL_EFFORT=low tools/agent-status
 ```
 
 The host `config.toml` is not what live sessions use: `run-docker.sh` seeds
-the state volume's config once and syncs only the key line after that, so a
-session can judge at another effort than the tests read. Set
+the state volume's config once and syncs only three keys after that
+(`anthropic_api_key`, `agent_status_judge_model`,
+`agent_status_judge_effort`), so any other key, `tab_name_model` and
+`tab_name_effort` included, can differ between the two. Set
 `SLK_AGENT_STATUS_EVAL_EFFORT` (and `_MODEL`) to test what sessions run.
 
 The agent status replay eval covers the layer above the judge, with no API
@@ -73,9 +75,11 @@ Builds a linux binary of this checkout (cached, rebuilt when sources change)
 and runs it with the TUI attached to your terminal. Your config and cached
 workspace tokens are seeded **once** from the host into a `slk-test-state`
 docker volume — never the live `cache.db`, which slk rebuilds from the API.
-Only `anthropic_api_key` is copied in again on every launch, so a key rotated
-in the host config reaches a session when it restarts, and a key deleted
-from the host config is deleted from the volume's copy.
+Only `anthropic_api_key`, `agent_status_judge_model` and
+`agent_status_judge_effort` are copied in again on every launch
+(`tools/sync-host-config.sh`), so a key rotated or changed in the host config
+reaches a session when it restarts, and a key deleted from the host config is
+deleted from the volume's copy.
 slk's keyring re-mint fails inside linux and falls back to the cached tokens,
 so auth just works.
 

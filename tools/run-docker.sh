@@ -5,8 +5,9 @@
 # Config and cached tokens are seeded ONCE from the host into the role's
 # state volume (never the live cache.db: copying a WAL database mid-write can
 # tear it, and slk rebuilds the cache from the API). The one exception is the
-# config's anthropic_api_key, which every launch copies in again, or
-# deletes when the host config has none (tools/sync-host-api-key.sh).
+# config's anthropic_api_key and agent_status_judge_model/_effort, which every
+# launch copies in again, or deletes when the host config has none
+# (tools/sync-host-config.sh).
 # Every pane that runs this
 # script in the same role shares that volume, so cross-process flocks are
 # exercised for real.
@@ -165,12 +166,19 @@ cmd=("$repo/bin/$bin_name")
 # --foreground: slk is not PID 1, and timeout would otherwise move it out of
 # the tty's foreground process group (SIGTTIN on read).
 [ -n "${SLK_TIMEOUT:-}" ] && cmd=(timeout --foreground -s INT "$SLK_TIMEOUT" "${cmd[@]}")
-# A key rotated in the host config reaches the volume's copy before slk
-# starts, and a key deleted there is deleted from it. The key rides in by name, so argv stays secret-free; exec keeps
-# slk the launch's root process, and a failed copy never blocks the launch.
-SLK_HOST_ANTHROPIC_API_KEY=$(sed -n 's/^anthropic_api_key *= *"\(.*\)"$/\1/p' "$HOME/.config/slk/config.toml" 2>/dev/null || true)
-export SLK_HOST_ANTHROPIC_API_KEY
-cmd=(sh -c '"$0" || true; exec "$@"' "$repo/tools/sync-host-api-key.sh" "${cmd[@]}")
+# Keys changed in the host config reach the volume's copy before slk
+# starts, and a key deleted there is deleted from it. Each value rides in by
+# name, so argv stays secret-free; exec keeps slk the launch's root
+# process, and a failed copy never blocks the launch.
+SLK_HOST_CONFIG_KEYS="anthropic_api_key agent_status_judge_model agent_status_judge_effort"
+export SLK_HOST_CONFIG_KEYS
+config_env=()
+for key in $SLK_HOST_CONFIG_KEYS; do
+  value=$(sed -n "s/^$key *= *\"\(.*\)\"\$/\1/p" "$HOME/.config/slk/config.toml" 2>/dev/null || true)
+  export "SLK_HOST_CONFIG_$key=$value"
+  [ -z "$value" ] || config_env+=(-e "SLK_HOST_CONFIG_$key")
+done
+cmd=(sh -c '"$0" || true; exec "$@"' "$repo/tools/sync-host-config.sh" "${cmd[@]}")
 # GOMEMLIMIT: image-decode bursts on a warm cache measured a 974MB RSS
 # peak per instance from GC lazily returning pages; the soft ceiling
 # trades brief GC pressure during those bursts for a bounded footprint
@@ -187,7 +195,8 @@ exec_args=(-w "$workdir" \
   ${tz:+-e TZ="$tz"} \
   ${SLK_DEBUG:+-e SLK_DEBUG="$SLK_DEBUG"} \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} \
-  ${SLK_HOST_ANTHROPIC_API_KEY:+-e SLK_HOST_ANTHROPIC_API_KEY} \
+  -e SLK_HOST_CONFIG_KEYS \
+  ${config_env[@]+"${config_env[@]}"} \
   -e GOMEMLIMIT=400MiB \
   -e XDG_CONFIG_HOME=/state/xdg/config \
   -e XDG_DATA_HOME=/state/xdg/data \

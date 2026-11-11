@@ -621,8 +621,9 @@ Invariants:
 
 - **The host config owns the key.** Every launch makes the state
   volume's `anthropic_api_key` match the host's, deleting it when the
-  host has none (`tools/sync-host-api-key.sh`); otherwise a deleted key
-  would keep winning from the volume.
+  host has none (`tools/sync-host-config.sh`, which syncs
+  `agent_status_judge_model` and `_effort` the same way); otherwise a deleted
+  key would keep winning from the volume.
 - **The endpoint serves only the ant login.** ant runs without an
   exported `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, which would
   override its profile. Like the clipboard endpoint, it listens on the
