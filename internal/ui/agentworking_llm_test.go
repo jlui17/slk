@@ -985,3 +985,57 @@ func TestJudgeReadsTheUsersClaudeCodePosts(t *testing.T) {
 		}
 	})
 }
+
+// Once the most recent post of the user's Claude Code is deleted, or edited
+// so its footer is gone, the judge is no longer told that session posted it,
+// whether or not the post was still the thread's newest message: a step an
+// agent then hands that session waits for the user to start it.
+func TestUsersClaudeCodePostGoneFromTheThreadIsNotItsMostRecentPost(t *testing.T) {
+	post := usersClaudeCodePost("101.0", "From Justin's local Claude Code: I'm picking up the live check.")
+	unfootered := post
+	unfootered.Message.Text, unfootered.Message.IsEdited = "I'm picking up the live check.", true
+	for _, tc := range []struct {
+		name   string
+		gone   any
+		newest bool
+	}{
+		{"deleted while newest", WSMessageDeletedMsg{ChannelID: "C1", TS: "101.0"}, true},
+		{"deleted under a later message", WSMessageDeletedMsg{ChannelID: "C1", TS: "101.0"}, false},
+		{"edited without the footer while newest", unfootered, true},
+		{"edited without the footer under a later message", unfootered, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _, _ := newAgentTestApp(t)
+			judged := withWorkingJudge(a)
+			openWorkingAgentThread(a, nil)
+			a.Update(post)
+			if !tc.newest {
+				a.Update(agentReply("102.0", "Thanks, the review is up."))
+			}
+			a.Update(tc.gone)
+			a.Update(agentReply("103.0", "The last step is your local Claude Code's run of the steps file below."))
+			call := (*judged)[len(*judged)-1]
+			if !strings.HasPrefix(call.key, "103.0|") || call.usersClaudeCodePost != "" {
+				t.Errorf("judge call = %+v, want one for 103.0 with no post of the user's Claude Code", call)
+			}
+		})
+	}
+}
+
+// An edit of the tracked post that keeps the footer is still its post, with
+// the edited text.
+func TestUsersClaudeCodePostEditedWithTheFooterKeepsItsNewText(t *testing.T) {
+	a, _, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+	a.Update(usersClaudeCodePost("101.0", "From Justin's local Claude Code: I'm picking up the live check."))
+	a.Update(agentReply("102.0", "Thanks, the review is up."))
+	edit := usersClaudeCodePost("101.0", "From Justin's local Claude Code: I've stopped following this thread.")
+	edit.Message.IsEdited = true
+	a.Update(edit)
+	a.Update(agentReply("103.0", "The last step is your local Claude Code's run of the steps file below."))
+	call := (*judged)[len(*judged)-1]
+	if want := "From Justin's local Claude Code: I've stopped following this thread. *Sent using* @U0AJPPX8SE8"; call.usersClaudeCodePost != want {
+		t.Errorf("judge call = %+v, want the post %q", call, want)
+	}
+}

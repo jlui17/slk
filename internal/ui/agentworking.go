@@ -229,6 +229,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		// so the edit publishes no edge of its own. An edit that leaves
 		// the text alone (a link unfurl) keeps the key: the standing
 		// verdict or the request in flight still answers it.
+		a.noteUsersClaudeCodePostEdited(msg)
 		if msg.TS != last.ts {
 			return
 		}
@@ -271,8 +272,23 @@ func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 // held by one running in the thread.
 func (a *App) noteUsersClaudeCodePost(l agentLastMsg) {
 	if l.author() == tablabel.AuthorUsersClaudeCode {
-		a.agentSidebar.usersClaudeCodePost = l.text
+		a.agentSidebar.usersClaudeCodePost = l
 	}
+}
+
+// noteUsersClaudeCodePostEdited keeps the tracked post of the user's Claude
+// Code in step with an edit of it, newest message or not: an edit that keeps
+// the footer is its new text, and one that drops it leaves no post tracked.
+func (a *App) noteUsersClaudeCodePostEdited(msg messages.MessageItem) {
+	post := &a.agentSidebar.usersClaudeCodePost
+	if msg.TS != post.ts {
+		return
+	}
+	if !endsWithSentUsingFooter(msg.Text) {
+		*post = agentLastMsg{}
+		return
+	}
+	post.text = msg.Text
 }
 
 // noteAgentThreadReaction applies a reaction change to the derived state:
@@ -311,8 +327,16 @@ func (a *App) noteAgentThreadUserResolved(teamID, userID string, isBot bool) {
 // noteAgentThreadDeleted forgets the newest message when it is retracted.
 // The message before it is kept only as judge context (earlierMsgs), so the
 // state reads idle until the next reply or panel snapshot re-establishes it.
+// A retracted post of the user's Claude Code is forgotten too, newest message
+// or not; the next panel snapshot finds an earlier post of it, if any.
 func (a *App) noteAgentThreadDeleted(teamID, channelID, ts string) {
-	if !a.trackedThreadIn(teamID, channelID) || ts != a.agentSidebar.lastMsg.ts {
+	if !a.trackedThreadIn(teamID, channelID) {
+		return
+	}
+	if ts == a.agentSidebar.usersClaudeCodePost.ts {
+		a.agentSidebar.usersClaudeCodePost = agentLastMsg{}
+	}
+	if ts != a.agentSidebar.lastMsg.ts {
 		return
 	}
 	prev := a.agentSidebar.effectiveState()
@@ -338,7 +362,7 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	for _, m := range thread[max(0, newest-maxJudgeEarlierMsgs):newest] {
 		earlier = append(earlier, a.agentLastMsgFrom(m))
 	}
-	a.agentSidebar.usersClaudeCodePost = ""
+	a.agentSidebar.usersClaudeCodePost = agentLastMsg{}
 	for _, m := range thread {
 		a.noteUsersClaudeCodePost(a.agentLastMsgFrom(m))
 	}

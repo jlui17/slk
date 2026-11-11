@@ -163,7 +163,7 @@ func (a *App) maybeJudgeAgentWorking(inFlight AgentState) {
 	}
 	g.workingJudge.requestedKey = key
 	g.workingJudge.inFlightState = inFlight
-	g.requestVerdict(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), l.author(), a.flattenMrkdwn(g.usersClaudeCodePost))
+	g.requestVerdict(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), l.author(), a.flattenMrkdwn(g.usersClaudeCodePost.text))
 }
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,
