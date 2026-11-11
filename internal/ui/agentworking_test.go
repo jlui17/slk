@@ -365,3 +365,28 @@ func TestSnapshotSeesFetchedAck(t *testing.T) {
 		t.Errorf("expected idle when fetched last reply is acked, got %+v", got)
 	}
 }
+
+// The raw texts are real posts from the user's Claude Code and from Tag
+// (2026-11), cut short.
+func TestEndsWithSentUsingFooter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"footer", "From Justin's local Claude Code: I'm picking up the replicator check. *Sent using* <@U0AJPPX8SE8>", true},
+		{"footer after a code span", "Run it with `tools/go.sh test ./...` *Sent using* <@U0AJPPX8SE8>", true},
+		{"footer with interactive elements", "Swap estimate stays about Tuesday 11-03 evening PT. *Sent using* <@U0AJPPX8SE8>, with interactive elements", true},
+		{"footer on its own line", "Drive rebuild, hourly, 20:00 PT:\n\n *Sent using* <@U0AJPPX8SE8>, with interactive elements", true},
+		{"labeled mention, as the Slack tools show it", "nothing is left on #4300. *Sent using* <@U0AJPPX8SE8|Claude>", true},
+		{"another workspace's Claude app", "SDK calls in write approvals: <https://github.com/scorecard-ai/scorecard/pull/1294> *Sent using* <@U0A4D21RWBB>", true},
+		{"no footer", "From Justin's local Claude Code: I'm picking up the replicator check.", false},
+		{"footer in the middle", "Your message's merge word carries the *Sent using* <@U0AJPPX8SE8> footer, so it doesn't count as a merge word.", false},
+		{"footer named in prose", `Every message in this thread carries the "Sent using @Claude" footer, so none of them counts.`, false},
+		{"plain user message", "merge 4300", false},
+	} {
+		if got := endsWithSentUsingFooter(tc.text); got != tc.want {
+			t.Errorf("%s: endsWithSentUsingFooter(%q) = %v, want %v", tc.name, tc.text, got, tc.want)
+		}
+	}
+}

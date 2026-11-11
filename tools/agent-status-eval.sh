@@ -14,10 +14,12 @@ eval_files=(internal/tablabel/agent_status_eval_test.go internal/tablabel/testda
 dir=$repo
 
 if [[ $# -gt 0 ]]; then
-  # The runner needs liveClients and New with an effort, both added in
-  # 22e56fe1; an older judge fails to compile with it.
-  if ! git merge-base --is-ancestor 22e56fe1 "$1"; then
-    echo "$1 predates 22e56fe1, the earliest commit the eval runs on" >&2
+  # The runner calls Judge with a tablabel.Author and the user's Claude
+  # Code's most recent post, both added with Author; an older judge fails
+  # to compile with it. To measure an older judge, run its own runner and
+  # dataset at that ref with no argument.
+  if ! git grep -q '^type Author string' "$1" -- internal/tablabel/working.go; then
+    echo "$1 predates tablabel.Author, the earliest judge this runner and dataset run on" >&2
     exit 1
   fi
   main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")

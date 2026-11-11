@@ -17,6 +17,19 @@ const (
 	VerdictBlocked Verdict = "blocked"
 )
 
+// Author is who wrote a thread message, as the judge is told it: each
+// earlier message starts with its author and ": ", and the newest
+// message's author picks the question. The user's Claude Code is a
+// session the user runs on their own machine that posts under the user's
+// account; it is an agent session relaying into the thread, not the user.
+type Author string
+
+const (
+	AuthorAgent           Author = "agent"
+	AuthorUser            Author = "user"
+	AuthorUsersClaudeCode Author = "user's Claude Code"
+)
+
 // The two ambiguous shapes are two different questions, so each side gets
 // its own system prompt: one prompt covering both misreads one side or
 // the other (an agent waiting for the user's go as working, or a user's
@@ -27,8 +40,9 @@ const (
 // (a reviewer reporting that the author session will merge), and that
 // writer is finished while the thread's work is still in flight.
 const workingAgentSystemPrompt = "You watch Slack threads where coding agents work on a task for a user. " +
-	"The newest message in the thread is from an agent: the thread's own agent, or another agent session that relays into the thread (a reviewer session, for example). Classify from it whether work for this thread is still in flight. " +
-	"w: working: this agent or any other agent or agent session holds a next step and does not wait on the user. The user's own Claude Code is no such session until the user starts it: a message that hands it a step (the open item waits for the run from your Claude Code, a steps file or prompt for your Claude Code to run and post back) is u, even when it says the user has nothing to do. Naming a step as one the user's Claude Code already took on (the last step is your local Claude Code's check on tomorrow's run) hands it nothing new: that session is running, so it is w. A merge word that is the user's to give when they want is not such a step. Acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now (I'll post the PR numbers when they're up, and a merge word for each will then let me merge it), is w. " +
+	"The newest message in the thread is from an agent: the thread's own agent, or another agent session that relays into the thread (a reviewer session, or the user's Claude Code, for example). Classify from it whether work for this thread is still in flight. " +
+	"The user's Claude Code is a session the user runs on their own machine, which posts under the user's name. The line before the newest message says whether it wrote the newest message, or whether it has posted in this thread, with its most recent post, which tells only whether it still runs in this thread: classify the newest message. " +
+	"w: working: this agent or any other agent or agent session holds a next step and does not wait on the user. The user's own Claude Code is no such session until the user starts it: a message that hands it a step (the open item waits for the run from your Claude Code, a steps file or prompt for your Claude Code to run and post back) is u, even when it says the user has nothing to do. Once it has posted in this thread, it is running there, and a step that the message hands it or names as its own is w. A result or answer that the user's Claude Code wrote in the newest message is w too, since the thread's agent has yet to read it and reply, unless it says nothing here is left for any agent (it stopped following the thread, nothing here needs to act). A merge word that is the user's to give when they want is not such a step. Acknowledging an instruction (will do, on it), stating how it will proceed, or mentioning something it will need from the user later, while continuing now (I'll post the PR numbers when they're up, and a merge word for each will then let me merge it), is w. " +
 	"A report that also names a next step held by an agent, or work an agent session still has, not the user's (I'll post again at the next merge, the author session has fixes or nits in my review, the author session will run the gates and merge, the last PRs wait for the reviewers' second reads), is w, even when the message says its own part is done and the user has nothing to do, and even when a review or merge is pending. " +
 	"A report with no such step and no work left with any agent, or whose only next step is the user's to take when they want (review it, say if you want X), stays d. " +
 	"u: no agent can continue until the user answers in this thread: the message asked the user a direct question, presented options or a plan and waits for approval, or is stuck on something only the user can provide. Offering an optional follow-up after the work is finished (say if you want X, let me know if you would like Y) is d, never u: no agent waits for the answer. Noting that a review is pending on the user without asking for it now, or work that continues in another thread, is not u. Announcing that an agent session will start, align with the user or debrief them asks nothing now either: the session holds the next step, so it is w. Asking the user now for the word or the answer that a piece of work waits on (type merge and I will merge it, does your go-ahead include the merge?), or saying again that it still waits for a word they have not typed yet (the PR still waits for your typed merge), is different from both: it is u, not w, even when other work continues, an agent holds another step, or the message says what happens with no answer. A PR that is ready now and waits only for the user's merge word is u as well, even when the message asks nothing and only calls the word theirs (merge word is yours): the merge is not an optional follow-up, and nothing goes on without it. A merge an agent already made leaves nothing open. A word the user already typed is different: when the message says an agent's step goes ahead on it (it merges on your \"ok to merge\" once the review has nothing left), the step is the agent's and nothing waits on the user, so it is w. A word that the message tells the user to type, calls theirs to give, or says the work still waits for, is not typed yet. A word that the message says it needs only once work an agent still has is finished (once the reviews say nothing is left, each PR needs your merge word) is not asked for now: that work holds the next step, so it is w. " +
@@ -38,7 +52,7 @@ const workingAgentSystemPrompt = "You watch Slack threads where coding agents wo
 const workingUserSystemPrompt = "You watch Slack threads where a coding agent works on tasks for a user. " +
 	"The newest message in the thread is from the user; the agent reacted to it with an emoji and has not replied yet, so the agent owes a response to anything it asks. " +
 	"Judge whether the message asks the agent for anything: a request, a question to answer, a decision, or a go-ahead the agent must act on (merge it, open the PR). " +
-	"If it does, the agent has work to do. A result or report that the user's own Claude Code posts for the agent (the user's local Claude Code here: the count is done) gives the agent work too: it reads the result and replies. " +
+	"If it does, the agent has work to do. " +
 	"If it only closes the exchange (thanks, approval of finished work, an fyi with no action, a request to stop or wait), the agent has nothing to do. " +
 	"Reply with exactly one letter: y if the agent has work to do, n if not. The reply is that letter alone, with no reasoning before or after it."
 
@@ -68,7 +82,7 @@ const openAskNewestHeading = "Newest message (it asks the user nothing; read it 
 
 const workingEarlierStepSystemPrompt = "You watch Slack threads where coding agents work on a task for a user. " +
 	"The newest message in the thread is from an agent and reads as finished on its own: it gives a result and names no next step for any agent. " +
-	"The thread's messages before it come first, oldest first, each marked agent or user. Decide whether they leave a piece of work with an agent that the newest message does not cover. " +
+	"The thread's messages before it come first, oldest first, each marked agent, user, or user's Claude Code (an agent session that posts under the user's name). Decide whether they leave a piece of work with an agent that the newest message does not cover. " +
 	"y: you can name a specific piece of work (a PR, a fix, a check) that an earlier agent message says an agent or agent session is doing or will do (I'm fixing those now, I'll ask you for the merge after the review, the author session will push the fixes), and the newest message is about a different piece and says nothing that finishes this one. " +
 	"n: in every other case. The newest message covers a piece when it reports that piece finished, merged, opened for review, handed to the user, or stopped at the user's word (on hold, nothing more on it until you say so), or when it says all of the work is finished (both PRs are merged now, all 5 are merged). A message between the two can cover it too. An earlier acknowledgement that names no piece of work of its own (on it, will do, I'll report back here when it's done) never counts, whatever the newest message reports: the newest message is what it promised. An earlier plan for the work that the newest message reports (cloning main and checking now) is covered by that report. A step that is the user's to take (review it, merge it, answer if you want) is never such a piece, and neither is work that the user called off or put on hold, or that an agent will do only after a word the user has not given. " +
 	"Reply with exactly one letter: y or n. The reply is that letter alone, with no reasoning before or after it."
@@ -79,39 +93,49 @@ var (
 	earlierStepVerdictLetters = map[byte]Verdict{'y': VerdictWorking, 'n': VerdictIdle}
 )
 
-// maxWorkingBytes caps the newest message a working judgment sends, and
-// maxEarlierBytes each message sent before it as context. The caps keep
-// both ends: a long post opens with what the agent did and closes with the
-// hand-off ("I'll wait for your go"), and either end can carry the verdict.
+// maxWorkingBytes caps the newest message a working judgment sends,
+// maxEarlierBytes each message sent before it as context, and
+// maxUsersClaudeCodePostBytes the most recent post of the user's Claude
+// Code. The caps keep both ends: a long post opens with what the agent did
+// and closes with the hand-off ("I'll wait for your go"), and either end
+// can carry the verdict.
 const (
-	maxWorkingBytes = 4000
-	maxEarlierBytes = 1500
+	maxWorkingBytes             = 4000
+	maxEarlierBytes             = 1500
+	maxUsersClaudeCodePostBytes = 600
 )
 
-// Judge classifies the thread as of its newest message. For an agent's
-// message (fromAgent: the thread's agent, or another agent session relaying
-// into the thread) it asks whether the thread's work is in flight with any
-// agent, waits on the user, or is done. The newest message decides alone,
-// with one exception: a message that reads done alone is asked about again
-// with earlier (the messages before it, oldest first, each "agent: text" or
-// "user: text"), because one of them can hold an ask the user has not
-// answered (blocked), or say another fix is still under way (working). For a
-// user message the agent has acknowledged with a reaction but not answered,
-// it asks whether the message gives the agent anything to do, which is never
-// VerdictBlocked; earlier plays no part in that.
-func (c *Client) Judge(ctx context.Context, message string, earlier []string, fromAgent bool) (Verdict, error) {
-	system, letters := workingAgentSystemPrompt, agentVerdictLetters
-	if !fromAgent {
-		system, letters = workingUserSystemPrompt, userVerdictLetters
-	}
+// Judge classifies the thread as of its newest message, written by author.
+// For an agent's message (the thread's agent, or another agent session
+// relaying into the thread, the user's Claude Code included) it asks
+// whether the thread's work is in flight with any agent, waits on the
+// user, or is done. That first call also gets usersClaudeCodePost, the
+// most recent post of the user's Claude Code in this thread ("" when it
+// has not posted), since the newest message alone cannot say whether that
+// session is running. The newest message decides alone, with one
+// exception: a message that reads done alone is asked about again with
+// earlier (the messages before it, oldest first, each "<author>: text"),
+// because one of them can hold an ask the user has not answered (blocked),
+// or say another fix is still under way (working). For a user message the
+// agent has acknowledged with a reaction but not answered, it asks whether
+// the message gives the agent anything to do, which is never
+// VerdictBlocked; earlier and usersClaudeCodePost play no part in that.
+func (c *Client) Judge(ctx context.Context, message string, earlier []string, author Author, usersClaudeCodePost string) (Verdict, error) {
 	clipped := clipEnds(message, maxWorkingBytes)
 	newest := "Newest message:\n" + clipped
-	reply, err := c.complete(ctx, system, newest)
+	if author == AuthorUser {
+		reply, err := c.complete(ctx, workingUserSystemPrompt, newest)
+		if err != nil {
+			return VerdictIdle, err
+		}
+		return parseVerdict(reply, userVerdictLetters)
+	}
+	reply, err := c.complete(ctx, workingAgentSystemPrompt, usersClaudeCodeLine(author, usersClaudeCodePost)+"\n\n"+newest)
 	if err != nil {
 		return VerdictIdle, err
 	}
-	verdict, err := parseVerdict(reply, letters)
-	if err != nil || !fromAgent || verdict != VerdictIdle || len(earlier) == 0 {
+	verdict, err := parseVerdict(reply, agentVerdictLetters)
+	if err != nil || verdict != VerdictIdle || len(earlier) == 0 {
 		return verdict, err
 	}
 	var content strings.Builder
@@ -138,12 +162,32 @@ func (c *Client) Judge(ctx context.Context, message string, earlier []string, fr
 	return parseVerdict(reply, earlierStepVerdictLetters)
 }
 
+// usersClaudeCodeLine is what the first agent-side call reads before the
+// newest message: whether the user's Claude Code wrote it, or else whether
+// that session has posted in this thread, and what it last said. The post
+// goes along, and not only whether there is one, because the session can
+// say there that it stopped following the thread. When it has not posted,
+// the line spells out what follows: "has not posted" alone read a steps
+// file handed to it as a step a running session holds, 5 of 5 at medium.
+func usersClaudeCodeLine(author Author, usersClaudeCodePost string) string {
+	switch {
+	case author == AuthorUsersClaudeCode:
+		return "The user's Claude Code wrote the newest message, and the thread's agent has not read it yet."
+	case usersClaudeCodePost == "":
+		return "The user's Claude Code has not posted in this thread, so no session of it runs here yet: a step handed to it waits for the user to start it."
+	}
+	return "The user's Claude Code has posted in this thread. Its most recent post:\n" + clipEnds(usersClaudeCodePost, maxUsersClaudeCodePostBytes)
+}
+
 // parseOpenAsk reads the open-ask reply: the ask's opening words in quotes,
 // then y or n. The quote is what makes a y checkable: the model also quotes
 // what only the newest message says ("Merge word is yours." y), whatever the
-// prompt tells it, so a y counts only when an earlier agent message holds
-// the quoted words. A bare none, the model leaving off the n that follows
-// it, names no ask.
+// prompt tells it, so a y counts only when an earlier message from an
+// agent or the user's Claude Code holds the quoted words. The open-ask
+// prompt does not describe the user's Claude Code label: the label alone
+// makes the model count that session's ask, and describing it there made
+// the call miss an agent's open merge ask 2 to 3 of 5. A bare none, the
+// model leaving off the n that follows it, names no ask.
 func parseOpenAsk(reply string, earlier []string) (bool, error) {
 	s := strings.TrimRight(strings.ToLower(strings.TrimSpace(reply)), ".")
 	if s == "none" {
@@ -162,7 +206,8 @@ func parseOpenAsk(reply string, earlier []string) (bool, error) {
 		return false, nil
 	}
 	for _, m := range earlier {
-		if strings.HasPrefix(m, "agent: ") && strings.Contains(strings.ToLower(m), quote) {
+		asker := strings.HasPrefix(m, string(AuthorAgent)+": ") || strings.HasPrefix(m, string(AuthorUsersClaudeCode)+": ")
+		if asker && strings.Contains(strings.ToLower(m), quote) {
 			return true, nil
 		}
 	}

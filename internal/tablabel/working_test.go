@@ -14,7 +14,7 @@ func TestWorkingFramesAgentMessage(t *testing.T) {
 	defer srv.Close()
 
 	c := newForTest("claude-sonnet-5-5", srv.URL)
-	v, err := c.Judge(context.Background(), "let me go check the workflow config", nil, true)
+	v, err := c.Judge(context.Background(), "let me go check the workflow config", nil, AuthorAgent, "")
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
@@ -65,32 +65,32 @@ func TestWorkingAsksAboutEarlierMessagesOnlyAfterADoneVerdict(t *testing.T) {
 	const message = "#1 is merged."
 	const earlierContent = "Earlier messages, oldest first:\nuser: fix both PRs\nagent: #1 is ready. Type merge and I will merge it. I'm fixing #2.\n\n"
 	wantRequests := []struct{ system, content string }{
-		{workingAgentSystemPrompt, "Newest message:\n" + message},
+		{workingAgentSystemPrompt, "The user's Claude Code has not posted in this thread, so no session of it runs here yet: a step handed to it waits for the user to start it.\n\nNewest message:\n" + message},
 		{workingOpenAskSystemPrompt, earlierContent + openAskNewestHeading + message},
 		{workingEarlierStepSystemPrompt, earlierContent + "Newest message:\n" + message},
 	}
 	for _, tc := range []struct {
-		name      string
-		replies   []string
-		earlier   []string
-		fromAgent bool
-		want      Verdict
+		name    string
+		replies []string
+		earlier []string
+		author  Author
+		want    Verdict
 	}{
-		{"done, and an earlier ask is open", []string{"d", `"Type merge and I will" y`}, earlier, true, VerdictBlocked},
-		{"done, no open ask, and an earlier step is open", []string{"d", "none n", "y"}, earlier, true, VerdictWorking},
-		{"done, and nothing earlier is open", []string{"d", "none n", "n"}, earlier, true, VerdictIdle},
+		{"done, and an earlier ask is open", []string{"d", `"Type merge and I will" y`}, earlier, AuthorAgent, VerdictBlocked},
+		{"done, no open ask, and an earlier step is open", []string{"d", "none n", "y"}, earlier, AuthorAgent, VerdictWorking},
+		{"done, and nothing earlier is open", []string{"d", "none n", "n"}, earlier, AuthorAgent, VerdictIdle},
 		// The model also quotes the newest message, which asks nothing.
-		{"done, and the quoted ask is not in an earlier agent message", []string{"d", `"#1 is merged." y`, "n"}, earlier, true, VerdictIdle},
-		{"done with no earlier messages", []string{"d"}, nil, true, VerdictIdle},
-		{"working", []string{"w"}, earlier, true, VerdictWorking},
-		{"blocked", []string{"u"}, earlier, true, VerdictBlocked},
-		{"user message", []string{"n"}, earlier, false, VerdictIdle},
+		{"done, and the quoted ask is not in an earlier agent message", []string{"d", `"#1 is merged." y`, "n"}, earlier, AuthorAgent, VerdictIdle},
+		{"done with no earlier messages", []string{"d"}, nil, AuthorAgent, VerdictIdle},
+		{"working", []string{"w"}, earlier, AuthorAgent, VerdictWorking},
+		{"blocked", []string{"u"}, earlier, AuthorAgent, VerdictBlocked},
+		{"user message", []string{"n"}, earlier, AuthorUser, VerdictIdle},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, got := fakeJudgeAPI(t, tc.replies...)
 			defer srv.Close()
 			c := newForTest("claude-sonnet-5-5", srv.URL)
-			v, err := c.Judge(context.Background(), message, tc.earlier, tc.fromAgent)
+			v, err := c.Judge(context.Background(), message, tc.earlier, tc.author, "")
 			if err != nil || v != tc.want {
 				t.Fatalf("Judge = %v, %v; want %v", v, err, tc.want)
 			}
@@ -99,8 +99,9 @@ func TestWorkingAsksAboutEarlierMessagesOnlyAfterADoneVerdict(t *testing.T) {
 			}
 			for i, req := range *got {
 				want := wantRequests[i]
-				if !tc.fromAgent {
+				if tc.author == AuthorUser {
 					want.system = workingUserSystemPrompt
+					want.content = "Newest message:\n" + message
 				}
 				if req.System[0].Text != want.system {
 					t.Errorf("request %d system prompt = %q", i, req.System[0].Text)
@@ -117,7 +118,7 @@ func TestWorkingAsksAboutEarlierMessagesOnlyAfterADoneVerdict(t *testing.T) {
 }
 
 func TestParseOpenAsk(t *testing.T) {
-	earlier := []string{"user: \"ship it\" when ready?", "agent: *Type \"merge 7\" and I'll merge it.* CI is green."}
+	earlier := []string{"user: \"ship it\" when ready?", "agent: *Type \"merge 7\" and I'll merge it.* CI is green.", "user's Claude Code: Justin needs to finish the Google sign-in first."}
 	for _, tc := range []struct {
 		reply   string
 		want    bool
@@ -126,6 +127,8 @@ func TestParseOpenAsk(t *testing.T) {
 		{reply: `"Type "merge 7" and I'll merge it." y`, want: true},
 		{reply: `"type "merge 7" and" Y`, want: true},
 		{reply: `"Type "merge 7" and I'll merge it." n`},
+		// The user's Claude Code is an agent session: its ask is an ask.
+		{reply: `"Justin needs to finish the Google" y`, want: true},
 		{reply: "none n"},
 		{reply: "none, n"},
 		{reply: "none"},
@@ -152,7 +155,7 @@ func TestWorkingCapsEachEarlierMessage(t *testing.T) {
 
 	c := newForTest("claude-sonnet-5-5", srv.URL)
 	long := "agent: HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
-	if _, err := c.Judge(context.Background(), "done", []string{long, long}, true); err != nil {
+	if _, err := c.Judge(context.Background(), "done", []string{long, long}, AuthorAgent, ""); err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
 	for _, req := range (*got)[1:] {
@@ -171,7 +174,7 @@ func TestWorkingFramesAckedUserMessage(t *testing.T) {
 	defer srv.Close()
 
 	c := newForTest("claude-sonnet-5-5", srv.URL)
-	v, err := c.Judge(context.Background(), "thanks!", nil, false)
+	v, err := c.Judge(context.Background(), "thanks!", nil, AuthorUser, "")
 	if err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
@@ -192,11 +195,11 @@ func TestWorkingCapsMessageSize(t *testing.T) {
 
 	c := newForTest("claude-sonnet-5-5", srv.URL)
 	long := "HEAD-" + strings.Repeat("x", 10000) + "-TAIL"
-	if _, err := c.Judge(context.Background(), long, nil, true); err != nil {
+	if _, err := c.Judge(context.Background(), long, nil, AuthorAgent, ""); err != nil {
 		t.Fatalf("Judge: %v", err)
 	}
 	body := got.Messages[0].Content[0].Text
-	if n := len(body); n > maxWorkingBytes+100 {
+	if n := len(body); n > maxWorkingBytes+300 {
 		t.Errorf("user content is %d bytes, want capped near %d", n, maxWorkingBytes)
 	}
 	if !strings.Contains(body, "HEAD-") || !strings.Contains(body, "-TAIL") {
@@ -231,5 +234,44 @@ func TestParseVerdict(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("parseVerdict(%q) = %v, %v; want %v", tc.reply, got, err, tc.want)
 		}
+	}
+}
+
+// The first agent-side call reads, before the newest message, whether the
+// user's Claude Code wrote it, or else whether that session has posted in
+// the thread and what it last said. The user-side call reads neither.
+func TestWorkingTellsTheFirstCallAboutTheUsersClaudeCode(t *testing.T) {
+	const post = "From Justin's local Claude Code: I'll check the 08:55Z run. *Sent using* @Claude"
+	for _, tc := range []struct {
+		name   string
+		author Author
+		post   string
+		system string
+		want   string
+	}{
+		{"agent, it has posted", AuthorAgent, post, workingAgentSystemPrompt,
+			"The user's Claude Code has posted in this thread. Its most recent post:\n" + post + "\n\nNewest message:\ndone"},
+		{"agent, it has not posted", AuthorAgent, "", workingAgentSystemPrompt,
+			"The user's Claude Code has not posted in this thread, so no session of it runs here yet: a step handed to it waits for the user to start it.\n\nNewest message:\ndone"},
+		{"it wrote the newest message", AuthorUsersClaudeCode, post, workingAgentSystemPrompt,
+			"The user's Claude Code wrote the newest message, and the thread's agent has not read it yet.\n\nNewest message:\ndone"},
+		{"user", AuthorUser, post, workingUserSystemPrompt, "Newest message:\ndone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reply := "w"
+			if tc.author == AuthorUser {
+				reply = "y"
+			}
+			srv, got := fakeJudgeAPI(t, reply)
+			defer srv.Close()
+			c := newForTest("claude-sonnet-5-5", srv.URL)
+			if _, err := c.Judge(context.Background(), "done", nil, tc.author, tc.post); err != nil {
+				t.Fatalf("Judge: %v", err)
+			}
+			req := (*got)[0]
+			if req.System[0].Text != tc.system || req.Messages[0].Content[0].Text != tc.want {
+				t.Errorf("system prompt %q, user content %q; want content %q", req.System[0].Text[:40], req.Messages[0].Content[0].Text, tc.want)
+			}
+		})
 	}
 }

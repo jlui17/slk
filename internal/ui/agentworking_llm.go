@@ -4,8 +4,9 @@
 // acked with a reaction other than 👀 — so those ask the tab-label model for
 // a verdict: working, blocked on the user, or idle. The model reads the few
 // messages before the newest one too: a reply can read finished alone while
-// the one before it says another piece is still under way. An unacked human
-// message, and any message the agent has 👀 on, never consults it. An agent
+// the one before it says another piece is still under way. A post from the
+// user's Claude Code is judged like an agent's reply. An unacked message the
+// user typed, and any message the agent has 👀 on, never consults it. An agent
 // todo post does, and reads working only until its verdict lands or when
 // the request fails (derivedState).
 // While a verdict is in flight a new message reads working, never idle:
@@ -21,17 +22,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // AgentWorkingJudgeFunc requests a model working/blocked/idle verdict for the
-// tracked thread as of its newest message; earlier is the messages before
-// it, oldest first, each as "agent: text" or "user: text". key identifies
+// tracked thread as of its newest message, which author wrote; earlier is
+// the messages before it, oldest first, each as "<author>: text", and
+// usersClaudeCodePost the most recent post of the user's Claude Code in the
+// thread, "" when it has not posted (tablabel.Client.Judge). key identifies
 // the exact state judged (message plus who owes what), so the eventual
 // verdict can be dropped if the thread moved on. Fire-and-forget: the
 // implementation always answers with an AgentWorkingVerdictMsg into the
 // program loop, with Failed set when the request errored or timed out.
-type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool)
+type AgentWorkingJudgeFunc func(teamID, channelID, threadTS, key, message string, earlier []string, author tablabel.Author, usersClaudeCodePost string)
 
 // maxJudgeEarlierMsgs is how many messages before the newest one the judge
 // reads. A step an agent still holds sits in the last few messages; further
@@ -61,12 +65,13 @@ type workingJudgeState struct {
 }
 
 // workingJudgeKey names the judged question: the message, which side wrote
-// it, and a hash of its text. The side matters because a bots.info
-// resolution can flip the same ts from human to agent, which changes the
-// question being asked. The text matters because an edit changes it: a
-// request that read the old text must not answer for the new one, while an
-// edit that leaves the text alone (a link unfurl) asks nothing new. The
-// key is logged, so it carries a hash and never the text. The hash is of
+// it (agent, human, or the user's Claude Code), and a hash of its text. The
+// side matters because a bots.info resolution can flip the same ts from
+// human to agent, which changes the question being asked. The text matters
+// because an edit changes it: a request that read the old text must not
+// answer for the new one, while an edit that leaves the text alone (a link
+// unfurl) asks nothing new. The key is logged, so it carries a hash and
+// never the text. The hash is of
 // the raw text, not the flattened form the judge reads: that form is the
 // raw text plus name caches that fill in late, and a key that moved when a
 // name resolved would drop a standing verdict. The earlier messages the
@@ -74,8 +79,11 @@ type workingJudgeState struct {
 // them asks nothing new.
 func workingJudgeKey(l agentLastMsg) string {
 	side := "a"
-	if l.human {
+	switch l.author() {
+	case tablabel.AuthorUser:
 		side = "h"
+	case tablabel.AuthorUsersClaudeCode:
+		side = "c"
 	}
 	h := fnv.New32a()
 	h.Write([]byte(l.text))
@@ -104,11 +112,11 @@ func (a *App) judgeMessage(l agentLastMsg) string {
 }
 
 // judgeEarlier is the messages before the newest one as the judge reads
-// them: flattened like judgeMessage, and marked with the side that wrote
-// each as the user cache knows it now. None go with a user's newest message:
+// them: flattened like judgeMessage, and marked with the author of each as
+// the user cache knows it now. None go with a user's newest message:
 // whether it asks the agent for anything is a question about that message.
 func (a *App) judgeEarlier() []string {
-	if a.agentSidebar.lastMsg.human {
+	if a.agentSidebar.lastMsg.author() == tablabel.AuthorUser {
 		return nil
 	}
 	var earlier []string
@@ -117,11 +125,8 @@ func (a *App) judgeEarlier() []string {
 		if text == "" {
 			continue
 		}
-		side := "agent"
-		if a.agentAuthorIsHuman(m.authorID) {
-			side = "user"
-		}
-		earlier = append(earlier, side+": "+text)
+		author := messageAuthor(a.agentAuthorIsHuman(m.authorID), m.text)
+		earlier = append(earlier, string(author)+": "+text)
 	}
 	return earlier
 }
@@ -158,7 +163,7 @@ func (a *App) maybeJudgeAgentWorking(inFlight AgentState) {
 	}
 	g.workingJudge.requestedKey = key
 	g.workingJudge.inFlightState = inFlight
-	g.requestVerdict(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), !l.human)
+	g.requestVerdict(t.teamID, t.channelID, t.threadTS, key, message, a.judgeEarlier(), l.author(), a.flattenMrkdwn(g.usersClaudeCodePost))
 }
 
 // reduceAgentWorkingVerdict lands a working judgment on the derived state,

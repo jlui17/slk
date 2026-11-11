@@ -50,7 +50,7 @@
       {"judge": "idle", "want": "idle"},
       {"by": "user", "message": "thanks!", "want": "working", "why": "Unacked: the agent owes a reply."},
       {"by": "agent", "react": "+1", "want": "working", "why": "Acked, so it goes to the judge, and reads working while in flight."},
-      {"judge": "idle", "want": "idle", "why": "A thanks gives the agent no work."},
+      {"judge": "idle", "asked_as": "user", "want": "idle", "why": "A thanks gives the agent no work."},
       {"by": "agent", "unreact": "+1", "want": "working", "why": "Its only bot reaction is gone: unacked again."},
       {"by": "agent", "react": "+1", "want": "idle", "why": "The same question was already answered: the verdict stands, with no new call."},
       {"by": "user", "message": "can you also bump the version?", "want": "working"},
@@ -234,6 +234,52 @@
       {"judge": "idle", "want": "idle"},
       {"by": "agent", "react": "eyes", "want": "working"},
       {"by": "agent", "unreact": "eyes", "want": "idle", "why": "The idle verdict stands."}
+    ]
+  },
+  {
+    "name": "a post from the user's Claude Code with no bot reaction takes its verdict",
+    "source": "review 2026-11-10, finding 1",
+    "note": "The user's Claude Code posts under the user's account, and slk knows its posts by the Sent using footer at the end of the raw text. With no bot reaction such a post read working by rule and was never judged, so \"blocked until Justin signs in\" read working for hours and \"I stopped following this thread\" for days. It now goes to the judge as an agent session's message, and its verdict decides, as for the agent's own reply. The 👀 rule still holds for it.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> re-review #4297 and run the live test", "want": "working"},
+      {"by": "agent", "message": "On it.", "want": "working"},
+      {"judge": "working", "asked_as": "agent", "want": "working"},
+      {"by": "user", "message": "From Justin's local Claude Code: I'm picking up the re-review of #4297 at `144d8fe3` and the live test. The live test is blocked on Justin: my gcloud sign-in has expired. Justin needs to finish the Google sign-in that `scripts/gcloud-auth.sh` opened on this machine. *Sent using* <@U0AJPPX8SE8>", "want": "working", "why": "Judged, and working while in flight. Before, it read working by rule, with no judge."},
+      {"judge": "blocked", "asked_as": "user's Claude Code", "want": "blocked", "why": "It waits on the user's sign-in."},
+      {"by": "agent", "react": "eyes", "want": "working", "why": "The 👀 rule wins over the verdict, as on any newest message."},
+      {"by": "agent", "unreact": "eyes", "want": "blocked", "why": "The verdict that answered it stands, with no new call."},
+      {"by": "user", "message": "From Justin's local Claude Code: I'm picking up the replicator check: the first run's status and log, and row counts for the 6 tables in the replica against the tracker. *Sent using* <@U0AJPPX8SE8>", "want": "working"},
+      {"judge": "working", "asked_as": "user's Claude Code", "want": "working"},
+      {"by": "user", "message": "From Justin's local Claude Code: I've stopped following this thread, and nothing of mine is still running for it. If something here needs this machine again, Justin can hand his local Claude Code this thread. *Sent using* <@U0AJPPX8SE8>", "want": "working"},
+      {"judge": "idle", "asked_as": "user's Claude Code", "want": "idle", "why": "Before, this read working for days."}
+    ]
+  },
+  {
+    "name": "a plain user message after a post from the user's Claude Code still reads working without the judge",
+    "source": "review 2026-11-10, finding 1",
+    "note": "Only a post that ends with the Sent using footer counts as the user's Claude Code's. A message the user typed, with no bot reaction, still reads working without the judge: the agent owes a reply.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> find out who sends the 9-run jobs", "want": "working"},
+      {"by": "user", "message": "From Justin's local Claude Code, for Tag: the 9-run jobs are Eitan's, not a stray loop. It isn't a duplicate of ours, and nothing needs stopping. *Sent using* <@U0AJPPX8SE8>", "want": "working", "why": "Judged as the user's Claude Code's post, and working while in flight."},
+      {"by": "user", "message": "thanks, and stop them if they're ours", "want": "working", "why": "Typed by the user, unacked: working, no judge call."},
+      {"judge": "idle", "want": "working", "why": "The verdict answers the Claude Code post, which is no longer the newest, so it is dropped."},
+      {"by": "agent", "react": "+1", "want": "working", "why": "Acked, so the user's message goes to the judge now."},
+      {"judge": "working", "asked_as": "user", "want": "working"}
+    ]
+  },
+  {
+    "name": "a post from the user's Claude Code, then the agent's reply",
+    "source": "review 2026-11-10, findings 1 and 7",
+    "note": "A bot reaction other than 👀 on a post from the user's Claude Code changes nothing: the post is judged either way, and its verdict stands. The agent's reply after it is judged as the agent's, with the post among its earlier messages.",
+    "events": [
+      {"by": "user", "message": "<@UBOT> check the replicator", "want": "working"},
+      {"by": "user", "message": "From Justin's local Claude Code: I'm picking up the replicator check: the first run's status and log, and row counts for the 6 tables in the replica against the tracker. *Sent using* <@U0AJPPX8SE8>", "want": "working"},
+      {"by": "agent", "react": "+1", "want": "working", "why": "The question is the same, so nothing new is asked."},
+      {"judge": "working", "asked_as": "user's Claude Code", "want": "working", "why": "It holds the next step."},
+      {"by": "agent", "message": "Thanks. The last step is your local Claude Code's row counts, and I'll read them when they land.", "want": "working"},
+      {"judge": "working", "asked_as": "agent", "want": "working"},
+      {"by": "user", "message": "From Justin's local Claude Code: I've stopped following this thread, and nothing of mine is still running for it. If something here needs this machine again, Justin can hand his local Claude Code this thread. *Sent using* <@U0AJPPX8SE8>", "want": "working"},
+      {"judge": "idle", "asked_as": "user's Claude Code", "want": "idle"}
     ]
   }
 ]

@@ -137,6 +137,10 @@ type agentSidebar struct {
 	// earlierMsgs is the judge's context: the last maxJudgeEarlierMsgs
 	// messages before lastMsg, oldest first (agentworking_llm.go).
 	earlierMsgs []agentLastMsg
+	// usersClaudeCodePost is the raw text of the most recent post of the
+	// user's Claude Code in the thread, "" when it has not posted
+	// (agentworking.go).
+	usersClaudeCodePost string
 	// statusText is the working state's transient message ("is
 	// thinking…"), kept so a display refresh can republish the row
 	// without blanking it.
@@ -279,6 +283,7 @@ func (a *App) trackAgentThread(parent messages.MessageItem, channelID, threadTS,
 	a.agentSidebar.working = false
 	a.agentSidebar.lastMsg = agentLastMsg{}
 	a.agentSidebar.earlierMsgs = nil
+	a.agentSidebar.usersClaudeCodePost = ""
 	a.agentSidebar.workingJudge = workingJudgeState{}
 	// Opening the thread is what starts tracking, and the open path marks
 	// it read, so tracking starts read.

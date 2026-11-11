@@ -8,6 +8,7 @@ import (
 	"testing"
 	"text/tabwriter"
 
+	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -27,16 +28,19 @@ type agentStatusReplaySequence struct {
 // agentStatusReplayEvent is exactly one of: a new message (the first one
 // is the thread's root), an edit of the newest message, a reaction added to
 // or removed from the newest message, or the judge's answer to the newest
-// question it was asked ("working", "blocked", "idle" or "failed").
+// question it was asked ("working", "blocked", "idle" or "failed"). A judge
+// event can also say who the judge must have been told wrote the newest
+// message (AskedAs), which picks the question it was asked.
 type agentStatusReplayEvent struct {
-	By      string     `json:"by,omitempty"`
-	Message *string    `json:"message,omitempty"`
-	Edit    *string    `json:"edit,omitempty"`
-	React   string     `json:"react,omitempty"`
-	Unreact string     `json:"unreact,omitempty"`
-	Judge   string     `json:"judge,omitempty"`
-	Want    AgentState `json:"want"`
-	Why     string     `json:"why,omitempty"`
+	By      string          `json:"by,omitempty"`
+	Message *string         `json:"message,omitempty"`
+	Edit    *string         `json:"edit,omitempty"`
+	React   string          `json:"react,omitempty"`
+	Unreact string          `json:"unreact,omitempty"`
+	Judge   string          `json:"judge,omitempty"`
+	AskedAs tablabel.Author `json:"asked_as,omitempty"`
+	Want    AgentState      `json:"want"`
+	Why     string          `json:"why,omitempty"`
 }
 
 // Tag's two ids in Justin's workspace: its bot_message posts carry the bot
@@ -88,6 +92,8 @@ func loadAgentStatusReplay(t *testing.T) []agentStatusReplaySequence {
 				t.Fatalf("%s: %q event %d: by %q is not one of user, agent, %s, %s", path, s.Name, i, e.By, tagBotID, tagUserID)
 			case e.Judge != "" && !strings.Contains(" working blocked idle failed ", " "+e.Judge+" "):
 				t.Fatalf("%s: %q event %d: judge %q is not working, blocked, idle or failed", path, s.Name, i, e.Judge)
+			case e.AskedAs != "" && (e.Judge == "" || e.AskedAs != tablabel.AuthorAgent && e.AskedAs != tablabel.AuthorUser && e.AskedAs != tablabel.AuthorUsersClaudeCode):
+				t.Fatalf("%s: %q event %d: asked_as %q needs a judge event and is not %q, %q or %q", path, s.Name, i, e.AskedAs, tablabel.AuthorAgent, tablabel.AuthorUser, tablabel.AuthorUsersClaudeCode)
 			case e.Want != AgentWorking && e.Want != AgentBlocked && e.Want != AgentIdle:
 				t.Fatalf("%s: %q event %d: want %q is not working, blocked or idle", path, s.Name, i, e.Want)
 			}
@@ -104,10 +110,13 @@ type agentStatusReplayResult struct {
 	// notAsked is a judge event with no question to answer: the layer
 	// never asked the judge about the newest message.
 	notAsked bool
+	// askedAs is, for a judge event, who the judge was told wrote the
+	// message it answers.
+	askedAs tablabel.Author
 }
 
-func (r agentStatusReplayResult) miss(want AgentState) bool {
-	return r.notAsked || r.got != want
+func (r agentStatusReplayResult) miss(e agentStatusReplayEvent) bool {
+	return r.notAsked || r.got != e.Want || e.AskedAs != "" && r.askedAs != e.AskedAs
 }
 
 // replayAgentStatus feeds s through a fresh App, with a judge that answers
@@ -166,6 +175,7 @@ func replayAgentStatus(t *testing.T, s agentStatusReplaySequence) []agentStatusR
 			// still unanswered is for text the thread has moved past.
 			n := len(*judged) - 1
 			answered = len(*judged)
+			r.askedAs = (*judged)[n].author
 			if e.Judge == "failed" {
 				a.Update(failureFor(t, judged, n))
 			} else {
@@ -208,7 +218,7 @@ func TestAgentStatusReplay(t *testing.T) {
 			results = replayAgentStatus(t, s)
 			misses := 0
 			for i, r := range results {
-				if r.miss(s.Events[i].Want) {
+				if r.miss(s.Events[i]) {
 					misses++
 				}
 			}
@@ -223,18 +233,25 @@ func TestAgentStatusReplay(t *testing.T) {
 			knownOpen = append(knownOpen, fmt.Sprintf("%s: %s", s.Name, s.KnownOpen))
 		}
 		for i, r := range results {
-			want := s.Events[i].Want
+			e := s.Events[i]
+			want := string(e.Want)
+			if e.AskedAs != "" {
+				want += ", asked as " + string(e.AskedAs)
+			}
 			published := "-"
 			if len(r.published) > 0 {
 				published = fmt.Sprint(r.published)
 			}
 			got := string(r.got)
-			if r.notAsked {
+			switch {
+			case r.notAsked:
 				got += ", judge not asked"
+			case e.AskedAs != "":
+				got += ", asked as " + string(r.askedAs)
 			}
 			mark := ""
 			switch {
-			case !r.miss(want):
+			case !r.miss(e):
 				passed++
 			case s.KnownOpen != "":
 				mark = "MISS (known open)"

@@ -24,13 +24,17 @@ import (
 // slk sends the judge for a thread's newest message, and the status it
 // should get.
 type agentStatusEvalRow struct {
-	Name      string   `json:"name"`
-	Source    string   `json:"source"`
-	Note      string   `json:"note,omitempty"`
-	Earlier   []string `json:"earlier"`
-	Message   string   `json:"message"`
-	FromAgent bool     `json:"from_agent"`
-	Want      Verdict  `json:"want"`
+	Name    string   `json:"name"`
+	Source  string   `json:"source"`
+	Note    string   `json:"note,omitempty"`
+	Earlier []string `json:"earlier"`
+	Message string   `json:"message"`
+	Author  Author   `json:"author"`
+	// UsersClaudeCodePost is the most recent post of the user's Claude
+	// Code in the thread before the newest message, "" when it has not
+	// posted.
+	UsersClaudeCodePost string  `json:"users_claude_code_post,omitempty"`
+	Want                Verdict `json:"want"`
 }
 
 // judgeCallRecorder collects the raw replies of the model calls one Judge
@@ -157,7 +161,7 @@ func TestRecordJudgeCallsNamesTheDecidingCall(t *testing.T) {
 	recordJudgeCalls(judge)
 
 	rec := &judgeCallRecorder{}
-	v, err := judge.Judge(context.WithValue(context.Background(), judgeCallRecorderKey{}, rec), "Done.", []string{"user: go", "agent: on it"}, true)
+	v, err := judge.Judge(context.WithValue(context.Background(), judgeCallRecorderKey{}, rec), "Done.", []string{"user: go", "agent: on it"}, AuthorAgent, "")
 	if err != nil || v != VerdictWorking {
 		t.Fatalf("Judge = %v, %v; want working", v, err)
 	}
@@ -180,6 +184,11 @@ func loadAgentStatusEvalRows(t *testing.T) []agentStatusEvalRow {
 	var rows []agentStatusEvalRow
 	if err := json.Unmarshal(data, &rows); err != nil {
 		t.Fatalf("testdata/agent_status_eval.json: %v", err)
+	}
+	for _, row := range rows {
+		if row.Author != AuthorAgent && row.Author != AuthorUser && row.Author != AuthorUsersClaudeCode {
+			t.Fatalf("testdata/agent_status_eval.json: %q: author %q is not %q, %q or %q", row.Name, row.Author, AuthorAgent, AuthorUser, AuthorUsersClaudeCode)
+		}
 	}
 	return rows
 }
@@ -220,7 +229,7 @@ func TestAgentStatusEval(t *testing.T) {
 				for range runs {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					rec := &judgeCallRecorder{}
-					v, err := judge.Judge(context.WithValue(ctx, judgeCallRecorderKey{}, rec), row.Message, row.Earlier, row.FromAgent)
+					v, err := judge.Judge(context.WithValue(ctx, judgeCallRecorderKey{}, rec), row.Message, row.Earlier, row.Author, row.UsersClaudeCodePost)
 					cancel()
 					if len(rec.calls) > 0 {
 						decided = append(decided, rec.calls[len(rec.calls)-1])

@@ -62,14 +62,14 @@ func wireAgentTabLabeler(app *ui.App, cfg config.Herdr, send func(tea.Msg)) {
 			return ui.AgentTabRelabelMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, TaskID: id, FallbackTaskID: fallbackTaskID, RetitleGen: retitleGen, ReviewOpen: reviewOpen, Label: label}, err
 		})
 	})
-	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool) {
+	app.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, author tablabel.Author, usersClaudeCodePost string) {
 		request(func(ctx context.Context) (tea.Msg, error) {
 			start := time.Now()
-			verdict, err := judge.Judge(ctx, message, earlier, fromAgent)
+			verdict, err := judge.Judge(ctx, message, earlier, author, usersClaudeCodePost)
 			// key is the message ts, the author's side and a hash of the
 			// text; the text itself is never logged.
-			debuglog.Notify("tablabel: working judge key=%s from_agent=%t text_len=%d earlier=%d verdict=%s err=%v duration=%s",
-				key, fromAgent, len(message), len(earlier), verdict, err, time.Since(start).Round(time.Millisecond))
+			debuglog.Notify("tablabel: working judge key=%s author=%q text_len=%d earlier=%d users_claude_code_post_len=%d verdict=%s err=%v duration=%s",
+				key, author, len(message), len(earlier), len(usersClaudeCodePost), verdict, err, time.Since(start).Round(time.Millisecond))
 			// A failure re-enters the loop too: the message reads working
 			// while the request is in flight, and only the loop can end that.
 			return ui.AgentWorkingVerdictMsg{TeamID: teamID, ChannelID: channelID, ThreadTS: threadTS, Key: key, State: ui.AgentState(verdict), Failed: err != nil}, nil

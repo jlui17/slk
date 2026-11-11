@@ -1094,6 +1094,110 @@ Rejected:
   in `~/.zshrc.local`, not a program on `PATH`, and it always runs the
   main checkout's user role.
 
+## Agent thread status: layer rules, then a model judge
+
+slk reports each agent thread to herdr as working, idle (shown as done) or
+blocked (needs attention). Blocked means the user must decide or do
+something. The layer in `internal/ui` (`agentworking.go`,
+`agentworking_llm.go`) decides from the thread's newest message, in this
+order:
+
+1. **The agent's live turn** (`ai_assistant_status`) reads working.
+2. **👀 from the agent** on the newest message reads working, with no
+   judge, whatever else the agent reacted with (Justin, 2026-09-30).
+3. **A message the user typed, with no reaction from the agent**, reads
+   working with no judge: the agent owes a reply.
+4. **Everything else goes to the judge**, and its verdict decides: the
+   agent's replies, posts from the user's Claude Code, and a user's
+   message the agent reacted to. Until the verdict lands, a new message
+   reads working, so the idle verdict is the one done herdr shows, and an
+   edit or a reload holds what the thread read before. A todo post (a
+   pending mark that starts an item, or the `_todos as of_` stamp) reads
+   working while its verdict is in flight or after the call failed; any
+   verdict that lands decides it (Justin, 2026-11-10).
+5. **No judge, or a failed call**, reads idle.
+
+Who counts as the agent's side: the thread's bot, any user the cache
+marks as a bot (in a thread rooted by the agent's `bot_message`, any bot
+user's reactions count, since slk keeps no map from a `bot_id` to its
+bot user), and the user's Claude Code. A post from the user's Claude Code
+is a message from a human account whose raw text ends with the footer
+Slack's Claude connector adds, `*Sent using* <@U…>` (optionally `, with
+interactive elements`). It is an agent session relaying into the thread,
+so it is judged on arrival like the agent's reply, reacted to or not, and
+the judge reads it under its own label. The footer, not the "From
+Justin's local Claude Code" prefix, is the mark: 31 of the 505 posts
+under Justin's account that ended with it from 11/01 to 11/10 lacked the
+prefix. It holds for any
+human account, so another person's Claude Code, and a post sent using
+ChatGPT, count too.
+
+The judge (`tablabel.Client.Judge`) makes up to three calls:
+
+- **First call: the newest message alone**, plus one line about the
+  user's Claude Code: that it wrote the newest message, or that it has
+  posted in this thread, with its most recent post (600 bytes), or that
+  it has not, so a step handed to it waits for the user to start it
+  (Justin, 2026-10-09). Once it has posted, a step handed to it is one a
+  running session holds, unless that post says it stopped following the
+  thread. A result it posts reads working until the thread's agent
+  answers it (8012876c). A user's message gets its own y/n question
+  instead (does it give the agent work?), which never answers blocked.
+- **Open-ask call**, only after a done: the 5 earlier messages, each
+  marked `agent:`, `user:` or `user's Claude Code:`, and whether an ask
+  an agent put to the user is still open (blocked). Its reply quotes the
+  ask, and the quote must be in an earlier message from an agent or the
+  user's Claude Code.
+- **Earlier-step call**, after no open ask: whether an earlier message
+  leaves a piece of work with an agent that the newest message does not
+  cover (working, else idle).
+
+Two evals, both worth running after any change here:
+
+- **The judge eval** calls the real model on
+  `internal/tablabel/testdata/agent_status_eval.json` and prints a table
+  with the call that decided each row: `tools/agent-status-eval.sh`
+  (this checkout) or `tools/agent-status-eval.sh <ref>` (the judge at
+  `<ref>`, with this checkout's runner and dataset), with
+  `SLK_AGENT_STATUS_EVAL_RUNS`, `_EFFORT` and `_MODEL`. It costs API
+  calls; use 5 runs or more at low and at medium.
+- **The replay eval** feeds the thread sequences of
+  `internal/ui/testdata/agent_status_replay.json` through the layer with
+  a judge that answers the dataset's verdict, so every miss is the
+  layer's: `tools/go.sh test ./internal/ui/ -run TestAgentStatusReplay
+  -v`. No API, and it runs with the unit tests.
+
+Rejected:
+
+- **One prompt that reads the newest and the earlier messages together.**
+  Every wording that turned a finished message after an unfinished one
+  to working also moved rows the newest message decides alone, in both
+  directions. Narrow y/n questions after a done hold.
+- **Reading a new message idle until its verdict lands** (37d8e837):
+  herdr showed each such edge as done 1 to 2 seconds before the verdict.
+- **Todo posts that read working without the judge** (b8ff8cdc), then
+  **todo posts only a blocked verdict could move**: finished reports with
+  a ✓ checklist read working until the next post. Done marks alone no
+  longer make a todo post (4bb540cf).
+- **Telling a running Claude Code session by the newest message's
+  wording** (fe3eb381, "the last step is your local Claude Code's
+  check"): the message alone cannot say whether that session is in the
+  thread, so a made-up "your local Claude Code's run of the steps file
+  below" read working with no session there. The line about the user's
+  Claude Code replaced it.
+- **Only whether the user's Claude Code has posted, without its post**:
+  a steps file handed to it after its "I've stopped following this
+  thread" read working 5 of 5 at both efforts. The bare line "has not
+  posted in this thread" read a steps file handed to it as working 5 of
+  5 at medium, so the line says what follows from it.
+- **Describing the `user's Claude Code:` label in the open-ask prompt**:
+  the call then missed an agent's open merge ask 2 to 3 of 5, and the
+  label alone already makes it count that session's ask.
+- **Merging the prompt's clauses that say a word needed later is
+  working** (6b35c0b1): it cost rows at low. **Counting an earlier "merge
+  word is yours" as an open ask**: every wording that did also counted
+  #2744's question that states its own default (open 9 of 10 at low).
+
 ## Changes offered upstream
 
 Upstream-file changes the fork carries ahead of upstream, each also on

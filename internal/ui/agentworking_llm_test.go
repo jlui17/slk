@@ -6,19 +6,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
 type judgeCall struct {
 	teamID, channelID, threadTS, key, message string
 	earlier                                   []string
-	fromAgent                                 bool
+	author                                    tablabel.Author
+	usersClaudeCodePost                       string
 }
 
 func withWorkingJudge(a *App) *[]judgeCall {
 	calls := &[]judgeCall{}
-	a.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, fromAgent bool) {
-		*calls = append(*calls, judgeCall{teamID, channelID, threadTS, key, message, earlier, fromAgent})
+	a.SetAgentWorkingJudge(func(teamID, channelID, threadTS, key, message string, earlier []string, author tablabel.Author, usersClaudeCodePost string) {
+		*calls = append(*calls, judgeCall{teamID, channelID, threadTS, key, message, earlier, author, usersClaudeCodePost})
 	})
 	return calls
 }
@@ -99,7 +101,7 @@ func TestPlainAgentReplyAsksJudge(t *testing.T) {
 	}
 	call := (*judged)[0]
 	if call.teamID != "T1" || call.channelID != "C1" || call.threadTS != "100.0" ||
-		!call.fromAgent || !strings.Contains(call.message, "go check") {
+		call.author != tablabel.AuthorAgent || !strings.Contains(call.message, "go check") {
 		t.Errorf("judge call = %+v", call)
 	}
 	// The key names the message, the side and a hash of the text. It is
@@ -203,7 +205,7 @@ func TestAckedUserMessageGoesToJudgeAlone(t *testing.T) {
 	ask := messages.MessageItem{TS: "102.0", ThreadTS: "100.0", UserID: "UHUMAN", Text: "thanks!",
 		Reactions: []messages.ReactionItem{{Emoji: "+1", Count: 1, UserIDs: []string{"UBOT"}}}}
 	openWorkingAgentThread(a, []messages.MessageItem{agentReply("101.0", "Done, all green.").Message, ask})
-	if len(*judged) != 1 || (*judged)[0].fromAgent || (*judged)[0].earlier != nil {
+	if len(*judged) != 1 || (*judged)[0].author != tablabel.AuthorUser || (*judged)[0].earlier != nil {
 		t.Errorf("judge calls = %+v, want one user-side call with no earlier messages", *judged)
 	}
 }
@@ -218,7 +220,7 @@ func TestAckReactionAsksJudgeAboutAckedMessage(t *testing.T) {
 		t.Fatalf("expected one judge call after agent ack, got %+v", *judged)
 	}
 	call := (*judged)[0]
-	if !strings.HasPrefix(call.key, "100.0|h|") || call.fromAgent || !strings.Contains(call.message, "CI workflows") {
+	if !strings.HasPrefix(call.key, "100.0|h|") || call.author != tablabel.AuthorUser || !strings.Contains(call.message, "CI workflows") {
 		t.Errorf("judge call = %+v", call)
 	}
 	if got := lastReport(t, reports); !got.working {
@@ -412,7 +414,7 @@ func TestTodoPostAsksJudge(t *testing.T) {
 	if len(*judged) != 1 {
 		t.Fatalf("expected one judge call for the todo post, got %+v", *judged)
 	}
-	if call := (*judged)[0]; !call.fromAgent || !strings.Contains(call.message, "Your merge word") {
+	if call := (*judged)[0]; call.author != tablabel.AuthorAgent || !strings.Contains(call.message, "Your merge word") {
 		t.Errorf("judge call = %+v", call)
 	}
 }
@@ -897,4 +899,89 @@ func TestBlockedVerdictReportsBlocked(t *testing.T) {
 	if got := lastReport(t, reports); got.state != AgentWorking {
 		t.Errorf("expected working after the user's answer, got %+v", got)
 	}
+}
+
+// usersClaudeCodePost is a post from the user's Claude Code: the user's own
+// account, and Slack's Sent using footer at the end of the raw text.
+func usersClaudeCodePost(ts, text string) NewMessageMsg {
+	return NewMessageMsg{ChannelID: "C1", Message: messages.MessageItem{
+		TS: ts, ThreadTS: "100.0", UserID: "UHUMAN", Text: text + " *Sent using* <@U0AJPPX8SE8>",
+	}}
+}
+
+// A post from the user's Claude Code is an agent session's message: it goes
+// to the judge as soon as it arrives, with no bot reaction, and its verdict
+// decides. Before, it read working as an unacked user message and was
+// never judged, so a session blocked on the user's sign-in showed working.
+func TestUsersClaudeCodePostTakesItsVerdict(t *testing.T) {
+	a, reports, _ := newAgentTestApp(t)
+	judged := withWorkingJudge(a)
+	openWorkingAgentThread(a, nil)
+
+	a.Update(usersClaudeCodePost("101.0", "From Justin's local Claude Code: the live test is blocked on Justin: my gcloud sign-in has expired."))
+	if len(*judged) != 1 {
+		t.Fatalf("judge calls = %+v, want one for the post", *judged)
+	}
+	call := (*judged)[0]
+	wantEarlier := []string{"user: @Claude take a look at the CI workflows"}
+	if call.author != tablabel.AuthorUsersClaudeCode || !strings.HasPrefix(call.key, "101.0|c|") || !slices.Equal(call.earlier, wantEarlier) {
+		t.Errorf("judge call = %+v, want the user's Claude Code's side, key 101.0|c|…, earlier %q", call, wantEarlier)
+	}
+	if got := lastReport(t, reports); got.state != AgentWorking {
+		t.Errorf("expected working while the verdict is in flight, got %+v", got)
+	}
+	a.Update(verdictFor(t, judged, 0, AgentBlocked))
+	if got := lastReport(t, reports); got.state != AgentBlocked {
+		t.Errorf("expected blocked after a blocked verdict, got %+v", got)
+	}
+}
+
+// The judge reads the user's Claude Code's posts under their own label, and
+// an agent's message after one also gets that session's most recent post,
+// including from a panel snapshot whose post is further back than the
+// earlier messages reach.
+func TestJudgeReadsTheUsersClaudeCodePosts(t *testing.T) {
+	post := usersClaudeCodePost("101.0", "From Justin's local Claude Code: after the roll, I'll check the 08:55Z run.")
+	merged := agentReply("102.0", "#4300 is merged. The last step is your local Claude Code's check on the 08:55Z run.")
+	// The test's user cache has no name for the footer's mention.
+	wantPost := "From Justin's local Claude Code: after the roll, I'll check the 08:55Z run. *Sent using* @U0AJPPX8SE8"
+
+	t.Run("from live replies", func(t *testing.T) {
+		a, _, _ := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		a.Update(post)
+		a.Update(merged)
+		if len(*judged) != 2 {
+			t.Fatalf("judge calls = %+v, want one per message", *judged)
+		}
+		call := (*judged)[1]
+		want := []string{"user: @Claude take a look at the CI workflows", "user's Claude Code: " + wantPost}
+		if call.author != tablabel.AuthorAgent || !slices.Equal(call.earlier, want) || call.usersClaudeCodePost != wantPost {
+			t.Errorf("judge call = %+v, want the agent's side, earlier %q and the post %q", call, want, wantPost)
+		}
+	})
+
+	t.Run("from a panel snapshot", func(t *testing.T) {
+		a, _, _ := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		replies := []messages.MessageItem{post.Message}
+		for i := range maxJudgeEarlierMsgs {
+			replies = append(replies, agentReply(fmt.Sprintf("10%d.5", i+1), "Still checking.").Message)
+		}
+		openWorkingAgentThread(a, append(replies, merged.Message))
+		if len(*judged) != 1 || (*judged)[0].usersClaudeCodePost != wantPost {
+			t.Fatalf("judge calls = %+v, want one with the post %q", *judged, wantPost)
+		}
+	})
+
+	t.Run("not when it has not posted", func(t *testing.T) {
+		a, _, _ := newAgentTestApp(t)
+		judged := withWorkingJudge(a)
+		openWorkingAgentThread(a, nil)
+		a.Update(merged)
+		if len(*judged) != 1 || (*judged)[0].usersClaudeCodePost != "" {
+			t.Fatalf("judge calls = %+v, want one with no post", *judged)
+		}
+	})
 }

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gammons/slk/internal/tablabel"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -24,6 +25,32 @@ var todoPendingRe = regexp.MustCompile(`(?:^|\s)[✱✳○◐☐] `)
 
 func isAgentTodoText(text string) bool {
 	return todoStampRe.MatchString(text) || todoPendingRe.MatchString(text)
+}
+
+// sentUsingFooterRe matches the footer Slack's Claude connector puts at the
+// end of a message it posts under a person's account, which is how the
+// user's Claude Code posts: "*Sent using* <@U0AJPPX8SE8>" in the raw text,
+// the mention naming the Claude app's user in that workspace, sometimes
+// followed by ", with interactive elements". Any app's mention matches,
+// so a post sent using ChatGPT counts too.
+var sentUsingFooterRe = regexp.MustCompile(`\*Sent using\* <@[UW][A-Z0-9]+(?:\|[^>]*)?>(?:, with interactive elements)?\s*$`)
+
+func endsWithSentUsingFooter(text string) bool {
+	return sentUsingFooterRe.MatchString(text)
+}
+
+// messageAuthor is who wrote a message, as the judge is told it: a human's
+// message that ends with the Sent using footer is the user's Claude Code,
+// an agent session relaying into the thread, whoever's account it posts
+// under.
+func messageAuthor(human bool, text string) tablabel.Author {
+	switch {
+	case !human:
+		return tablabel.AuthorAgent
+	case endsWithSentUsingFooter(text):
+		return tablabel.AuthorUsersClaudeCode
+	}
+	return tablabel.AuthorUser
 }
 
 // reactionsBy is the emoji any user that by matches reacted to the message
@@ -79,27 +106,34 @@ func (l agentLastMsg) acked() bool {
 	return len(l.agentEmoji) > 0
 }
 
+func (l agentLastMsg) author() tablabel.Author {
+	return messageAuthor(l.human, l.text)
+}
+
 // agentWorkingEmoji is the reaction the agent puts on a message while it
 // works on it (👀), as Slack names it.
 const agentWorkingEmoji = "eyes"
 
 // decidedWorking reports whether content alone reads l as working, so the
-// judge is never asked about it: a human message the agent hasn't reacted
+// judge is never asked about it: a user's message the agent hasn't reacted
 // to means the agent owes a response, and any message the agent has 👀 on
 // means it is working on that message, whatever else it reacted with
-// (Justin, 2026-09-30: "an 👀 reaction means claude tag is working").
+// (Justin, 2026-09-30: "an 👀 reaction means claude tag is working"). A
+// post from the user's Claude Code is no user's message: it goes to the
+// judge like an agent's reply, reacted to or not.
 func (l agentLastMsg) decidedWorking() bool {
-	return l.human && !l.acked() || slices.Contains(l.agentEmoji, agentWorkingEmoji)
+	return l.author() == tablabel.AuthorUser && !l.acked() || slices.Contains(l.agentEmoji, agentWorkingEmoji)
 }
 
 // derivedState is the content-derived lifecycle state: working where
-// content decides (decidedWorking). Every other message — a plain agent
-// reply, an agent todo post, a human message the agent acked without 👀 —
-// takes the model verdict when one has landed for exactly this
-// state. While that verdict is in flight it reads what the request set
-// (working for a new message, see maybeJudgeAgentWorking). With nothing
-// asked, or once the request failed, an agent todo post reads working (a
-// todo list means work goes on) and anything else reads idle.
+// content decides (decidedWorking). Every other message — an agent's reply
+// or a post from the user's Claude Code, todo post or not, and a user's
+// message the agent acked without 👀 — takes the model verdict when one
+// has landed for exactly this state. While that verdict is in flight it
+// reads what the request set (working for a new message, see
+// maybeJudgeAgentWorking). With nothing asked, or once the request failed,
+// a todo post from the agent's side reads working (a todo list means work
+// goes on) and anything else reads idle.
 //
 // The todo rule yields to any verdict, idle included: a todo post can ask
 // the user for a word ("○ Your merge word") or report finished work, and
@@ -118,7 +152,7 @@ func (g *agentSidebar) derivedState() AgentState {
 	case g.workingJudge.requestedKey:
 		return g.workingJudge.inFlightState
 	}
-	if !l.human && l.todo {
+	if l.author() != tablabel.AuthorUser && l.todo {
 		return AgentWorking
 	}
 	return AgentIdle
@@ -201,6 +235,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 		inFlight = a.agentSidebar.derivedState()
 		last.todo = isAgentTodoText(msg.Text)
 		last.text = msg.Text
+		a.noteUsersClaudeCodePost(*last)
 	case last.ts != "" && msg.TS <= last.ts:
 		// Slack ts strings ("1787780670.859699") order lexically at
 		// fixed width, so an echo or out-of-order arrival can't
@@ -212,6 +247,7 @@ func (a *App) noteAgentThreadActivity(teamID, channelID string, msg messages.Mes
 			a.agentSidebar.earlierMsgs = earlier[max(0, len(earlier)-maxJudgeEarlierMsgs):]
 		}
 		*last = a.agentLastMsgFrom(msg)
+		a.noteUsersClaudeCodePost(*last)
 	}
 	a.maybeJudgeAgentWorking(inFlight)
 	a.publishAgentThreadDerived(prev)
@@ -226,6 +262,16 @@ func (a *App) agentLastMsgFrom(msg messages.MessageItem) agentLastMsg {
 		todo:       isAgentTodoText(msg.Text),
 		text:       msg.Text,
 		agentEmoji: reactionsBy(msg.Reactions, a.isThreadAgent),
+	}
+}
+
+// noteUsersClaudeCodePost keeps l's text as the most recent post of the
+// user's Claude Code in the thread when that session wrote it: the judge
+// reads it to tell whether a step an agent's message hands that session is
+// held by one running in the thread.
+func (a *App) noteUsersClaudeCodePost(l agentLastMsg) {
+	if l.author() == tablabel.AuthorUsersClaudeCode {
+		a.agentSidebar.usersClaudeCodePost = l.text
 	}
 }
 
@@ -291,6 +337,10 @@ func (a *App) snapshotAgentThreadLast(parent messages.MessageItem, replies []mes
 	var earlier []agentLastMsg
 	for _, m := range thread[max(0, newest-maxJudgeEarlierMsgs):newest] {
 		earlier = append(earlier, a.agentLastMsgFrom(m))
+	}
+	a.agentSidebar.usersClaudeCodePost = ""
+	for _, m := range thread {
+		a.noteUsersClaudeCodePost(a.agentLastMsgFrom(m))
 	}
 	prev := a.agentSidebar.effectiveState()
 	// A snapshot is a re-read, not news: a request it fires holds what the
